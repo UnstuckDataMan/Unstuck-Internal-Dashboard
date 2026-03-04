@@ -1,44 +1,349 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Unstuck Agency | Data Enrichment</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-{% block title %}Dashboard — Data Enrichment{% endblock %}
-{% block heading %}Dashboard{% endblock %}
+    :root {
+      --purple-deep: #180835;
+      --purple:      #7c3aed;
+      --indigo:      #5b5ea6;
+      --pink:        #e879f9;
+      --gradient:    linear-gradient(135deg, #180835 0%, #7c3aed 32%, #5b5ea6 62%, #e879f9 100%);
+      --text:        #1d1d1f;
+      --text-2:      #6e6e73;
+      --surface:     #ffffff;
+      --border:      #e8e8ed;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+              "Helvetica Neue", Arial, sans-serif;
+      --ease:     cubic-bezier(0.25, 0.1, 0.25, 1);
+      --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1);
+    }
 
-{% block content %}
-<p class="page-sub">
-  Deterministic internal tools. Each tool processes uploads independently and conservatively — no ML, same output every time.
-</p>
+    html, body {
+      min-height: 100%;
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
 
-<div class="tool-grid">
+    body {
+      background:
+        radial-gradient(ellipse 60% 50% at 80% 10%, rgba(124,58,237,.05) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 40% at 15% 85%, rgba(232,121,249,.05) 0%, transparent 70%),
+        #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 24px 48px;
+    }
 
-  <a href="/gender" class="tool-card-link">
-    <div class="tool-card">
-      <div class="tool-icon tool-icon-blue">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-        </svg>
-      </div>
-      <h2>Gender from First Name</h2>
-      <p>
-        Upload a CSV or Excel file and classify first names as <code>m</code> / <code>f</code> / <code>unknown</code>.
-        Column is auto-detected. Overrides from <code>overrides.csv</code> are applied automatically.
-      </p>
-    </div>
-  </a>
+    /* ── Page entrance ─────────────────────────────────────────── */
+    body { animation: bodyIn 0.5s var(--ease-out) both; }
+    @keyframes bodyIn { from { opacity: 0; } to { opacity: 1; } }
 
-  <a href="/city-state" class="tool-card-link">
-    <div class="tool-card">
-      <div class="tool-icon tool-icon-indigo">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
-        </svg>
-      </div>
-      <h2>City / State Normaliser</h2>
-      <p>
-        Upload a file with city and state/region columns. Outputs a single consolidated location column
-        using a conservative business-travel whitelist.
-      </p>
-    </div>
-  </a>
+    /* ── Staggered fade-up ─────────────────────────────────────── */
+    .anim {
+      opacity: 0;
+      animation: fadeUp 1s var(--ease-out) both;
+      animation-delay: var(--d, 0s);
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(28px); }
+      to   { opacity: 1; transform: translateY(0);    }
+    }
 
+    /* ── Full-page loader (on card click) ──────────────────────── */
+    #loader {
+      position: fixed;
+      inset: 0;
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s var(--ease);
+    }
+    #loader.active { opacity: 1; pointer-events: all; }
+
+    .loader-ring {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      border: 3px solid rgba(124, 58, 237, 0.15);
+      border-top-color: var(--purple);
+      animation: spin 0.72s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Layout ────────────────────────────────────────────────── */
+    .landing {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      max-width: 800px;
+    }
+
+    /* ── Logo ──────────────────────────────────────────────────── */
+    .logo-wrap { margin-bottom: 40px; }
+
+    .logo-img {
+      height: 80px;
+      width: auto;
+      border-radius: 16px;
+      display: block;
+      box-shadow: 0 8px 32px rgba(124,58,237,0.25);
+    }
+
+    /* Text fallback if image missing */
+    .logo-fallback {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .logo-mark {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      background: var(--gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .logo-sub-text {
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-2);
+    }
+
+    /* ── Hero title ────────────────────────────────────────────── */
+    .hero-title {
+      font-size: clamp(30px, 5.5vw, 58px);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      text-align: center;
+      color: var(--text);
+      line-height: 1.08;
+      margin-bottom: 18px;
+    }
+    .hero-title .pipe {
+      background: var(--gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: 300;
+      margin: 0 8px;
+    }
+
+    .hero-sub {
+      font-size: clamp(14px, 2vw, 17px);
+      color: var(--text-2);
+      text-align: center;
+      max-width: 440px;
+      line-height: 1.65;
+      margin-bottom: 56px;
+    }
+
+    /* ── Cards ─────────────────────────────────────────────────── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 20px;
+      width: 100%;
+      margin-bottom: 48px;
+    }
+
+    .card-link { text-decoration: none; display: block; }
+
+    .tool-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      overflow: hidden;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.055), 0 1px 4px rgba(0,0,0,0.04);
+      transition:
+        transform     0.38s var(--ease),
+        box-shadow    0.38s var(--ease),
+        border-color  0.38s var(--ease);
+      will-change: transform;
+    }
+
+    .card-link:hover .tool-card {
+      transform: translateY(-7px);
+      box-shadow:
+        0 24px 56px rgba(124,58,237,.16),
+        0 6px 16px rgba(0,0,0,.06);
+      border-color: rgba(124,58,237,.22);
+    }
+
+    /* Gradient top bar */
+    .card-bar {
+      height: 4px;
+      background: var(--gradient);
+      transition: height 0.38s var(--ease), opacity 0.38s var(--ease);
+      opacity: 0.75;
+    }
+    .card-link:hover .card-bar { height: 5px; opacity: 1; }
+
+    .card-body { padding: 28px 28px 30px; }
+
+    .card-icon {
+      width: 46px;
+      height: 46px;
+      border-radius: 13px;
+      background: var(--gradient);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 18px;
+      box-shadow: 0 4px 14px rgba(124,58,237,.30);
+      transition:
+        transform  0.38s var(--ease),
+        box-shadow 0.38s var(--ease);
+    }
+    .card-link:hover .card-icon {
+      transform: scale(1.08) rotate(-3deg);
+      box-shadow: 0 8px 24px rgba(124,58,237,.40);
+    }
+
+    .card-body h2 {
+      font-size: 17px;
+      font-weight: 650;
+      color: var(--text);
+      margin-bottom: 8px;
+      letter-spacing: -0.015em;
+    }
+    .card-body p {
+      font-size: 13.5px;
+      color: var(--text-2);
+      line-height: 1.62;
+    }
+
+    /* Pressed state */
+    .card-link.pressing .tool-card {
+      transform: scale(0.98);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    /* ── Footer ────────────────────────────────────────────────── */
+    .landing-footer {
+      font-size: 12px;
+      color: #c0c0c8;
+      letter-spacing: 0.02em;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Circle loader (shown on card click) -->
+<div id="loader">
+  <div class="loader-ring"></div>
 </div>
-{% endblock %}
+
+<main class="landing">
+
+  <!-- Logo -->
+  <div class="logo-wrap anim" style="--d:0s">
+    <img
+      src="/static/img/logo.png"
+      alt="Unstuck Agency"
+      class="logo-img"
+      onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+    />
+    <div class="logo-fallback">
+      <div class="logo-mark">UNSTUCK<sup style="font-size:.5em;vertical-align:super">®</sup></div>
+      <div class="logo-sub-text">agency</div>
+    </div>
+  </div>
+
+  <!-- Title -->
+  <h1 class="hero-title anim" style="--d:0.3s">
+    Unstuck Agency <span class="pipe">|</span> Data&nbsp;Enrichment
+  </h1>
+
+  <!-- Subtitle -->
+  <p class="hero-sub anim" style="--d:0.55s">
+    Deterministic internal tools. Same output every time —
+    no&nbsp;ML, no&nbsp;guesswork.
+  </p>
+
+  <!-- Tool cards -->
+  <div class="cards">
+
+    <a href="/gender" class="card-link anim" style="--d:0.8s">
+      <div class="tool-card">
+        <div class="card-bar"></div>
+        <div class="card-body">
+          <div class="card-icon">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none"
+                 stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
+          <h2>Gender Classifier</h2>
+          <p>Upload a CSV or Excel file and classify first names as m&thinsp;/&thinsp;f&thinsp;/&thinsp;unknown. Column is auto-detected and overrides are applied automatically.</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="/city-state" class="card-link anim" style="--d:1.0s">
+      <div class="tool-card">
+        <div class="card-bar"></div>
+        <div class="card-body">
+          <div class="card-icon">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none"
+                 stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+              <circle cx="12" cy="10" r="3"/>
+            </svg>
+          </div>
+          <h2>City / State Normaliser</h2>
+          <p>Upload a file with city and state/region columns. Outputs a consolidated location column using a conservative business-travel whitelist.</p>
+        </div>
+      </div>
+    </a>
+
+  </div>
+
+  <p class="landing-footer anim" style="--d:1.2s">
+    Unstuck Agency &middot; Internal Use Only
+  </p>
+
+</main>
+
+<script>
+  const loader = document.getElementById('loader');
+
+  document.querySelectorAll('.card-link').forEach(link => {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      const href = this.getAttribute('href');
+
+      // Brief press-down feel on the card
+      this.classList.add('pressing');
+
+      // Fade in the full-page loader after a short pause
+      setTimeout(() => {
+        loader.classList.add('active');
+      }, 120);
+
+      // Navigate once loader is visible
+      setTimeout(() => {
+        window.location.href = href;
+      }, 820);
+    });
+  });
+</script>
+
+</body>
+</html>
