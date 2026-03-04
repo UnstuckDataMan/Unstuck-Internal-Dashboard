@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Data Enrichment{% endblock %}
+{% block heading %}Dashboard{% endblock %}
+
+{% block content %}
+<p class="text-sm text-gray-500 mb-6">
+  Deterministic internal tools. Each tool processes uploads independently and conservatively.
+</p>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
+
+  <a href="/gender"
+     class="block bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow">
+    <h2 class="font-semibold text-gray-800 mb-2">Gender from First Name</h2>
+    <p class="text-sm text-gray-500">
+      Upload a CSV or Excel file and classify first names as <code class="bg-gray-100 px-1 rounded">m</code>
+      / <code class="bg-gray-100 px-1 rounded">f</code> / <code class="bg-gray-100 px-1 rounded">unknown</code>
+      using a deterministic model. Overrides are applied automatically.
+    </p>
+  </a>
+
+  <a href="/city-state"
+     class="block bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow">
+    <h2 class="font-semibold text-gray-800 mb-2">City / State Normaliser</h2>
+    <p class="text-sm text-gray-500">
+      Upload a file with city and state/region columns. Outputs a single consolidated location column
+      based on a conservative business-travel whitelist.
+    </p>
+  </a>
+
+</div>
+{% endblock %}

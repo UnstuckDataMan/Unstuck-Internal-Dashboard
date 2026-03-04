@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}City / State Normaliser — Data Enrichment{% endblock %}
+{% block heading %}City / State Normaliser{% endblock %}
+
+{% block content %}
+<p class="text-sm text-gray-500 mb-6">
+  Upload a dataset with city and state/region fields. Column names are auto-detected —
+  optionally type the exact names below to override detection.
+</p>
+
+<div class="bg-white rounded-lg border border-gray-200 p-6 max-w-xl">
+  <form
+    hx-post="/api/normalize"
+    hx-target="#result"
+    hx-swap="innerHTML"
+    hx-encoding="multipart/form-data"
+    hx-indicator="#spinner"
+    class="space-y-4"
+  >
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">
+        File <span class="text-gray-400 font-normal">(CSV or Excel)</span>
+      </label>
+      <input
+        type="file" name="file" accept=".csv,.xlsx" required
+        class="block w-full text-sm text-gray-600
+               file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0
+               file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700
+               hover:file:bg-indigo-100"
+      />
+    </div>
+
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">
+          City column <span class="text-gray-400 font-normal">(optional)</span>
+        </label>
+        <input
+          type="text" name="city_col" placeholder="auto-detect"
+          class="w-full rounded border border-gray-300 px-3 py-1.5 text-sm
+                 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">
+          State column <span class="text-gray-400 font-normal">(optional)</span>
+        </label>
+        <input
+          type="text" name="state_col" placeholder="auto-detect"
+          class="w-full rounded border border-gray-300 px-3 py-1.5 text-sm
+                 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
+      </div>
+    </div>
+
+    <p class="text-xs text-gray-400">
+      Output rule: whitelisted city → output city · otherwise → output state/region.
+    </p>
+
+    <div class="flex items-center gap-3">
+      <button
+        type="submit"
+        class="bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded
+               hover:bg-indigo-700 transition-colors"
+      >
+        Normalise
+      </button>
+      <span id="spinner" class="htmx-indicator text-sm text-gray-500">Processing…</span>
+    </div>
+  </form>
+</div>
+
+<div id="result" class="mt-6"></div>
+{% endblock %}
