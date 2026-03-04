@@ -3,65 +3,120 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Unstuck Agency | Data Enrichment</title>
+  <title>Data Enrichment Dashboard</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --purple-deep: #180835;
-      --purple:      #7c3aed;
-      --indigo:      #5b5ea6;
-      --pink:        #e879f9;
-      --gradient:    linear-gradient(135deg, #180835 0%, #7c3aed 32%, #5b5ea6 62%, #e879f9 100%);
-      --text:        #1d1d1f;
-      --text-2:      #6e6e73;
-      --surface:     #ffffff;
-      --border:      #e8e8ed;
+      --purple:   #7c3aed;
+      --indigo:   #5b5ea6;
+      --pink:     #e879f9;
+      --gradient: linear-gradient(135deg, #180835 0%, #7c3aed 32%, #5b5ea6 62%, #e879f9 100%);
       --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
               "Helvetica Neue", Arial, sans-serif;
       --ease:     cubic-bezier(0.25, 0.1, 0.25, 1);
       --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1);
     }
 
-    html, body {
-      min-height: 100%;
+    html { height: 100%; }
+
+    body {
       font-family: var(--font);
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
-    }
-
-    body {
-      background:
-        radial-gradient(ellipse 60% 50% at 80% 10%, rgba(124,58,237,.05) 0%, transparent 70%),
-        radial-gradient(ellipse 50% 40% at 15% 85%, rgba(232,121,249,.05) 0%, transparent 70%),
-        #ffffff;
+      min-height: 100%;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 60px 24px 48px;
+      padding: 60px 24px 52px;
+      /* Deep dark base */
+      background: #07041a;
+      position: relative;
+      overflow: hidden;
+      animation: bodyIn 0.6s var(--ease-out) both;
     }
-
-    /* ── Page entrance ─────────────────────────────────────────── */
-    body { animation: bodyIn 0.5s var(--ease-out) both; }
     @keyframes bodyIn { from { opacity: 0; } to { opacity: 1; } }
 
-    /* ── Staggered fade-up ─────────────────────────────────────── */
-    .anim {
-      opacity: 0;
-      animation: fadeUp 1s var(--ease-out) both;
-      animation-delay: var(--d, 0s);
-    }
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(28px); }
-      to   { opacity: 1; transform: translateY(0);    }
+    /* ── Animated background blobs ─────────────────────────────── */
+    .bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
     }
 
-    /* ── Full-page loader (on card click) ──────────────────────── */
+    .blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(110px);
+      will-change: transform;
+    }
+
+    /* Purple — top-left */
+    .blob-1 {
+      width: 700px; height: 700px;
+      background: rgba(124, 58, 237, 0.42);
+      top: -18%; left: -14%;
+      animation: drift1 20s ease-in-out infinite alternate;
+    }
+    /* Pink — right */
+    .blob-2 {
+      width: 560px; height: 560px;
+      background: rgba(232, 121, 249, 0.32);
+      top: 15%; right: -18%;
+      animation: drift2 25s ease-in-out infinite alternate;
+    }
+    /* Indigo — bottom-centre */
+    .blob-3 {
+      width: 800px; height: 800px;
+      background: rgba(91, 94, 166, 0.28);
+      bottom: -28%; left: 15%;
+      animation: drift3 28s ease-in-out infinite alternate;
+    }
+    /* Deep violet — mid */
+    .blob-4 {
+      width: 380px; height: 380px;
+      background: rgba(180, 60, 240, 0.22);
+      top: 45%; left: 38%;
+      animation: drift4 18s ease-in-out infinite alternate;
+    }
+
+    @keyframes drift1 {
+      from { transform: translate(0,   0)   scale(1);    }
+      to   { transform: translate(90px, 70px) scale(1.18); }
+    }
+    @keyframes drift2 {
+      from { transform: translate(0,   0)    scale(1);   }
+      to   { transform: translate(-70px, 90px) scale(0.88); }
+    }
+    @keyframes drift3 {
+      from { transform: translate(0,   0)    scale(1);    }
+      to   { transform: translate(50px, -80px) scale(1.12); }
+    }
+    @keyframes drift4 {
+      from { transform: translate(0,  0)    scale(1);    }
+      to   { transform: translate(-50px, 60px) scale(1.25); }
+    }
+
+    /* Subtle noise grain overlay */
+    .bg::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      opacity: 0.03;
+    }
+
+    /* ── All content sits above bg ─────────────────────────────── */
+    .landing { position: relative; z-index: 1; }
+
+    /* ── Loader overlay ─────────────────────────────────────────── */
     #loader {
       position: fixed;
       inset: 0;
-      background: var(--surface);
+      background: #ffffff;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -73,16 +128,26 @@
     #loader.active { opacity: 1; pointer-events: all; }
 
     .loader-ring {
-      width: 46px;
-      height: 46px;
+      width: 46px; height: 46px;
       border-radius: 50%;
-      border: 3px solid rgba(124, 58, 237, 0.15);
+      border: 3px solid rgba(124,58,237,.18);
       border-top-color: var(--purple);
       animation: spin 0.72s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Layout ────────────────────────────────────────────────── */
+    /* ── Staggered fade-up ──────────────────────────────────────── */
+    .anim {
+      opacity: 0;
+      animation: fadeUp 1s var(--ease-out) both;
+      animation-delay: var(--d, 0s);
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(28px); }
+      to   { opacity: 1; transform: translateY(0);    }
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────── */
     .landing {
       display: flex;
       flex-direction: column;
@@ -91,26 +156,25 @@
       max-width: 800px;
     }
 
-    /* ── Logo ──────────────────────────────────────────────────── */
-    .logo-wrap { margin-bottom: 40px; }
+    /* ── Logo ───────────────────────────────────────────────────── */
+    .logo-wrap { margin-bottom: 36px; }
 
     .logo-img {
       height: 80px;
       width: auto;
       border-radius: 16px;
       display: block;
-      box-shadow: 0 8px 32px rgba(124,58,237,0.25);
+      box-shadow: 0 8px 40px rgba(124,58,237,.4), 0 2px 8px rgba(0,0,0,.4);
     }
 
-    /* Text fallback if image missing */
     .logo-fallback {
       display: none;
       flex-direction: column;
       align-items: center;
-      gap: 2px;
+      gap: 3px;
     }
     .logo-mark {
-      font-size: 32px;
+      font-size: 34px;
       font-weight: 800;
       letter-spacing: -0.04em;
       background: var(--gradient);
@@ -120,40 +184,42 @@
     }
     .logo-sub-text {
       font-size: 11px;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.2em;
       text-transform: uppercase;
-      color: var(--text-2);
+      color: rgba(255,255,255,.45);
     }
 
-    /* ── Hero title ────────────────────────────────────────────── */
+    /* ── Title ──────────────────────────────────────────────────── */
     .hero-title {
       font-size: clamp(30px, 5.5vw, 58px);
       font-weight: 700;
       letter-spacing: -0.03em;
       text-align: center;
-      color: var(--text);
+      color: #ffffff;
       line-height: 1.08;
-      margin-bottom: 18px;
-    }
-    .hero-title .pipe {
-      background: var(--gradient);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      font-weight: 300;
-      margin: 0 8px;
+      margin-bottom: 20px;
     }
 
+    /* ── Gradient divider ───────────────────────────────────────── */
+    .title-divider {
+      width: 140px;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, #7c3aed 30%, #e879f9 70%, transparent);
+      border-radius: 2px;
+      margin-bottom: 22px;
+    }
+
+    /* ── Subtitle ───────────────────────────────────────────────── */
     .hero-sub {
-      font-size: clamp(14px, 2vw, 17px);
-      color: var(--text-2);
+      font-size: clamp(14px, 1.8vw, 16px);
+      color: rgba(255,255,255,.52);
       text-align: center;
-      max-width: 440px;
-      line-height: 1.65;
+      max-width: 420px;
+      line-height: 1.7;
       margin-bottom: 56px;
     }
 
-    /* ── Cards ─────────────────────────────────────────────────── */
+    /* ── Cards ──────────────────────────────────────────────────── */
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -164,87 +230,100 @@
 
     .card-link { text-decoration: none; display: block; }
 
+    /* Glass morphism card */
     .tool-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
+      background: rgba(255,255,255,.07);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255,255,255,.12);
       border-radius: 22px;
       overflow: hidden;
-      box-shadow: 0 2px 16px rgba(0,0,0,0.055), 0 1px 4px rgba(0,0,0,0.04);
+      box-shadow:
+        0 4px 24px rgba(0,0,0,.35),
+        inset 0 1px 0 rgba(255,255,255,.1);
       transition:
-        transform     0.38s var(--ease),
-        box-shadow    0.38s var(--ease),
-        border-color  0.38s var(--ease);
+        transform    0.38s var(--ease),
+        box-shadow   0.38s var(--ease),
+        border-color 0.38s var(--ease),
+        background   0.38s var(--ease);
       will-change: transform;
     }
 
     .card-link:hover .tool-card {
-      transform: translateY(-7px);
+      transform: translateY(-8px);
+      background: rgba(255,255,255,.11);
+      border-color: rgba(232,121,249,.35);
       box-shadow:
-        0 24px 56px rgba(124,58,237,.16),
-        0 6px 16px rgba(0,0,0,.06);
-      border-color: rgba(124,58,237,.22);
+        0 28px 60px rgba(124,58,237,.30),
+        0 8px 20px rgba(0,0,0,.3),
+        inset 0 1px 0 rgba(255,255,255,.15);
     }
 
-    /* Gradient top bar */
+    /* Gradient bar — thicker */
     .card-bar {
-      height: 4px;
+      height: 8px;
       background: var(--gradient);
+      opacity: 0.85;
       transition: height 0.38s var(--ease), opacity 0.38s var(--ease);
-      opacity: 0.75;
     }
-    .card-link:hover .card-bar { height: 5px; opacity: 1; }
+    .card-link:hover .card-bar { height: 10px; opacity: 1; }
 
-    .card-body { padding: 28px 28px 30px; }
+    .card-body { padding: 26px 28px 30px; }
 
     .card-icon {
-      width: 46px;
-      height: 46px;
+      width: 46px; height: 46px;
       border-radius: 13px;
       background: var(--gradient);
       display: flex;
       align-items: center;
       justify-content: center;
       margin-bottom: 18px;
-      box-shadow: 0 4px 14px rgba(124,58,237,.30);
-      transition:
-        transform  0.38s var(--ease),
-        box-shadow 0.38s var(--ease);
+      box-shadow: 0 4px 16px rgba(124,58,237,.40);
+      transition: transform 0.38s var(--ease), box-shadow 0.38s var(--ease);
     }
     .card-link:hover .card-icon {
-      transform: scale(1.08) rotate(-3deg);
-      box-shadow: 0 8px 24px rgba(124,58,237,.40);
+      transform: scale(1.1) rotate(-4deg);
+      box-shadow: 0 8px 28px rgba(232,121,249,.50);
     }
 
     .card-body h2 {
       font-size: 17px;
       font-weight: 650;
-      color: var(--text);
+      color: #ffffff;
       margin-bottom: 8px;
       letter-spacing: -0.015em;
     }
     .card-body p {
       font-size: 13.5px;
-      color: var(--text-2);
-      line-height: 1.62;
+      color: rgba(255,255,255,.55);
+      line-height: 1.65;
     }
 
-    /* Pressed state */
+    /* Press effect */
     .card-link.pressing .tool-card {
       transform: scale(0.98);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      box-shadow: 0 4px 16px rgba(0,0,0,.3);
     }
 
-    /* ── Footer ────────────────────────────────────────────────── */
+    /* ── Footer ─────────────────────────────────────────────────── */
     .landing-footer {
       font-size: 12px;
-      color: #c0c0c8;
-      letter-spacing: 0.02em;
+      color: rgba(255,255,255,.2);
+      letter-spacing: 0.04em;
     }
   </style>
 </head>
 <body>
 
-<!-- Circle loader (shown on card click) -->
+<!-- Animated background -->
+<div class="bg" aria-hidden="true">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+  <div class="blob blob-4"></div>
+</div>
+
+<!-- Circle loader (on card click) -->
 <div id="loader">
   <div class="loader-ring"></div>
 </div>
@@ -267,19 +346,22 @@
 
   <!-- Title -->
   <h1 class="hero-title anim" style="--d:0.3s">
-    Unstuck Agency <span class="pipe">|</span> Data&nbsp;Enrichment
+    Data Enrichment Dashboard
   </h1>
 
+  <!-- Gradient divider -->
+  <div class="title-divider anim" style="--d:0.5s"></div>
+
   <!-- Subtitle -->
-  <p class="hero-sub anim" style="--d:0.55s">
-    Deterministic internal tools. Same output every time —
-    no&nbsp;ML, no&nbsp;guesswork.
+  <p class="hero-sub anim" style="--d:0.65s">
+    Deterministic internal use tools for refining campaign data.
+    No API usage — pure logic!
   </p>
 
   <!-- Tool cards -->
   <div class="cards">
 
-    <a href="/gender" class="card-link anim" style="--d:0.8s">
+    <a href="/gender" class="card-link anim" style="--d:0.9s">
       <div class="tool-card">
         <div class="card-bar"></div>
         <div class="card-body">
@@ -296,7 +378,7 @@
       </div>
     </a>
 
-    <a href="/city-state" class="card-link anim" style="--d:1.0s">
+    <a href="/city-state" class="card-link anim" style="--d:1.1s">
       <div class="tool-card">
         <div class="card-bar"></div>
         <div class="card-body">
@@ -315,7 +397,7 @@
 
   </div>
 
-  <p class="landing-footer anim" style="--d:1.2s">
+  <p class="landing-footer anim" style="--d:1.3s">
     Unstuck Agency &middot; Internal Use Only
   </p>
 
@@ -328,19 +410,9 @@
     link.addEventListener('click', function(e) {
       e.preventDefault();
       const href = this.getAttribute('href');
-
-      // Brief press-down feel on the card
       this.classList.add('pressing');
-
-      // Fade in the full-page loader after a short pause
-      setTimeout(() => {
-        loader.classList.add('active');
-      }, 120);
-
-      // Navigate once loader is visible
-      setTimeout(() => {
-        window.location.href = href;
-      }, 820);
+      setTimeout(() => loader.classList.add('active'), 130);
+      setTimeout(() => { window.location.href = href; }, 850);
     });
   });
 </script>
