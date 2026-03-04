@@ -1,44 +1,507 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-50">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}Data Enrichment Dashboard{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/output.css" />
+  <title>{% block title %}Data Enrichment{% endblock %}</title>
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
-</head>
-<body class="h-full flex">
+  <style>
+    /* ── Reset & Tokens ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  <!-- Sidebar -->
-  <aside class="w-56 bg-gray-900 text-white flex flex-col shrink-0">
-    <div class="px-4 py-5 border-b border-gray-700">
-      <span class="text-sm font-semibold tracking-wide uppercase text-gray-300">Data Enrichment</span>
+    :root {
+      --bg:          #f5f5f7;
+      --surface:     #ffffff;
+      --primary:     #0071e3;
+      --primary-hov: #0077ed;
+      --text:        #1d1d1f;
+      --text-2:      #6e6e73;
+      --border:      #d2d2d7;
+      --border-lt:   #e8e8ed;
+      --red:         #ff3b30;
+      --red-bg:      #fff2f2;
+      --red-border:  #ffd0ce;
+      --sh-sm:  0 1px 4px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+      --sh-md:  0 4px 20px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.04);
+      --sh-lg:  0 8px 36px rgba(0,0,0,.10), 0 4px 8px rgba(0,0,0,.05);
+      --r-sm: 8px;  --r-md: 12px;  --r-lg: 16px;
+      --ease: cubic-bezier(.4,0,.2,1);
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+              "Helvetica Neue", Arial, sans-serif;
+    }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────── */
+    .sidebar {
+      width: 216px;
+      background: var(--surface);
+      border-right: 1px solid var(--border-lt);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+
+    .sidebar-brand {
+      padding: 22px 18px 16px;
+      border-bottom: 1px solid var(--border-lt);
+    }
+
+    .sidebar-brand span {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-2);
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 10px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 10px;
+      border-radius: var(--r-sm);
+      font-size: 14px;
+      font-weight: 450;
+      color: var(--text-2);
+      text-decoration: none;
+      transition: background .15s var(--ease), color .15s var(--ease);
+    }
+
+    .nav-link svg { opacity: .5; transition: opacity .15s var(--ease); flex-shrink: 0; }
+
+    .nav-link:hover {
+      background: var(--bg);
+      color: var(--text);
+    }
+    .nav-link:hover svg { opacity: .8; }
+
+    .nav-link.active {
+      background: rgba(0,113,227,.08);
+      color: var(--primary);
+      font-weight: 500;
+    }
+    .nav-link.active svg { opacity: 1; }
+
+    /* ── Main wrapper ────────────────────────────────────────── */
+    .main-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    /* ── Topbar ──────────────────────────────────────────────── */
+    .topbar {
+      background: rgba(255,255,255,.85);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border-bottom: 1px solid var(--border-lt);
+      padding: 0 32px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .topbar h1 {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -.01em;
+      color: var(--text);
+    }
+
+    /* ── Page ────────────────────────────────────────────────── */
+    .page {
+      flex: 1;
+      overflow-y: auto;
+      padding: 32px;
+      animation: pageFade .25s var(--ease);
+    }
+
+    @keyframes pageFade {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .page-sub {
+      font-size: 14px;
+      color: var(--text-2);
+      margin-bottom: 24px;
+      line-height: 1.55;
+    }
+
+    /* ── Tool cards (dashboard) ──────────────────────────────── */
+    .tool-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+      gap: 16px;
+      max-width: 680px;
+    }
+
+    .tool-card-link { text-decoration: none; display: block; }
+
+    .tool-card {
+      background: var(--surface);
+      border: 1px solid var(--border-lt);
+      border-radius: var(--r-lg);
+      padding: 24px;
+      box-shadow: var(--sh-sm);
+      transition: box-shadow .22s var(--ease), transform .22s var(--ease);
+      cursor: pointer;
+    }
+
+    .tool-card-link:hover .tool-card {
+      box-shadow: var(--sh-md);
+      transform: translateY(-3px);
+    }
+
+    .tool-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 14px;
+    }
+
+    .tool-icon-blue   { background: linear-gradient(135deg, #0071e3, #34aadc); }
+    .tool-icon-indigo { background: linear-gradient(135deg, #5856d6, #34aadc); }
+
+    .tool-card h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+      letter-spacing: -.01em;
+    }
+
+    .tool-card p {
+      font-size: 13px;
+      color: var(--text-2);
+      line-height: 1.55;
+    }
+
+    .tool-card p code {
+      font-family: "SF Mono", ui-monospace, Menlo, monospace;
+      font-size: .85em;
+      background: rgba(0,113,227,.07);
+      color: var(--primary);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    /* ── Form card ───────────────────────────────────────────── */
+    .form-card {
+      background: var(--surface);
+      border: 1px solid var(--border-lt);
+      border-radius: var(--r-lg);
+      padding: 28px;
+      max-width: 520px;
+      box-shadow: var(--sh-sm);
+    }
+
+    .form-group { margin-bottom: 18px; }
+    .form-group:last-of-type { margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 7px;
+    }
+
+    label .opt {
+      font-weight: 400;
+      color: var(--text-2);
+    }
+
+    input[type="text"] {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 9px 12px;
+      font-size: 14px;
+      font-family: var(--font);
+      color: var(--text);
+      background: var(--surface);
+      outline: none;
+      transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+      -webkit-appearance: none;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(0,113,227,.14);
+    }
+
+    input[type="text"]::placeholder { color: #b0b0b8; }
+
+    /* File input */
+    input[type="file"] {
+      width: 100%;
+      font-size: 13px;
+      font-family: var(--font);
+      color: var(--text-2);
+      border: 1.5px dashed var(--border);
+      border-radius: var(--r-sm);
+      padding: 14px 16px;
+      background: #fafafa;
+      cursor: pointer;
+      outline: none;
+      transition: border-color .18s var(--ease), background .18s var(--ease);
+    }
+
+    input[type="file"]:hover {
+      border-color: var(--primary);
+      background: rgba(0,113,227,.02);
+    }
+
+    input[type="file"]::file-selector-button {
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--primary);
+      background: rgba(0,113,227,.08);
+      border: none;
+      border-radius: 6px;
+      padding: 5px 12px;
+      margin-right: 10px;
+      cursor: pointer;
+      transition: background .15s var(--ease);
+    }
+
+    input[type="file"]::file-selector-button:hover {
+      background: rgba(0,113,227,.14);
+    }
+
+    /* Two-col row */
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .form-hint {
+      font-size: 12px;
+      color: var(--text-2);
+      background: var(--bg);
+      border-radius: var(--r-sm);
+      padding: 10px 14px;
+      line-height: 1.55;
+      margin-bottom: 18px;
+    }
+
+    /* ── Actions ─────────────────────────────────────────────── */
+    .form-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 22px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: none;
+      border-radius: var(--r-sm);
+      font-size: 14px;
+      font-weight: 500;
+      font-family: var(--font);
+      cursor: pointer;
+      outline: none;
+      transition: all .18s var(--ease);
+      text-decoration: none;
+      letter-spacing: -.01em;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      padding: 10px 20px;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hov);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(0,113,227,.32);
+    }
+
+    .btn-primary:active { transform: none; box-shadow: none; }
+
+    .btn-download {
+      background: var(--surface);
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+      padding: 9px 18px;
+    }
+
+    .btn-download:hover {
+      background: var(--primary);
+      color: white;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(0,113,227,.25);
+    }
+
+    /* ── Spinner ─────────────────────────────────────────────── */
+    .spinner {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--text-2);
+    }
+
+    .htmx-request .spinner,
+    .htmx-request.spinner { display: inline-flex; }
+
+    .dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--primary);
+      animation: dotPulse 1.1s infinite var(--ease);
+    }
+    .dot:nth-child(2) { animation-delay: .18s; }
+    .dot:nth-child(3) { animation-delay: .36s; }
+
+    @keyframes dotPulse {
+      0%, 100% { opacity: .25; transform: scale(.7); }
+      50%       { opacity: 1;   transform: scale(1);  }
+    }
+
+    /* ── Result area ─────────────────────────────────────────── */
+    .result-wrap { animation: resultFade .3s var(--ease); }
+
+    @keyframes resultFade {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0);    }
+    }
+
+    .result-meta {
+      font-size: 14px;
+      color: var(--text-2);
+      margin-bottom: 14px;
+    }
+
+    .result-meta strong { color: var(--text); font-weight: 600; }
+
+    /* ── Table ───────────────────────────────────────────────── */
+    .tbl-wrap {
+      border: 1px solid var(--border-lt);
+      border-radius: var(--r-md);
+      overflow: auto;
+      margin-bottom: 18px;
+      box-shadow: var(--sh-sm);
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+    thead {
+      background: #fafafa;
+      position: sticky; top: 0;
+      border-bottom: 1px solid var(--border-lt);
+    }
+
+    th {
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      color: var(--text-2);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 9px 14px;
+      color: var(--text);
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border-lt);
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    tbody tr { transition: background .12s var(--ease); }
+    tbody tr:hover { background: rgba(0,113,227,.025); }
+
+    /* ── Error ───────────────────────────────────────────────── */
+    .err-box {
+      background: var(--red-bg);
+      border: 1px solid var(--red-border);
+      border-radius: var(--r-sm);
+      padding: 13px 16px;
+      font-size: 14px;
+      color: var(--red);
+      animation: resultFade .2s var(--ease);
+    }
+
+    /* ── htmx-indicator base ─────────────────────────────────── */
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator,
+    .htmx-request.htmx-indicator { display: inline-flex; }
+  </style>
+</head>
+<body>
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span>Data Enrichment</span>
     </div>
-    <nav class="flex-1 px-3 py-4 space-y-1">
-      <a href="/"
-         class="block px-3 py-2 rounded text-sm transition-colors
-                {% if active == 'home' %}bg-gray-700 text-white{% else %}text-gray-300 hover:bg-gray-700 hover:text-white{% endif %}">
+    <nav class="sidebar-nav">
+      <a href="/" class="nav-link {% if active == 'home' %}active{% endif %}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
         Dashboard
       </a>
-      <a href="/gender"
-         class="block px-3 py-2 rounded text-sm transition-colors
-                {% if active == 'gender' %}bg-gray-700 text-white{% else %}text-gray-300 hover:bg-gray-700 hover:text-white{% endif %}">
+      <a href="/gender" class="nav-link {% if active == 'gender' %}active{% endif %}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
         Gender Classifier
       </a>
-      <a href="/city-state"
-         class="block px-3 py-2 rounded text-sm transition-colors
-                {% if active == 'city' %}bg-gray-700 text-white{% else %}text-gray-300 hover:bg-gray-700 hover:text-white{% endif %}">
+      <a href="/city-state" class="nav-link {% if active == 'city' %}active{% endif %}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+        </svg>
         City / State
       </a>
     </nav>
   </aside>
 
-  <!-- Main content -->
-  <div class="flex-1 flex flex-col overflow-hidden">
-    <header class="bg-white border-b border-gray-200 px-6 py-4">
-      <h1 class="text-lg font-semibold text-gray-800">{% block heading %}{% endblock %}</h1>
+  <div class="main-wrap">
+    <header class="topbar">
+      <h1>{% block heading %}{% endblock %}</h1>
     </header>
-    <main class="flex-1 overflow-y-auto p-6">
+    <main class="page">
       {% block content %}{% endblock %}
     </main>
   </div>

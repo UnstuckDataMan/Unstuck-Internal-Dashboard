@@ -1,39 +1,24 @@
 {% if error %}
-<div class="bg-red-50 border border-red-200 text-red-700 rounded px-4 py-3 text-sm">
-  {{ error }}
-</div>
+<div class="err-box">{{ error }}</div>
 {% else %}
-<div class="space-y-4">
-  <p class="text-sm text-gray-600">
-    Normalised <strong>{{ row_count }}</strong> rows. Preview (first 20):
-  </p>
-
-  <div class="overflow-x-auto rounded border border-gray-200">
-    <table class="min-w-full text-xs text-left">
-      <thead class="bg-gray-50 border-b border-gray-200">
-        <tr>
-          {% for col in columns %}
-          <th class="px-3 py-2 font-medium text-gray-600 whitespace-nowrap">{{ col }}</th>
-          {% endfor %}
-        </tr>
+<div class="result-wrap">
+  <p class="result-meta">Normalised <strong>{{ row_count }}</strong> rows — preview shows first 20.</p>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>{% for col in columns %}<th>{{ col }}</th>{% endfor %}</tr>
       </thead>
-      <tbody class="divide-y divide-gray-100">
+      <tbody>
         {% for row in preview %}
-        <tr class="hover:bg-gray-50">
-          {% for col in columns %}
-          <td class="px-3 py-2 text-gray-700 whitespace-nowrap">{{ row[col] }}</td>
-          {% endfor %}
-        </tr>
+        <tr>{% for col in columns %}<td>{{ row[col] }}</td>{% endfor %}</tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-
-  <a
-    href="/api/normalize/download/{{ token }}"
-    class="inline-block bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded
-           hover:bg-indigo-700 transition-colors"
-  >
+  <a href="/api/normalize/download/{{ token }}" class="btn btn-download">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
     Download {{ filename }}
   </a>
 </div>
