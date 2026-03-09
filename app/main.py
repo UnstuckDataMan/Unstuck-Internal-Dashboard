@@ -1,4 +1,5 @@
 import sys
+import importlib.util
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -17,12 +18,19 @@ app.include_router(gender.router)
 app.include_router(city.router)
 
 # ── Mail Merge Tool (Flask WSGI sub-application) ──────────────────────────────
-# Add mail_merge/ to sys.path so its relative imports (utils.*) resolve correctly
-_MM_PATH = str(_BASE.parent / "mail_merge")
-if _MM_PATH not in sys.path:
-    sys.path.insert(0, _MM_PATH)
-from app import app as _flask_mail_merge          # noqa: E402  (mail_merge/app.py)
-app.mount("/mail-merge", WSGIMiddleware(_flask_mail_merge))
+# Load mail_merge/app.py explicitly by file path to avoid collision with the
+# 'app' package name (this directory).  sys.path is extended first so that
+# the Flask app's own `from utils.xxx import ...` statements resolve correctly.
+_MM_DIR = _BASE.parent / "mail_merge"
+if str(_MM_DIR) not in sys.path:
+    sys.path.insert(0, str(_MM_DIR))
+
+_spec = importlib.util.spec_from_file_location("mail_merge_flask", str(_MM_DIR / "app.py"))
+_mm_module = importlib.util.module_from_spec(_spec)
+sys.modules["mail_merge_flask"] = _mm_module   # register before exec so relative imports work
+_spec.loader.exec_module(_mm_module)
+
+app.mount("/mail-merge", WSGIMiddleware(_mm_module.app))
 # ─────────────────────────────────────────────────────────────────────────────
 
 
