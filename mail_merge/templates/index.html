@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mail Merge Tool</title>
+<style>
+:root {
+  --blue-50:  #eff6ff;
+  --blue-100: #dbeafe;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+  --blue-800: #1e40af;
+  --green-50:  #f0fdf4;
+  --green-600: #16a34a;
+  --green-700: #15803d;
+  --red-50:   #fef2f2;
+  --red-600:  #dc2626;
+  --amber-50: #fffbeb;
+  --amber-600:#d97706;
+  --gray-50:  #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  --white: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow: 0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -2px rgba(0,0,0,.1);
+  --radius: 8px;
+  --radius-sm: 4px;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px;line-height:1.5;color:var(--gray-800);background:var(--gray-50)}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;min-height:100vh}
+
+/* ── Layout ── */
+.app-header{background:var(--blue-800);color:#fff;padding:0 24px;height:56px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.25);position:sticky;top:0;z-index:100}
+.app-header h1{font-size:1.1rem;font-weight:700;letter-spacing:-.3px}
+.app-header .badge{background:rgba(255,255,255,.15);border-radius:12px;padding:2px 10px;font-size:.72rem;font-weight:600;letter-spacing:.5px;text-transform:uppercase}
+.container{max-width:1200px;margin:0 auto;padding:24px 16px}
+
+/* ── Tabs ── */
+.tabs{display:flex;gap:4px;border-bottom:2px solid var(--gray-200);margin-bottom:24px}
+.tab-btn{padding:10px 20px;border:none;background:none;cursor:pointer;font-size:.9rem;font-weight:600;color:var(--gray-500);border-bottom:3px solid transparent;margin-bottom:-2px;transition:color .15s,border-color .15s;border-radius:var(--radius-sm) var(--radius-sm) 0 0}
+.tab-btn:hover{color:var(--blue-700)}
+.tab-btn.active{color:var(--blue-700);border-bottom-color:var(--blue-600)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+/* ── Cards ── */
+.card{background:var(--white);border:1px solid var(--gray-200);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:20px;overflow:hidden}
+.card-header{padding:14px 20px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:10px;background:var(--gray-50)}
+.card-header h2{font-size:.9rem;font-weight:700;color:var(--gray-800)}
+.card-header .step-badge{width:24px;height:24px;border-radius:50%;background:var(--blue-600);color:#fff;font-size:.75rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.card-body{padding:20px}
+
+/* ── Form elements ── */
+label{display:block;font-size:.8rem;font-weight:600;color:var(--gray-700);margin-bottom:5px}
+input[type=text],input[type=email],input[type=number],select,textarea{width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:var(--radius-sm);font-size:.88rem;font-family:inherit;transition:border-color .15s,box-shadow .15s;background:var(--white);color:var(--gray-800)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue-600);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+textarea{resize:vertical;min-height:90px;line-height:1.6}
+input[type=range]{width:100%;accent-color:var(--blue-600)}
+
+.field-hint{font-size:.75rem;color:var(--gray-500);margin-top:4px}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border:none;border-radius:var(--radius-sm);font-size:.85rem;font-weight:600;cursor:pointer;transition:background .15s,transform .1s;white-space:nowrap}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--blue-600);color:#fff}
+.btn-primary:hover{background:var(--blue-700)}
+.btn-primary:disabled{background:var(--gray-300);cursor:not-allowed;transform:none}
+.btn-secondary{background:var(--white);color:var(--gray-700);border:1px solid var(--gray-300)}
+.btn-secondary:hover{background:var(--gray-50);border-color:var(--gray-400)}
+.btn-success{background:var(--green-600);color:#fff}
+.btn-success:hover{background:var(--green-700)}
+.btn-danger{background:#fff;color:var(--red-600);border:1px solid #fca5a5;padding:5px 10px;font-size:.78rem}
+.btn-danger:hover{background:var(--red-50)}
+.btn-sm{padding:5px 12px;font-size:.78rem}
+.btn-add{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;background:var(--blue-50);color:var(--blue-700);border:1px dashed var(--blue-300);border-radius:var(--radius-sm);font-size:.8rem;font-weight:600;cursor:pointer;transition:background .15s}
+.btn-add:hover{background:var(--blue-100)}
+
+/* ── Upload zone ── */
+.upload-zone{border:2px dashed var(--gray-300);border-radius:var(--radius);padding:36px;text-align:center;transition:border-color .2s,background .2s;cursor:pointer}
+.upload-zone:hover,.upload-zone.drag-over{border-color:var(--blue-500);background:var(--blue-50)}
+.upload-zone.success{border-color:var(--green-600);background:var(--green-50)}
+.upload-icon{font-size:2.4rem;margin-bottom:12px;display:block}
+.upload-zone p{color:var(--gray-500);font-size:.88rem}
+.upload-zone strong{color:var(--blue-600);cursor:pointer}
+#file-input{display:none}
+
+/* ── Column pills ── */
+.columns-display{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.col-pill{padding:4px 12px;border-radius:20px;font-size:.78rem;font-weight:600;cursor:pointer;user-select:none;transition:opacity .15s}
+.col-pill.normal{background:var(--blue-50);color:var(--blue-700);border:1px solid var(--blue-200)}
+.col-pill.email-col{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.col-pill:hover{opacity:.75}
+.col-pill[title]:hover::after{content:attr(title);position:absolute;background:#1f2937;color:#fff;padding:3px 8px;border-radius:4px;font-size:.72rem;white-space:nowrap;transform:translateY(-28px);pointer-events:none}
+
+/* ── Template editor ── */
+.template-group{border:1px solid var(--gray-200);border-radius:var(--radius-sm);margin-bottom:12px;overflow:hidden}
+.template-group-header{padding:8px 12px;background:var(--gray-50);display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--gray-200)}
+.template-variant-badge{font-size:.72rem;font-weight:700;background:var(--blue-600);color:#fff;border-radius:12px;padding:2px 8px}
+.template-group-body{padding:12px}
+
+.placeholder-bar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);margin-bottom:14px}
+.ph-chip{padding:3px 10px;background:var(--white);border:1px solid var(--gray-300);border-radius:16px;font-size:.75rem;font-family:'Courier New',monospace;color:var(--blue-700);cursor:pointer;transition:background .12s,border-color .12s}
+.ph-chip:hover{background:var(--blue-50);border-color:var(--blue-400)}
+.ph-label{font-size:.75rem;font-weight:600;color:var(--gray-500);align-self:center;margin-right:4px}
+
+/* ── Alerts / messages ── */
+.alert{border-radius:var(--radius-sm);padding:12px 16px;font-size:.85rem;margin-top:12px;display:flex;gap:10px;align-items:flex-start}
+.alert-icon{flex-shrink:0;margin-top:1px}
+.alert-success{background:var(--green-50);border:1px solid #bbf7d0;color:#14532d}
+.alert-error{background:var(--red-50);border:1px solid #fecaca;color:#7f1d1d}
+.alert-warning{background:var(--amber-50);border:1px solid #fde68a;color:#78350f}
+.alert-info{background:var(--blue-50);border:1px solid var(--blue-200);color:var(--blue-800)}
+.alert ul{margin-top:6px;margin-left:16px}
+.alert li{margin-bottom:3px}
+
+/* ── Info grid (scheduler) ── */
+.info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0}
+.info-card{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:14px;text-align:center}
+.info-card .val{font-size:1.6rem;font-weight:700;color:var(--blue-700);line-height:1}
+.info-card .lbl{font-size:.72rem;color:var(--gray-500);margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+
+/* ── Preview table ── */
+.preview-wrap{overflow-x:auto;margin-top:16px;border-radius:var(--radius-sm);border:1px solid var(--gray-200)}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{background:var(--blue-800);color:#fff;padding:8px 12px;text-align:left;font-weight:600;white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid var(--gray-100);vertical-align:top;max-width:280px}
+tr:last-child td{border-bottom:none}
+tr:nth-child(even){background:var(--gray-50)}
+td .truncate{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+
+/* ── Grid helpers ── */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+@media(max-width:640px){.grid-2,.grid-3{grid-template-columns:1fr}}
+.row{display:flex;align-items:flex-start;gap:12px}
+.flex-1{flex:1}
+.mt-4{margin-top:16px}
+.mt-2{margin-top:8px}
+.mb-3{margin-bottom:12px}
+
+/* ── Misc ── */
+.divider{border:none;border-top:1px solid var(--gray-200);margin:20px 0}
+.tag{display:inline-block;padding:2px 8px;border-radius:12px;font-size:.72rem;font-weight:600}
+.tag-blue{background:var(--blue-50);color:var(--blue-700)}
+.tag-green{background:var(--green-50);color:var(--green-700)}
+.section-title{font-size:.8rem;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px}
+.mono{font-family:'Courier New',monospace;font-size:.82rem}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hidden{display:none!important}
+.text-center{text-align:center}
+.download-section{display:flex;align-items:center;gap:12px;padding:16px;background:var(--green-50);border:1px solid #bbf7d0;border-radius:var(--radius-sm);margin-top:16px}
+
+/* ── Email column selector ── */
+.email-col-selector{margin-top:12px;padding:12px;background:var(--amber-50);border:1px solid #fcd34d;border-radius:var(--radius-sm)}
+.email-col-selector label{color:#78350f}
+.email-col-selector select{margin-top:6px}
+
+/* ── Range with value display ── */
+.range-row{display:flex;align-items:center;gap:12px}
+.range-val{font-size:1.2rem;font-weight:700;color:var(--blue-700);min-width:48px;text-align:right}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <span style="font-size:1.4rem">✉</span>
+  <h1>Mail Merge Tool</h1>
+  <span class="badge">Outreach Suite</span>
+</header>
+
+<div class="container">
+
+  <!-- Tab navigation -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('merge', this)">⚡ Email Merge Generator</button>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!--  TAB 1 – MERGE GENERATOR                                               -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="tab-merge" class="tab-panel active">
+
+    <!-- STEP 1: Upload -->
+    <div class="card">
+      <div class="card-header">
+        <div class="step-badge">1</div>
+        <h2>Upload Prospect Spreadsheet</h2>
+      </div>
+      <div class="card-body">
+        <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()"
+             ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+          <span class="upload-icon" id="upload-icon">📂</span>
+          <p id="upload-text"><strong>Click to browse</strong> or drag &amp; drop your Excel file here</p>
+          <p style="margin-top:6px;font-size:.75rem;color:var(--gray-400)">.xlsx or .xls · max 32 MB</p>
+        </div>
+        <input type="file" id="file-input" accept=".xlsx,.xls" onchange="handleFileSelect(event)">
+
+        <div id="upload-feedback" class="hidden"></div>
+
+        <!-- Detected columns -->
+        <div id="columns-section" class="hidden">
+          <hr class="divider">
+          <p class="section-title">Detected Columns <span id="col-count" class="tag tag-blue"></span></p>
+          <p style="font-size:.78rem;color:var(--gray-500);margin-bottom:8px">
+            Click a column to insert its placeholder into the focused template field.
+          </p>
+          <div class="columns-display" id="columns-display"></div>
+
+          <!-- Email column selector -->
+          <div class="email-col-selector">
+            <label for="email-col-select">📧 Which column contains the recipient email address?</label>
+            <select id="email-col-select"></select>
+          </div>
+
+          <p style="margin-top:10px;font-size:.78rem;color:var(--gray-500)">
+            <strong id="row-count-badge"></strong>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2: Templates -->
+    <div class="card" id="step2-card">
+      <div class="card-header">
+        <div class="step-badge">2</div>
+        <h2>Email Templates</h2>
+        <span style="margin-left:auto;font-size:.78rem;color:var(--gray-500)">Multiple templates rotate across rows (A/B testing)</span>
+      </div>
+      <div class="card-body">
+
+        <!-- Placeholder helper bar -->
+        <div id="placeholder-bar-wrap" class="hidden">
+          <div class="placeholder-bar" id="placeholder-bar">
+            <span class="ph-label">Insert:</span>
+          </div>
+        </div>
+
+        <!-- Subject lines -->
+        <p class="section-title" style="margin-top:0">Subject Line Templates</p>
+        <div id="subjects-container"></div>
+        <button class="btn-add mt-2" onclick="addTemplate('subject')">+ Add Subject Variant</button>
+
+        <hr class="divider">
+
+        <!-- Email bodies -->
+        <p class="section-title">Email Body Templates</p>
+        <div id="bodies-container"></div>
+        <button class="btn-add mt-2" onclick="addTemplate('body')">+ Add Body Variant</button>
+
+        <hr class="divider">
+
+        <!-- Chaser section -->
+        <details id="chaser-section">
+          <summary style="cursor:pointer;font-size:.88rem;font-weight:700;color:var(--blue-700);padding:4px 0;user-select:none">
+            ▶ Chaser / Follow-up Templates (optional)
+          </summary>
+          <div style="margin-top:14px">
+            <div class="mb-3">
+              <label for="chaser-subject">Chaser Subject Line</label>
+              <input type="text" id="chaser-subject" placeholder="e.g. Re: {{company}} — quick follow-up"
+                     onfocus="setFocusedField(this)">
+            </div>
+            <div>
+              <label for="chaser-body">Chaser Email Body</label>
+              <textarea id="chaser-body" rows="5" placeholder="Hi {{first_name}},&#10;&#10;Just following up on my previous message..."
+                        onfocus="setFocusedField(this)"></textarea>
+            </div>
+          </div>
+        </details>
+
+      </div>
+    </div>
+
+    <!-- STEP 3: Senders -->
+    <div class="card">
+      <div class="card-header">
+        <div class="step-badge">3</div>
+        <h2>Sender Accounts</h2>
+      </div>
+      <div class="card-body">
+        <div class="grid-2">
+          <div>
+            <label for="sender-emails">Sender Email Addresses <span style="font-weight:400;color:var(--gray-400)">(one per line)</span></label>
+            <textarea id="sender-emails" rows="5" placeholder="sender1@company.com&#10;sender2@company.com&#10;sender3@company.com"
+                      style="font-family:'Courier New',monospace;font-size:.82rem"></textarea>
+            <p class="field-hint">Prospects are assigned to senders in round-robin rotation.</p>
+          </div>
+          <div>
+            <label>Saved Sender Profiles</label>
+            <div style="border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:12px;min-height:100px">
+              <div id="saved-profiles"></div>
+              <div style="display:flex;gap:8px;margin-top:10px">
+                <input type="text" id="profile-name" placeholder="Profile name..." style="flex:1">
+                <button class="btn btn-secondary btn-sm" onclick="saveProfile()">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 4: Schedule Settings -->
+    <div class="card" id="schedule-section">
+      <div class="card-header">
+        <div class="step-badge">4</div>
+        <h2>Schedule Settings</h2>
+        <span style="margin-left:auto;font-size:.78rem;color:var(--gray-500)">Select the month to distribute sends across</span>
+      </div>
+      <div class="card-body">
+        <div class="row" style="display:flex;gap:12px;align-items:flex-end;">
+          <div class="flex-1">
+            <label for="sch-month">Send Month</label>
+            <select id="sch-month">
+              <option value="1">January</option>
+              <option value="2">February</option>
+              <option value="3">March</option>
+              <option value="4">April</option>
+              <option value="5">May</option>
+              <option value="6">June</option>
+              <option value="7">July</option>
+              <option value="8">August</option>
+              <option value="9">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+          </div>
+          <div class="flex-1">
+            <label for="sch-year">Year</label>
+            <select id="sch-year">
+              <option value="2026">2026</option>
+              <option value="2027">2027</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" style="display:flex;gap:12px;align-items:flex-end;margin-top:14px;">
+          <div class="flex-1">
+            <label for="recipient-tz">Recipient Timezone</label>
+            <select id="recipient-tz">
+              <option value="Europe/London">🇬🇧 UK (GMT / BST)</option>
+              <option value="America/New_York">🇺🇸 US Eastern (ET)</option>
+              <option value="America/Chicago">🇺🇸 US Central (CT)</option>
+              <option value="America/Denver">🇺🇸 US Mountain (MT)</option>
+              <option value="America/Los_Angeles">🇺🇸 US Pacific (PT)</option>
+              <option value="America/Anchorage">🇺🇸 US Alaska (AKT)</option>
+              <option value="Pacific/Honolulu">🇺🇸 US Hawaii (HT)</option>
+            </select>
+            <p class="field-hint">Send window (08:30–15:30) applies in this timezone.</p>
+          </div>
+          <div class="flex-1">
+            <label for="sender-tz">Sender Timezone</label>
+            <select id="sender-tz">
+              <option value="Europe/London">🇬🇧 UK (GMT / BST)</option>
+              <option value="Africa/Johannesburg">🇿🇦 South Africa (SAST)</option>
+            </select>
+            <p class="field-hint">Output Send Time shown in this timezone.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 5: Options -->
+    <div class="card">
+      <div class="card-header">
+        <div class="step-badge">5</div>
+        <h2>Options</h2>
+      </div>
+      <div class="card-body">
+        <div class="grid-3">
+          <div>
+            <label for="missing-value">Missing Cell Replacement</label>
+            <input type="text" id="missing-value" value="[MISSING]"
+                   placeholder="Text to insert when a cell is blank">
+            <p class="field-hint">Inserted when a prospect row has an empty cell for a placeholder.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 6: Generate -->
+    <div class="card">
+      <div class="card-header">
+        <div class="step-badge">6</div>
+        <h2>Validate &amp; Generate</h2>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <button class="btn btn-secondary" id="validate-btn" onclick="validateTemplates()">
+            🔍 Validate Templates
+          </button>
+          <button class="btn btn-primary" id="generate-btn" onclick="generateMerge()">
+            ⚡ Generate Outreach Sheet
+          </button>
+        </div>
+
+        <div id="validate-feedback" class="hidden"></div>
+        <div id="generate-feedback" class="hidden"></div>
+
+        <!-- Preview of merged output -->
+        <div id="merge-preview-section" class="hidden">
+          <hr class="divider">
+          <p class="section-title">Output Preview (first 5 rows)</p>
+          <div class="preview-wrap">
+            <table id="merge-preview-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Sender</th>
+                  <th>Recipient</th>
+                  <th>Subject Line</th>
+                  <th>Body Preview</th>
+                  <th>Variant</th>
+                </tr>
+              </thead>
+              <tbody id="merge-preview-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Download -->
+        <div id="merge-download-section" class="hidden download-section">
+          <span style="font-size:1.4rem">✅</span>
+          <div style="flex:1">
+            <strong style="color:var(--green-700)">Outreach sheet generated!</strong>
+            <p style="font-size:.8rem;color:var(--gray-600);margin-top:2px" id="merge-row-count"></p>
+          </div>
+          <button class="btn btn-success" id="merge-download-btn" onclick="downloadFile('merge')">
+            ⬇ Download Excel
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /tab-merge -->
+
+
+
+</div><!-- /container -->
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────────────────────
+const state = {
+  fileId: null,
+  headers: [],
+  totalRows: 0,
+  focusedField: null,
+  subjectCount: 0,
+  bodyCount: 0,
+  mergeDownloadId: null,
+  scheduleDownloadId: null,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tabs
+// ─────────────────────────────────────────────────────────────────────────────
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// File Upload
+// ─────────────────────────────────────────────────────────────────────────────
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.add('drag-over');
+}
+function handleDragLeave() {
+  document.getElementById('upload-zone').classList.remove('drag-over');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  handleDragLeave();
+  const file = e.dataTransfer.files[0];
+  if (file) uploadFile(file);
+}
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) uploadFile(file);
+}
+
+function uploadFile(file) {
+  const zone = document.getElementById('upload-zone');
+  const feedback = document.getElementById('upload-feedback');
+
+  zone.innerHTML = `<span class="upload-icon">⏳</span><p>Uploading <strong>${file.name}</strong>…</p>`;
+  showAlert(feedback, 'info', '⏳ Reading file…');
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  fetch('api/upload-prospects', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        zone.innerHTML = `<span class="upload-icon">❌</span><p>${data.error}</p>`;
+        showAlert(feedback, 'error', '❌ ' + data.error);
+        return;
+      }
+      state.fileId = data.file_id;
+      state.headers = data.headers;
+      state.totalRows = data.total_rows;
+
+      zone.classList.add('success');
+      zone.innerHTML = `<span class="upload-icon">✅</span><p><strong>${file.name}</strong> loaded — ${data.total_rows.toLocaleString()} rows detected</p>`;
+      showAlert(feedback, 'success', `✅ File parsed successfully: ${data.total_rows.toLocaleString()} prospect rows, ${data.headers.length} columns.`);
+
+      renderColumns(data.headers);
+      buildPlaceholderBar(data.headers);
+
+      // Initialise templates if none exist
+      if (state.subjectCount === 0) addTemplate('subject');
+      if (state.bodyCount === 0) addTemplate('body');
+    })
+    .catch(err => {
+      zone.innerHTML = `<span class="upload-icon">❌</span><p>Upload failed. Please try again.</p>`;
+      showAlert(feedback, 'error', '❌ Network error: ' + err.message);
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Column Display
+// ─────────────────────────────────────────────────────────────────────────────
+function renderColumns(headers) {
+  const section = document.getElementById('columns-section');
+  const display = document.getElementById('columns-display');
+  const emailSel = document.getElementById('email-col-select');
+  const countBadge = document.getElementById('col-count');
+  const rowBadge = document.getElementById('row-count-badge');
+
+  section.classList.remove('hidden');
+  countBadge.textContent = headers.length + ' columns';
+  rowBadge.textContent = `${state.totalRows.toLocaleString()} prospect rows ready for merge`;
+
+  display.innerHTML = '';
+  emailSel.innerHTML = '<option value="">— None selected —</option>';
+
+  // Auto-detect email column
+  let autoEmail = '';
+  const emailTerms = ['email', 'e-mail', 'emailaddress', 'email address', 'recipient'];
+
+  headers.forEach(h => {
+    const pill = document.createElement('span');
+    pill.className = 'col-pill normal';
+    pill.textContent = h;
+    pill.title = `Click to insert {{${h}}} at cursor`;
+    pill.onclick = () => insertPlaceholder(h);
+    display.appendChild(pill);
+
+    const opt = document.createElement('option');
+    opt.value = h;
+    opt.textContent = h;
+    emailSel.appendChild(opt);
+
+    if (!autoEmail && emailTerms.some(t => h.toLowerCase().includes(t))) {
+      autoEmail = h;
+    }
+  });
+
+  if (autoEmail) {
+    emailSel.value = autoEmail;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Placeholder bar & insertion
+// ─────────────────────────────────────────────────────────────────────────────
+function buildPlaceholderBar(headers) {
+  const bar = document.getElementById('placeholder-bar');
+  const wrap = document.getElementById('placeholder-bar-wrap');
+  bar.innerHTML = '<span class="ph-label">Click to insert:</span>';
+  headers.forEach(h => {
+    const chip = document.createElement('span');
+    chip.className = 'ph-chip';
+    chip.textContent = `{{${h}}}`;
+    chip.onclick = () => insertPlaceholder(h);
+    bar.appendChild(chip);
+  });
+  wrap.classList.remove('hidden');
+}
+
+function setFocusedField(el) {
+  state.focusedField = el;
+}
+
+function insertPlaceholder(colName) {
+  const el = state.focusedField;
+  if (!el) return;
+  const ph = `{{${colName}}}`;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const val = el.value;
+  el.value = val.substring(0, start) + ph + val.substring(end);
+  el.selectionStart = el.selectionEnd = start + ph.length;
+  el.focus();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Template management
+// ─────────────────────────────────────────────────────────────────────────────
+function addTemplate(type) {
+  const isSubject = type === 'subject';
+  const container = document.getElementById(isSubject ? 'subjects-container' : 'bodies-container');
+
+  if (isSubject) state.subjectCount++;
+  else state.bodyCount++;
+
+  const idx = isSubject ? state.subjectCount : state.bodyCount;
+  const id = `${type}-${idx}`;
+  const label = isSubject ? 'Subject Line' : 'Email Body';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'template-group';
+  wrap.id = `group-${id}`;
+
+  if (isSubject) {
+    wrap.innerHTML = `
+      <div class="template-group-header">
+        <span class="template-variant-badge">${label} Variant ${idx}</span>
+        <button class="btn btn-danger" onclick="removeTemplate('${id}')">✕ Remove</button>
+      </div>
+      <div class="template-group-body">
+        <input type="text" id="${id}" class="subject-input"
+               placeholder="e.g. Quick question for {{first_name}} at {{company}}"
+               onfocus="setFocusedField(this)">
+      </div>`;
+  } else {
+    wrap.innerHTML = `
+      <div class="template-group-header">
+        <span class="template-variant-badge" style="background:#0d47a1">${label} Variant ${idx}</span>
+        <button class="btn btn-danger" onclick="removeTemplate('${id}')">✕ Remove</button>
+      </div>
+      <div class="template-group-body">
+        <textarea id="${id}" class="body-input" rows="7"
+                  placeholder="Hi {{first_name}},&#10;&#10;I noticed {{company}} is working in [industry]…&#10;&#10;Would you be open to a quick call?&#10;&#10;Best,&#10;[Your name]"
+                  onfocus="setFocusedField(this)"></textarea>
+      </div>`;
+  }
+
+  container.appendChild(wrap);
+}
+
+function removeTemplate(id) {
+  const el = document.getElementById(`group-${id}`);
+  if (el) el.remove();
+}
+
+function getTemplates(selector) {
+  return Array.from(document.querySelectorAll(selector))
+    .map(el => el.value.trim())
+    .filter(v => v.length > 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sender profiles (Supabase-backed via server proxy)
+// ─────────────────────────────────────────────────────────────────────────────
+let _profilesCache = {};   // profile_name -> emails array
+
+async function renderSavedProfiles() {
+  const container = document.getElementById('saved-profiles');
+  container.innerHTML = '<p style="color:var(--gray-400);font-size:.78rem">Loading…</p>';
+  try {
+    const resp = await fetch('api/sender-profiles');
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed to load profiles');
+
+    _profilesCache = {};
+    data.forEach(p => { _profilesCache[p.profile_name] = p.emails || []; });
+
+    container.innerHTML = '';
+    if (!data.length) {
+      container.innerHTML = '<p style="color:var(--gray-400);font-size:.78rem">No saved profiles yet.</p>';
+      return;
+    }
+    data.forEach(p => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
+      const nameEl = document.createElement('span');
+      nameEl.style.cssText = 'flex:1;font-size:.8rem;color:var(--gray-700);font-weight:600';
+      nameEl.textContent = p.profile_name;
+      const loadBtn = document.createElement('button');
+      loadBtn.className = 'btn btn-secondary btn-sm';
+      loadBtn.textContent = 'Load';
+      loadBtn.addEventListener('click', () => loadProfile(p.profile_name));
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-danger';
+      delBtn.textContent = '✕';
+      delBtn.addEventListener('click', () => deleteProfile(p.profile_name));
+      row.appendChild(nameEl);
+      row.appendChild(loadBtn);
+      row.appendChild(delBtn);
+      container.appendChild(row);
+    });
+  } catch (err) {
+    container.innerHTML = `<p style="color:var(--red-600);font-size:.78rem">⚠ ${escHtml(err.message)}</p>`;
+  }
+}
+
+async function saveProfile() {
+  const name = document.getElementById('profile-name').value.trim();
+  if (!name) return alert('Enter a profile name.');
+  const emailsRaw = document.getElementById('sender-emails').value.trim();
+  if (!emailsRaw) return alert('Enter at least one sender email.');
+  const emails = emailsRaw.split('\n').map(e => e.trim()).filter(Boolean);
+  try {
+    const resp = await fetch('api/sender-profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_name: name, emails }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed to save profile');
+    document.getElementById('profile-name').value = '';
+    await renderSavedProfiles();
+  } catch (err) {
+    alert('Could not save profile: ' + err.message);
+  }
+}
+
+function loadProfile(name) {
+  const emails = _profilesCache[name];
+  if (emails && emails.length) {
+    document.getElementById('sender-emails').value = emails.join('\n');
+  }
+}
+
+async function deleteProfile(name) {
+  if (!confirm(`Delete profile "${name}"?`)) return;
+  try {
+    const resp = await fetch(`api/sender-profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed to delete profile');
+    await renderSavedProfiles();
+  } catch (err) {
+    alert('Could not delete profile: ' + err.message);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Validate templates
+// ─────────────────────────────────────────────────────────────────────────────
+function validateTemplates() {
+  if (!state.fileId) {
+    showAlert(document.getElementById('validate-feedback'), 'warning', '⚠ Please upload a prospect file first.');
+    return;
+  }
+  const subjects = getTemplates('.subject-input');
+  const bodies = getTemplates('.body-input');
+  const chaserSubj = document.getElementById('chaser-subject').value.trim();
+  const chaserBody = document.getElementById('chaser-body').value.trim();
+
+  if (!subjects.length) {
+    showAlert(document.getElementById('validate-feedback'), 'error', '❌ Add at least one subject line template.');
+    return;
+  }
+  if (!bodies.length) {
+    showAlert(document.getElementById('validate-feedback'), 'error', '❌ Add at least one email body template.');
+    return;
+  }
+
+  const btn = document.getElementById('validate-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Validating…';
+
+  fetch('api/validate-templates', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      headers: state.headers,
+      subject_templates: subjects,
+      body_templates: bodies,
+      chaser_subject: chaserSubj,
+      chaser_body: chaserBody,
+    }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled = false;
+    btn.innerHTML = '🔍 Validate Templates';
+    const fb = document.getElementById('validate-feedback');
+    if (data.valid) {
+      showAlert(fb, 'success', '✅ All placeholders matched! Templates are valid.');
+    } else {
+      showAlert(fb, 'error', `❌ Validation failed:<ul>${data.errors.map(e => `<li>${escHtml(e)}</li>`).join('')}</ul>`);
+    }
+  })
+  .catch(err => {
+    btn.disabled = false;
+    btn.innerHTML = '🔍 Validate Templates';
+    showAlert(document.getElementById('validate-feedback'), 'error', '❌ Network error: ' + err.message);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generate merge
+// ─────────────────────────────────────────────────────────────────────────────
+function generateMerge() {
+  if (!state.fileId) {
+    showAlert(document.getElementById('generate-feedback'), 'warning', '⚠ Please upload a prospect file first.');
+    return;
+  }
+
+  const subjects = getTemplates('.subject-input');
+  const bodies = getTemplates('.body-input');
+  const chaserSubj = document.getElementById('chaser-subject').value.trim();
+  const chaserBody = document.getElementById('chaser-body').value.trim();
+  const senderRaw = document.getElementById('sender-emails').value.trim();
+  const senders = senderRaw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+  const missingVal = document.getElementById('missing-value').value.trim() || '[MISSING]';
+  const emailCol = document.getElementById('email-col-select').value;
+
+  if (!subjects.length || !bodies.length) {
+    showAlert(document.getElementById('generate-feedback'), 'error', '❌ At least one subject and one body template are required.');
+    return;
+  }
+  if (!senders.length) {
+    showAlert(document.getElementById('generate-feedback'), 'error', '❌ At least one sender email address is required.');
+    return;
+  }
+
+  const btn = document.getElementById('generate-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Generating…';
+  document.getElementById('merge-download-section').classList.add('hidden');
+  document.getElementById('merge-preview-section').classList.add('hidden');
+
+  fetch('api/generate-merge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      file_id: state.fileId,
+      subject_templates: subjects,
+      body_templates: bodies,
+      chaser_subject: chaserSubj,
+      chaser_body: chaserBody,
+      sender_emails: senders,
+      missing_value: missingVal,
+      email_column: emailCol,
+      year: parseInt(document.getElementById('sch-year').value),
+      month: parseInt(document.getElementById('sch-month').value),
+      recipient_tz: document.getElementById('recipient-tz').value,
+      sender_tz:    document.getElementById('sender-tz').value,
+    }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled = false;
+    btn.innerHTML = '⚡ Generate Outreach Sheet';
+    const fb = document.getElementById('generate-feedback');
+
+    if (data.error) {
+      let msg = '❌ ' + data.error;
+      if (data.details) msg += '<ul>' + data.details.map(e => `<li>${escHtml(e)}</li>`).join('') + '</ul>';
+      showAlert(fb, 'error', msg);
+      return;
+    }
+
+    state.mergeDownloadId = data.download_id;
+    showAlert(fb, 'success', `✅ Merge complete. ${data.total_rows.toLocaleString()} rows generated.`);
+
+    // Render preview
+    renderMergePreview(data.preview);
+
+    // Show download
+    document.getElementById('merge-row-count').textContent =
+      `${data.total_rows.toLocaleString()} rows · ${senders.length} sender(s) · ${subjects.length} subject variant(s) · ${bodies.length} body variant(s)`;
+    document.getElementById('merge-download-section').classList.remove('hidden');
+  })
+  .catch(err => {
+    btn.disabled = false;
+    btn.innerHTML = '⚡ Generate Outreach Sheet';
+    showAlert(document.getElementById('generate-feedback'), 'error', '❌ ' + err.message);
+  });
+}
+
+function renderMergePreview(rows) {
+  const tbody = document.getElementById('merge-preview-body');
+  tbody.innerHTML = '';
+  rows.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td class="mono">${escHtml(r.sender)}</td>
+      <td class="mono">${escHtml(r.recipient)}</td>
+      <td>${escHtml(r.subject)}</td>
+      <td><div class="truncate">${escHtml(r.body_preview)}</div></td>
+      <td><span class="tag tag-blue">${escHtml(r.variant)}</span></td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('merge-preview-section').classList.remove('hidden');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Download
+// ─────────────────────────────────────────────────────────────────────────────
+function downloadFile(type) {
+  const id = type === 'merge' ? state.mergeDownloadId : state.scheduleDownloadId;
+  if (!id) return;
+  window.location.href = `api/download/${id}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+function showAlert(el, type, html) {
+  const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+  el.className = `alert alert-${type}`;
+  el.innerHTML = `<span class="alert-icon">${icons[type]||''}</span><div>${html}</div>`;
+  el.classList.remove('hidden');
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  renderSavedProfiles();
+
+  // Set default schedule month/year to current month
+  (function() {
+    const now = new Date();
+    const monthSel = document.getElementById('sch-month');
+    const yearSel = document.getElementById('sch-year');
+    if (monthSel) monthSel.value = now.getMonth() + 1;
+    if (yearSel) {
+      const yr = now.getFullYear().toString();
+      // Add current year option if not present
+      if (![...yearSel.options].some(o => o.value === yr)) {
+        yearSel.insertAdjacentHTML('afterbegin', `<option value="${yr}">${yr}</option>`);
+      }
+      yearSel.value = yr;
+    }
+  })();
+});
+</script>
+
+</body>
+</html>

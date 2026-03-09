@@ -8,3 +8,13 @@ dist/
 build/
 .venv/
 venv/
+mail_merge/uploads/
+mail_merge/outputs/
+mail_merge/__pycache__/
+mail_merge/utils/__pycache__/
+mail_merge/*.pyc
+mail_merge/debug_index.txt
+mail_merge/server_out.txt
+mail_merge/.claude/
+mail_merge/Start Mail Merge Tool.bat
+mail_merge/Procfile
