@@ -175,6 +175,13 @@ td .truncate{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertica
 /* ── Range with value display ── */
 .range-row{display:flex;align-items:center;gap:12px}
 .range-val{font-size:1.2rem;font-weight:700;color:var(--blue-700);min-width:48px;text-align:right}
+
+/* ── Segmented control (sends-per-day) ── */
+.seg-group{display:inline-flex;border:1px solid var(--gray-300);border-radius:var(--radius-sm);overflow:hidden;margin-top:6px}
+.seg-btn{padding:7px 20px;font-size:.85rem;font-weight:500;background:var(--gray-50);border:none;border-right:1px solid var(--gray-300);cursor:pointer;color:var(--gray-600);transition:background .15s,color .15s}
+.seg-btn:last-child{border-right:none}
+.seg-btn:hover{background:var(--gray-100)}
+.seg-btn.seg-active{background:var(--blue-700);color:#fff;font-weight:600}
 </style>
 </head>
 <body>
@@ -384,20 +391,15 @@ td .truncate{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertica
           </div>
         </div>
 
-        <!-- Volume parameters -->
-        <div class="row" style="display:flex;gap:12px;align-items:flex-end;margin-top:14px;">
-          <div class="flex-1">
-            <label for="monthly-volume">Monthly Send Target</label>
-            <input type="number" id="monthly-volume" min="1" step="1"
-                   placeholder="All prospects" oninput="scheduleCapacityUpdate()">
-            <p class="field-hint">Prospects to schedule this month. Leave blank to schedule all.</p>
+        <!-- Sends per day -->
+        <div style="margin-top:14px;">
+          <label>Sends Per Day <span style="font-weight:400;color:var(--gray-400)">(per sender account)</span></label>
+          <div class="seg-group" id="sends-per-day-group">
+            <button type="button" class="seg-btn" data-value="5" onclick="setSendsPerDay(5)">5 sends</button>
+            <button type="button" class="seg-btn seg-active" data-value="10" onclick="setSendsPerDay(10)">10 sends</button>
+            <button type="button" class="seg-btn" data-value="15" onclick="setSendsPerDay(15)">15 sends</button>
           </div>
-          <div class="flex-1">
-            <label for="daily-limit">Max Sends / Sender / Day</label>
-            <input type="number" id="daily-limit" min="1" max="500" value="15" step="1"
-                   oninput="scheduleCapacityUpdate()">
-            <p class="field-hint">Hard cap on emails each sender account sends per working day.</p>
-          </div>
+          <p class="field-hint" style="margin-top:6px;">Emails each sender account sends per working day. Remaining prospects carry over to the following month.</p>
         </div>
 
         <!-- Live capacity banner — populated by updateCapacityBanner() -->
@@ -505,6 +507,17 @@ const state = {
   scheduleDownloadId: null,
 };
 
+// Sends-per-day selection (5 / 10 / 15); default 10
+let _sendsPerDay = 10;
+
+function setSendsPerDay(n) {
+  _sendsPerDay = n;
+  document.querySelectorAll('#sends-per-day-group .seg-btn').forEach(btn => {
+    btn.classList.toggle('seg-active', parseInt(btn.dataset.value) === n);
+  });
+  scheduleCapacityUpdate();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tabs
 // ─────────────────────────────────────────────────────────────────────────────
@@ -565,12 +578,8 @@ function uploadFile(file) {
       renderColumns(data.headers);
       buildPlaceholderBar(data.headers);
 
-      // Pre-fill monthly volume from file row count (only if blank)
-      const mvInput = document.getElementById('monthly-volume');
-      if (mvInput && !mvInput.value) {
-        mvInput.value = data.total_rows;
-        scheduleCapacityUpdate();
-      }
+      // Trigger a capacity banner refresh now that we know the prospect count
+      scheduleCapacityUpdate();
 
       // Initialise templates if none exist
       if (state.subjectCount === 0) addTemplate('subject');
@@ -880,15 +889,14 @@ async function updateCapacityBanner() {
   const month  = parseInt(document.getElementById('sch-month')?.value);
   if (!year || !month) { banner.style.display = 'none'; return; }
 
-  const dailyLimit   = Math.max(1, parseInt(document.getElementById('daily-limit')?.value) || 15);
-  const senderRaw    = document.getElementById('sender-emails')?.value ?? '';
-  const senderCount  = senderRaw.split('\n').map(s => s.trim()).filter(Boolean).length;
+  const senderRaw   = document.getElementById('sender-emails')?.value ?? '';
+  const senderCount = senderRaw.split('\n').map(s => s.trim()).filter(Boolean).length;
 
   if (senderCount === 0) { banner.style.display = 'none'; return; }
 
   try {
     const r = await fetch(
-      `api/schedule-capacity?year=${year}&month=${month}&sender_count=${senderCount}&daily_limit=${dailyLimit}`
+      `api/schedule-capacity?year=${year}&month=${month}&sender_count=${senderCount}&sends_per_day=${_sendsPerDay}`
     );
     const d = await r.json();
     if (d.error) { banner.style.display = 'none'; return; }
@@ -897,19 +905,14 @@ async function updateCapacityBanner() {
     const workDays  = d.working_days;
     const totalPros = state.totalRows || 0;
 
-    const mvRaw       = document.getElementById('monthly-volume')?.value;
-    const monthlyVol  = mvRaw ? parseInt(mvRaw) : null;
-    const target      = (monthlyVol !== null && !isNaN(monthlyVol))
-                          ? Math.min(monthlyVol, totalPros || monthlyVol)
-                          : totalPros;
-
+    const target    = totalPros;
     const scheduled = Math.min(target, maxCap);
     const overflow  = target - scheduled;
 
     const names = ['','January','February','March','April','May','June','July',
                    'August','September','October','November','December'];
     const capStr = `${workDays} day${workDays!==1?'s':''} × ${senderCount} ` +
-                   `sender${senderCount!==1?'s':''} × ${dailyLimit}/day = ` +
+                   `sender${senderCount!==1?'s':''} × ${_sendsPerDay}/day = ` +
                    `<strong>${maxCap.toLocaleString()} max</strong>`;
 
     if (overflow > 0) {
@@ -984,11 +987,7 @@ function generateMerge() {
       month: parseInt(document.getElementById('sch-month').value),
       recipient_tz:   document.getElementById('recipient-tz').value,
       sender_tz:      document.getElementById('sender-tz').value,
-      monthly_volume: (function() {
-        const v = document.getElementById('monthly-volume')?.value;
-        return v ? parseInt(v) : null;
-      })(),
-      daily_limit: Math.max(1, parseInt(document.getElementById('daily-limit')?.value) || 15),
+      sends_per_day: _sendsPerDay,
     }),
   })
   .then(r => r.json())

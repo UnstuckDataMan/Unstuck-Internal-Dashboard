@@ -111,23 +111,23 @@ def schedule_capacity():
     render the live capacity banner before the user hits Generate."""
     year         = request.args.get('year',         type=int)
     month        = request.args.get('month',        type=int)
-    sender_count = request.args.get('sender_count', type=int, default=1)
-    daily_limit  = request.args.get('daily_limit',  type=int, default=15)
+    sender_count  = request.args.get('sender_count',  type=int, default=1)
+    sends_per_day = request.args.get('sends_per_day', type=int, default=10)
 
     if not year or not month:
         return jsonify({'error': 'year and month are required'}), 400
 
-    sender_count = max(1, sender_count or 1)
-    daily_limit  = max(1, daily_limit  or 1)
+    sender_count  = max(1, sender_count  or 1)
+    sends_per_day = sends_per_day if sends_per_day in (5, 10, 15) else 10
 
     try:
         working_days = get_working_days(year, month)
         n_days       = len(working_days)
-        max_capacity = daily_limit * sender_count * n_days
+        max_capacity = sends_per_day * sender_count * n_days
         return jsonify({
             'working_days': n_days,
             'max_capacity': max_capacity,
-            'daily_sends':  daily_limit * sender_count,
+            'daily_sends':  sends_per_day * sender_count,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -146,10 +146,10 @@ def generate_merge():
     email_column = data.get('email_column', '')
     year = data.get('year')
     month = data.get('month')
-    recipient_tz   = data.get('recipient_tz', 'Europe/London')
-    sender_tz      = data.get('sender_tz', 'Europe/London')
-    monthly_volume = data.get('monthly_volume')       # int or None — user's monthly target
-    daily_limit    = max(1, int(data.get('daily_limit', 15) or 15))
+    recipient_tz      = data.get('recipient_tz', 'Europe/London')
+    sender_tz         = data.get('sender_tz', 'Europe/London')
+    sends_per_day_raw = data.get('sends_per_day', 10)
+    sends_per_day     = sends_per_day_raw if sends_per_day_raw in (5, 10, 15) else 10
 
     if not file_id:
         return jsonify({'error': 'No prospect file specified'}), 400
@@ -191,17 +191,11 @@ def generate_merge():
         # ── Capacity-aware scheduling ──────────────────────────────────────
         total_prospects = len(merged_rows)
 
-        # How many does the user want to schedule this month?
-        if monthly_volume is not None:
-            target = min(int(monthly_volume), total_prospects)
-        else:
-            target = total_prospects
-
-        # How many can actually fit given the working days and sender limits?
+        # How many can fit at the chosen sends-per-day rate?
         working_days_list = get_working_days(year, month)
-        max_capacity   = daily_limit * len(sender_emails) * len(working_days_list)
-        scheduled_count = min(target, max_capacity)
-        overflow_count  = target - scheduled_count
+        max_capacity    = sends_per_day * len(sender_emails) * len(working_days_list)
+        scheduled_count = min(total_prospects, max_capacity)
+        overflow_count  = total_prospects - scheduled_count
 
         if scheduled_count < 1:
             return jsonify({
@@ -213,7 +207,7 @@ def generate_merge():
         schedule = generate_schedule(
             year, month, scheduled_count, sender_emails,
             recipient_tz=recipient_tz, sender_tz=sender_tz,
-            max_per_sender_per_day=daily_limit,
+            max_per_sender_per_day=sends_per_day,
         )
         for entry in schedule:
             row = merged_rows[entry['prospect_id'] - 1]

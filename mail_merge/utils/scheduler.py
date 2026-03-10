@@ -149,10 +149,10 @@ def generate_schedule(
             break
 
         # ── How many prospects to assign today ──────────────────────────── #
+        # Fixed-rate: fill each day at max_per_sender_per_day × senders until
+        # prospects run out.  The last (partial) day gets whatever remains.
         remaining_prospects = prospect_count - prospect_idx
-        remaining_days = n_days - day_num
-        day_target = math.ceil(remaining_prospects / remaining_days)
-        day_target = min(day_target, max_per_sender_per_day * len(sender_emails))
+        day_target = min(max_per_sender_per_day * len(sender_emails), remaining_prospects)
 
         # ── How many senders are active today ───────────────────────────── #
         # Use ALL available senders (up to day_target — no point activating
