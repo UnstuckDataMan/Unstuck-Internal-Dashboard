@@ -337,7 +337,7 @@ td .truncate{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertica
         <div class="row" style="display:flex;gap:12px;align-items:flex-end;">
           <div class="flex-1">
             <label for="sch-month">Send Month</label>
-            <select id="sch-month">
+            <select id="sch-month" onchange="scheduleCapacityUpdate()">
               <option value="1">January</option>
               <option value="2">February</option>
               <option value="3">March</option>
@@ -354,7 +354,7 @@ td .truncate{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertica
           </div>
           <div class="flex-1">
             <label for="sch-year">Year</label>
-            <select id="sch-year">
+            <select id="sch-year" onchange="scheduleCapacityUpdate()">
               <option value="2026">2026</option>
               <option value="2027">2027</option>
             </select>
@@ -383,6 +383,26 @@ td .truncate{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertica
             <p class="field-hint">Output Send Time shown in this timezone.</p>
           </div>
         </div>
+
+        <!-- Volume parameters -->
+        <div class="row" style="display:flex;gap:12px;align-items:flex-end;margin-top:14px;">
+          <div class="flex-1">
+            <label for="monthly-volume">Monthly Send Target</label>
+            <input type="number" id="monthly-volume" min="1" step="1"
+                   placeholder="All prospects" oninput="scheduleCapacityUpdate()">
+            <p class="field-hint">Prospects to schedule this month. Leave blank to schedule all.</p>
+          </div>
+          <div class="flex-1">
+            <label for="daily-limit">Max Sends / Sender / Day</label>
+            <input type="number" id="daily-limit" min="1" max="500" value="15" step="1"
+                   oninput="scheduleCapacityUpdate()">
+            <p class="field-hint">Hard cap on emails each sender account sends per working day.</p>
+          </div>
+        </div>
+
+        <!-- Live capacity banner — populated by updateCapacityBanner() -->
+        <div id="capacity-banner" style="display:none;margin-top:12px;padding:11px 14px;border-radius:var(--radius-sm);font-size:.83rem;line-height:1.5;"></div>
+
       </div>
     </div>
 
@@ -544,6 +564,13 @@ function uploadFile(file) {
 
       renderColumns(data.headers);
       buildPlaceholderBar(data.headers);
+
+      // Pre-fill monthly volume from file row count (only if blank)
+      const mvInput = document.getElementById('monthly-volume');
+      if (mvInput && !mvInput.value) {
+        mvInput.value = data.total_rows;
+        scheduleCapacityUpdate();
+      }
 
       // Initialise templates if none exist
       if (state.subjectCount === 0) addTemplate('subject');
@@ -829,6 +856,86 @@ function validateTemplates() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Capacity banner
+// ─────────────────────────────────────────────────────────────────────────────
+let _capacityTimer = null;
+function scheduleCapacityUpdate() {
+  clearTimeout(_capacityTimer);
+  _capacityTimer = setTimeout(updateCapacityBanner, 350);
+}
+
+function _nextMonthLabel(month, year) {
+  const names = ['','January','February','March','April','May','June','July',
+                 'August','September','October','November','December'];
+  const nm = month === 12 ? 1 : month + 1;
+  const ny = month === 12 ? year + 1 : year;
+  return `${names[nm]} ${ny}`;
+}
+
+async function updateCapacityBanner() {
+  const banner = document.getElementById('capacity-banner');
+  if (!banner) return;
+
+  const year   = parseInt(document.getElementById('sch-year')?.value);
+  const month  = parseInt(document.getElementById('sch-month')?.value);
+  if (!year || !month) { banner.style.display = 'none'; return; }
+
+  const dailyLimit   = Math.max(1, parseInt(document.getElementById('daily-limit')?.value) || 15);
+  const senderRaw    = document.getElementById('sender-emails')?.value ?? '';
+  const senderCount  = senderRaw.split('\n').map(s => s.trim()).filter(Boolean).length;
+
+  if (senderCount === 0) { banner.style.display = 'none'; return; }
+
+  try {
+    const r = await fetch(
+      `api/schedule-capacity?year=${year}&month=${month}&sender_count=${senderCount}&daily_limit=${dailyLimit}`
+    );
+    const d = await r.json();
+    if (d.error) { banner.style.display = 'none'; return; }
+
+    const maxCap    = d.max_capacity;
+    const workDays  = d.working_days;
+    const totalPros = state.totalRows || 0;
+
+    const mvRaw       = document.getElementById('monthly-volume')?.value;
+    const monthlyVol  = mvRaw ? parseInt(mvRaw) : null;
+    const target      = (monthlyVol !== null && !isNaN(monthlyVol))
+                          ? Math.min(monthlyVol, totalPros || monthlyVol)
+                          : totalPros;
+
+    const scheduled = Math.min(target, maxCap);
+    const overflow  = target - scheduled;
+
+    const names = ['','January','February','March','April','May','June','July',
+                   'August','September','October','November','December'];
+    const capStr = `${workDays} day${workDays!==1?'s':''} × ${senderCount} ` +
+                   `sender${senderCount!==1?'s':''} × ${dailyLimit}/day = ` +
+                   `<strong>${maxCap.toLocaleString()} max</strong>`;
+
+    if (overflow > 0) {
+      banner.style.cssText =
+        'display:block;margin-top:12px;padding:11px 14px;border-radius:var(--radius-sm);' +
+        'font-size:.83rem;line-height:1.5;background:#FFF8E1;border:1px solid #FFB300;color:#5D4037';
+      banner.innerHTML =
+        `⚠&nbsp; <strong>${names[month]} capacity:</strong> ${capStr}. ` +
+        `Scheduling <strong>${scheduled.toLocaleString()}</strong> this month; ` +
+        `<strong>${overflow.toLocaleString()} carry over to ${_nextMonthLabel(month, year)}</strong>.`;
+    } else {
+      banner.style.cssText =
+        'display:block;margin-top:12px;padding:11px 14px;border-radius:var(--radius-sm);' +
+        'font-size:.83rem;line-height:1.5;background:#E8F5E9;border:1px solid #66BB6A;color:#1B5E20';
+      banner.innerHTML =
+        `✓&nbsp; <strong>${names[month]} capacity:</strong> ${capStr}. ` +
+        (target > 0
+          ? `All <strong>${scheduled.toLocaleString()}</strong> targeted prospects fit this month.`
+          : 'Set a monthly target or upload a prospect file to see volume.');
+    }
+  } catch (e) {
+    banner.style.display = 'none';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Generate merge
 // ─────────────────────────────────────────────────────────────────────────────
 function generateMerge() {
@@ -875,8 +982,13 @@ function generateMerge() {
       email_column: emailCol,
       year: parseInt(document.getElementById('sch-year').value),
       month: parseInt(document.getElementById('sch-month').value),
-      recipient_tz: document.getElementById('recipient-tz').value,
-      sender_tz:    document.getElementById('sender-tz').value,
+      recipient_tz:   document.getElementById('recipient-tz').value,
+      sender_tz:      document.getElementById('sender-tz').value,
+      monthly_volume: (function() {
+        const v = document.getElementById('monthly-volume')?.value;
+        return v ? parseInt(v) : null;
+      })(),
+      daily_limit: Math.max(1, parseInt(document.getElementById('daily-limit')?.value) || 15),
     }),
   })
   .then(r => r.json())
@@ -893,14 +1005,21 @@ function generateMerge() {
     }
 
     state.mergeDownloadId = data.download_id;
-    showAlert(fb, 'success', `✅ Merge complete. ${data.total_rows.toLocaleString()} rows generated.`);
+    let _successMsg = `✅ Merge complete. <strong>${(data.scheduled_count ?? data.total_rows).toLocaleString()}</strong> prospects scheduled.`;
+    if (data.overflow_count > 0) {
+      _successMsg += ` <strong style="color:var(--amber-700)">${data.overflow_count.toLocaleString()} carry over to next month.</strong>`;
+    }
+    showAlert(fb, 'success', _successMsg);
 
     // Render preview
     renderMergePreview(data.preview);
 
     // Show download
-    document.getElementById('merge-row-count').textContent =
-      `${data.total_rows.toLocaleString()} rows · ${senders.length} sender(s) · ${subjects.length} subject variant(s) · ${bodies.length} body variant(s)`;
+    const _sched = (data.scheduled_count ?? data.total_rows).toLocaleString();
+    let _rowCountTxt = `${_sched} rows scheduled`;
+    if (data.overflow_count > 0) _rowCountTxt += ` · ${data.overflow_count.toLocaleString()} carry-over`;
+    _rowCountTxt += ` · ${senders.length} sender(s) · ${subjects.length} subject variant(s) · ${bodies.length} body variant(s)`;
+    document.getElementById('merge-row-count').textContent = _rowCountTxt;
     document.getElementById('merge-output-filename').value = 'Outreach Merge';
     document.getElementById('merge-download-section').classList.remove('hidden');
   })
@@ -960,6 +1079,10 @@ function escHtml(s) {
 // ─────────────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   renderSavedProfiles();
+
+  // Recompute capacity banner when sender list changes
+  document.getElementById('sender-emails')
+    ?.addEventListener('input', scheduleCapacityUpdate);
 
   // Set default schedule month/year to current month
   (function() {

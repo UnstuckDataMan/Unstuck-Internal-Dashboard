@@ -7,7 +7,7 @@ from werkzeug.utils import secure_filename
 
 from utils.excel_reader import parse_prospect_file
 from utils.merge import validate_templates, perform_merge
-from utils.scheduler import generate_schedule
+from utils.scheduler import generate_schedule, get_working_days
 from utils.excel_writer import write_merge_output
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -104,6 +104,35 @@ def validate_templates_route():
     return jsonify({'valid': len(errors) == 0, 'errors': errors})
 
 
+@app.route('/api/schedule-capacity', methods=['GET'])
+def schedule_capacity():
+    """Return working-day count and max schedulable prospect count for a given
+    month, sender count, and daily-limit setting.  Used by the frontend to
+    render the live capacity banner before the user hits Generate."""
+    year         = request.args.get('year',         type=int)
+    month        = request.args.get('month',        type=int)
+    sender_count = request.args.get('sender_count', type=int, default=1)
+    daily_limit  = request.args.get('daily_limit',  type=int, default=15)
+
+    if not year or not month:
+        return jsonify({'error': 'year and month are required'}), 400
+
+    sender_count = max(1, sender_count or 1)
+    daily_limit  = max(1, daily_limit  or 1)
+
+    try:
+        working_days = get_working_days(year, month)
+        n_days       = len(working_days)
+        max_capacity = daily_limit * sender_count * n_days
+        return jsonify({
+            'working_days': n_days,
+            'max_capacity': max_capacity,
+            'daily_sends':  daily_limit * sender_count,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/generate-merge', methods=['POST'])
 def generate_merge():
     data = request.json
@@ -117,8 +146,10 @@ def generate_merge():
     email_column = data.get('email_column', '')
     year = data.get('year')
     month = data.get('month')
-    recipient_tz = data.get('recipient_tz', 'Europe/London')
-    sender_tz = data.get('sender_tz', 'Europe/London')
+    recipient_tz   = data.get('recipient_tz', 'Europe/London')
+    sender_tz      = data.get('sender_tz', 'Europe/London')
+    monthly_volume = data.get('monthly_volume')       # int or None — user's monthly target
+    daily_limit    = max(1, int(data.get('daily_limit', 15) or 15))
 
     if not file_id:
         return jsonify({'error': 'No prospect file specified'}), 400
@@ -157,19 +188,43 @@ def generate_merge():
             email_column
         )
 
-        # Generate schedule and join send date/time onto each merged row
-        sched_count = max(100, min(1650, len(merged_rows)))
-        schedule = generate_schedule(year, month, sched_count, sender_emails,
-                                     recipient_tz=recipient_tz, sender_tz=sender_tz)
+        # ── Capacity-aware scheduling ──────────────────────────────────────
+        total_prospects = len(merged_rows)
+
+        # How many does the user want to schedule this month?
+        if monthly_volume is not None:
+            target = min(int(monthly_volume), total_prospects)
+        else:
+            target = total_prospects
+
+        # How many can actually fit given the working days and sender limits?
+        working_days_list = get_working_days(year, month)
+        max_capacity   = daily_limit * len(sender_emails) * len(working_days_list)
+        scheduled_count = min(target, max_capacity)
+        overflow_count  = target - scheduled_count
+
+        if scheduled_count < 1:
+            return jsonify({
+                'error': 'No prospects can be scheduled. '
+                         'Check your month selection, sender count, and daily limit.'
+            }), 400
+
+        # Generate schedule for the schedulable subset and join onto rows
+        schedule = generate_schedule(
+            year, month, scheduled_count, sender_emails,
+            recipient_tz=recipient_tz, sender_tz=sender_tz,
+            max_per_sender_per_day=daily_limit,
+        )
         for entry in schedule:
             row = merged_rows[entry['prospect_id'] - 1]
             row['__send_date__'] = entry['date']
             row['__send_time__'] = entry['send_time']
             row['__sender_number__'] = entry['sender_number']
 
-        # Sort rows so senders appear in the same order as the loaded profile
+        # Sort by profile order, then keep only the rows that have a send date
         sender_order = {email: idx for idx, email in enumerate(sender_emails)}
         merged_rows.sort(key=lambda r: sender_order.get(r.get('__sender_account__', ''), 999))
+        merged_rows = [r for r in merged_rows if r.get('__send_date__')]
 
         has_chaser = bool(chaser_subject or chaser_body)
         output_filename = f"outreach_merge_{uuid.uuid4().hex[:8]}.xlsx"
@@ -179,7 +234,9 @@ def generate_merge():
 
         return jsonify({
             'download_id': output_filename,
-            'total_rows': len(merged_rows),
+            'total_rows': len(merged_rows),        # rows in the Excel (= scheduled_count)
+            'scheduled_count': len(merged_rows),
+            'overflow_count': overflow_count,
             'preview': [
                 {
                     'sender': r.get('__sender_account__', ''),

@@ -53,7 +53,12 @@ def get_working_days(year: int, month: int) -> List[date]:
     ]
 
 
-def get_working_days_info(year: int, month: int, prospect_count: int) -> Dict:
+def get_working_days_info(
+    year: int,
+    month: int,
+    prospect_count: int,
+    max_per_sender_per_day: int = 15,
+) -> Dict:
     """
     Calculate and return scheduling statistics for the given parameters.
     Used by the frontend to display live info before generating a schedule.
@@ -65,10 +70,10 @@ def get_working_days_info(year: int, month: int, prospect_count: int) -> Dict:
     if n_days == 0:
         raise ValueError(f"No working days found in {cal_mod.month_name[month]} {year}.")
 
-    prospect_count = max(100, min(1650, prospect_count))
+    prospect_count = max(1, prospect_count)
 
     prospects_per_day = math.ceil(prospect_count / n_days)
-    senders_per_day = math.ceil(prospects_per_day / 15)
+    senders_per_day = math.ceil(prospects_per_day / max_per_sender_per_day)
     sends_per_sender = math.ceil(prospects_per_day / senders_per_day)
 
     return {
@@ -102,6 +107,7 @@ def generate_schedule(
     sender_emails: List[str],
     recipient_tz: str = 'Europe/London',
     sender_tz: str = 'Europe/London',
+    max_per_sender_per_day: int = 15,
 ) -> List[Dict]:
     """
     Generate a complete sending schedule for `prospect_count` initial emails
@@ -110,11 +116,15 @@ def generate_schedule(
     The 08:30–15:30 send window is applied in `recipient_tz`.
     The returned `send_time` values are expressed in `sender_tz` (DST-aware).
 
+    `max_per_sender_per_day` caps how many sends each account can make per
+    working day (default 15).  The caller is responsible for pre-clamping
+    `prospect_count` to the monthly capacity before calling this function.
+
     Returns a list of dicts, each representing one scheduled send:
       date, day_of_week, send_time, sender, sender_number, prospect_id
     """
-    if not (100 <= prospect_count <= 1650):
-        raise ValueError("Prospect count must be between 100 and 1650.")
+    if prospect_count < 1:
+        raise ValueError("Prospect count must be at least 1.")
     if not sender_emails:
         raise ValueError("At least one sender email is required.")
 
@@ -142,7 +152,7 @@ def generate_schedule(
         remaining_prospects = prospect_count - prospect_idx
         remaining_days = n_days - day_num
         day_target = math.ceil(remaining_prospects / remaining_days)
-        day_target = min(day_target, MAX_PER_SENDER_PER_DAY * len(sender_emails))
+        day_target = min(day_target, max_per_sender_per_day * len(sender_emails))
 
         # ── How many senders are active today ───────────────────────────── #
         # Use ALL available senders (up to day_target — no point activating
@@ -208,7 +218,7 @@ def generate_schedule(
             for attempt in range(senders_today):
                 s_idx = (rr + attempt) % senders_today
                 if (slot_dt >= sender_starts[s_idx]
-                        and sender_counts[s_idx] < MAX_PER_SENDER_PER_DAY):
+                        and sender_counts[s_idx] < max_per_sender_per_day):
                     adjusted.append((slot_dt, sender_emails[s_idx], s_idx + 1))
                     sender_counts[s_idx] += 1
                     rr = (s_idx + 1) % senders_today
