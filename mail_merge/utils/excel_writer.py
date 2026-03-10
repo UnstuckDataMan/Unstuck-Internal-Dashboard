@@ -81,7 +81,7 @@ def _cf_rule(formula: str, fill_hex: str) -> Rule:
     """
     fill = PatternFill(patternType='solid', fgColor=fill_hex, bgColor=fill_hex)
     dxf  = DifferentialStyle(fill=fill)
-    return Rule(type='formula', dxf=dxf, formula=[formula])
+    return Rule(type='expression', dxf=dxf, formula=[formula])
 
 
 def _add_cf_equal(ws, data_range: str, match_value: str, fill_hex: str):
