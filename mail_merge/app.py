@@ -167,6 +167,10 @@ def generate_merge():
             row['__send_time__'] = entry['send_time']
             row['__sender_number__'] = entry['sender_number']
 
+        # Sort rows so senders appear in the same order as the loaded profile
+        sender_order = {email: idx for idx, email in enumerate(sender_emails)}
+        merged_rows.sort(key=lambda r: sender_order.get(r.get('__sender_account__', ''), 999))
+
         has_chaser = bool(chaser_subject or chaser_body)
         output_filename = f"outreach_merge_{uuid.uuid4().hex[:8]}.xlsx"
         output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
@@ -262,7 +266,15 @@ def download_file(filename):
     if not os.path.exists(filepath):
         return jsonify({'error': 'File not found'}), 404
 
-    return send_file(filepath, as_attachment=True, download_name=filename)
+    custom_name = request.args.get('name', '').strip()
+    if custom_name:
+        download_name = secure_filename(custom_name)
+        if not download_name.lower().endswith('.xlsx'):
+            download_name += '.xlsx'
+    else:
+        download_name = filename
+
+    return send_file(filepath, as_attachment=True, download_name=download_name)
 
 
 if __name__ == '__main__':

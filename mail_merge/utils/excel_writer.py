@@ -112,9 +112,9 @@ def write_merge_output(
     ws.freeze_panes = 'A2'
 
     # ── Column layout ──────────────────────────────────────────────────────
-    # Section 1: row number
-    sec_meta = ['#']
-    # Section 2: schedule dates (cols 2 & 3 when schedule is included — easy to scan)
+    # Section 1: sent checkbox — always first so the SDR can tick rows off easily
+    sec_status = ['Send Status']
+    # Section 2: schedule dates
     sec_schedule = ['Send Date', 'Send Time'] if has_schedule else []
     # Section 3: sender / recipient
     sec_routing = ['Sender Account', 'Recipient Email']
@@ -123,15 +123,15 @@ def write_merge_output(
     if has_chaser:
         sec_template += ['Chaser Subject', 'Chaser Body']
     sec_template += ['A/B Variant']
-    # Section 5: tracking (Send Date/Time removed — they're now at the front)
-    sec_tracking = ['Send Status', 'Response', 'Lead Status', 'Notes']
+    # Section 5: tracking
+    sec_tracking = ['Response', 'Lead Status', 'Notes']
 
-    all_cols = sec_meta + sec_schedule + sec_routing + sec_template + sec_tracking
+    all_cols = sec_status + sec_schedule + sec_routing + sec_template + sec_tracking
 
     # Map header → colour token
     color_map: Dict[str, str] = {}
-    for h in sec_meta:
-        color_map[h] = '37474F'
+    for h in sec_status:
+        color_map[h] = C['hdr_tracking']
     for h in sec_schedule:
         color_map[h] = C['hdr_tracking']
     for h in sec_routing:
@@ -145,12 +145,12 @@ def write_merge_output(
 
     # Column widths
     col_widths = {
-        '#': 5,
+        'Send Status': 10,
         'Sender Account': 30, 'Recipient Email': 34,
         'Subject Line': 44,   'Email Body': 64,
         'Chaser Subject': 44, 'Chaser Body': 64,
         'A/B Variant': 12,
-        'Send Status': 14,    'Response': 22,
+        'Response': 22,
         'Lead Status': 18,    'Send Date': 14,
         'Send Time': 12,      'Notes': 32,
     }
@@ -171,7 +171,7 @@ def write_merge_output(
     def col_let(name):
         return get_column_letter(col_map[name])
 
-    _add_dv(ws, '"Not Sent,Scheduled,Sent,Bounced"',
+    _add_dv(ws, '"☐,☑"',
             col_let('Send Status'), last_row)
     _add_dv(ws, '"No Response,Positive Reply,Negative Reply,Unsubscribed,Auto-Reply"',
             col_let('Response'), last_row)
@@ -179,11 +179,21 @@ def write_merge_output(
             col_let('Lead Status'), last_row)
 
     # ── Write data rows ────────────────────────────────────────────────────
+    prev_sender = None
     for ri, row_data in enumerate(merged_rows, 2):
-        fill_hex = C['row_even'] if ri % 2 == 0 else C['row_odd']
+        current_sender = row_data.get('__sender_account__', '')
+        is_first_of_sender = (current_sender != prev_sender)
+        prev_sender = current_sender
+
+        # Yellow stripe on the first row of each new sender block so the SDR
+        # can see at a glance when the sending account changes.
+        if is_first_of_sender:
+            fill_hex = 'FFFDE7'
+        else:
+            fill_hex = C['row_even'] if ri % 2 == 0 else C['row_odd']
 
         row_values = {
-            '#': ri - 1,
+            'Send Status': '☐',
             'Sender Account': row_data.get('__sender_account__', ''),
             'Recipient Email': row_data.get('__recipient_email__', ''),
             'Subject Line': row_data.get('__subject_line__', ''),
@@ -191,7 +201,6 @@ def write_merge_output(
             'Chaser Subject': row_data.get('__chaser_subject__', ''),
             'Chaser Body': row_data.get('__chaser_body__', ''),
             'A/B Variant': row_data.get('__template_variant__', ''),
-            'Send Status': 'Not Sent',
             'Response': 'No Response',
             'Lead Status': 'Not a Lead',
             'Send Date': row_data.get('__send_date__', ''),
@@ -203,7 +212,14 @@ def write_merge_output(
 
         for ci, header in enumerate(all_cols, 1):
             cell = ws.cell(row=ri, column=ci, value=row_values.get(header, ''))
-            _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
+            if header == 'Send Status':
+                # Checkbox cell: larger font, centred
+                cell.font = Font(name='Calibri', size=13)
+                cell.fill = PatternFill('solid', fgColor=fill_hex)
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = _thin_border()
+            else:
+                _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
 
         ws.row_dimensions[ri].height = 72 if total_data_rows <= 200 else 36
 
@@ -211,14 +227,12 @@ def write_merge_output(
     def cf_range(name):
         return f"{col_let(name)}2:{col_let(name)}{last_row}"
 
-    # Whole-row pastel green when Scheduled (lower priority — cell rules override it)
+    # Whole-row pastel green when checkbox is ticked — added first so cell-level
+    # rules (Response, Lead Status) take priority over the row highlight.
     ws.conditional_formatting.add(
         f"A2:{get_column_letter(len(all_cols))}{last_row}",
-        _cf_rule(f'${col_let("Send Status")}2="Scheduled"', 'E8F5E9'),
+        _cf_rule('$A2="☑"', 'E8F5E9'),
     )
-
-    _add_cf_equal(ws, cf_range('Send Status'), 'Sent',    C['green_bg'])
-    _add_cf_equal(ws, cf_range('Send Status'), 'Bounced', C['red_bg'])
 
     _add_cf_equal(ws, cf_range('Response'), 'Positive Reply', C['green_bg'])
     _add_cf_equal(ws, cf_range('Response'), 'Negative Reply', C['red_bg'])
