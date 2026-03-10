@@ -221,9 +221,14 @@ def generate_merge():
             row['__send_time__'] = entry['send_time']
             row['__sender_number__'] = entry['sender_number']
 
-        # Sort by profile order, then keep only the rows that have a send date
+        # Sort chronologically by date → sender profile order → send time,
+        # so the sheet reads: Sender 1 today, Sender 2 today, Sender 1 tomorrow …
         sender_order = {email: idx for idx, email in enumerate(sender_emails)}
-        merged_rows.sort(key=lambda r: sender_order.get(r.get('__sender_account__', ''), 999))
+        merged_rows.sort(key=lambda r: (
+            r.get('__send_date__', ''),
+            sender_order.get(r.get('__sender_account__', ''), 999),
+            r.get('__send_time__', ''),
+        ))
         merged_rows = [r for r in merged_rows if r.get('__send_date__')]
 
         has_chaser = bool(chaser_subject or chaser_body)
