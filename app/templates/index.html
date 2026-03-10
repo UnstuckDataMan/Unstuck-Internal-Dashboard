@@ -432,6 +432,13 @@
       setTimeout(() => { window.location.href = href; }, 850);
     });
   });
+
+  window.addEventListener('pageshow', function() {
+    loader.classList.remove('active');
+    document.querySelectorAll('.card-link').forEach(link => {
+      link.classList.remove('pressing');
+    });
+  });
 </script>
 
 </body>
