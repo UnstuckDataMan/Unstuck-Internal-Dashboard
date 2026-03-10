@@ -59,45 +59,45 @@
       width: 700px; height: 700px;
       background: rgba(124, 58, 237, 0.42);
       top: -18%; left: -14%;
-      animation: drift1 10s ease-in-out infinite alternate;
+      animation: drift1 20s ease-in-out infinite;
     }
     /* Pink — right */
     .blob-2 {
       width: 560px; height: 560px;
       background: rgba(232, 121, 249, 0.32);
       top: 15%; right: -18%;
-      animation: drift2 12s ease-in-out infinite alternate;
+      animation: drift2 24s ease-in-out infinite;
     }
     /* Indigo — bottom-centre */
     .blob-3 {
       width: 800px; height: 800px;
       background: rgba(91, 94, 166, 0.28);
       bottom: -28%; left: 15%;
-      animation: drift3 14s ease-in-out infinite alternate;
+      animation: drift3 28s ease-in-out infinite;
     }
     /* Deep violet — mid */
     .blob-4 {
       width: 380px; height: 380px;
       background: rgba(180, 60, 240, 0.22);
       top: 45%; left: 38%;
-      animation: drift4 9s ease-in-out infinite alternate;
+      animation: drift4 18s ease-in-out infinite;
     }
 
     @keyframes drift1 {
-      from { transform: translate(0,   0)   scale(1);    }
-      to   { transform: translate(90px, 70px) scale(1.18); }
+      0%, 100% { transform: translate(0,     0)     scale(1);    }
+      50%      { transform: translate(90px,  70px)  scale(1.18); }
     }
     @keyframes drift2 {
-      from { transform: translate(0,   0)    scale(1);   }
-      to   { transform: translate(-70px, 90px) scale(0.88); }
+      0%, 100% { transform: translate(0,     0)     scale(1);    }
+      50%      { transform: translate(-70px, 90px)  scale(0.88); }
     }
     @keyframes drift3 {
-      from { transform: translate(0,   0)    scale(1);    }
-      to   { transform: translate(50px, -80px) scale(1.12); }
+      0%, 100% { transform: translate(0,     0)     scale(1);    }
+      50%      { transform: translate(50px,  -80px) scale(1.12); }
     }
     @keyframes drift4 {
-      from { transform: translate(0,  0)    scale(1);    }
-      to   { transform: translate(-50px, 60px) scale(1.25); }
+      0%, 100% { transform: translate(0,     0)     scale(1);    }
+      50%      { transform: translate(-50px, 60px)  scale(1.25); }
     }
 
     /* Subtle noise grain overlay */
@@ -412,9 +412,47 @@
       </div>
     </a>
 
+    <a href="http://134.209.186.139:8501/" target="_blank" rel="noopener noreferrer" class="card-link anim" style="--d:1.5s">
+      <div class="tool-card">
+        <div class="card-bar"></div>
+        <div class="card-body">
+          <div class="card-icon">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none"
+                 stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="8" width="16" height="12" rx="2"/>
+              <path d="M12 8V4"/>
+              <circle cx="12" cy="3" r="1" fill="white" stroke="none"/>
+              <path d="M2 14h2M20 14h2"/>
+              <path d="M9 13v2M15 13v2"/>
+            </svg>
+          </div>
+          <h2>AI Scraper</h2>
+          <p>AI-powered web scraping tool. Extract structured data from any website at scale — opens in a new tab.</p>
+        </div>
+      </div>
+    </a>
+
+    <a href="http://178.128.171.45:8501/" target="_blank" rel="noopener noreferrer" class="card-link anim" style="--d:1.7s">
+      <div class="tool-card">
+        <div class="card-bar"></div>
+        <div class="card-body">
+          <div class="card-icon">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none"
+                 stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3l1.5 3.5L17 8l-3.5 1.5L12 13l-1.5-3.5L7 8l3.5-1.5L12 3z"/>
+              <path d="M5 3v4M3 5h4"/>
+              <path d="M19 17v4M17 19h4"/>
+            </svg>
+          </div>
+          <h2>AI Cleaner</h2>
+          <p>AI-powered data cleaning tool. Normalise, deduplicate, and enrich your prospect data automatically — opens in a new tab.</p>
+        </div>
+      </div>
+    </a>
+
   </div>
 
-  <p class="landing-footer anim" style="--d:1.3s">
+  <p class="landing-footer anim" style="--d:1.7s">
     Unstuck Agency &middot; Internal Use Only
   </p>
 
@@ -425,6 +463,7 @@
 
   document.querySelectorAll('.card-link').forEach(link => {
     link.addEventListener('click', function(e) {
+      if (this.target === '_blank') return; // external links open natively — no loader
       e.preventDefault();
       const href = this.getAttribute('href');
       this.classList.add('pressing');

@@ -14,7 +14,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.formatting.rule import FormulaRule
+from openpyxl.formatting.rule import Rule
+from openpyxl.styles.differential import DifferentialStyle
 
 
 # ──────────────────────────────────────────────────────────────────────────── #
@@ -69,18 +70,27 @@ def _add_dv(ws, formula: str, col_letter: str, max_row: int):
     ws.add_data_validation(dv)
 
 
+def _cf_rule(formula: str, fill_hex: str) -> Rule:
+    """Build a formula-based CF rule with a properly registered dxf fill.
+
+    FormulaRule/CellIsRule both fail to reliably register the PatternFill in
+    the workbook's dxf styles block. Using Rule + DifferentialStyle directly
+    is the only approach that works across all openpyxl versions.
+    Setting both fgColor and bgColor is required by Excel for solid fills
+    in differential formatting contexts.
+    """
+    fill = PatternFill(patternType='solid', fgColor=fill_hex, bgColor=fill_hex)
+    dxf  = DifferentialStyle(fill=fill)
+    return Rule(type='formula', dxf=dxf, formula=[formula])
+
+
 def _add_cf_equal(ws, data_range: str, match_value: str, fill_hex: str):
-    # CellIsRule has an openpyxl bug where the dxf fill isn't reliably serialized.
-    # FormulaRule is used instead — it generates correct XML across all openpyxl versions.
-    start_cell = data_range.split(':')[0]          # e.g. "H2"
-    col = ''.join(c for c in start_cell if c.isalpha())   # e.g. "H"
-    row = ''.join(c for c in start_cell if c.isdigit())   # e.g. "2"
+    start_cell = data_range.split(':')[0]
+    col = ''.join(c for c in start_cell if c.isalpha())
+    row = ''.join(c for c in start_cell if c.isdigit())
     ws.conditional_formatting.add(
         data_range,
-        FormulaRule(
-            formula=[f'${col}{row}="{match_value}"'],
-            fill=PatternFill('solid', fgColor=fill_hex),
-        ),
+        _cf_rule(f'${col}{row}="{match_value}"', fill_hex),
     )
 
 
@@ -204,10 +214,7 @@ def write_merge_output(
     # Whole-row pastel green when Scheduled (lower priority — cell rules override it)
     ws.conditional_formatting.add(
         f"A2:{get_column_letter(len(all_cols))}{last_row}",
-        FormulaRule(
-            formula=[f'${col_let("Send Status")}2="Scheduled"'],
-            fill=PatternFill('solid', fgColor='E8F5E9'),
-        ),
+        _cf_rule(f'${col_let("Send Status")}2="Scheduled"', 'E8F5E9'),
     )
 
     _add_cf_equal(ws, cf_range('Send Status'), 'Sent',    C['green_bg'])
