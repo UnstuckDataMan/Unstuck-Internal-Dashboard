@@ -14,7 +14,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.formatting.rule import CellIsRule
+from openpyxl.formatting.rule import FormulaRule
 
 
 # ──────────────────────────────────────────────────────────────────────────── #
@@ -70,11 +70,15 @@ def _add_dv(ws, formula: str, col_letter: str, max_row: int):
 
 
 def _add_cf_equal(ws, data_range: str, match_value: str, fill_hex: str):
+    # CellIsRule has an openpyxl bug where the dxf fill isn't reliably serialized.
+    # FormulaRule is used instead — it generates correct XML across all openpyxl versions.
+    start_cell = data_range.split(':')[0]          # e.g. "H2"
+    col = ''.join(c for c in start_cell if c.isalpha())   # e.g. "H"
+    row = ''.join(c for c in start_cell if c.isdigit())   # e.g. "2"
     ws.conditional_formatting.add(
         data_range,
-        CellIsRule(
-            operator='equal',
-            formula=[f'"{match_value}"'],
+        FormulaRule(
+            formula=[f'${col}{row}="{match_value}"'],
             fill=PatternFill('solid', fgColor=fill_hex),
         ),
     )
@@ -102,9 +106,8 @@ def write_merge_output(
     sec_meta = ['#']
     # Section 2: schedule dates (cols 2 & 3 when schedule is included — easy to scan)
     sec_schedule = ['Send Date', 'Send Time'] if has_schedule else []
-    # Section 3: sender / recipient (+ Sender # when schedule is included)
-    sec_routing = ['Sender Account', 'Sender #', 'Recipient Email'] if has_schedule \
-                  else ['Sender Account', 'Recipient Email']
+    # Section 3: sender / recipient
+    sec_routing = ['Sender Account', 'Recipient Email']
     # Section 4: generated copy
     sec_template = ['Subject Line', 'Email Body']
     if has_chaser:
@@ -133,7 +136,7 @@ def write_merge_output(
     # Column widths
     col_widths = {
         '#': 5,
-        'Sender Account': 30, 'Sender #': 10, 'Recipient Email': 34,
+        'Sender Account': 30, 'Recipient Email': 34,
         'Subject Line': 44,   'Email Body': 64,
         'Chaser Subject': 44, 'Chaser Body': 64,
         'A/B Variant': 12,
@@ -172,7 +175,6 @@ def write_merge_output(
         row_values = {
             '#': ri - 1,
             'Sender Account': row_data.get('__sender_account__', ''),
-            'Sender #': row_data.get('__sender_number__', ''),
             'Recipient Email': row_data.get('__recipient_email__', ''),
             'Subject Line': row_data.get('__subject_line__', ''),
             'Email Body': row_data.get('__email_body__', ''),
@@ -199,9 +201,17 @@ def write_merge_output(
     def cf_range(name):
         return f"{col_let(name)}2:{col_let(name)}{last_row}"
 
-    _add_cf_equal(ws, cf_range('Send Status'), 'Sent',      C['green_bg'])
-    _add_cf_equal(ws, cf_range('Send Status'), 'Scheduled', C['blue_bg'])
-    _add_cf_equal(ws, cf_range('Send Status'), 'Bounced',   C['red_bg'])
+    # Whole-row pastel green when Scheduled (lower priority — cell rules override it)
+    ws.conditional_formatting.add(
+        f"A2:{get_column_letter(len(all_cols))}{last_row}",
+        FormulaRule(
+            formula=[f'${col_let("Send Status")}2="Scheduled"'],
+            fill=PatternFill('solid', fgColor='E8F5E9'),
+        ),
+    )
+
+    _add_cf_equal(ws, cf_range('Send Status'), 'Sent',    C['green_bg'])
+    _add_cf_equal(ws, cf_range('Send Status'), 'Bounced', C['red_bg'])
 
     _add_cf_equal(ws, cf_range('Response'), 'Positive Reply', C['green_bg'])
     _add_cf_equal(ws, cf_range('Response'), 'Negative Reply', C['red_bg'])
@@ -282,11 +292,11 @@ def write_schedule_output(
 
     sch_cols = [
         '#', 'Date', 'Day', 'Send Time',
-        'Sender Account', 'Sender #', 'Prospect ID', 'Status', 'Notes',
+        'Sender Account', 'Prospect ID', 'Status', 'Notes',
     ]
     col_widths = {
         '#': 6, 'Date': 14, 'Day': 12, 'Send Time': 12,
-        'Sender Account': 34, 'Sender #': 10,
+        'Sender Account': 34,
         'Prospect ID': 13, 'Status': 14, 'Notes': 32,
     }
 
@@ -297,9 +307,9 @@ def write_schedule_output(
         ws.column_dimensions[get_column_letter(ci)].width = col_widths.get(h, 15)
     ws.row_dimensions[1].height = 30
 
-    # Data validation – Status column (col 8)
+    # Data validation – Status column (col 7)
     total_rows = len(schedule)
-    _add_dv(ws, '"Scheduled,Sent,Failed,Skipped"', 'H', total_rows + 1)
+    _add_dv(ws, '"Scheduled,Sent,Failed,Skipped"', 'G', total_rows + 1)
 
     # Write rows, alternating fill colour per date block
     date_fills: Dict[str, str] = {}
@@ -320,7 +330,6 @@ def write_schedule_output(
             'Day': send['day_of_week'],
             'Send Time': send['send_time'],
             'Sender Account': send['sender'],
-            'Sender #': send['sender_number'],
             'Prospect ID': send['prospect_id'],
             'Status': 'Scheduled',
             'Notes': '',
@@ -331,7 +340,7 @@ def write_schedule_output(
         ws.row_dimensions[ri].height = 16
 
     # Conditional formatting on Status column
-    status_range = f"H2:H{total_rows + 1}"
+    status_range = f"G2:G{total_rows + 1}"
     _add_cf_equal(ws, status_range, 'Sent',      C['green_bg'])
     _add_cf_equal(ws, status_range, 'Failed',    C['red_bg'])
     _add_cf_equal(ws, status_range, 'Skipped',   C['amber_bg'])
