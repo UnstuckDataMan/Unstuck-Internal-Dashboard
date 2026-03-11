@@ -171,7 +171,7 @@ def write_merge_output(
     def col_let(name):
         return get_column_letter(col_map[name])
 
-    _add_dv(ws, '"Not Sent,Sent,Bounced,Skipped"',
+    _add_dv(ws, '"Sent"',
             col_let('Send Status'), last_row)
     _add_dv(ws, '"No Response,Positive Reply,Negative Reply,Unsubscribed,Auto-Reply"',
             col_let('Response'), last_row)
@@ -193,7 +193,7 @@ def write_merge_output(
             fill_hex = 'FFFFFF'
 
         row_values = {
-            'Send Status': 'Not Sent',
+            'Send Status': '',
             'Sender Account': row_data.get('__sender_account__', ''),
             'Recipient Email': row_data.get('__recipient_email__', ''),
             'Subject Line': row_data.get('__subject_line__', ''),
@@ -223,9 +223,7 @@ def write_merge_output(
     # Whole-row highlights based on Send Status — added first so cell-level
     # rules (Response, Lead Status) take priority over the row highlight.
     full_range = f"A2:{get_column_letter(len(all_cols))}{last_row}"
-    ws.conditional_formatting.add(full_range, _cf_rule('$A2="Sent"',    'E8F5E9'))
-    ws.conditional_formatting.add(full_range, _cf_rule('$A2="Bounced"', 'FFCDD2'))
-    ws.conditional_formatting.add(full_range, _cf_rule('$A2="Skipped"', 'FFF9C4'))
+    ws.conditional_formatting.add(full_range, _cf_rule('$A2="Sent"', 'E8F5E9'))
 
     _add_cf_equal(ws, cf_range('Response'), 'Positive Reply', C['green_bg'])
     _add_cf_equal(ws, cf_range('Response'), 'Negative Reply', C['red_bg'])
