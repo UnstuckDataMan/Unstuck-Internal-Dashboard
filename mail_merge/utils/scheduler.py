@@ -209,7 +209,17 @@ def generate_schedule(
         for s_idx in range(senders_today):
             n_sends      = base_per_sender + (1 if s_idx < remainder else 0)
             sender_start = sender_starts[s_idx]
-            avail_secs   = (day_win_end - sender_start).total_seconds()
+
+            # Per-sender, per-day effective window end (±5 min variance).
+            # Keeps each sender's last slot at a different time each day so
+            # sends don't repeat at the same HH:MM across consecutive days.
+            end_shift = _dvariance(
+                f"{year}-{month:02d}-{work_day.day:02d}-wend-s{s_idx}", -5, 5)
+            effective_end = day_win_end + timedelta(minutes=end_shift)
+            effective_end = min(effective_end, day_win_end)  # never past hard window
+            effective_end = max(effective_end, sender_start)  # must be after start
+
+            avail_secs = (effective_end - sender_start).total_seconds()
 
             if n_sends == 1:
                 slots = [sender_start]
