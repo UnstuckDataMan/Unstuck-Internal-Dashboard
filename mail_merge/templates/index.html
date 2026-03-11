@@ -176,17 +176,6 @@ td .truncate{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertica
 .range-row{display:flex;align-items:center;gap:12px}
 .range-val{font-size:1.2rem;font-weight:700;color:var(--blue-700);min-width:48px;text-align:right}
 
-/* ── Page transition overlay ── */
-#pt { position:fixed; inset:0; z-index:9999; pointer-events:none; }
-.pt-b, .pt-f {
-  position:absolute; inset:0;
-  transform:translateY(-100%);
-  border-radius:0;
-  will-change:transform,border-radius;
-}
-.pt-b { background:linear-gradient(135deg,#2d1b69 0%,#9d4edd 30%,#7b7ec8 60%,#f0a0ff 100%); }
-.pt-f { background:linear-gradient(135deg,#180835 0%,#7c3aed 32%,#5b5ea6 62%,#e879f9 100%); }
-
 /* ── Segmented control (sends-per-day) ── */
 .seg-group{display:inline-flex;border:1px solid var(--gray-300);border-radius:var(--radius-sm);overflow:hidden;margin-top:6px}
 .seg-btn{padding:7px 20px;font-size:.85rem;font-weight:500;background:var(--gray-50);border:none;border-right:1px solid var(--gray-300);cursor:pointer;color:var(--gray-600);transition:background .15s,color .15s}
@@ -1122,53 +1111,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   })();
 });
-</script>
-
-<!-- Page transition overlay -->
-<div id="pt" aria-hidden="true">
-  <div class="pt-b"></div>
-  <div class="pt-f"></div>
-</div>
-
-<script src="/static/js/gsap.min.js"></script>
-<script>
-(function() {
-  const pt = document.getElementById('pt');
-
-  function ptLeave(href) {
-    pt.style.pointerEvents = 'all';
-    gsap.set('.pt-b, .pt-f', { yPercent: -100, borderRadius: '0 0 22px 22px' });
-    gsap.timeline({ onComplete: () => {
-      sessionStorage.setItem('pt', '1');
-      window.location.href = href;
-    }})
-      .to('.pt-b', { yPercent: 0, borderRadius: 0, duration: 0.62, ease: 'power3.inOut' })
-      .to('.pt-f', { yPercent: 0, borderRadius: 0, duration: 0.62, ease: 'power3.inOut' }, '-=0.42');
-  }
-
-  // Intercept the Home button
-  document.querySelector('.home-link')?.addEventListener('click', function(e) {
-    e.preventDefault();
-    ptLeave(this.getAttribute('href'));
-  });
-
-  // Enter animation — wipe overlay up when arriving via transition
-  if (sessionStorage.getItem('pt')) {
-    sessionStorage.removeItem('pt');
-    pt.style.pointerEvents = 'all';
-    gsap.set('.pt-b, .pt-f', { yPercent: 0, borderRadius: 0 });
-    gsap.timeline({ onComplete: () => { pt.style.pointerEvents = 'none'; } })
-      .to('.pt-f', { yPercent: -100, borderRadius: '0 0 22px 22px', duration: 0.62, ease: 'power3.inOut' })
-      .to('.pt-b', { yPercent: -100, borderRadius: '0 0 22px 22px', duration: 0.62, ease: 'power3.inOut' }, '-=0.42');
-  }
-
-  // Reset overlay on bfcache restore (browser back button)
-  window.addEventListener('pageshow', (e) => {
-    if (!e.persisted) return;
-    gsap.set('.pt-b, .pt-f', { yPercent: -100 });
-    pt.style.pointerEvents = 'none';
-  });
-})();
 </script>
 
 </body>
