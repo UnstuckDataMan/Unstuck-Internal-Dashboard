@@ -135,15 +135,16 @@ def _patch_workbook_rels(data: bytes) -> bytes:
 def _patch_ws_vm(data: bytes, cell_refs: List[str]) -> bytes:
     """Stamp vm="N" on each checkbox cell's opening tag in the worksheet XML.
 
-    Cells with a value are never self-closing, so matching [^>]* up to > is
-    safe.  The vm index is 1-based (1 = first <bk> in metadata valueMetadata).
+    Also strips t="b" (boolean type) if present — it conflicts with the vm
+    rich-value attribute and causes Excel to repair/discard the cell data.
+    The vm index is 1-based (1 = first <bk> in metadata valueMetadata).
     """
     text = data.decode('utf-8')
     for i, ref in enumerate(cell_refs):
         vm_idx = i + 1
         text = re.sub(
             rf'(<c\s+r="{re.escape(ref)}"[^>]*)>',
-            rf'\g<1> vm="{vm_idx}">',
+            lambda m, idx=vm_idx: re.sub(r'\s*t="b"', '', m.group(1)) + f' vm="{idx}">',
             text,
             count=1,
         )
@@ -347,7 +348,7 @@ def write_merge_output(
             fill_hex = 'FFFFFF'
 
         row_values = {
-            'Send Status': False,
+            'Send Status': 0,
             'Sender Account': row_data.get('__sender_account__', ''),
             'Recipient Email': row_data.get('__recipient_email__', ''),
             'Subject Line': row_data.get('__subject_line__', ''),
