@@ -8,9 +8,6 @@ Produces professionally formatted workbooks with:
   - Auto-filter and frozen header row
 """
 import calendar as cal_mod
-import re
-import zipfile
-from io import BytesIO
 from typing import List, Dict
 
 from openpyxl import Workbook
@@ -98,160 +95,6 @@ def _add_cf_equal(ws, data_range: str, match_value: str, fill_hex: str):
 
 
 # ──────────────────────────────────────────────────────────────────────────── #
-# EXCEL 365 NATIVE CHECKBOX INJECTION
-# ──────────────────────────────────────────────────────────────────────────── #
-
-def _patch_content_types(data: bytes) -> bytes:
-    """Add richData and metadata Override entries to [Content_Types].xml."""
-    text = data.decode('utf-8')
-    additions = (
-        '<Override PartName="/xl/metadata.xml"'
-        ' ContentType="application/vnd.ms-excel.sheetMetadata+xml"/>'
-        '<Override PartName="/xl/richData/rdRichValueTypes.xml"'
-        ' ContentType="application/vnd.ms-office.spreadsheetml.rdRichValueTypes+xml"/>'
-        '<Override PartName="/xl/richData/rdrichvalue.xml"'
-        ' ContentType="application/vnd.ms-office.spreadsheetml.rdRichValue+xml"/>'
-    )
-    return text.replace('</Types>', additions + '</Types>').encode('utf-8')
-
-
-def _patch_workbook_rels(data: bytes) -> bytes:
-    """Add relationships for richData and metadata files to workbook.xml.rels."""
-    text = data.decode('utf-8')
-    additions = (
-        '<Relationship Id="rIdMeta"'
-        ' Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sheetMetadata"'
-        ' Target="metadata.xml"/>'
-        '<Relationship Id="rIdRVT"'
-        ' Type="http://schemas.microsoft.com/office/2022/10/relationships/richValueRelTypes"'
-        ' Target="richData/rdRichValueTypes.xml"/>'
-        '<Relationship Id="rIdRVD"'
-        ' Type="http://schemas.microsoft.com/office/2022/10/relationships/rdRichValue"'
-        ' Target="richData/rdrichvalue.xml"/>'
-    )
-    return text.replace('</Relationships>', additions + '</Relationships>').encode('utf-8')
-
-
-def _patch_ws_vm(data: bytes, cell_refs: List[str]) -> bytes:
-    """Stamp vm="N" on each checkbox cell's opening tag in the worksheet XML.
-
-    Also strips t="b" (boolean type) if present — it conflicts with the vm
-    rich-value attribute and causes Excel to repair/discard the cell data.
-    The vm index is 1-based (1 = first <bk> in metadata valueMetadata).
-    """
-    text = data.decode('utf-8')
-    for i, ref in enumerate(cell_refs):
-        vm_idx = i + 1
-        text = re.sub(
-            rf'(<c\s+r="{re.escape(ref)}"[^>]*)>',
-            lambda m, idx=vm_idx: re.sub(r'\s*t="b"', '', m.group(1)) + f' vm="{idx}">',
-            text,
-            count=1,
-        )
-    return text.encode('utf-8')
-
-
-def _inject_excel_checkboxes(path: str, cell_refs: List[str]) -> None:
-    """Post-process a saved xlsx to give column-A cells native Excel 365 checkboxes.
-
-    Each cell in *cell_refs* must already hold a Python False value so that
-    openpyxl writes  t="b" <v>0</v>.  This function adds the three XML parts
-    (rdRichValueTypes, rdrichvalue, metadata) that Excel 365 needs to render
-    the cell as an interactive checkbox widget, and stamps each cell tag with
-    the matching vm="N" attribute.  The file is rewritten in-place.
-
-    If anything goes wrong the original file is left on disk unchanged.
-    """
-    if not cell_refs:
-        return
-
-    n = len(cell_refs)
-
-    # ── rdRichValueTypes.xml — defines the $Checkbox rich-value type ───────
-    rd_types_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<rvTypesInfo'
-        ' xmlns="http://schemas.microsoft.com/office/spreadsheetml/2017/richdata2"'
-        ' xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"'
-        ' mc:Ignorable="x"'
-        ' xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<global><keyFlags>'
-        '<key name="ExcelValueFlags"><flag name="ShowCard" value="1"/></key>'
-        '</keyFlags></global>'
-        '<types>'
-        '<type name="$Checkbox">'
-        '<schema type="mixed"/>'
-        '<keyFlags>'
-        '<key name="ExcelValueFlags"><flag name="HideCard" value="1"/></key>'
-        '</keyFlags>'
-        '</type>'
-        '</types>'
-        '</rvTypesInfo>'
-    )
-
-    # ── rdrichvalue.xml — one rv entry per cell (all unchecked = 0) ────────
-    rv_entries = ''.join(
-        '<rv t="0"><v>0</v><v>$Checkbox</v></rv>' for _ in range(n)
-    )
-    rd_richvalue_xml = (
-        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        f'<rvData'
-        f' xmlns="http://schemas.microsoft.com/office/spreadsheetml/2017/richdata"'
-        f' count="{n}">{rv_entries}</rvData>'
-    )
-
-    # ── metadata.xml — maps each cell's vm index to its rv entry ──────────
-    # vm is 1-based; bk[0] → cell vm="1", bk[1] → cell vm="2", …
-    # rc v="I" is 0-based index into rdrichvalue (each cell has its own entry)
-    bk_entries = ''.join(f'<bk><rc t="0" v="{i}"/></bk>' for i in range(n))
-    metadata_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<metadata'
-        ' xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<metadataTypes count="1">'
-        '<metadataType name="XLMDEC" minSupportedVersion="120000"'
-        ' copy="1" pasteAll="1" pasteValues="1" merge="1" splitFirst="1"'
-        ' rowColShift="1" clearFormats="1" clearValues="1" adjust="1" cellMeta="1"/>'
-        '</metadataTypes>'
-        f'<valueMetadata count="{n}">{bk_entries}</valueMetadata>'
-        '</metadata>'
-    )
-
-    try:
-        with open(path, 'rb') as fh:
-            original = fh.read()
-
-        buf = BytesIO()
-        with zipfile.ZipFile(BytesIO(original), 'r') as zin, \
-             zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
-
-            for item in zin.infolist():
-                raw = zin.read(item.filename)
-                if item.filename == '[Content_Types].xml':
-                    raw = _patch_content_types(raw)
-                elif item.filename == 'xl/_rels/workbook.xml.rels':
-                    raw = _patch_workbook_rels(raw)
-                elif item.filename == 'xl/worksheets/sheet1.xml':
-                    raw = _patch_ws_vm(raw, cell_refs)
-                zout.writestr(item, raw)
-
-            # Inject new XML parts
-            zout.writestr('xl/richData/rdRichValueTypes.xml',
-                          rd_types_xml.encode('utf-8'))
-            zout.writestr('xl/richData/rdrichvalue.xml',
-                          rd_richvalue_xml.encode('utf-8'))
-            zout.writestr('xl/metadata.xml',
-                          metadata_xml.encode('utf-8'))
-
-        with open(path, 'wb') as fh:
-            fh.write(buf.getvalue())
-
-    except Exception:
-        # Injection failed — original file is still valid (cells show TRUE/FALSE)
-        pass
-
-
-# ──────────────────────────────────────────────────────────────────────────── #
 # MERGE OUTPUT
 # ──────────────────────────────────────────────────────────────────────────── #
 
@@ -328,6 +171,8 @@ def write_merge_output(
     def col_let(name):
         return get_column_letter(col_map[name])
 
+    _add_dv(ws, '"Not Sent,Sent,Bounced,Skipped"',
+            col_let('Send Status'), last_row)
     _add_dv(ws, '"No Response,Positive Reply,Negative Reply,Unsubscribed,Auto-Reply"',
             col_let('Response'), last_row)
     _add_dv(ws, '"Not a Lead,MQL,SQL,Meeting Booked,Closed Won,Closed Lost"',
@@ -348,7 +193,7 @@ def write_merge_output(
             fill_hex = 'FFFFFF'
 
         row_values = {
-            'Send Status': 0,
+            'Send Status': 'Not Sent',
             'Sender Account': row_data.get('__sender_account__', ''),
             'Recipient Email': row_data.get('__recipient_email__', ''),
             'Subject Line': row_data.get('__subject_line__', ''),
@@ -367,14 +212,7 @@ def write_merge_output(
 
         for ci, header in enumerate(all_cols, 1):
             cell = ws.cell(row=ri, column=ci, value=row_values.get(header, ''))
-            if header == 'Send Status':
-                # Native checkbox cell — keep it centred, standard font size
-                cell.font = Font(name='Calibri', size=9)
-                cell.fill = PatternFill('solid', fgColor=fill_hex)
-                cell.alignment = Alignment(horizontal='center', vertical='center')
-                cell.border = _thin_border()
-            else:
-                _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
+            _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
 
         ws.row_dimensions[ri].height = 72 if total_data_rows <= 200 else 36
 
@@ -382,12 +220,12 @@ def write_merge_output(
     def cf_range(name):
         return f"{col_let(name)}2:{col_let(name)}{last_row}"
 
-    # Whole-row pastel green when checkbox is ticked — added first so cell-level
+    # Whole-row highlights based on Send Status — added first so cell-level
     # rules (Response, Lead Status) take priority over the row highlight.
-    ws.conditional_formatting.add(
-        f"A2:{get_column_letter(len(all_cols))}{last_row}",
-        _cf_rule('$A2=TRUE', 'E8F5E9'),
-    )
+    full_range = f"A2:{get_column_letter(len(all_cols))}{last_row}"
+    ws.conditional_formatting.add(full_range, _cf_rule('$A2="Sent"',    'E8F5E9'))
+    ws.conditional_formatting.add(full_range, _cf_rule('$A2="Bounced"', 'FFCDD2'))
+    ws.conditional_formatting.add(full_range, _cf_rule('$A2="Skipped"', 'FFF9C4'))
 
     _add_cf_equal(ws, cf_range('Response'), 'Positive Reply', C['green_bg'])
     _add_cf_equal(ws, cf_range('Response'), 'Negative Reply', C['red_bg'])
@@ -407,12 +245,6 @@ def write_merge_output(
     _write_merge_summary(ws2, merged_rows, has_chaser)
 
     wb.save(output_path)
-
-    # Inject Excel 365 native checkboxes into every Send Status cell (column A)
-    _inject_excel_checkboxes(
-        output_path,
-        [f'A{r}' for r in range(2, last_row + 1)],
-    )
 
 
 def _write_merge_summary(ws, merged_rows: List[Dict], has_chaser: bool):
