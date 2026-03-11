@@ -439,7 +439,8 @@
   }
 
   // Reset overlay on bfcache restore (browser back button)
-  window.addEventListener('pageshow', () => {
+  window.addEventListener('pageshow', (e) => {
+    if (!e.persisted) return;
     gsap.set('.pt-b, .pt-f', { yPercent: -100 });
     pt.style.pointerEvents = 'none';
   });

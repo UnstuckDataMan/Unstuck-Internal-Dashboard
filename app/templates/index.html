@@ -469,7 +469,8 @@
   }
 
   // Clean up overlay + pressing state when page is restored from bfcache
-  window.addEventListener('pageshow', () => {
+  window.addEventListener('pageshow', (e) => {
+    if (!e.persisted) return;
     gsap.set('.pt-b, .pt-f', { yPercent: -100 });
     pt.style.pointerEvents = 'none';
     document.querySelectorAll('.card-link').forEach(l => l.classList.remove('pressing'));
