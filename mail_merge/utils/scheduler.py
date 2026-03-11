@@ -177,11 +177,14 @@ def generate_schedule(
         day_win_end = datetime.combine(work_day, time(win_end_h, win_end_m))
 
         # ── Compute each sender's deterministic start time ───────────────── #
-        # Dynamically shrink the inter-sender offset so that ALL active senders
-        # start within the send window.
-        available_window_mins = win_end_mins - s1_start_mins
+        # Compress the inter-sender offset so the LAST sender starts no later
+        # than 45 min before window end.  This guarantees every sender has
+        # enough room to produce varied send times (the effective-end variance
+        # below shifts up to 20 min, so we need ≥20 min of headroom minimum).
+        max_last_start_mins = win_end_mins - 45
+        available_for_stagger = max(0, max_last_start_mins - s1_start_mins)
         offset_mins = (
-            min(SENDER_OFFSET_MINS, available_window_mins // (senders_today - 1))
+            min(SENDER_OFFSET_MINS, max(5, available_for_stagger // (senders_today - 1)))
             if senders_today > 1 else SENDER_OFFSET_MINS
         )
 
@@ -210,14 +213,15 @@ def generate_schedule(
             n_sends      = base_per_sender + (1 if s_idx < remainder else 0)
             sender_start = sender_starts[s_idx]
 
-            # Per-sender, per-day effective window end (±5 min variance).
-            # Keeps each sender's last slot at a different time each day so
-            # sends don't repeat at the same HH:MM across consecutive days.
+            # Per-sender, per-day effective window end.
+            # Use a negative-only shift (-20 to 0 min) so the hard-window clamp
+            # never cancels the variance — the last slot lands somewhere in the
+            # final 20 minutes of the window, varying by day and by sender.
             end_shift = _dvariance(
-                f"{year}-{month:02d}-{work_day.day:02d}-wend-s{s_idx}", -5, 5)
+                f"{year}-{month:02d}-{work_day.day:02d}-wend-s{s_idx}", -20, 0)
             effective_end = day_win_end + timedelta(minutes=end_shift)
-            effective_end = min(effective_end, day_win_end)  # never past hard window
-            effective_end = max(effective_end, sender_start)  # must be after start
+            # Guarantee at least 1 minute of window so interval > 0
+            effective_end = max(effective_end, sender_start + timedelta(minutes=1))
 
             avail_secs = (effective_end - sender_start).total_seconds()
 
