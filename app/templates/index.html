@@ -468,8 +468,9 @@
       .to('.pt-b', { yPercent: -100, borderRadius: '0 0 22px 22px', duration: 0.62, ease: 'power3.inOut' }, '-=0.42');
   }
 
-  // Clean up pressing state if user navigates back
+  // Clean up overlay + pressing state when page is restored from bfcache
   window.addEventListener('pageshow', () => {
+    gsap.set('.pt-b, .pt-f', { yPercent: -100 });
     pt.style.pointerEvents = 'none';
     document.querySelectorAll('.card-link').forEach(l => l.classList.remove('pressing'));
   });
