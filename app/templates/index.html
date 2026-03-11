@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Data Enrichment Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -112,29 +113,18 @@
     /* ── All content sits above bg ─────────────────────────────── */
     .landing { position: relative; z-index: 1; }
 
-    /* ── Loader overlay ─────────────────────────────────────────── */
-    #loader {
-      position: fixed;
-      inset: 0;
-      background: #ffffff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 999;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.4s var(--ease);
+    /* ── Page transition overlay ─────────────────────────────────── */
+    #pt { position:fixed; inset:0; z-index:9999; pointer-events:none; }
+    .pt-b, .pt-f {
+      position:absolute; inset:0;
+      transform:translateY(-100%);
+      border-radius:0;
+      will-change:transform,border-radius;
     }
-    #loader.active { opacity: 1; pointer-events: all; }
-
-    .loader-ring {
-      width: 46px; height: 46px;
-      border-radius: 50%;
-      border: 3px solid rgba(124,58,237,.18);
-      border-top-color: var(--purple);
-      animation: spin 0.72s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    .pt-b { background:linear-gradient(135deg,#2d1b69 0%,#9d4edd 30%,#7b7ec8 60%,#f0a0ff 100%); }
+    .pt-f { background:linear-gradient(135deg,#180835 0%,#7c3aed 32%,#5b5ea6 62%,#e879f9 100%); }
+    /* Suppress body fade-in when arriving via transition */
+    body.pt-enter { animation:none !important; opacity:1 !important; }
 
     /* ── Staggered fade-up ──────────────────────────────────────── */
     .anim {
@@ -305,17 +295,18 @@
 </head>
 <body>
 
+<!-- Page transition overlay -->
+<div id="pt" aria-hidden="true">
+  <div class="pt-b"></div>
+  <div class="pt-f"></div>
+</div>
+
 <!-- Animated background -->
 <div class="bg" aria-hidden="true">
   <div class="blob blob-1"></div>
   <div class="blob blob-2"></div>
   <div class="blob blob-3"></div>
   <div class="blob blob-4"></div>
-</div>
-
-<!-- Circle loader (on card click) -->
-<div id="loader">
-  <div class="loader-ring"></div>
 </div>
 
 <main class="landing">
@@ -443,24 +434,44 @@
 </main>
 
 <script>
-  const loader = document.getElementById('loader');
+  const pt  = document.getElementById('pt');
 
+  function ptLeave(href) {
+    pt.style.pointerEvents = 'all';
+    gsap.set('.pt-b, .pt-f', { yPercent: -100, borderRadius: '0 0 22px 22px' });
+    gsap.timeline({ onComplete: () => {
+      sessionStorage.setItem('pt', '1');
+      window.location.href = href;
+    }})
+      .to('.pt-b', { yPercent: 0, borderRadius: 0, duration: 0.62, ease: 'power3.inOut' })
+      .to('.pt-f', { yPercent: 0, borderRadius: 0, duration: 0.62, ease: 'power3.inOut' }, '-=0.42');
+  }
+
+  // Intercept same-tab card clicks
   document.querySelectorAll('.card-link').forEach(link => {
     link.addEventListener('click', function(e) {
-      if (this.target === '_blank') return; // external links open natively — no loader
+      if (this.target === '_blank') return;
       e.preventDefault();
-      const href = this.getAttribute('href');
       this.classList.add('pressing');
-      setTimeout(() => loader.classList.add('active'), 130);
-      setTimeout(() => { window.location.href = href; }, 850);
+      ptLeave(this.getAttribute('href'));
     });
   });
 
-  window.addEventListener('pageshow', function() {
-    loader.classList.remove('active');
-    document.querySelectorAll('.card-link').forEach(link => {
-      link.classList.remove('pressing');
-    });
+  // Enter animation — wipe overlay up when arriving via transition
+  if (sessionStorage.getItem('pt')) {
+    sessionStorage.removeItem('pt');
+    document.body.classList.add('pt-enter');
+    pt.style.pointerEvents = 'all';
+    gsap.set('.pt-b, .pt-f', { yPercent: 0, borderRadius: 0 });
+    gsap.timeline({ onComplete: () => { pt.style.pointerEvents = 'none'; } })
+      .to('.pt-f', { yPercent: -100, borderRadius: '0 0 22px 22px', duration: 0.62, ease: 'power3.inOut' })
+      .to('.pt-b', { yPercent: -100, borderRadius: '0 0 22px 22px', duration: 0.62, ease: 'power3.inOut' }, '-=0.42');
+  }
+
+  // Clean up pressing state if user navigates back
+  window.addEventListener('pageshow', () => {
+    pt.style.pointerEvents = 'none';
+    document.querySelectorAll('.card-link').forEach(l => l.classList.remove('pressing'));
   });
 </script>
 
