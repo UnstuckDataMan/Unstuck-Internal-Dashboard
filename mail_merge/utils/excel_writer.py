@@ -220,7 +220,7 @@ def write_merge_output(
                 cell = ws.cell(row=ri, column=ci, value=row_values.get(header, ''))
                 _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
 
-            ws.row_dimensions[ri].height = 18 if total_data_rows <= 200 else 9
+            ws.row_dimensions[ri].height = 18
             ri += 1
 
         # ── End-of-day separator ───────────────────────────────────────────

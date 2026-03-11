@@ -227,6 +227,22 @@ def generate_schedule(
 
         adjusted.sort(key=lambda x: x[0])
 
+        # ── Resolve per-minute conflicts across senders ──────────────────── #
+        # Excel outputs HH:MM only, so two slots at the same minute look like
+        # simultaneous sends.  Sort descending and bump each conflict 1 minute
+        # earlier until unique, keeping sends inside the window.
+        win_floor = datetime.combine(work_day, time(win_start_h, win_start_m))
+        adjusted.sort(key=lambda x: x[0], reverse=True)
+        used_minutes: set = set()
+        deduped: List[tuple] = []
+        for slot_dt, sender_email, s_num in adjusted:
+            minute_key = slot_dt.replace(second=0, microsecond=0)
+            while minute_key in used_minutes and minute_key > win_floor:
+                minute_key -= timedelta(minutes=1)
+            used_minutes.add(minute_key)
+            deduped.append((minute_key, sender_email, s_num))
+        adjusted = sorted(deduped, key=lambda x: x[0])
+
         # ── Assign prospects to adjusted slots ──────────────────────────── #
         for send_dt, sender, s_num in adjusted:
             if prospect_idx >= prospect_count:
