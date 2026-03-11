@@ -92,12 +92,14 @@ def get_working_days_info(
 # Schedule generation
 # --------------------------------------------------------------------------- #
 
-WINDOW_START_H, WINDOW_START_M = 8, 30   # 08:30
-WINDOW_END_H,   WINDOW_END_M   = 15, 30  # 15:30
-MIN_GAP_SECS = 5 * 60                    # 5 minutes
-SENDER_1_START_H, SENDER_1_START_M = 9, 5   # ~09:05
-SENDER_OFFSET_MINS = 60                  # 1 hour between senders
+SENDER_OFFSET_MINS = 60      # 1 hour between staggered senders (compressed if needed)
 MAX_PER_SENDER_PER_DAY = 15
+
+
+def _parse_hhmm(t: str) -> tuple:
+    """Parse 'HH:MM' into (hour, minute) ints."""
+    h, m = t.strip().split(':')
+    return int(h), int(m)
 
 
 def generate_schedule(
@@ -108,17 +110,19 @@ def generate_schedule(
     recipient_tz: str = 'Europe/London',
     sender_tz: str = 'Europe/London',
     max_per_sender_per_day: int = 15,
+    window_start: str = '08:30',
+    window_end: str = '15:30',
 ) -> List[Dict]:
     """
     Generate a complete sending schedule for `prospect_count` initial emails
     spread across the working days of `year`/`month`.
 
-    The 08:30–15:30 send window is applied in `recipient_tz`.
+    The send window (default 08:30–15:30) is applied in `recipient_tz`.
     The returned `send_time` values are expressed in `sender_tz` (DST-aware).
 
     `max_per_sender_per_day` caps how many sends each account can make per
-    working day (default 15).  The caller is responsible for pre-clamping
-    `prospect_count` to the monthly capacity before calling this function.
+    working day.  The caller is responsible for pre-clamping `prospect_count`
+    to the monthly capacity before calling this function.
 
     Returns a list of dicts, each representing one scheduled send:
       date, day_of_week, send_time, sender, sender_number, prospect_id
@@ -127,6 +131,17 @@ def generate_schedule(
         raise ValueError("Prospect count must be at least 1.")
     if not sender_emails:
         raise ValueError("At least one sender email is required.")
+
+    # Parse send-window boundaries
+    win_start_h, win_start_m = _parse_hhmm(window_start)
+    win_end_h,   win_end_m   = _parse_hhmm(window_end)
+    win_start_mins = win_start_h * 60 + win_start_m
+    win_end_mins   = win_end_h   * 60 + win_end_m
+    if win_end_mins <= win_start_mins:
+        raise ValueError("Send window end must be after send window start.")
+
+    # Sender 1 starts 5 minutes into the window
+    s1_start_mins = win_start_mins + 5
 
     working_days = get_working_days(year, month)
     n_days = len(working_days)
@@ -159,16 +174,12 @@ def generate_schedule(
         # a sender if there are fewer prospects than senders).
         senders_today = min(day_target, len(sender_emails))
 
-        window_end = datetime.combine(work_day, time(WINDOW_END_H, WINDOW_END_M))
+        day_win_end = datetime.combine(work_day, time(win_end_h, win_end_m))
 
         # ── Compute each sender's deterministic start time ───────────────── #
         # Dynamically shrink the inter-sender offset so that ALL active senders
-        # have a start time within the send window (e.g. 10 senders at 60-min
-        # gaps would push senders 8-10 past 15:30; we compress to fit them in).
-        available_window_mins = (
-            WINDOW_END_H * 60 + WINDOW_END_M
-            - SENDER_1_START_H * 60 - SENDER_1_START_M
-        )
+        # start within the send window.
+        available_window_mins = win_end_mins - s1_start_mins
         offset_mins = (
             min(SENDER_OFFSET_MINS, available_window_mins // (senders_today - 1))
             if senders_today > 1 else SENDER_OFFSET_MINS
@@ -176,53 +187,42 @@ def generate_schedule(
 
         sender_starts: List[datetime] = []
         for s_idx in range(senders_today):
-            base_mins = (SENDER_1_START_H * 60 + SENDER_1_START_M
-                         + s_idx * offset_mins)
+            base_mins = s1_start_mins + s_idx * offset_mins
             variance = _dvariance(
                 f"{year}-{month:02d}-{work_day.day:02d}-s{s_idx}", -5, 5)
             start_mins = base_mins + variance
-            s_hour, s_min = divmod(max(start_mins, WINDOW_START_H * 60), 60)
+            s_hour, s_min = divmod(max(start_mins, win_start_mins), 60)
             t = datetime.combine(work_day, time(s_hour, s_min))
             sender_starts.append(t)
 
-        # ── Flat-timeline slot generation ────────────────────────────────── #
-        # Build one unified, chronologically-ordered list of send times
-        # across the whole day window.  The interval is sized to fit
-        # day_target sends while respecting the 5-minute global gap.
-        day_start = sender_starts[0]
-        total_window_secs = (window_end - day_start).total_seconds()
+        # ── Per-sender independent slot generation ───────────────────────── #
+        # Each sender schedules their sends evenly from their staggered start
+        # to the window end.  Different accounts can send at the same clock
+        # time, so there is no global gap constraint — just natural per-sender
+        # spacing.  This guarantees exactly day_target sends per day.
+        base_per_sender = day_target // senders_today
+        remainder       = day_target % senders_today
 
-        if day_target > 1:
-            # Space evenly; never closer than MIN_GAP_SECS
-            interval_secs = max(total_window_secs / (day_target - 1), MIN_GAP_SECS)
-        else:
-            interval_secs = 0
-
-        # Generate the flat list of send times
-        flat_slots: List[datetime] = []
-        for i in range(day_target):
-            t = day_start + timedelta(seconds=i * interval_secs)
-            if t > window_end:
-                break
-            flat_slots.append(t)
-
-        # ── Assign each slot to a sender (round-robin) ───────────────────── #
-        # Distribute slots evenly across all active senders using round-robin.
-        # A sender is eligible when the slot time >= their staggered start and
-        # they haven't yet hit MAX_PER_SENDER_PER_DAY.
-        sender_counts = [0] * senders_today
         adjusted: List[tuple] = []
-        rr = 0  # round-robin pointer
+        for s_idx in range(senders_today):
+            n_sends      = base_per_sender + (1 if s_idx < remainder else 0)
+            sender_start = sender_starts[s_idx]
+            avail_secs   = (day_win_end - sender_start).total_seconds()
 
-        for slot_dt in flat_slots:
-            for attempt in range(senders_today):
-                s_idx = (rr + attempt) % senders_today
-                if (slot_dt >= sender_starts[s_idx]
-                        and sender_counts[s_idx] < max_per_sender_per_day):
+            if n_sends == 1:
+                slots = [sender_start]
+            else:
+                interval_secs = avail_secs / (n_sends - 1)
+                slots = [
+                    sender_start + timedelta(seconds=i * interval_secs)
+                    for i in range(n_sends)
+                ]
+
+            for slot_dt in slots:
+                if slot_dt <= day_win_end:
                     adjusted.append((slot_dt, sender_emails[s_idx], s_idx + 1))
-                    sender_counts[s_idx] += 1
-                    rr = (s_idx + 1) % senders_today
-                    break
+
+        adjusted.sort(key=lambda x: x[0])
 
         # ── Assign prospects to adjusted slots ──────────────────────────── #
         for send_dt, sender, s_num in adjusted:

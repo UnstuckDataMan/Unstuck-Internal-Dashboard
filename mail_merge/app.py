@@ -150,6 +150,8 @@ def generate_merge():
     sender_tz         = data.get('sender_tz', 'Europe/London')
     sends_per_day_raw = data.get('sends_per_day', 10)
     sends_per_day     = sends_per_day_raw if sends_per_day_raw in (5, 10, 15) else 10
+    window_start      = data.get('window_start', '08:30')
+    window_end        = data.get('window_end',   '15:30')
 
     if not file_id:
         return jsonify({'error': 'No prospect file specified'}), 400
@@ -208,6 +210,8 @@ def generate_merge():
             year, month, scheduled_count, sender_emails,
             recipient_tz=recipient_tz, sender_tz=sender_tz,
             max_per_sender_per_day=sends_per_day,
+            window_start=window_start,
+            window_end=window_end,
         )
         for entry in schedule:
             row = merged_rows[entry['prospect_id'] - 1]

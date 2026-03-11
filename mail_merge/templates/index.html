@@ -197,9 +197,6 @@ td .truncate{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertica
     </div>
     <span class="home-label">Home</span>
   </a>
-  <span style="font-size:1.4rem">✉</span>
-  <h1>Mail Merge Tool</h1>
-  <span class="badge">Outreach Suite</span>
 </header>
 
 <div class="container">
@@ -390,6 +387,19 @@ td .truncate{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertica
             <p class="field-hint">Output Send Time shown in this timezone.</p>
           </div>
         </div>
+
+        <!-- Send window -->
+        <div class="row" style="display:flex;gap:12px;align-items:flex-end;margin-top:14px;">
+          <div class="flex-1">
+            <label for="window-start">Send Window Start</label>
+            <input type="time" id="window-start" value="08:30">
+          </div>
+          <div class="flex-1">
+            <label for="window-end">Send Window End</label>
+            <input type="time" id="window-end" value="15:30">
+          </div>
+        </div>
+        <p class="field-hint" style="margin-top:6px;">Times are in the recipient's local timezone.</p>
 
         <!-- Sends per day -->
         <div style="margin-top:14px;">
@@ -988,6 +998,8 @@ function generateMerge() {
       recipient_tz:   document.getElementById('recipient-tz').value,
       sender_tz:      document.getElementById('sender-tz').value,
       sends_per_day: _sendsPerDay,
+      window_start: document.getElementById('window-start').value || '08:30',
+      window_end:   document.getElementById('window-end').value   || '15:30',
     }),
   })
   .then(r => r.json())
