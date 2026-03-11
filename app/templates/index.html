@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Data Enrichment Dashboard</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="/static/js/gsap.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -437,6 +437,7 @@
   const pt  = document.getElementById('pt');
 
   function ptLeave(href) {
+    if (typeof gsap === 'undefined') { window.location.href = href; return; }
     pt.style.pointerEvents = 'all';
     gsap.set('.pt-b, .pt-f', { yPercent: -100, borderRadius: '0 0 22px 22px' });
     gsap.timeline({ onComplete: () => {
