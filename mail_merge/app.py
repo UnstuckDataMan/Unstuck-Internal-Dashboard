@@ -97,7 +97,6 @@ def validate_templates_route():
     templates = (
         data.get('subject_templates', []) +
         data.get('body_templates', []) +
-        ([data['chaser_subject']] if data.get('chaser_subject') else []) +
         ([data['chaser_body']] if data.get('chaser_body') else [])
     )
     errors = validate_templates(templates, headers)
@@ -139,7 +138,7 @@ def generate_merge():
     file_id = data.get('file_id')
     subject_templates = data.get('subject_templates', [])
     body_templates = data.get('body_templates', [])
-    chaser_subject = data.get('chaser_subject', '')
+    chaser_subject = ''
     chaser_body = data.get('chaser_body', '')
     sender_emails = data.get('sender_emails', [])
     missing_value = data.get('missing_value', '[MISSING]')
@@ -229,7 +228,7 @@ def generate_merge():
         ))
         merged_rows = [r for r in merged_rows if r.get('__send_date__')]
 
-        has_chaser = bool(chaser_subject or chaser_body)
+        has_chaser = bool(chaser_body)
         output_filename = f"outreach_merge_{uuid.uuid4().hex[:8]}.xlsx"
         output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
         write_merge_output(output_path, headers, merged_rows, has_chaser, email_column,

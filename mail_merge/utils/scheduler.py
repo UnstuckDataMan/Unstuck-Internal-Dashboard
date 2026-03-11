@@ -193,6 +193,8 @@ def generate_schedule(
             start_mins = base_mins + variance
             s_hour, s_min = divmod(max(start_mins, win_start_mins), 60)
             t = datetime.combine(work_day, time(s_hour, s_min))
+            # Clamp to window end so avail_secs is never negative
+            t = min(t, day_win_end)
             sender_starts.append(t)
 
         # ── Per-sender independent slot generation ───────────────────────── #

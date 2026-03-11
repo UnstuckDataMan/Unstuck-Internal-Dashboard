@@ -115,13 +115,13 @@ def write_merge_output(
     # Section 1: sent checkbox — always first so the SDR can tick rows off easily
     sec_status = ['Send Status']
     # Section 2: schedule dates
-    sec_schedule = ['Send Date', 'Send Time'] if has_schedule else []
+    sec_schedule = ['Send Time'] if has_schedule else []
     # Section 3: sender / recipient
     sec_routing = ['Sender Account', 'Recipient Email']
     # Section 4: generated copy
     sec_template = ['Subject Line', 'Email Body']
     if has_chaser:
-        sec_template += ['Chaser Subject', 'Chaser Body']
+        sec_template += ['Chaser Body']
     sec_template += ['A/B Variant']
     # Section 5: tracking
     sec_tracking = ['Response', 'Lead Status', 'Notes']
@@ -138,7 +138,7 @@ def write_merge_output(
         color_map[h] = C['hdr_sender']
     for h in ['Subject Line', 'Email Body', 'A/B Variant']:
         color_map[h] = C['hdr_template']
-    for h in ['Chaser Subject', 'Chaser Body']:
+    for h in ['Chaser Body']:
         color_map[h] = C['hdr_chaser']
     for h in sec_tracking:
         color_map[h] = C['hdr_tracking']
@@ -148,11 +148,11 @@ def write_merge_output(
         'Send Status': 10,
         'Sender Account': 30, 'Recipient Email': 34,
         'Subject Line': 44,   'Email Body': 64,
-        'Chaser Subject': 44, 'Chaser Body': 64,
+        'Chaser Body': 64,
         'A/B Variant': 12,
         'Response': 22,
-        'Lead Status': 18,    'Send Date': 14,
-        'Send Time': 12,      'Notes': 32,
+        'Lead Status': 18,    'Send Time': 12,
+        'Notes': 32,
     }
 
     # ── Write header row ───────────────────────────────────────────────────
@@ -166,7 +166,17 @@ def write_merge_output(
     # ── Data validation ────────────────────────────────────────────────────
     col_map = {h: i + 1 for i, h in enumerate(all_cols)}
     total_data_rows = len(merged_rows)
-    last_row = total_data_rows + 1
+
+    # Group rows by date so we can insert a separator after each day
+    date_groups: list = []
+    for row_data in merged_rows:
+        d = row_data.get('__send_date__', '')
+        if not date_groups or date_groups[-1][0] != d:
+            date_groups.append((d, []))
+        date_groups[-1][1].append(row_data)
+
+    n_separators = len(date_groups)
+    last_row = total_data_rows + n_separators + 1  # header + data + separators
 
     def col_let(name):
         return get_column_letter(col_map[name])
@@ -178,43 +188,51 @@ def write_merge_output(
     _add_dv(ws, '"Not a Lead,MQL,SQL,Meeting Booked,Closed Won,Closed Lost"',
             col_let('Lead Status'), last_row)
 
-    # ── Write data rows ────────────────────────────────────────────────────
+    # ── Write data rows with end-of-day separators ─────────────────────────
+    n_cols = len(all_cols)
+    wrap_cols = {'Email Body', 'Chaser Body', 'Notes'}
+    ri = 2
     prev_sender = None
-    for ri, row_data in enumerate(merged_rows, 2):
-        current_sender = row_data.get('__sender_account__', '')
-        is_first_of_sender = (current_sender != prev_sender)
-        prev_sender = current_sender
 
-        # Yellow stripe on the first row of each new sender block so the SDR
-        # can see at a glance when the sending account changes.
-        if is_first_of_sender:
-            fill_hex = 'FFFDE7'
-        else:
-            fill_hex = 'FFFFFF'
+    for _date_val, day_rows in date_groups:
+        for row_data in day_rows:
+            current_sender = row_data.get('__sender_account__', '')
+            is_first_of_sender = (current_sender != prev_sender)
+            prev_sender = current_sender
 
-        row_values = {
-            'Send Status': '',
-            'Sender Account': row_data.get('__sender_account__', ''),
-            'Recipient Email': row_data.get('__recipient_email__', ''),
-            'Subject Line': row_data.get('__subject_line__', ''),
-            'Email Body': row_data.get('__email_body__', ''),
-            'Chaser Subject': row_data.get('__chaser_subject__', ''),
-            'Chaser Body': row_data.get('__chaser_body__', ''),
-            'A/B Variant': row_data.get('__template_variant__', ''),
-            'Response': 'No Response',
-            'Lead Status': 'Not a Lead',
-            'Send Date': row_data.get('__send_date__', ''),
-            'Send Time': row_data.get('__send_time__', ''),
-            'Notes': '',
-        }
+            fill_hex = 'FFFDE7' if is_first_of_sender else 'FFFFFF'
 
-        wrap_cols = {'Email Body', 'Chaser Body', 'Notes'}
+            row_values = {
+                'Send Status': '',
+                'Sender Account': row_data.get('__sender_account__', ''),
+                'Recipient Email': row_data.get('__recipient_email__', ''),
+                'Subject Line': row_data.get('__subject_line__', ''),
+                'Email Body': row_data.get('__email_body__', ''),
+                'Chaser Body': row_data.get('__chaser_body__', ''),
+                'A/B Variant': row_data.get('__template_variant__', ''),
+                'Response': 'No Response',
+                'Lead Status': 'Not a Lead',
+                'Send Time': row_data.get('__send_time__', ''),
+                'Notes': '',
+            }
 
-        for ci, header in enumerate(all_cols, 1):
-            cell = ws.cell(row=ri, column=ci, value=row_values.get(header, ''))
-            _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
+            for ci, header in enumerate(all_cols, 1):
+                cell = ws.cell(row=ri, column=ci, value=row_values.get(header, ''))
+                _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
 
-        ws.row_dimensions[ri].height = 36 if total_data_rows <= 200 else 18
+            ws.row_dimensions[ri].height = 18 if total_data_rows <= 200 else 9
+            ri += 1
+
+        # ── End-of-day separator ───────────────────────────────────────────
+        ws.merge_cells(f'A{ri}:{get_column_letter(n_cols)}{ri}')
+        sep_cell = ws.cell(row=ri, column=1, value='No More Emails For Today.')
+        sep_cell.font = Font(name='Calibri', bold=True, size=9, color='5D4037')
+        sep_cell.fill = PatternFill('solid', fgColor='FFF3E0')
+        sep_cell.alignment = Alignment(horizontal='center', vertical='center')
+        sep_cell.border = _thin_border()
+        ws.row_dimensions[ri].height = 14
+        prev_sender = None  # reset so first row of next day gets yellow stripe
+        ri += 1
 
     # ── Conditional formatting ─────────────────────────────────────────────
     def cf_range(name):

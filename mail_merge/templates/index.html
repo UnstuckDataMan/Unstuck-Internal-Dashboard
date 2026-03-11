@@ -286,11 +286,6 @@ td .truncate{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertica
             ▶ Chaser / Follow-up Templates (optional)
           </summary>
           <div style="margin-top:14px">
-            <div class="mb-3">
-              <label for="chaser-subject">Chaser Subject Line</label>
-              <input type="text" id="chaser-subject" placeholder="e.g. Re: {{company}} — quick follow-up"
-                     onfocus="setFocusedField(this)">
-            </div>
             <div>
               <label for="chaser-body">Chaser Email Body</label>
               <textarea id="chaser-body" rows="5" placeholder="Hi {{first_name}},&#10;&#10;Just following up on my previous message..."
@@ -829,7 +824,6 @@ function validateTemplates() {
   }
   const subjects = getTemplates('.subject-input');
   const bodies = getTemplates('.body-input');
-  const chaserSubj = document.getElementById('chaser-subject').value.trim();
   const chaserBody = document.getElementById('chaser-body').value.trim();
 
   if (!subjects.length) {
@@ -852,7 +846,6 @@ function validateTemplates() {
       headers: state.headers,
       subject_templates: subjects,
       body_templates: bodies,
-      chaser_subject: chaserSubj,
       chaser_body: chaserBody,
     }),
   })
@@ -959,7 +952,6 @@ function generateMerge() {
 
   const subjects = getTemplates('.subject-input');
   const bodies = getTemplates('.body-input');
-  const chaserSubj = document.getElementById('chaser-subject').value.trim();
   const chaserBody = document.getElementById('chaser-body').value.trim();
   const senderRaw = document.getElementById('sender-emails').value.trim();
   const senders = senderRaw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
@@ -988,7 +980,6 @@ function generateMerge() {
       file_id: state.fileId,
       subject_templates: subjects,
       body_templates: bodies,
-      chaser_subject: chaserSubj,
       chaser_body: chaserBody,
       sender_emails: senders,
       missing_value: missingVal,
