@@ -218,8 +218,9 @@ def generate_schedule(
                     for i in range(n_sends)
                 ]
 
+            _tolerance = timedelta(seconds=1)
             for slot_dt in slots:
-                if slot_dt <= day_win_end:
+                if slot_dt <= day_win_end + _tolerance:
                     adjusted.append((slot_dt, sender_emails[s_idx], s_idx + 1))
 
         adjusted.sort(key=lambda x: x[0])

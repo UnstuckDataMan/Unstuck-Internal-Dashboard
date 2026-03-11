@@ -214,7 +214,7 @@ def write_merge_output(
             cell = ws.cell(row=ri, column=ci, value=row_values.get(header, ''))
             _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
 
-        ws.row_dimensions[ri].height = 72 if total_data_rows <= 200 else 36
+        ws.row_dimensions[ri].height = 36 if total_data_rows <= 200 else 18
 
     # ── Conditional formatting ─────────────────────────────────────────────
     def cf_range(name):
