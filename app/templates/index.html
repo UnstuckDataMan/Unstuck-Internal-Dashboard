@@ -304,25 +304,7 @@
       transform: scale(0.97);
       box-shadow: 0 4px 14px rgba(0,0,0,.3);
     }
-
-    /* ── Page-transition overlay ─────────────────────────────────── */
-    #pt {
-      position: fixed;
-      inset: 0;
-      z-index: 999;
-      pointer-events: none;
-    }
-    .pt-b, .pt-f {
-      position: absolute;
-      inset: 0;
-      transform: translateY(-100%);
-      border-radius: 0 0 22px 22px;
-    }
-    .pt-b { background: linear-gradient(135deg,#180835 0%,#7c3aed 50%,#5b5ea6 100%); }
-    .pt-f { background: linear-gradient(135deg,#5b5ea6 0%,#7c3aed 50%,#e879f9 100%); }
-    body.pt-enter, body.pt-enter * { animation: none !important; opacity: 1 !important; }
   </style>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
 </head>
 <body>
 
@@ -332,12 +314,6 @@
   <div class="blob blob-2"></div>
   <div class="blob blob-3"></div>
   <div class="blob blob-4"></div>
-</div>
-
-<!-- Page-transition overlay -->
-<div id="pt" aria-hidden="true">
-  <div class="pt-b"></div>
-  <div class="pt-f"></div>
 </div>
 
 <!-- Corner logo (SVG from file.svg) -->
@@ -478,42 +454,11 @@
 </div>
 
 <script>
-  // Page transition (GSAP)
-  const pt = document.getElementById('pt');
-
-  function ptLeave(href) {
-    pt.style.pointerEvents = 'all';
-    gsap.set('.pt-b, .pt-f', { yPercent: -100, borderRadius: '0 0 22px 22px' });
-    gsap.timeline({ onComplete: () => {
-      sessionStorage.setItem('pt', '1');
-      window.location.href = href;
-    }})
-      .to('.pt-b', { yPercent: 0, borderRadius: 0, duration: 0.62, ease: 'power3.inOut' })
-      .to('.pt-f', { yPercent: 0, borderRadius: 0, duration: 0.62, ease: 'power3.inOut' }, '-=0.42');
-  }
-
-  // Enter animation (wipe out on arrival)
-  window.addEventListener('DOMContentLoaded', () => {
-    if (sessionStorage.getItem('pt') === '1') {
-      sessionStorage.removeItem('pt');
-      document.body.classList.add('pt-enter');
-      gsap.set('.pt-b, .pt-f', { yPercent: 0, borderRadius: 0 });
-      gsap.timeline({ onComplete: () => document.body.classList.remove('pt-enter') })
-        .to('.pt-f', { yPercent: 100, borderRadius: '22px 22px 0 0', duration: 0.54, ease: 'power3.inOut' })
-        .to('.pt-b', { yPercent: 100, borderRadius: '22px 22px 0 0', duration: 0.54, ease: 'power3.inOut' }, '-=0.38');
-    }
-  });
-
-  // Intercept same-tab links
+  // Press effect on click
   document.querySelectorAll('.card-link').forEach(link => {
     link.addEventListener('mousedown', () => link.classList.add('pressing'));
     link.addEventListener('mouseleave', () => link.classList.remove('pressing'));
-    link.addEventListener('click', function(e) {
-      if (this.target === '_blank') return;
-      e.preventDefault();
-      this.classList.add('pressing');
-      ptLeave(this.getAttribute('href'));
-    });
+    link.addEventListener('mouseup', () => link.classList.remove('pressing'));
   });
 </script>
 
