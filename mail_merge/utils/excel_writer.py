@@ -117,7 +117,7 @@ def write_merge_output(
     # Section 2: schedule dates
     sec_schedule = ['Send Time'] if has_schedule else []
     # Section 3: sender / recipient
-    sec_routing = ['Sender Account', 'Recipient Email']
+    sec_routing = ['Sender Account', 'First Name', 'Recipient Email']
     # Section 4: generated copy
     sec_template = ['Subject Line', 'Email Body']
     if has_chaser:
@@ -146,7 +146,7 @@ def write_merge_output(
     # Column widths
     col_widths = {
         'Send Status': 10,
-        'Sender Account': 30, 'Recipient Email': 34,
+        'Sender Account': 30, 'First Name': 18, 'Recipient Email': 34,
         'Subject Line': 44,   'Email Body': 64,
         'Chaser Body': 64,
         'A/B Variant': 12,
@@ -202,9 +202,18 @@ def write_merge_output(
 
             fill_hex = 'FFFDE7' if is_first_of_sender else 'FFFFFF'
 
+            # Resolve first name from prospect data — try common column name variants
+            _fn_key = next(
+                (k for k in row_data
+                 if k.lower().replace(' ', '').replace('_', '') in ('firstname', 'fname', 'first')),
+                None,
+            )
+            first_name = row_data.get(_fn_key, '') if _fn_key else ''
+
             row_values = {
                 'Send Status': '',
                 'Sender Account': row_data.get('__sender_account__', ''),
+                'First Name': first_name,
                 'Recipient Email': row_data.get('__recipient_email__', ''),
                 'Subject Line': row_data.get('__subject_line__', ''),
                 'Email Body': row_data.get('__email_body__', ''),
