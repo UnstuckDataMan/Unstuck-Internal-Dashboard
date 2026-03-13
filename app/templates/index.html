@@ -454,11 +454,12 @@
 </div>
 
 <script>
-  // Press effect on click
+  // Press effect on click (mouse + touch)
   document.querySelectorAll('.card-link').forEach(link => {
-    link.addEventListener('mousedown', () => link.classList.add('pressing'));
-    link.addEventListener('mouseleave', () => link.classList.remove('pressing'));
-    link.addEventListener('mouseup', () => link.classList.remove('pressing'));
+    ['mousedown', 'touchstart'].forEach(e =>
+      link.addEventListener(e, () => link.classList.add('pressing'), { passive: true }));
+    ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(e =>
+      link.addEventListener(e, () => link.classList.remove('pressing'), { passive: true }));
   });
 </script>
 
