@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Data Enrichment{% endblock %}</title>
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -38,14 +39,8 @@
       -moz-osx-font-smoothing: grayscale;
       display: flex;
       flex-direction: column;
-      /* Fade in from loader white */
-      animation: pageIn 0.55s cubic-bezier(0,0,.2,1) 0.05s both;
     }
-
-    @keyframes pageIn {
-      from { opacity: 0; }
-      to   { opacity: 1; }
-    }
+    body.pt-enter, body.pt-enter .page { animation: none !important; opacity: 1 !important; }
 
     /* ── Topbar ──────────────────────────────────────────────── */
     .topbar {
@@ -117,13 +112,23 @@
       max-width: 680px;
       width: 100%;
       margin: 0 auto;
-      animation: slideUp 0.5s cubic-bezier(0,0,.2,1) 0.1s both;
     }
 
-    @keyframes slideUp {
-      from { opacity: 0; transform: translateY(14px); }
-      to   { opacity: 1; transform: translateY(0);    }
+    /* Page-transition overlay */
+    #pt {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      pointer-events: none;
     }
+    .pt-b, .pt-f {
+      position: absolute;
+      inset: 0;
+      transform: translateY(-100%);
+      border-radius: 0 0 22px 22px;
+    }
+    .pt-b { background: linear-gradient(135deg,#180835 0%,#7c3aed 50%,#5b5ea6 100%); }
+    .pt-f { background: linear-gradient(135deg,#5b5ea6 0%,#7c3aed 50%,#e879f9 100%); }
 
     .page-sub {
       font-size: 14px;
@@ -368,6 +373,8 @@
 </head>
 <body>
 
+<div id="pt" aria-hidden="true"><div class="pt-b"></div><div class="pt-f"></div></div>
+
   <header class="topbar">
     <a href="/" class="home-link">
       <div class="home-mark">
@@ -386,5 +393,29 @@
     {% block content %}{% endblock %}
   </main>
 
+<script>
+  const pt = document.getElementById('pt');
+  function ptLeave(href) {
+    pt.style.pointerEvents = 'all';
+    gsap.set('.pt-b,.pt-f', { yPercent: -100, borderRadius: '0 0 22px 22px' });
+    gsap.timeline({ onComplete: () => { sessionStorage.setItem('pt','1'); window.location.href = href; }})
+      .to('.pt-b', { yPercent: 0, borderRadius: 0, duration: 0.62, ease: 'power3.inOut' })
+      .to('.pt-f', { yPercent: 0, borderRadius: 0, duration: 0.62, ease: 'power3.inOut' }, '-=0.42');
+  }
+  window.addEventListener('DOMContentLoaded', () => {
+    if (sessionStorage.getItem('pt') === '1') {
+      sessionStorage.removeItem('pt');
+      document.body.classList.add('pt-enter');
+      gsap.set('.pt-b,.pt-f', { yPercent: 0, borderRadius: 0 });
+      gsap.timeline({ onComplete: () => document.body.classList.remove('pt-enter') })
+        .to('.pt-f', { yPercent: 100, borderRadius: '22px 22px 0 0', duration: 0.54, ease: 'power3.inOut' })
+        .to('.pt-b', { yPercent: 100, borderRadius: '22px 22px 0 0', duration: 0.54, ease: 'power3.inOut' }, '-=0.38');
+    }
+    document.querySelector('.home-link').addEventListener('click', function(e) {
+      e.preventDefault();
+      ptLeave(this.getAttribute('href'));
+    });
+  });
+</script>
 </body>
 </html>
