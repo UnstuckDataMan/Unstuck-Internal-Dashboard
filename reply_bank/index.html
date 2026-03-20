@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reply Bank — Unstuck Agency</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f6fb;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 0 20px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .home-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .home-icon svg { width: 18px; height: 18px; fill: white; }
+    header h1 {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 16px;
+      font-weight: 700;
+      color: #111827;
+      letter-spacing: -.2px;
+    }
+    .header-spacer { width: 36px; flex-shrink: 0; }
+
+    /* ── Layout ── */
+    .main { display: flex; flex: 1; overflow: hidden; }
+    .left-panel {
+      width: 270px;
+      flex-shrink: 0;
+      background: white;
+      border-right: 1px solid #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .panel-section { padding: 16px; }
+    .panel-section + .panel-section { border-top: 1px solid #f3f4f6; }
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #9ca3af;
+      margin-bottom: 10px;
+    }
+
+    /* ── Form fields ── */
+    .field { margin-bottom: 10px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label { display: block; font-size: 11px; font-weight: 600; color: #6b7280; margin-bottom: 4px; }
+    .field input[type="text"],
+    .field select {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #111827;
+      background: white;
+      transition: border-color .15s;
+      outline: none;
+    }
+    .field input[type="text"]:focus,
+    .field select:focus { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,.1); }
+
+    /* ── Toggle buttons ── */
+    .toggle-group {
+      display: flex;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .toggle-btn {
+      flex: 1;
+      padding: 7px 4px;
+      border: none;
+      background: white;
+      font-size: 12px;
+      font-weight: 500;
+      color: #6b7280;
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+    .toggle-btn + .toggle-btn { border-left: 1.5px solid #e5e7eb; }
+    .toggle-btn.active {
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      color: white;
+      font-weight: 600;
+    }
+
+    /* ── Checkboxes ── */
+    .checkbox-group { display: flex; flex-direction: column; gap: 7px; }
+    .cb-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      padding: 6px 8px;
+      border-radius: 7px;
+      background: #fafafa;
+      border: 1.5px solid #f3f4f6;
+      transition: border-color .15s;
+    }
+    .cb-row:hover { border-color: #d1d5db; }
+    .cb-row input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #7c3aed; }
+    .cb-row span { font-size: 12px; color: #374151; }
+
+    /* ── Right panel ── */
+    .right-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #f5f6fb;
+    }
+    .output-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      flex-shrink: 0;
+    }
+    .output-title { font-size: 11px; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; }
+    .copy-btn {
+      padding: 7px 22px;
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    .copy-btn:hover { opacity: .88; }
+    .copy-btn:active { transform: scale(.97); }
+    .copy-btn.success { background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%); }
+
+    /* ── Message box ── */
+    .message-box {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-size: 13.5px;
+      line-height: 1.65;
+      color: #111827;
+      font-family: inherit;
+    }
+    .message-box.placeholder { color: #9ca3af; font-style: italic; }
+    .message-box.not-available { color: #dc2626; font-style: italic; display: flex; align-items: center; justify-content: center; }
+
+    /* ── Name warning ── */
+    .name-warn {
+      font-size: 11px;
+      color: #d97706;
+      margin-top: 3px;
+      display: none;
+    }
+    .name-warn.visible { display: block; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+    /* ── Gear icon button ── */
+    .gear-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: #9ca3af;
+      font-size: 17px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .15s, color .15s;
+      flex-shrink: 0;
+    }
+    .gear-btn:hover { background: #f3f4f6; color: #6b7280; }
+
+    /* ── Admin panel ── */
+    .admin-panel {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      overflow: hidden;
+      background: #f5f6fb;
+    }
+    .admin-panel.visible { display: flex; }
+    .admin-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 24px;
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      flex-shrink: 0;
+    }
+    .admin-back-btn {
+      padding: 6px 14px;
+      border: 1.5px solid #e5e7eb;
+      background: white;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      cursor: pointer;
+      transition: border-color .15s;
+    }
+    .admin-back-btn:hover { border-color: #7c3aed; color: #7c3aed; }
+    .admin-title { font-size: 14px; font-weight: 700; color: #111827; }
+    .admin-subtitle { font-size: 12px; color: #9ca3af; margin-left: auto; }
+    .admin-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .admin-card {
+      background: white;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      padding: 20px;
+    }
+    .admin-card-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #9ca3af;
+      margin-bottom: 16px;
+    }
+    .admin-selectors {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .admin-selectors select {
+      flex: 1;
+      min-width: 120px;
+      padding: 7px 10px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #111827;
+      background: white;
+      outline: none;
+      cursor: pointer;
+      transition: border-color .15s;
+    }
+    .admin-selectors select:focus { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,.1); }
+    .admin-template-block { margin-bottom: 14px; }
+    .admin-template-block:last-of-type { margin-bottom: 0; }
+    .admin-template-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    .edited-chip {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 10px;
+      background: #ede9fe;
+      color: #7c3aed;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .admin-textarea {
+      width: 100%;
+      min-height: 160px;
+      padding: 10px 12px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #111827;
+      background: #fafafa;
+      resize: vertical;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .admin-textarea:focus { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,.1); background: white; }
+    .admin-save-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .admin-save-btn {
+      padding: 7px 22px;
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .admin-save-btn:hover { opacity: .88; }
+    .admin-save-btn.success { background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%); }
+    .snippet-row { margin-bottom: 14px; }
+    .snippet-row:last-child { margin-bottom: 0; }
+    .snippet-label { font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
+    .snippet-textarea {
+      width: 100%;
+      min-height: 64px;
+      padding: 8px 10px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #111827;
+      background: #fafafa;
+      resize: vertical;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .snippet-textarea:focus { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,.1); background: white; }
+    .admin-action-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .admin-action-btn {
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1.5px solid #e5e7eb;
+      background: white;
+      color: #374151;
+      transition: border-color .15s, color .15s;
+    }
+    .admin-action-btn:hover { border-color: #7c3aed; color: #7c3aed; }
+    .admin-action-btn.export {
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      color: white;
+      border-color: transparent;
+    }
+    .admin-action-btn.export:hover { opacity: .88; color: white; border-color: transparent; }
+    .admin-action-btn.danger:hover { border-color: #dc2626; color: #dc2626; }
+    .admin-snippet-group-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #9ca3af;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    /* ── Admin tabs ── */
+    .admin-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 12px 24px 0;
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      flex-shrink: 0;
+    }
+    .admin-tab-btn {
+      padding: 8px 20px;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 600;
+      color: #9ca3af;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color .15s, border-color .15s;
+    }
+    .admin-tab-btn:hover { color: #374151; }
+    .admin-tab-btn.active {
+      color: #7c3aed;
+      border-bottom-color: #7c3aed;
+    }
+    .admin-tab-pane { display: none; }
+    .admin-tab-pane.active { display: contents; }
+  </style>
+</head>
+<body>
+<header>
+  <a href="/" class="home-icon" style="text-decoration:none">
+    <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+      <path d="M10 2.5L2 9h2v8.5h5v-5h2v5h5V9h2L10 2.5z"/>
+    </svg>
+  </a>
+  <h1>Reply Bank</h1>
+  <button class="gear-btn" id="gear-btn" title="Admin">⚙</button>
+</header>
+<div class="main">
+  <!-- LEFT PANEL -->
+  <div class="left-panel">
+
+    <div class="panel-section">
+      <div class="section-label">Recipient</div>
+      <div class="field">
+        <label for="recipient-name">First name</label>
+        <input type="text" id="recipient-name" placeholder="e.g. Sarah" autocomplete="off">
+        <div class="name-warn" id="name-warn">Name required for LinkedIn</div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-label">Sending Account</div>
+      <div class="field">
+        <select id="sender">
+          <option value="Robyn">Robyn</option>
+          <option value="Glen">Glen</option>
+          <option value="Leo">Leo</option>
+          <option value="Chris">Chris</option>
+          <option value="Devlin">Devlin</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-label">Channel</div>
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-channel="Email">Email</button>
+        <button class="toggle-btn" data-channel="LinkedIn">LinkedIn</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-label">Territory</div>
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-territory="US">US</button>
+        <button class="toggle-btn" data-territory="UK">UK</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-label">Industry</div>
+      <div class="field">
+        <select id="industry">
+          <option value="PR">PR</option>
+          <option value="Marketing">Marketing</option>
+          <option value="Media">Media</option>
+          <option value="SaaS">SaaS</option>
+          <option value="AI">AI</option>
+          <option value="Accounting">Accounting</option>
+          <option value="Cybersecurity">Cybersecurity</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-label">Modifiers</div>
+      <div class="checkbox-group">
+        <label class="cb-row"><input type="checkbox" id="cb-pricing"><span>Pricing?</span></label>
+        <label class="cb-row"><input type="checkbox" id="cb-pay-per-lead"><span>Pay per lead?</span></label>
+        <label class="cb-row"><input type="checkbox" id="cb-referral"><span>Referral confusion?</span></label>
+        <label class="cb-row"><input type="checkbox" id="cb-face-to-face"><span>Face-to-face request</span></label>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel">
+    <div class="output-header">
+      <span class="output-title">Message Preview</span>
+      <button class="copy-btn" id="copy-btn">Copy</button>
+    </div>
+    <div class="message-box placeholder" id="message-box">Select options to generate a message…</div>
+  </div>
+</div>
+
+<!-- ADMIN PANEL -->
+<div class="admin-panel" id="admin-panel">
+  <div class="admin-header">
+    <button class="admin-back-btn" id="admin-back-btn">← Back</button>
+    <span class="admin-title">Template Admin</span>
+    <span class="admin-subtitle">Changes save instantly · Use Export to share updates</span>
+  </div>
+  <div class="admin-tabs">
+    <button class="admin-tab-btn active" data-tab="copy">Copy</button>
+    <button class="admin-tab-btn" data-tab="snippets">Snippets</button>
+  </div>
+  <div class="admin-body">
+
+    <!-- ── Copy tab ── -->
+    <div class="admin-tab-pane active" id="admin-tab-copy">
+
+    <!-- Template Editor -->
+    <div class="admin-card">
+      <div class="admin-card-title">Templates</div>
+      <div class="admin-selectors">
+        <select id="adm-territory">
+          <option value="US">US</option>
+          <option value="UK">UK</option>
+        </select>
+        <select id="adm-industry">
+          <option value="PR">PR</option>
+          <option value="Marketing">Marketing</option>
+          <option value="Media">Media</option>
+          <option value="SaaS">SaaS</option>
+          <option value="AI">AI</option>
+          <option value="Accounting">Accounting</option>
+          <option value="Cybersecurity">Cybersecurity</option>
+        </select>
+      </div>
+
+      <div class="admin-template-block">
+        <div class="admin-template-label">
+          Email <span class="edited-chip" id="chip-adm-email" style="display:none">Edited</span>
+        </div>
+        <textarea class="admin-textarea" id="adm-email" spellcheck="true"></textarea>
+      </div>
+
+      <div class="admin-template-block">
+        <div class="admin-template-label">
+          LinkedIn <span class="edited-chip" id="chip-adm-linkedin" style="display:none">Edited</span>
+        </div>
+        <textarea class="admin-textarea" id="adm-linkedin" spellcheck="true"></textarea>
+      </div>
+
+      <div class="admin-save-row">
+        <button class="admin-save-btn" id="adm-save-templates">Save Templates</button>
+      </div>
+    </div>
+
+    </div><!-- /admin-tab-copy -->
+
+    <!-- ── Snippets tab ── -->
+    <div class="admin-tab-pane" id="admin-tab-snippets">
+
+    <!-- Snippets Editor -->
+    <div class="admin-card">
+      <div class="admin-card-title">Snippets</div>
+
+      <div class="admin-snippet-group-label">Always included when checkbox is ticked</div>
+
+      <div class="snippet-row">
+        <div class="snippet-label">Pay per lead? <span class="edited-chip" id="chip-payPerLead" style="display:none">Edited</span></div>
+        <textarea class="snippet-textarea" id="snip-payPerLead" spellcheck="true"></textarea>
+      </div>
+      <div class="snippet-row">
+        <div class="snippet-label">Referral confusion? <span class="edited-chip" id="chip-referral" style="display:none">Edited</span></div>
+        <textarea class="snippet-textarea" id="snip-referral" spellcheck="true"></textarea>
+      </div>
+      <div class="snippet-row">
+        <div class="snippet-label">Face-to-face request <span class="edited-chip" id="chip-f2f" style="display:none">Edited</span></div>
+        <textarea class="snippet-textarea" id="snip-f2f" spellcheck="true"></textarea>
+      </div>
+
+      <div class="admin-snippet-group-label" style="margin-top:18px">Pricing — auto-selected by territory (US or UK)</div>
+
+      <div class="snippet-row">
+        <div class="snippet-label">US Pricing <span class="edited-chip" id="chip-usPricing" style="display:none">Edited</span></div>
+        <textarea class="snippet-textarea" id="snip-usPricing" spellcheck="true"></textarea>
+      </div>
+      <div class="snippet-row">
+        <div class="snippet-label">UK Pricing <span class="edited-chip" id="chip-ukPricing" style="display:none">Edited</span></div>
+        <textarea class="snippet-textarea" id="snip-ukPricing" spellcheck="true"></textarea>
+      </div>
+
+      <div class="admin-snippet-group-label" style="margin-top:18px">Meeting link — auto-selected by sender (Leo or others)</div>
+
+      <div class="snippet-row">
+        <div class="snippet-label">Leo's link <span class="edited-chip" id="chip-leoLink" style="display:none">Edited</span></div>
+        <textarea class="snippet-textarea" id="snip-leoLink" spellcheck="true"></textarea>
+      </div>
+      <div class="snippet-row">
+        <div class="snippet-label">Other senders' link <span class="edited-chip" id="chip-otherLink" style="display:none">Edited</span></div>
+        <textarea class="snippet-textarea" id="snip-otherLink" spellcheck="true"></textarea>
+      </div>
+
+      <div class="admin-save-row">
+        <button class="admin-save-btn" id="adm-save-snippets">Save Snippets</button>
+      </div>
+    </div>
+
+    <!-- Action Bar (inside snippets tab) -->
+    <div class="admin-card">
+      <div class="admin-card-title">Actions</div>
+      <div class="admin-action-row">
+        <button class="admin-action-btn export" id="adm-export">⬇ Export Updated HTML</button>
+        <button class="admin-action-btn danger" id="adm-reset">Reset to defaults</button>
+      </div>
+    </div>
+
+    </div><!-- /admin-tab-snippets -->
+
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  EMBEDDED DATA
+// ════════════════════════════════════════════════════════
+const TEMPLATES = {"US_Standard_Email_PR":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for PR agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US PR agencies drive both domestic growth and engagement with European businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of agency sales experience on both sides of the Atlantic.\n\nWe work with boutique agencies along with some of the established PR agencies in the US (like Hopscotch, Factory PR, and Digenniro, who between them represent the likes of Nvidia, Meta, and Spotify).\n\nHere are some PR testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/brilliant-relations/\nhttps://unstuck-agency.com/case-studies/ambition-pr/\n\nBest,","US_Standard_Email_Marketing":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for marketing agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US agencies drive both domestic growth and engagement with European businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established marketing and communications agencies in the US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","US_Standard_Email_Media":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for media production agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US agencies drive both domestic growth and engagement with European businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established content and communications agencies in the US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","US_Standard_Email_SaaS":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B SaaS firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US B2B SaaS and tech firms drive both domestic growth and engagement with UK businesses.\n\nWe act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","US_Standard_Email_AI":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B AI firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US AI firms drive both domestic growth and engagement with UK businesses.\n\nWe act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","US_Standard_Email_Accounting":"Hi\n\nThanks for your quick reply.\n\nAs a first step I'd suggest a short virtual meeting. I can suggest 9:30 AM or 10:30 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US accounting firms drive both domestic growth and engagement with UK businesses expanding into the US.\n\nWe act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients while representing your brand responsibly.\n\nWe use proprietary technology that identifies UK companies actively expanding in the US, so outreach is focused on firms likely to need US accounting support.\n\nOn average, clients stay with us for around two years, and the most common reason an accounting firm stops working with us is that they reach full capacity.\n\nHere are some accounting client testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/ten-accountants/\nhttps://unstuck-agency.com/case-studies/blue-shore-accountants/\nhttps://unstuck-agency.com/case-studies/redwood-accountants/\n\nBest,","US_Standard_Email_Cybersecurity":null,"US_Standard_LinkedIn_PR":"Hi\n\nThanks for getting back to me.\n\nWe work with PR agencies looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nWe bring 10+ years of agency sales experience on both sides of the Atlantic. Current clients include Smoking Gun, Factory PR, DiGennaro, Hopscotch, and Quarter Horse PR.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your local time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Marketing":"Hi\n\nThanks for getting back to me.\n\nWe work with US marketing agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Media":"Hi\n\nThanks for getting back to me.\n\nWe work with US content agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_SaaS":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B SaaS and tech firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the UK.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_AI":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B AI firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the UK.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Accounting":"Hi\n\nThanks for getting back to me.\n\nWe work with US accounting firms that want a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running researched multichannel outreach to book meetings with target clients, both domestically and with UK companies expanding in the US.\n\nWe also use proprietary tech to focus outreach on firms with active US expansion needs.\n\nIf this sounds relevant, happy to set up a quick virtual chat. I could do 9:30 AM or 10:30 AM your local time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Cybersecurity":null,"UK_Standard_Email_PR":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for PR agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK PR agencies drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, delivering highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of agency sales experience on both sides of the Atlantic.\n\nWe work with boutique agencies along with some of the established PR agencies in the UK and US (like Hopscotch, Factory PR, and Digenniro, who between them represent the likes of Nvidia, Meta, and Spotify).\n\nHere are some PR testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/brilliant-relations/\nhttps://unstuck-agency.com/case-studies/ambition-pr/\n\nBest,","UK_Standard_Email_Marketing":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for marketing agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK agencies drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, delivering highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established marketing and communications agencies in the UK and US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","UK_Standard_Email_Media":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for media production agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK agencies drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, delivering highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established content and communications agencies in the UK and US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","UK_Standard_Email_SaaS":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B SaaS firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK B2B SaaS and tech firms drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","UK_Standard_Email_AI":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B AI firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK AI firms drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","UK_Standard_Email_Accounting":"Hi\n\nThanks for your quick reply.\n\nAs a first step I'd suggest a short virtual meeting. I can suggest 10:30 AM or 2:30 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK accounting firms drive both domestic growth and engagement with US businesses looking for UK accounting support.\n\nWe act as your ready-made new business team, delivering highly researched, multichannel outreach to book meetings with your target clients, while representing your firm responsibly.\n\nWe use proprietary technology that identifies US companies actively expanding in the UK, so outreach is focused on firms likely to need UK accounting support.\n\nOn average, clients stay with us for around two years, and the most common reason an accounting firm stops working with us is that they reach full capacity.\n\nHere are some accounting client testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/ten-accountants/\nhttps://unstuck-agency.com/case-studies/blue-shore-accountants/\nhttps://unstuck-agency.com/case-studies/redwood-accountants/\n\nBest,","UK_Standard_Email_Cybersecurity":null,"UK_Standard_LinkedIn_PR":"Hi\n\nThanks for getting back to me.\n\nWe work with PR agencies looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nWe bring 10+ years of agency sales experience on both sides of the Atlantic. Current clients include Smoking Gun, Factory PR, DiGennaro, Hopscotch, and Quarter Horse PR.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Marketing":"Hi\n\nThanks for getting back to me.\n\nWe work with UK marketing agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Media":"Hi\n\nThanks for getting back to me.\n\nWe work with UK content agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_SaaS":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B SaaS and tech firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_AI":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B AI firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 10:30 AM or 2 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Accounting":"Hi\n\nThanks for getting back to me.\n\nWe work with UK accounting firms looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients, both domestically and with US companies expanding into the UK.\n\nWe use proprietary tech that identifies US companies actively expanding in the UK, so outreach is focused on firms in need of UK accounting support.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 10:30 AM or 2 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Cybersecurity":null,"US_Short_Email_PR":"Hi\n\nThanks for getting back to me.\n\nWe work with PR agencies looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nWe bring 10+ years of agency sales experience on both sides of the Atlantic. Current clients include Smoking Gun, Factory PR, DiGennaro, Hopscotch, and Quarter Horse PR.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your local time on Monday or Tuesday.","US_Short_LinkedIn_PR":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with PR agencies looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nWe bring 10+ years of agency sales experience on both sides of the Atlantic. Current clients include Smoking Gun, Factory PR, DiGennaro, Hopscotch, and Quarter Horse PR.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your local time on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","US_Short_Email_Marketing":"Hi\n\nThanks for getting back to me.\n\nWe work with US marketing agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your time on Monday or Tuesday.","US_Short_LinkedIn_Marketing":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with US marketing agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","US_Short_Email_Media":"Hi\n\nThanks for getting back to me.\n\nWe work with US content agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your time on Monday or Tuesday.","US_Short_LinkedIn_Media":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with US content agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","US_Short_Email_SaaS":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B SaaS and tech firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the UK.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 9 AM or 10 AM your time on Monday or Tuesday.","US_Short_LinkedIn_SaaS":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with B2B SaaS and tech firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the UK.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","US_Short_Email_AI":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B AI firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the UK.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 9 AM or 10 AM your time on Monday or Tuesday.","US_Short_LinkedIn_AI":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with B2B AI firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the UK.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","US_Short_Email_Accounting":"Hi\n\nThanks for getting back to me.\n\nWe work with US accounting firms that want a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running researched multichannel outreach to book meetings with target clients, both domestically and with UK companies expanding in the US.\n\nWe also use proprietary tech to focus outreach on firms with active US expansion needs.\n\nIf this sounds relevant, happy to set up a quick virtual chat. I could do 9:30 AM or 10:30 AM your local time on Monday or Tuesday.","US_Short_LinkedIn_Accounting":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with US accounting firms that want a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running researched multichannel outreach to book meetings with target clients, both domestically and with UK companies expanding in the US.\n\nWe also use proprietary tech to focus outreach on firms with active US expansion needs.\n\nIf this sounds relevant, happy to set up a quick virtual chat. I could do 9:30 AM or 10:30 AM your local time on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","US_Short_Email_Cybersecurity":null,"US_Short_LinkedIn_Cybersecurity":"\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","UK_Short_Email_PR":"Hi\n\nThanks for getting back to me.\n\nWe work with PR agencies looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nWe bring 10+ years of agency sales experience on both sides of the Atlantic. Current clients include Smoking Gun, Factory PR, DiGennaro, Hopscotch, and Quarter Horse PR.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.","UK_Short_LinkedIn_PR":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with PR agencies looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nWe bring 10+ years of agency sales experience on both sides of the Atlantic. Current clients include Smoking Gun, Factory PR, DiGennaro, Hopscotch, and Quarter Horse PR.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","UK_Short_Email_Marketing":"Hi\n\nThanks for getting back to me.\n\nWe work with UK marketing agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.","UK_Short_LinkedIn_Marketing":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with UK marketing agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","UK_Short_Email_Media":"Hi\n\nThanks for getting back to me.\n\nWe work with UK content agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.","UK_Short_LinkedIn_Media":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with UK content agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","UK_Short_Email_SaaS":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B SaaS and tech firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.","UK_Short_LinkedIn_SaaS":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with B2B SaaS and tech firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","UK_Short_Email_AI":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B AI firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 10:30 AM or 2 PM on Monday or Tuesday.","UK_Short_LinkedIn_AI":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with B2B AI firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 10:30 AM or 2 PM on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","UK_Short_Email_Accounting":"Hi\n\nThanks for getting back to me.\n\nWe work with UK accounting firms looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients, both domestically and with US companies expanding into the UK.\n\nWe use proprietary tech that identifies US companies actively expanding in the UK, so outreach is focused on firms in need of UK accounting support.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 10:30 AM or 2 PM on Monday or Tuesday.","UK_Short_LinkedIn_Accounting":"Hi \nJP,\n\nThanks for getting back to me.\n\nWe work with UK accounting firms looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients, both domestically and with US companies expanding into the UK.\n\nWe use proprietary tech that identifies US companies actively expanding in the UK, so outreach is focused on firms in need of UK accounting support.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 10:30 AM or 2 PM on Monday or Tuesday.\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma","UK_Short_Email_Cybersecurity":null,"UK_Short_LinkedIn_Cybersecurity":"\n\nIf those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min\n\nElizma"};
+const SNIPPETS = {"leoLink":"If those times don’t work, here is a link to my Calendly. Please find a time that suits you: https://calendly.com/leokesner/30min","otherLink":"If those times don’t work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min","usPricing":"Our rate is between $3.7k and $4.9k per month depending on your requirements, and we work on a retainer basis (no other fees).","ukPricing":"Our rate is between £2.7k and £3.7k per month depending on your requirements, and we work on a retainer basis (no other fees).","payPerLead":"I'm afraid we don't work on this basis - it would be very difficult to have this model whilst representing your brand responsibly, as we take a low-volume, researched approach. There are some providers who do this but it's likely to be a spray and pray approach.","referral":"Just to clarify, we don't work with brands directly and I'll explain how we work below.","f2f":"We’re currently confirming dates and will let you know. In the meantime, it would be good to establish whether we’re a good fit."};
+
+// ════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════
+let channel   = 'Email';
+let territory = 'US';
+let style     = 'Standard';   // All current senders use Standard
+
+// ════════════════════════════════════════════════════════
+//  MESSAGE ASSEMBLY
+// ════════════════════════════════════════════════════════
+function assemble() {
+  const name     = document.getElementById('recipient-name').value.trim();
+  const sender   = document.getElementById('sender').value;
+  const industry = document.getElementById('industry').value;
+
+  const key = `${territory}_${style}_${channel}_${industry}`;
+  let msg = TEMPLATES[key] || '';
+
+  if (!msg || msg.length < 30 || !msg.trimStart().startsWith('Hi')) return 'NOT_AVAILABLE';
+
+  // ── 1. Insert name in greeting ──
+  const displayName = name || '[NAME]';
+  if (msg.includes('[NAME]')) {
+    // Tier 1: explicit placeholder — CEO wrote [NAME] in their copy
+    msg = msg.replace('[NAME]', displayName);
+  } else if (msg.match(/^Hi\n\n/m)) {
+    // Tier 2: original Email format  Hi\n\n
+    msg = msg.replace(/^Hi\n\n/m, `Hi ${displayName},\n\n`);
+  } else if (msg.match(/^Hi \n[^\n,]+,/m)) {
+    // Tier 3: original LinkedIn format  Hi \n{placeholder},
+    msg = msg.replace(/^Hi \n[^\n,]+,/m, `Hi ${displayName},`);
+  } else {
+    // Tier 4: CEO-edited template — replace the whole Hi line with the name
+    msg = msg.replace(/^Hi[^\n]*/m, `Hi ${displayName},`);
+  }
+
+  // ── 2. Insert modifier snippets after opener ──
+  const pricing  = document.getElementById('cb-pricing').checked;
+  const ppl      = document.getElementById('cb-pay-per-lead').checked;
+  const referral = document.getElementById('cb-referral').checked;
+  const f2f      = document.getElementById('cb-face-to-face').checked;
+
+  const yesno = [];
+  if (pricing)  yesno.push(territory === 'US' ? SNIPPETS.usPricing : SNIPPETS.ukPricing);
+  if (ppl)      yesno.push(SNIPPETS.payPerLead);
+  if (referral) yesno.push(SNIPPETS.referral);
+  if (f2f)      yesno.push(SNIPPETS.f2f);
+
+  if (yesno.length) {
+    // Works for both Standard ("Thanks for your quick reply") and Short ("Thanks for getting back to me")
+    const openers = [
+      'Thanks for your quick reply.\n\n',
+      'Thanks for getting back to me.\n\n'
+    ];
+    for (const opener of openers) {
+      if (msg.includes(opener)) {
+        msg = msg.replace(opener, opener + yesno.filter(Boolean).join('\n\n') + '\n\n');
+        break;
+      }
+    }
+  }
+
+  // ── 3. Insert/swap meeting link ──
+  if (channel === 'Email') {
+    // Email templates have no link baked in — insert the right one
+    const link = sender === 'Leo' ? SNIPPETS.leoLink : SNIPPETS.otherLink;
+    if (link) {
+      if (msg.includes('For context,')) {
+        msg = msg.replace('For context,', link + '\n\nFor context,');
+      } else {
+        msg = msg.replace(/(Mon or Tue\.\n\n)/, `$1${link}\n\n`);
+      }
+    }
+  } else if (channel === 'LinkedIn') {
+    // Insert appropriate meeting link before sign-off
+    const link = sender === 'Leo' ? SNIPPETS.leoLink : SNIPPETS.otherLink;
+    if (link) {
+      const bestIdx = msg.lastIndexOf('\n\nBest,');
+      if (bestIdx !== -1) {
+        msg = msg.slice(0, bestIdx) + '\n\n' + link + msg.slice(bestIdx);
+      } else {
+        msg += '\n\n' + link;
+      }
+    }
+  }
+
+  // ── 4. Fix sign-off ──
+  const lastBest = msg.lastIndexOf('Best,');
+  if (lastBest !== -1) {
+    msg = msg.substring(0, lastBest) + 'Best,\n\n' + sender;
+  }
+
+  return msg;
+}
+
+// ════════════════════════════════════════════════════════
+//  RENDER
+// ════════════════════════════════════════════════════════
+function render() {
+  const box      = document.getElementById('message-box');
+  const nameWarn = document.getElementById('name-warn');
+  const name     = document.getElementById('recipient-name').value.trim();
+
+  if (channel === 'LinkedIn' && !name) {
+    nameWarn.classList.add('visible');
+  } else {
+    nameWarn.classList.remove('visible');
+  }
+
+  const msg = assemble();
+
+  box.className = 'message-box';
+
+  if (msg === 'NOT_AVAILABLE') {
+    box.classList.add('not-available');
+    box.textContent = 'No template available for this combination.';
+  } else if (msg) {
+    box.textContent = msg;
+  } else {
+    box.classList.add('placeholder');
+    box.textContent = 'Select options to generate a message…';
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  EVENT LISTENERS
+// ════════════════════════════════════════════════════════
+['recipient-name','sender','industry'].forEach(id => {
+  document.getElementById(id).addEventListener('input',  render);
+  document.getElementById(id).addEventListener('change', render);
+});
+
+['cb-pricing','cb-pay-per-lead','cb-referral','cb-face-to-face'].forEach(id => {
+  document.getElementById(id).addEventListener('change', render);
+});
+
+document.querySelectorAll('[data-channel]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    channel = btn.dataset.channel;
+    document.querySelectorAll('[data-channel]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    render();
+  });
+});
+
+document.querySelectorAll('[data-territory]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    territory = btn.dataset.territory;
+    document.querySelectorAll('[data-territory]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    render();
+  });
+});
+
+// Copy button
+document.getElementById('copy-btn').addEventListener('click', async () => {
+  const box = document.getElementById('message-box');
+  if (box.classList.contains('placeholder') ||
+      box.classList.contains('not-available')) return;
+  const text = box.textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    document.execCommand('copy');
+    window.getSelection().removeAllRanges();
+  }
+  const btn = document.getElementById('copy-btn');
+  btn.textContent = '✓ Copied!';
+  btn.classList.add('success');
+  setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('success'); }, 2000);
+});
+
+// Initial render
+render();
+
+// ════════════════════════════════════════════════════════
+//  ADMIN — localStorage merge (runs at startup)
+// ════════════════════════════════════════════════════════
+(function mergeLocalStorage() {
+  try {
+    const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
+    const sOverrides = JSON.parse(localStorage.getItem('rb_snippets')  || '{}');
+    Object.assign(TEMPLATES, tOverrides);
+    Object.assign(SNIPPETS,  sOverrides);
+    // Re-render with any stored overrides applied
+    render();
+  } catch(e) { /* ignore */ }
+})();
+
+// ════════════════════════════════════════════════════════
+//  ADMIN — panel logic
+// ════════════════════════════════════════════════════════
+const ADMIN_PASSWORD = 'unstuck2025';
+
+function adminShow() {
+  document.querySelector('.main').style.display = 'none';
+  document.getElementById('admin-panel').classList.add('visible');
+  adminLoadTemplates();
+  adminLoadSnippets();
+}
+
+function adminHide() {
+  document.getElementById('admin-panel').classList.remove('visible');
+  document.querySelector('.main').style.display = 'flex';
+  render();
+}
+
+// ── Gear button ──
+document.getElementById('gear-btn').addEventListener('click', () => {
+  const pw = prompt('Enter admin password:');
+  if (pw === ADMIN_PASSWORD) {
+    adminShow();
+  } else if (pw !== null) {
+    alert('Incorrect password.');
+  }
+});
+
+// ── Back button ──
+document.getElementById('admin-back-btn').addEventListener('click', adminHide);
+
+// ── Template loading ──
+function adminGetSelectors() {
+  return {
+    territory: document.getElementById('adm-territory').value,
+    industry:  document.getElementById('adm-industry').value,
+  };
+}
+
+function adminLoadTemplates() {
+  const { territory, industry } = adminGetSelectors();
+  const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
+
+  for (const channel of ['Email', 'LinkedIn']) {
+    const key  = `${territory}_Standard_${channel}_${industry}`;
+    const elId = `adm-${channel.toLowerCase()}`;
+    const ta   = document.getElementById(elId);
+    ta.value   = TEMPLATES[key] || '';
+    const chip = document.getElementById(`chip-adm-${channel.toLowerCase()}`);
+    chip.style.display = tOverrides[key] !== undefined ? 'inline-block' : 'none';
+  }
+}
+
+['adm-territory','adm-industry'].forEach(id => {
+  document.getElementById(id).addEventListener('change', adminLoadTemplates);
+});
+
+// ── Save templates ──
+document.getElementById('adm-save-templates').addEventListener('click', () => {
+  const { territory, industry } = adminGetSelectors();
+  const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
+
+  for (const channel of ['Email', 'LinkedIn']) {
+    const key  = `${territory}_Standard_${channel}_${industry}`;
+    const val  = document.getElementById(`adm-${channel.toLowerCase()}`).value;
+    tOverrides[key] = val;
+    TEMPLATES[key]  = val;
+    document.getElementById(`chip-adm-${channel.toLowerCase()}`).style.display = 'inline-block';
+  }
+
+  localStorage.setItem('rb_templates', JSON.stringify(tOverrides));
+
+  const btn = document.getElementById('adm-save-templates');
+  btn.textContent = '✓ Saved!';
+  btn.classList.add('success');
+  setTimeout(() => { btn.textContent = 'Save Templates'; btn.classList.remove('success'); }, 2000);
+});
+
+// ── Snippets loading ──
+function adminLoadSnippets() {
+  const sOverrides = JSON.parse(localStorage.getItem('rb_snippets') || '{}');
+  for (const key of Object.keys(SNIPPETS)) {
+    const ta = document.getElementById(`snip-${key}`);
+    if (ta) {
+      ta.value = SNIPPETS[key] || '';
+      const chip = document.getElementById(`chip-${key}`);
+      if (chip) chip.style.display = sOverrides[key] !== undefined ? 'inline-block' : 'none';
+    }
+  }
+}
+
+// ── Save snippets ──
+document.getElementById('adm-save-snippets').addEventListener('click', () => {
+  const sOverrides = JSON.parse(localStorage.getItem('rb_snippets') || '{}');
+  for (const key of Object.keys(SNIPPETS)) {
+    const ta = document.getElementById(`snip-${key}`);
+    if (ta) {
+      sOverrides[key] = ta.value;
+      SNIPPETS[key]   = ta.value;
+      const chip = document.getElementById(`chip-${key}`);
+      if (chip) chip.style.display = 'inline-block';
+    }
+  }
+  localStorage.setItem('rb_snippets', JSON.stringify(sOverrides));
+
+  const btn = document.getElementById('adm-save-snippets');
+  btn.textContent = '✓ Saved!';
+  btn.classList.add('success');
+  setTimeout(() => { btn.textContent = 'Save Snippets'; btn.classList.remove('success'); }, 2000);
+});
+
+// ── Reset to defaults ──
+document.getElementById('adm-reset').addEventListener('click', () => {
+  if (!confirm('Reset all templates and snippets to the original embedded defaults? Your edits will be lost.')) return;
+  localStorage.removeItem('rb_templates');
+  localStorage.removeItem('rb_snippets');
+  // Reload page so embedded constants take effect cleanly
+  location.reload();
+});
+
+// ── Tab switching ──
+document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.admin-tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.admin-tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`admin-tab-${btn.dataset.tab}`).classList.add('active');
+  });
+});
+
+// ── Export updated HTML ──
+document.getElementById('adm-export').addEventListener('click', () => {
+  const src = document.documentElement.outerHTML;
+
+  // Serialise the current (merged) TEMPLATES and SNIPPETS
+  const tJson = JSON.stringify(TEMPLATES);
+  const sJson = JSON.stringify(SNIPPETS);
+
+  const updated = src
+    .replace(/const TEMPLATES = \{[\s\S]*?\};/, `const TEMPLATES = ${tJson};`)
+    .replace(/const SNIPPETS = \{[\s\S]*?\};/,  `const SNIPPETS = ${sJson};`);
+
+  const blob = new Blob([updated], { type: 'text/html' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'index.html';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+</script>
+</body>
+</html>

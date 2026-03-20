@@ -13,6 +13,7 @@ app = FastAPI(title="Data Enrichment Dashboard")
 
 _BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_BASE / "static")), name="static")
+app.mount("/reply-bank", StaticFiles(directory=str(_BASE.parent / "reply_bank"), html=True), name="reply-bank")
 
 app.include_router(gender.router)
 app.include_router(city.router)
