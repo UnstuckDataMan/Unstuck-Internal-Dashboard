@@ -95,6 +95,10 @@ def get_working_days_info(
 SENDER_OFFSET_MINS = 60      # 1 hour between staggered senders (compressed if needed)
 MAX_PER_SENDER_PER_DAY = 15
 
+# Variance band for each nominal sends-per-day setting.
+# e.g. 10 → each sender gets 8–12 sends on a full working day.
+SENDS_VARIANCE: dict = {5: 1, 10: 2, 15: 2}
+
 
 def _parse_hhmm(t: str) -> tuple:
     """Parse 'HH:MM' into (hour, minute) ints."""
@@ -170,15 +174,41 @@ def generate_schedule(
             break
 
         # ── How many prospects to assign today ──────────────────────────── #
-        # Fixed-rate: fill each day at max_per_sender_per_day × senders until
-        # prospects run out.  The last (partial) day gets whatever remains.
+        # Each sender gets a deterministic varied limit (nominal ± variance)
+        # so the daily output looks natural rather than perfectly uniform.
+        # The last (partial) day is capped by whatever prospects remain.
         remaining_prospects = prospect_count - prospect_idx
-        day_target = min(max_per_sender_per_day * len(sender_emails), remaining_prospects)
+
+        variance_amt = SENDS_VARIANCE.get(max_per_sender_per_day, 0)
+        raw_limits = []
+        for s_idx in range(len(sender_emails)):
+            delta = (
+                _dvariance(
+                    f"{year}-{month:02d}-{work_day.day:02d}-limit-s{s_idx}",
+                    -variance_amt, variance_amt,
+                )
+                if variance_amt else 0
+            )
+            raw_limits.append(max(1, max_per_sender_per_day + delta))
+
+        day_target = min(sum(raw_limits), remaining_prospects)
 
         # ── How many senders are active today ───────────────────────────── #
         # Use ALL available senders (up to day_target — no point activating
         # a sender if there are fewer prospects than senders).
         senders_today = min(day_target, len(sender_emails))
+
+        # Assign each active sender their individual varied count.
+        # On the last (partial) day, fill greedily so the total stays exact.
+        per_sender_counts: list = []
+        assigned = 0
+        for s_idx in range(senders_today):
+            count = min(raw_limits[s_idx], day_target - assigned)
+            per_sender_counts.append(count)
+            assigned += count
+            if assigned >= day_target:
+                per_sender_counts.extend([0] * (senders_today - len(per_sender_counts)))
+                break
 
         day_win_end = datetime.combine(work_day, time(win_end_h, win_end_m))
 
@@ -210,13 +240,12 @@ def generate_schedule(
         # Each sender schedules their sends evenly from their staggered start
         # to the window end.  Different accounts can send at the same clock
         # time, so there is no global gap constraint — just natural per-sender
-        # spacing.  This guarantees exactly day_target sends per day.
-        base_per_sender = day_target // senders_today
-        remainder       = day_target % senders_today
-
+        # spacing.  Each sender uses their own varied count from per_sender_counts.
         adjusted: List[tuple] = []
         for s_idx in range(senders_today):
-            n_sends      = base_per_sender + (1 if s_idx < remainder else 0)
+            n_sends      = per_sender_counts[s_idx]
+            if n_sends == 0:
+                continue
             sender_start = sender_starts[s_idx]
 
             # Per-sender, per-day effective window end.
