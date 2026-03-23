@@ -76,6 +76,51 @@ def _fill(template: str, row: Dict[str, str],
     return PLACEHOLDER_RE.sub(replacer, template)
 
 
+def _expand_inline_variants(template: str, copy_index: int = 0) -> str:
+    """
+    Replace each {opt1|opt2|...} block sequentially, starting at `copy_index`.
+    The first block picks option[copy_index % n], the second picks
+    option[(copy_index+1) % n], etc.
+
+    `copy_index` is the per-sender copy counter, so:
+      - Copy A emails (index 0): block 0 → opt[0], block 1 → opt[1]
+      - Copy B emails (index 1): block 0 → opt[1], block 1 → opt[2]
+
+    This means a single {A|B} block naturally cycles with the A/B copy rotation,
+    and multiple blocks within one email each pick the next option in sequence.
+    Handles {{placeholders}} safely by hiding them before expansion.
+    """
+    # Step 1: Hide {{placeholders}} so their braces don't interfere with the regex
+    tokens: Dict[str, str] = {}
+    ph_counter = [0]
+
+    def hide(m: re.Match) -> str:
+        tok = f'\x00PH{ph_counter[0]}\x00'
+        tokens[tok] = m.group(0)
+        ph_counter[0] += 1
+        return tok
+
+    hidden = PLACEHOLDER_RE.sub(hide, template)
+
+    # Step 2: Expand each {opt1|opt2} block — counter starts at copy_index.
+    # Regex requires at least one | so bare {word} blocks are never touched.
+    block_counter = [copy_index]
+
+    def pick(m: re.Match) -> str:
+        options = m.group(1).split('|')
+        chosen = options[block_counter[0] % len(options)]
+        block_counter[0] += 1
+        return chosen
+
+    expanded = re.sub(r'\{([^{}]*\|[^{}]*)\}', pick, hidden)
+
+    # Step 3: Restore {{placeholders}}
+    for tok, original in tokens.items():
+        expanded = expanded.replace(tok, original)
+
+    return expanded
+
+
 def perform_merge(
     rows: List[Dict[str, str]],
     headers: List[str],
@@ -124,14 +169,19 @@ def perform_merge(
                     break
 
     merged_rows: List[Dict] = []
+    sender_copy_counters = [0] * len(sender_emails)
 
     for i, row in enumerate(rows):
-        s_idx = i % len(subject_templates)
-        b_idx = i % len(body_templates)
-        sender = sender_emails[i % len(sender_emails)]
+        sender_idx = i % len(sender_emails)
+        sender = sender_emails[sender_idx]
 
-        subject = _fill(subject_templates[s_idx], row, header_map, missing_value)
-        body = _fill(body_templates[b_idx], row, header_map, missing_value)
+        copy_counter = sender_copy_counters[sender_idx]
+        s_idx = copy_counter % len(subject_templates)
+        b_idx = copy_counter % len(body_templates)
+        sender_copy_counters[sender_idx] += 1
+
+        subject = _fill(_expand_inline_variants(subject_templates[s_idx], copy_counter), row, header_map, missing_value)
+        body    = _fill(_expand_inline_variants(body_templates[b_idx],    copy_counter), row, header_map, missing_value)
 
         enriched = dict(row)
         enriched['__sender_account__'] = sender
@@ -142,10 +192,10 @@ def perform_merge(
 
         if chaser_subject:
             enriched['__chaser_subject__'] = _fill(
-                chaser_subject, row, header_map, missing_value)
+                _expand_inline_variants(chaser_subject, copy_counter), row, header_map, missing_value)
         if chaser_body:
             enriched['__chaser_body__'] = _fill(
-                chaser_body, row, header_map, missing_value)
+                _expand_inline_variants(chaser_body, copy_counter), row, header_map, missing_value)
 
         merged_rows.append(enriched)
 

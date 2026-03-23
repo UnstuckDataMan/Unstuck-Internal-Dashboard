@@ -139,6 +139,12 @@ def generate_schedule(
     win_end_mins   = win_end_h   * 60 + win_end_m
     if win_end_mins <= win_start_mins:
         raise ValueError("Send window end must be after send window start.")
+    if win_end_mins - win_start_mins < 420:
+        raise ValueError(
+            f"Send window must be at least 7 hours. "
+            f"Current window is {(win_end_mins - win_start_mins) // 60}h "
+            f"{(win_end_mins - win_start_mins) % 60}m."
+        )
 
     # Sender 1 starts 5 minutes into the window
     s1_start_mins = win_start_mins + 5

@@ -710,8 +710,9 @@ function addTemplate(type) {
       </div>
       <div class="template-group-body">
         <textarea id="${id}" class="body-input" rows="7"
-                  placeholder="Hi {{first_name}},&#10;&#10;I noticed {{company}} is working in [industry]…&#10;&#10;Would you be open to a quick call?&#10;&#10;Best,&#10;[Your name]"
+                  placeholder="Hi {{first_name}},&#10;&#10;{I noticed {{company}} is expanding|I see {{company}} is hiring} — I'd love to connect.&#10;&#10;Would you be open to a quick call?&#10;&#10;Best,&#10;[Your name]"
                   onfocus="setFocusedField(this)"></textarea>
+        <p class="field-hint">Use <code>{{column}}</code> for data merge. Use <code>{option A|option B}</code> for inline variants — within each email, the 1st block picks option 1, 2nd block picks option 2, etc.</p>
       </div>`;
   }
 
@@ -964,6 +965,21 @@ function generateMerge() {
   }
   if (!senders.length) {
     showAlert(document.getElementById('generate-feedback'), 'error', '❌ At least one sender email address is required.');
+    return;
+  }
+
+  const winStart = document.getElementById('window-start').value || '08:30';
+  const winEnd   = document.getElementById('window-end').value   || '15:30';
+  const [sh, sm] = winStart.split(':').map(Number);
+  const [eh, em] = winEnd.split(':').map(Number);
+  const windowMins = (eh * 60 + em) - (sh * 60 + sm);
+  if (windowMins <= 0) {
+    showAlert(document.getElementById('generate-feedback'), 'error', '❌ Send window end must be after the start.');
+    return;
+  }
+  if (windowMins < 420) {
+    showAlert(document.getElementById('generate-feedback'), 'error',
+      `❌ Send window must be at least 7 hours. Current window is ${Math.floor(windowMins / 60)}h ${windowMins % 60}m.`);
     return;
   }
 
