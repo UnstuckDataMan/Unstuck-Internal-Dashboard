@@ -180,8 +180,12 @@ def perform_merge(
         b_idx = copy_counter % len(body_templates)
         sender_copy_counters[sender_idx] += 1
 
-        subject = _fill(_expand_inline_variants(subject_templates[s_idx], copy_counter), row, header_map, missing_value)
-        body    = _fill(_expand_inline_variants(body_templates[b_idx],    copy_counter), row, header_map, missing_value)
+        # Inline variants advance once per full cycle of body templates, so
+        # Copy A and Copy B both use v1 before either advances to v2.
+        inline_idx = copy_counter // len(body_templates)
+
+        subject = _fill(_expand_inline_variants(subject_templates[s_idx], inline_idx), row, header_map, missing_value)
+        body    = _fill(_expand_inline_variants(body_templates[b_idx],    inline_idx), row, header_map, missing_value)
 
         enriched = dict(row)
         enriched['__sender_account__'] = sender
@@ -192,10 +196,10 @@ def perform_merge(
 
         if chaser_subject:
             enriched['__chaser_subject__'] = _fill(
-                _expand_inline_variants(chaser_subject, copy_counter), row, header_map, missing_value)
+                _expand_inline_variants(chaser_subject, inline_idx), row, header_map, missing_value)
         if chaser_body:
             enriched['__chaser_body__'] = _fill(
-                _expand_inline_variants(chaser_body, copy_counter), row, header_map, missing_value)
+                _expand_inline_variants(chaser_body, inline_idx), row, header_map, missing_value)
 
         merged_rows.append(enriched)
 
