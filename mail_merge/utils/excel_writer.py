@@ -246,11 +246,8 @@ def write_merge_output(
     def cf_range(name):
         return f"{col_let(name)}2:{col_let(name)}{last_row}"
 
-    # Whole-row highlights based on Send Status — added first so cell-level
-    # rules (Response, Lead Status) take priority over the row highlight.
-    full_range = f"A2:{get_column_letter(len(all_cols))}{last_row}"
-    ws.conditional_formatting.add(full_range, _cf_rule('$A2="Sent"', 'E8F5E9'))
-
+    # Cell-level rules added first — in Excel, rules added earlier get higher
+    # priority, so these will correctly override the whole-row Sent highlight.
     _add_cf_equal(ws, cf_range('Lead Status'), 'Lead',        C['lead_bg'])
     _add_cf_equal(ws, cf_range('Lead Status'), 'Reply',       C['reply_bg'])
     _add_cf_equal(ws, cf_range('Lead Status'), 'Unsubscribe', C['red_bg'])
@@ -271,6 +268,11 @@ def write_merge_output(
     dxf  = DifferentialStyle(fill=fill)
     domain_rule = Rule(type='expression', dxf=dxf, formula=[domain_formula])
     ws.conditional_formatting.add(cf_range('Recipient Email'), domain_rule)
+
+    # Whole-row Sent highlight added last so it has lowest priority and does
+    # not override the cell-level Lead Status / domain-match rules above.
+    full_range = f"A2:{get_column_letter(len(all_cols))}{last_row}"
+    ws.conditional_formatting.add(full_range, _cf_rule('$A2="Sent"', 'E8F5E9'))
 
     # ── Auto-filter ────────────────────────────────────────────────────────
     ws.auto_filter.ref = f"A1:{get_column_letter(len(all_cols))}1"
