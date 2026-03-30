@@ -39,6 +39,9 @@ C = {
     'blue_bg':   'E3F2FD',
     'purple_bg': 'F3E5F5',
     'orange_bg': 'FFE0B2',
+    'lead_bg':   'D4EDD6',   # slightly darker green — Lead status
+    'reply_bg':  'FFD9B3',   # pastel orange — Reply status
+    'domain_bg': 'C8F0CA',   # pastel green — domain-match highlight
 }
 
 THIN_BORDER_COLOR = 'D0D7DE'
@@ -124,7 +127,7 @@ def write_merge_output(
         sec_template += ['Chaser Body']
     sec_template += ['A/B Variant']
     # Section 5: tracking
-    sec_tracking = ['Response', 'Lead Status', 'Notes']
+    sec_tracking = ['Lead Status', 'Notes']
 
     all_cols = sec_status + sec_schedule + sec_routing + sec_template + sec_tracking
 
@@ -150,7 +153,6 @@ def write_merge_output(
         'Subject Line': 44,   'Email Body': 64,
         'Chaser Body': 64,
         'A/B Variant': 12,
-        'Response': 22,
         'Lead Status': 18,    'Send Time': 12,
         'Notes': 32,
     }
@@ -183,9 +185,7 @@ def write_merge_output(
 
     _add_dv(ws, '"Sent"',
             col_let('Send Status'), last_row)
-    _add_dv(ws, '"No Response,Positive Reply,Negative Reply,Unsubscribed,Auto-Reply"',
-            col_let('Response'), last_row)
-    _add_dv(ws, '"Not a Lead,MQL,SQL,Meeting Booked,Closed Won,Closed Lost"',
+    _add_dv(ws, '"Lead,Reply,Unsubscribe"',
             col_let('Lead Status'), last_row)
 
     # ── Write data rows with end-of-day separators ─────────────────────────
@@ -219,8 +219,7 @@ def write_merge_output(
                 'Email Body': row_data.get('__email_body__', ''),
                 'Chaser Body': row_data.get('__chaser_body__', ''),
                 'A/B Variant': row_data.get('__template_variant__', ''),
-                'Response': 'No Response',
-                'Lead Status': 'Not a Lead',
+                'Lead Status': '',
                 'Send Time': row_data.get('__send_time__', ''),
                 'Notes': '',
             }
@@ -252,15 +251,26 @@ def write_merge_output(
     full_range = f"A2:{get_column_letter(len(all_cols))}{last_row}"
     ws.conditional_formatting.add(full_range, _cf_rule('$A2="Sent"', 'E8F5E9'))
 
-    _add_cf_equal(ws, cf_range('Response'), 'Positive Reply', C['green_bg'])
-    _add_cf_equal(ws, cf_range('Response'), 'Negative Reply', C['red_bg'])
-    _add_cf_equal(ws, cf_range('Response'), 'Unsubscribed',   C['amber_bg'])
+    _add_cf_equal(ws, cf_range('Lead Status'), 'Lead',        C['lead_bg'])
+    _add_cf_equal(ws, cf_range('Lead Status'), 'Reply',       C['reply_bg'])
+    _add_cf_equal(ws, cf_range('Lead Status'), 'Unsubscribe', C['red_bg'])
 
-    _add_cf_equal(ws, cf_range('Lead Status'), 'MQL',          C['amber_bg'])
-    _add_cf_equal(ws, cf_range('Lead Status'), 'SQL',          C['orange_bg'])
-    _add_cf_equal(ws, cf_range('Lead Status'), 'Meeting Booked', C['purple_bg'])
-    _add_cf_equal(ws, cf_range('Lead Status'), 'Closed Won',   C['green_bg'])
-    _add_cf_equal(ws, cf_range('Lead Status'), 'Closed Lost',  C['red_bg'])
+    # Domain-match highlight: when any other row has Lead Status = "Lead" and
+    # shares the same email domain, highlight that Recipient Email cell.
+    e_col  = col_let('Recipient Email')
+    ls_col = col_let('Lead Status')
+    domain_formula = (
+        f'=IFERROR(SUMPRODUCT('
+        f'(${ls_col}$2:${ls_col}${last_row}="Lead")'
+        f'*IFERROR((MID(${e_col}$2:${e_col}${last_row},FIND("@",${e_col}$2:${e_col}${last_row})+1,255)'
+        f'=MID({e_col}2,FIND("@",{e_col}2)+1,255))*1,0)'
+        f'*(ROW(${e_col}$2:${e_col}${last_row})<>ROW({e_col}2))'
+        f')>0,FALSE)'
+    )
+    fill = PatternFill(patternType='solid', fgColor=C['domain_bg'], bgColor=C['domain_bg'])
+    dxf  = DifferentialStyle(fill=fill)
+    domain_rule = Rule(type='expression', dxf=dxf, formula=[domain_formula])
+    ws.conditional_formatting.add(cf_range('Recipient Email'), domain_rule)
 
     # ── Auto-filter ────────────────────────────────────────────────────────
     ws.auto_filter.ref = f"A1:{get_column_letter(len(all_cols))}1"
