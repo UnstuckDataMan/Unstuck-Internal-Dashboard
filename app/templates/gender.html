@@ -1,16 +1,25 @@
 {% extends "base.html" %}
 
-{% block title %}Gender Classifier — Data Enrichment{% endblock %}
+{% block title %}Gender Classifier — Unstuck{% endblock %}
 {% block heading %}Gender Classifier{% endblock %}
 
 {% block content %}
-<p class="page-sub">
-  Upload a CSV or Excel file. The first-name column is auto-detected —
-  optionally type its exact name below to override.
-  Overrides from <code style="font-family:ui-monospace,monospace;font-size:.85em;
-  background:rgba(124,58,237,.07);color:#7c3aed;padding:1px 6px;border-radius:4px">overrides.csv</code>
-  are applied automatically.
-</p>
+
+<div class="page-header">
+  <div class="page-badge">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+      <circle cx="12" cy="7" r="4"/>
+    </svg>
+    Data Enrichment
+  </div>
+  <p class="page-sub">
+    Upload a CSV or Excel file — the first-name column is auto-detected.
+    Override detection by typing the exact column name below.
+    Custom overrides from <code>overrides.csv</code> are applied automatically.
+  </p>
+</div>
 
 <div class="form-card">
   <form
@@ -20,28 +29,51 @@
     hx-encoding="multipart/form-data"
     hx-indicator="#spinner"
   >
+    <!-- File upload -->
     <div class="form-group">
-      <label>File <span class="opt">(CSV or Excel)</span></label>
-      <input type="file" name="file" accept=".csv,.xls,.xlsx" required />
+      <label>File <span class="opt">CSV or Excel</span></label>
+      <div class="dropzone-wrap">
+        <div class="dropzone" role="button" tabindex="0" aria-label="Upload file">
+          <div class="dropzone-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <div class="dropzone-text">
+            <strong>Click to browse</strong> or drag &amp; drop
+          </div>
+          <span class="dropzone-filename"></span>
+          <span class="dropzone-hint">.csv, .xls, .xlsx accepted</span>
+          <input type="file" name="file" accept=".csv,.xls,.xlsx" required
+                 class="hidden-file-input" />
+        </div>
+      </div>
     </div>
 
+    <div class="form-divider"></div>
+
+    <!-- Column overrides -->
     <div class="form-group">
-      <label>First-name column <span class="opt">(optional — blank = auto-detect)</span></label>
+      <label>First-name column <span class="opt">optional — leave blank to auto-detect</span></label>
       <input type="text" name="name_col" placeholder="e.g. first_name" />
     </div>
 
-    <div class="form-group">
+    <div class="form-group" style="margin-bottom:0">
       <label>Output column name</label>
       <input type="text" name="new_col" value="gender_mf" />
     </div>
 
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
         </svg>
-        Classify
+        Classify names
       </button>
       <div id="spinner" class="spinner htmx-indicator">
         <div class="dot"></div><div class="dot"></div><div class="dot"></div>
@@ -51,5 +83,5 @@
   </form>
 </div>
 
-<div id="result" style="margin-top:24px"></div>
+<div id="result"></div>
 {% endblock %}

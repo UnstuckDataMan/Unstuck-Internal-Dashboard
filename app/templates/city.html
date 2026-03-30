@@ -1,13 +1,25 @@
 {% extends "base.html" %}
 
-{% block title %}City / State Normaliser — Data Enrichment{% endblock %}
+{% block title %}City / State Normaliser — Unstuck{% endblock %}
 {% block heading %}City / State Normaliser{% endblock %}
 
 {% block content %}
-<p class="page-sub">
-  Upload a dataset with city and state/region fields. Columns are auto-detected —
-  type the exact header names below to override detection.
-</p>
+
+<div class="page-header">
+  <div class="page-badge">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+      <circle cx="12" cy="10" r="3"/>
+    </svg>
+    Data Enrichment
+  </div>
+  <p class="page-sub">
+    Upload a dataset with city and state/region fields — columns are auto-detected.
+    Override detection by typing the exact header names below.
+    Whitelisted cities output the city name; all others output the state or region.
+  </p>
+</div>
 
 <div class="form-card">
   <form
@@ -17,33 +29,56 @@
     hx-encoding="multipart/form-data"
     hx-indicator="#spinner"
   >
+    <!-- File upload -->
     <div class="form-group">
-      <label>File <span class="opt">(CSV or Excel)</span></label>
-      <input type="file" name="file" accept=".csv,.xlsx" required />
+      <label>File <span class="opt">CSV or Excel</span></label>
+      <div class="dropzone-wrap">
+        <div class="dropzone" role="button" tabindex="0" aria-label="Upload file">
+          <div class="dropzone-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <div class="dropzone-text">
+            <strong>Click to browse</strong> or drag &amp; drop
+          </div>
+          <span class="dropzone-filename"></span>
+          <span class="dropzone-hint">.csv, .xlsx accepted</span>
+          <input type="file" name="file" accept=".csv,.xlsx" required
+                 class="hidden-file-input" />
+        </div>
+      </div>
     </div>
 
+    <div class="form-divider"></div>
+
+    <!-- Column overrides -->
     <div class="form-row">
       <div>
-        <label>City column <span class="opt">(optional)</span></label>
+        <label>City column <span class="opt">optional</span></label>
         <input type="text" name="city_col" placeholder="auto-detect" />
       </div>
       <div>
-        <label>State column <span class="opt">(optional)</span></label>
+        <label>State column <span class="opt">optional</span></label>
         <input type="text" name="state_col" placeholder="auto-detect" />
       </div>
     </div>
 
     <div class="form-hint">
-      Output rule: whitelisted city → output city &middot; otherwise → output state/region.
+      Whitelisted city → output city name · all others → output state / region
     </div>
 
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+          <circle cx="12" cy="10" r="3"/>
         </svg>
-        Normalise
+        Normalise locations
       </button>
       <div id="spinner" class="spinner htmx-indicator">
         <div class="dot"></div><div class="dot"></div><div class="dot"></div>
@@ -53,5 +88,5 @@
   </form>
 </div>
 
-<div id="result" style="margin-top:24px"></div>
+<div id="result"></div>
 {% endblock %}
