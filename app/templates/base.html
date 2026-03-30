@@ -21,16 +21,16 @@
       --gradient-vivid: linear-gradient(135deg, #7c3aed 0%, #6366f1 50%, #e879f9 100%);
 
       /* Surfaces */
-      --bg:            #080812;
-      --surface:       rgba(255,255,255,.065);
-      --surface-hover: rgba(255,255,255,.095);
-      --border:        rgba(255,255,255,.10);
-      --border-focus:  rgba(139,92,246,.60);
+      --bg:            #10101f;
+      --surface:       rgba(255,255,255,.08);
+      --surface-hover: rgba(255,255,255,.11);
+      --border:        rgba(255,255,255,.13);
+      --border-focus:  rgba(139,92,246,.65);
 
       /* Text */
-      --text:   rgba(255,255,255,.92);
-      --text-2: rgba(255,255,255,.48);
-      --text-3: rgba(255,255,255,.22);
+      --text:   #f0eeff;
+      --text-2: rgba(230,225,255,.68);
+      --text-3: rgba(210,205,255,.38);
 
       /* Status */
       --red:     #f87171;
@@ -78,26 +78,26 @@
       position: absolute;
       border-radius: 50%;
       filter: blur(90px);
-      opacity: .35;
+      opacity: .28;
     }
     .orb-1 {
       width: 640px; height: 640px;
-      background: radial-gradient(circle, #4c1d95 0%, transparent 68%);
+      background: radial-gradient(circle, #5b21b6 0%, transparent 68%);
       top: -240px; left: -180px;
       animation: orbDrift 16s ease-in-out infinite alternate;
     }
     .orb-2 {
       width: 440px; height: 440px;
-      background: radial-gradient(circle, #1e1b4b 0%, transparent 68%);
+      background: radial-gradient(circle, #312e81 0%, transparent 68%);
       bottom: -120px; right: -120px;
       animation: orbDrift 20s ease-in-out infinite alternate-reverse;
     }
     .orb-3 {
       width: 280px; height: 280px;
-      background: radial-gradient(circle, #581c87 0%, transparent 68%);
+      background: radial-gradient(circle, #6b21a8 0%, transparent 68%);
       top: 40%; right: 10%;
       animation: orbDrift 12s ease-in-out infinite alternate;
-      opacity: .20;
+      opacity: .16;
     }
     @keyframes orbDrift {
       from { transform: translate(0, 0) scale(1); }
@@ -543,13 +543,13 @@
     }
     td {
       padding: 10px 16px;
-      color: var(--text-2);
+      color: rgba(230,225,255,.78);
       white-space: nowrap;
-      border-bottom: 1px solid rgba(255,255,255,.05);
+      border-bottom: 1px solid rgba(255,255,255,.06);
     }
     tr:last-child td { border-bottom: none; }
     tbody tr { transition: background .12s var(--ease); }
-    tbody tr:hover { background: rgba(139,92,246,.07); }
+    tbody tr:hover { background: rgba(139,92,246,.09); }
     tbody tr:hover td { color: var(--text); }
 
     /* ── Error ───────────────────────────────────────────────── */
