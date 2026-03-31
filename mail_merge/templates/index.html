@@ -80,39 +80,29 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ─── App header ─────────────────────────────────────────────────────────── */
+/* ─── Topbar — matches dark glass style of Gender/City tool pages ─────────── */
 .app-header {
-  background: rgba(246,245,255,.88);
-  backdrop-filter: saturate(160%) blur(20px);
-  -webkit-backdrop-filter: saturate(160%) blur(20px);
-  border-bottom: 1px solid var(--border);
+  background: rgba(8,8,18,.76);
+  backdrop-filter: saturate(160%) blur(22px);
+  -webkit-backdrop-filter: saturate(160%) blur(22px);
+  border-bottom: 1px solid rgba(255,255,255,.11);
   height: 58px;
   display: flex;
   align-items: center;
   padding: 0 28px;
-  gap: 16px;
-  box-shadow: 0 1px 0 var(--border), 0 2px 12px rgba(60,40,120,.06);
   position: sticky;
   top: 0;
   z-index: 100;
 }
-.app-header h1 {
+.app-header-title {
+  flex: 1;
+  text-align: center;
   font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
+  font-size: 17px;
+  font-weight: 600;
+  color: #f0eeff;
   letter-spacing: -.02em;
-}
-.app-header .badge {
-  background: rgba(124,58,237,.1);
-  color: var(--purple);
-  border: 1px solid rgba(124,58,237,.2);
-  border-radius: 20px;
-  padding: 3px 10px;
-  font-size: .7rem;
-  font-weight: 700;
-  letter-spacing: .05em;
-  text-transform: uppercase;
+  margin-right: 140px; /* compensate for home-link width to keep title visually centred */
 }
 
 /* Home link */
@@ -141,10 +131,10 @@ body {
 .home-label {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-2);
+  color: rgba(230,225,255,.55);
   transition: color .18s var(--ease);
 }
-.home-link:hover .home-label { color: var(--text); }
+.home-link:hover .home-label { color: #f0eeff; }
 
 /* ─── Container ─────────────────────────────────────────────────────────── */
 .container {
@@ -822,23 +812,13 @@ td .truncate {
     </div>
     <span class="home-label">Dashboard</span>
   </a>
-  <h1>Mail Merge Tool</h1>
-  <span class="badge">Outreach</span>
+  <span class="app-header-title">Mail Merge Tool</span>
 </header>
 
 <!-- ── Main ──────────────────────────────────────────────────────────────── -->
 <div class="container">
 
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('merge', this)">
-      ⚡ Email Merge Generator
-    </button>
-  </div>
-
-  <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <!--  TAB 1 – MERGE GENERATOR                                              -->
-  <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <div id="tab-merge" class="tab-panel active">
+  <div id="tab-merge">
 
     <!-- STEP 1: Upload -->
     <div class="card">
@@ -935,15 +915,15 @@ td .truncate {
       </div>
       <div class="card-body">
         <div class="grid-2">
-          <div>
+          <div style="display:flex;flex-direction:column">
             <label for="sender-emails">
               Sender Email Addresses
               <span class="opt-hint">(one per line)</span>
             </label>
-            <textarea id="sender-emails" rows="5"
+            <textarea id="sender-emails"
                       placeholder="sender1@company.com&#10;sender2@company.com&#10;sender3@company.com"
-                      style="font-family:ui-monospace,'SF Mono',monospace;font-size:.82rem"></textarea>
-            <p class="field-hint">Prospects are assigned to senders in round-robin rotation.</p>
+                      style="font-family:ui-monospace,'SF Mono',monospace;font-size:.82rem;flex:1;resize:none"></textarea>
+            <p class="field-hint" style="margin-top:5px">Prospects are assigned to senders in round-robin rotation.</p>
           </div>
           <div>
             <label>Saved Sender Profiles</label>
