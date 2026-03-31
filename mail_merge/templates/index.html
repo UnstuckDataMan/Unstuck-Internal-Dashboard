@@ -786,20 +786,25 @@ td .truncate {
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 14px;
-  min-height: 100px;
   background: var(--surface-2);
 }
-.profile-row {
+.profiles-select-row {
   display: flex;
-  gap: 6px;
-  margin-bottom: 7px;
-  align-items: center;
+  gap: 8px;
+  align-items: flex-end;
 }
-.profile-name-label {
-  flex: 1;
-  font-size: .82rem;
-  color: var(--text);
-  font-weight: 600;
+.profiles-select-row select { flex: 1; }
+.profiles-save-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-top: 10px;
+}
+.profiles-save-row input { flex: 1; }
+.profiles-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
 }
 </style>
 </head>
@@ -942,11 +947,25 @@ td .truncate {
           </div>
           <div>
             <label>Saved Sender Profiles</label>
-            <div class="profiles-panel" id="saved-profiles-wrap">
-              <div id="saved-profiles"></div>
-              <div style="display:flex;gap:8px;margin-top:10px">
-                <input type="text" id="profile-name" placeholder="Profile name…" style="flex:1">
-                <button class="btn btn-secondary btn-sm" onclick="saveProfile()">Save</button>
+            <div class="profiles-panel">
+              <!-- Select + action buttons -->
+              <div class="profiles-select-row">
+                <select id="profile-select" onchange="onProfileSelectChange()">
+                  <option value="">— Select a profile —</option>
+                </select>
+                <button class="btn btn-secondary btn-sm" id="load-profile-btn"
+                        onclick="loadSelectedProfile()" disabled>Load</button>
+                <button class="btn btn-danger" id="delete-profile-btn"
+                        onclick="deleteSelectedProfile()" disabled>✕ Delete</button>
+              </div>
+              <p class="field-hint" style="margin-top:6px">
+                Load a profile to use or edit it — modify the emails above, then save with the same name to update.
+              </p>
+              <hr class="profiles-divider">
+              <!-- Save / create -->
+              <div class="profiles-save-row">
+                <input type="text" id="profile-name" placeholder="New profile name…">
+                <button class="btn btn-secondary btn-sm" onclick="saveProfile()">Save current</button>
               </div>
             </div>
           </div>
@@ -1356,42 +1375,53 @@ function getTemplates(selector) {
 let _profilesCache = {};
 
 async function renderSavedProfiles() {
-  const container = document.getElementById('saved-profiles');
-  container.innerHTML = '<p style="color:var(--text-3);font-size:.78rem">Loading…</p>';
+  const sel = document.getElementById('profile-select');
+  const prev = sel.value;   // preserve selection across re-renders
+  // Clear all but the placeholder
+  while (sel.options.length > 1) sel.remove(1);
+
   try {
     const resp = await fetch('api/sender-profiles');
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Failed to load profiles');
 
     _profilesCache = {};
-    data.forEach(p => { _profilesCache[p.profile_name] = p.emails || []; });
-
-    container.innerHTML = '';
-    if (!data.length) {
-      container.innerHTML = '<p style="color:var(--text-3);font-size:.78rem">No saved profiles yet.</p>';
-      return;
-    }
     data.forEach(p => {
-      const row = document.createElement('div');
-      row.className = 'profile-row';
-      const nameEl = document.createElement('span');
-      nameEl.className = 'profile-name-label';
-      nameEl.textContent = p.profile_name;
-      const loadBtn = document.createElement('button');
-      loadBtn.className = 'btn btn-secondary btn-sm';
-      loadBtn.textContent = 'Load';
-      loadBtn.addEventListener('click', () => loadProfile(p.profile_name));
-      const delBtn = document.createElement('button');
-      delBtn.className = 'btn btn-danger';
-      delBtn.textContent = '✕';
-      delBtn.addEventListener('click', () => deleteProfile(p.profile_name));
-      row.appendChild(nameEl);
-      row.appendChild(loadBtn);
-      row.appendChild(delBtn);
-      container.appendChild(row);
+      _profilesCache[p.profile_name] = p.emails || [];
+      const opt = document.createElement('option');
+      opt.value = p.profile_name;
+      opt.textContent = p.profile_name;
+      sel.appendChild(opt);
     });
+
+    // Restore previous selection if still present
+    if (prev && _profilesCache[prev]) sel.value = prev;
+
   } catch (err) {
-    container.innerHTML = `<p style="color:var(--red);font-size:.78rem">⚠ ${escHtml(err.message)}</p>`;
+    const opt = document.createElement('option');
+    opt.disabled = true;
+    opt.textContent = '⚠ Could not load profiles';
+    sel.appendChild(opt);
+  }
+
+  onProfileSelectChange();
+}
+
+function onProfileSelectChange() {
+  const hasSelection = !!document.getElementById('profile-select').value;
+  document.getElementById('load-profile-btn').disabled   = !hasSelection;
+  document.getElementById('delete-profile-btn').disabled = !hasSelection;
+}
+
+function loadSelectedProfile() {
+  const name = document.getElementById('profile-select').value;
+  if (!name) return;
+  const emails = _profilesCache[name];
+  if (emails && emails.length) {
+    document.getElementById('sender-emails').value = emails.join('\n');
+    // Pre-fill the name input so user can re-save under the same name to update
+    document.getElementById('profile-name').value = name;
+    scheduleCapacityUpdate();
   }
 }
 
@@ -1410,25 +1440,28 @@ async function saveProfile() {
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Failed to save profile');
     document.getElementById('profile-name').value = '';
+    // Select the just-saved profile after re-render
+    _profilesCache[name] = emails;
     await renderSavedProfiles();
+    document.getElementById('profile-select').value = name;
+    onProfileSelectChange();
   } catch (err) {
     alert('Could not save profile: ' + err.message);
   }
 }
 
-function loadProfile(name) {
-  const emails = _profilesCache[name];
-  if (emails && emails.length) {
-    document.getElementById('sender-emails').value = emails.join('\n');
-  }
-}
-
-async function deleteProfile(name) {
+async function deleteSelectedProfile() {
+  const name = document.getElementById('profile-select').value;
+  if (!name) return;
   if (!confirm(`Delete profile "${name}"?`)) return;
   try {
     const resp = await fetch(`api/sender-profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Failed to delete profile');
+    // Clear name input if it matches the deleted profile
+    if (document.getElementById('profile-name').value === name) {
+      document.getElementById('profile-name').value = '';
+    }
     await renderSavedProfiles();
   } catch (err) {
     alert('Could not delete profile: ' + err.message);
