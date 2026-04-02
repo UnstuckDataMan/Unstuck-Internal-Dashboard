@@ -22,7 +22,7 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 CHUNK_SIZE       = 500   # emails per Supabase batch query
-PAGE_SIZE        = 50    # rows per page in Manage tab
+PAGE_SIZE        = 25    # rows per page in Manage tab
 
 _EMAIL_CANDIDATES = [
     "email", "email address", "e-mail", "e_mail", "emailaddress",
