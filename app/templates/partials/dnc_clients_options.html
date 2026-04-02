@@ -1,0 +1,7 @@
+{% if clients %}
+  {% for c in clients %}
+  <option value="{{ c.id }}">{{ c.name }}</option>
+  {% endfor %}
+{% else %}
+  <option value="" disabled>No clients found</option>
+{% endif %}

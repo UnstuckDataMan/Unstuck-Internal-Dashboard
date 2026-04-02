@@ -1,0 +1,63 @@
+{% if error %}
+<div class="err-box">{{ error }}</div>
+{% elif entries %}
+<p class="result-meta" style="margin-bottom:14px">
+  Showing {{ offset + 1 }}–{{ [offset + page_size, total] | min }} of <strong>{{ total }}</strong> entr{{ "y" if total == 1 else "ies" }}
+</p>
+<div class="tbl-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Email</th>
+        <th>Reason</th>
+        <th>Added By</th>
+        <th>Date</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td>{{ entry.email }}</td>
+        <td>{{ entry.reason }}</td>
+        <td>{{ entry.added_by }}</td>
+        <td>{{ entry.created_at[:10] }}</td>
+        <td>
+          <button class="btn-delete"
+                  hx-delete="/api/dnc/entries/{{ entry.id }}?client_id={{ client_id }}"
+                  hx-target="#entries-table"
+                  hx-swap="innerHTML"
+                  hx-confirm="Remove {{ entry.email }} from the DNC list?">✕</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if has_prev or has_next %}
+<div class="pagination">
+  {% if has_prev %}
+  <button class="btn btn-download"
+          hx-get="/api/dnc/entries"
+          hx-vals='{"client_id": "{{ client_id }}", "offset": "{{ offset - page_size }}", "search": "{{ search }}"}'
+          hx-target="#entries-table"
+          hx-swap="innerHTML">
+    ← Prev
+  </button>
+  {% endif %}
+  {% if has_next %}
+  <button class="btn btn-download"
+          hx-get="/api/dnc/entries"
+          hx-vals='{"client_id": "{{ client_id }}", "offset": "{{ offset + page_size }}", "search": "{{ search }}"}'
+          hx-target="#entries-table"
+          hx-swap="innerHTML">
+    Next →
+  </button>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<p class="result-meta" style="margin-top:8px; color: var(--text-3)">No DNC entries found for this client.</p>
+{% endif %}

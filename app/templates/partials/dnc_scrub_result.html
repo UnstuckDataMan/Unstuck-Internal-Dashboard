@@ -1,0 +1,72 @@
+{% if error %}
+<div class="err-box">{{ error }}</div>
+{% else %}
+<div class="result-wrap">
+
+  <!-- Stats -->
+  <div class="dnc-stats">
+    <div class="stat-card">
+      <span class="stat-num">{{ uploaded_count }}</span>
+      <span class="stat-lbl">Uploaded</span>
+    </div>
+    <div class="stat-card stat-removed">
+      <span class="stat-num">{{ removed_count }}</span>
+      <span class="stat-lbl">Removed</span>
+    </div>
+    <div class="stat-card stat-clean">
+      <span class="stat-num">{{ remaining_count }}</span>
+      <span class="stat-lbl">Remaining</span>
+    </div>
+  </div>
+
+  <!-- Download buttons -->
+  <div class="dnc-actions">
+    <a href="/api/dnc/download/{{ clean_token }}" class="btn btn-primary">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Download Clean List
+    </a>
+    {% if removed_count > 0 %}
+    <a href="/api/dnc/download-removed/{{ removed_token }}" class="btn btn-download">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Download Removed Entries
+    </a>
+    {% endif %}
+  </div>
+
+  {% if removed_count > 0 %}
+  <details class="removed-details">
+    <summary>
+      Show removed emails
+      {% if removed_emails_total > 200 %}
+      <span class="removed-count-note">(showing first 200 of {{ removed_emails_total }})</span>
+      {% endif %}
+    </summary>
+    <div class="tbl-wrap" style="margin-top:12px">
+      <table>
+        <thead>
+          <tr><th>Removed Email</th></tr>
+        </thead>
+        <tbody>
+          {% for email in removed_emails %}
+          <tr><td>{{ email }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% else %}
+  <p class="result-meta" style="margin-top:4px">No emails matched the DNC list — the list is clean.</p>
+  {% endif %}
+
+</div>
+{% endif %}

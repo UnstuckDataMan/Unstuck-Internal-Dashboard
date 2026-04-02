@@ -1,0 +1,568 @@
+{% extends "base.html" %}
+
+{% block title %}DNC Removal — Unstuck{% endblock %}
+{% block heading %}DNC List Scrubber{% endblock %}
+
+{% block content %}
+<style>
+  /* Wider inner width for the manage tab table */
+  .page-inner { max-width: 900px; }
+
+  /* ── Tab bar ─────────────────────────────────────────────────── */
+  .dnc-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 5px;
+    margin-bottom: 24px;
+    animation: pageIn .5s var(--ease-out) .08s both;
+  }
+  .dnc-tab-btn {
+    flex: 1;
+    padding: 9px 16px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-2);
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background .18s var(--ease), color .18s var(--ease), box-shadow .18s var(--ease);
+    outline: none;
+  }
+  .dnc-tab-btn.active {
+    background: var(--gradient-vivid);
+    color: white;
+    box-shadow: 0 2px 10px rgba(124,58,237,.3);
+  }
+  .dnc-tab-btn:not(.active):hover {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  /* ── Scrub result stats ──────────────────────────────────────── */
+  .dnc-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+    animation: resultIn .4s var(--ease-out) both;
+  }
+  .stat-card {
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px 16px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    box-shadow: var(--sh-sm);
+  }
+  .stat-num {
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+  }
+  .stat-lbl {
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text-3);
+  }
+  .stat-removed .stat-num { color: var(--red); }
+  .stat-clean .stat-num   { color: #4ade80; }
+
+  .dnc-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+
+  /* ── Removed emails details ──────────────────────────────────── */
+  .removed-details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .removed-details summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-2);
+    padding: 13px 18px;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    list-style: none;
+    transition: color .15s var(--ease), background .15s var(--ease);
+  }
+  .removed-details summary::-webkit-details-marker { display: none; }
+  .removed-details summary::before {
+    content: '▸';
+    font-size: 10px;
+    color: var(--text-3);
+    transition: transform .18s var(--ease);
+  }
+  .removed-details[open] summary::before { transform: rotate(90deg); }
+  .removed-details[open] summary { color: #a78bfa; border-bottom: 1px solid var(--border); }
+  .removed-details summary:hover { background: var(--surface-hover); }
+  .removed-count-note {
+    font-size: 11px;
+    color: var(--text-3);
+    margin-left: 4px;
+  }
+  .removed-details .tbl-wrap { border-radius: 0; border: none; margin-bottom: 0; }
+
+  /* ── Manage tab — select + search row ───────────────────────── */
+  .manage-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 24px;
+    animation: pageIn .5s var(--ease-out) .1s both;
+  }
+
+  /* ── Shared select styling ───────────────────────────────────── */
+  select {
+    width: 100%;
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: var(--font);
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+    transition: border-color .18s var(--ease), box-shadow .18s var(--ease), background .18s var(--ease);
+  }
+  select:hover {
+    background-color: rgba(255,255,255,.09);
+    border-color: rgba(255,255,255,.18);
+  }
+  select:focus {
+    border-color: var(--border-focus);
+    box-shadow: var(--sh-glow);
+    background-color: rgba(255,255,255,.08);
+  }
+  select option {
+    background: #1a1a2e;
+    color: var(--text);
+  }
+
+  /* ── Textarea ────────────────────────────────────────────────── */
+  textarea {
+    width: 100%;
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-family: var(--font);
+    color: var(--text);
+    outline: none;
+    resize: vertical;
+    min-height: 68px;
+    transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+  }
+  textarea:focus {
+    border-color: var(--border-focus);
+    box-shadow: var(--sh-glow);
+  }
+  textarea::placeholder { color: var(--text-3); }
+
+  /* ── Entries table pagination ────────────────────────────────── */
+  .pagination {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  /* ── Delete button in table ──────────────────────────────────── */
+  .btn-delete {
+    background: transparent;
+    border: 1px solid rgba(248,113,113,.25);
+    border-radius: 7px;
+    color: var(--red);
+    font-size: 12px;
+    width: 26px;
+    height: 26px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .15s var(--ease), border-color .15s var(--ease);
+    font-family: var(--font);
+  }
+  .btn-delete:hover {
+    background: rgba(248,113,113,.15);
+    border-color: rgba(248,113,113,.5);
+  }
+
+  /* ── Disabled button ─────────────────────────────────────────── */
+  .btn-primary:disabled {
+    opacity: .38;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+  }
+
+  /* ── Section label above form cards in manage tab ────────────── */
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin: 28px 0 10px;
+  }
+
+  /* ── Entries area ────────────────────────────────────────────── */
+  #entries-table { margin-top: 6px; }
+</style>
+
+<div class="page-header">
+  <div class="page-badge">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+    </svg>
+    List Hygiene
+  </div>
+  <p class="page-sub">
+    Upload a prospect CSV or Excel file, choose a client, and scrub any emails that appear
+    on that client&rsquo;s Do Not Contact list. Use the Manage tab to view, add, or remove DNC entries.
+  </p>
+</div>
+
+<!-- Tab bar -->
+<div class="dnc-tabs" role="tablist">
+  <button class="dnc-tab-btn active" data-tab="tab-scrub" role="tab" aria-selected="true">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"
+         style="display:inline;vertical-align:-2px;margin-right:5px">
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+    </svg>
+    Scrub Prospects
+  </button>
+  <button class="dnc-tab-btn" data-tab="tab-manage" role="tab" aria-selected="false">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"
+         style="display:inline;vertical-align:-2px;margin-right:5px">
+      <line x1="8" y1="6" x2="21" y2="6"/>
+      <line x1="8" y1="12" x2="21" y2="12"/>
+      <line x1="8" y1="18" x2="21" y2="18"/>
+      <line x1="3" y1="6" x2="3.01" y2="6"/>
+      <line x1="3" y1="12" x2="3.01" y2="12"/>
+      <line x1="3" y1="18" x2="3.01" y2="18"/>
+    </svg>
+    Manage DNC Lists
+  </button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     Tab 1: Scrub Prospects
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-scrub" class="tab-panel">
+
+  <div class="form-card">
+    <form
+      hx-post="/api/dnc/scrub"
+      hx-target="#scrub-result"
+      hx-swap="innerHTML"
+      hx-encoding="multipart/form-data"
+      hx-indicator="#scrub-spinner"
+    >
+      <!-- File upload -->
+      <div class="form-group">
+        <label>Prospect file <span class="opt">CSV or Excel</span></label>
+        <div class="dropzone-wrap">
+          <div class="dropzone" role="button" tabindex="0" aria-label="Upload prospect file">
+            <div class="dropzone-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <div class="dropzone-text">
+              <strong>Click to browse</strong> or drag &amp; drop
+            </div>
+            <span class="dropzone-filename"></span>
+            <span class="dropzone-hint">.csv, .xlsx accepted</span>
+            <input type="file" id="scrub-file-input" name="file"
+                   accept=".csv,.xls,.xlsx" required class="hidden-file-input" />
+          </div>
+        </div>
+      </div>
+
+      <div class="form-divider"></div>
+
+      <!-- Client selector -->
+      <div class="form-group" style="margin-bottom:0">
+        <label>Client</label>
+        <select id="scrub-client-select" name="client_id"
+                hx-get="/api/dnc/clients"
+                hx-trigger="load"
+                hx-target="#scrub-client-select"
+                hx-swap="innerHTML">
+          <option value="">Loading clients…</option>
+        </select>
+      </div>
+
+      <div class="form-actions">
+        <button id="scrub-btn" type="submit" class="btn btn-primary" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+          </svg>
+          Scrub List
+        </button>
+        <div id="scrub-spinner" class="spinner htmx-indicator">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          Scrubbing…
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div id="scrub-result" style="margin-top:24px"></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     Tab 2: Manage DNC Lists
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-manage" class="tab-panel" style="display:none">
+
+  <div class="manage-controls">
+    <!-- Client selector -->
+    <div class="form-group" style="margin-bottom:0">
+      <label>Client</label>
+      <select id="manage-client-select"
+              hx-get="/api/dnc/clients"
+              hx-trigger="load"
+              hx-target="#manage-client-select"
+              hx-swap="innerHTML">
+        <option value="">Loading clients…</option>
+      </select>
+    </div>
+    <!-- Search -->
+    <div class="form-group" style="margin-bottom:0">
+      <label>Search <span class="opt">filter by email</span></label>
+      <input type="text" id="manage-search" name="search" placeholder="e.g. @domain.com"
+             hx-get="/api/dnc/entries"
+             hx-trigger="input changed delay:400ms"
+             hx-target="#entries-table"
+             hx-swap="innerHTML"
+             hx-include="#manage-client-select"
+             hx-vals='{"offset": "0"}' />
+    </div>
+  </div>
+
+  <!-- Entries table -->
+  <div id="entries-table">
+    <p class="result-meta" style="color: var(--text-3); margin-top:8px">Select a client to view DNC entries.</p>
+  </div>
+
+  <!-- Add single entry -->
+  <p class="section-label">Add entry</p>
+  <div class="form-card">
+    <form
+      hx-post="/api/dnc/entries"
+      hx-target="#entries-table"
+      hx-swap="innerHTML"
+      hx-indicator="#add-spinner"
+      hx-on::after-request="this.reset()"
+    >
+      <input type="hidden" name="client_id" id="add-client-id-input" value="" />
+
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Email</label>
+          <input type="text" name="email" placeholder="contact@example.com" required />
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Reason</label>
+          <select name="reason">
+            <option value="manual">Manual</option>
+            <option value="opt_out">Opt-out</option>
+            <option value="hard_bounce">Hard bounce</option>
+            <option value="complaint">Complaint</option>
+            <option value="legal">Legal</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:0; margin-top:14px">
+        <label>Notes <span class="opt">optional</span></label>
+        <textarea name="notes" placeholder="Any additional context…"></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add to DNC List
+        </button>
+        <div id="add-spinner" class="spinner htmx-indicator">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          Adding…
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Bulk import -->
+  <p class="section-label">Bulk import</p>
+  <div class="form-card">
+    <form
+      hx-post="/api/dnc/entries/bulk"
+      hx-target="#entries-table"
+      hx-swap="innerHTML"
+      hx-encoding="multipart/form-data"
+      hx-indicator="#bulk-spinner"
+      hx-on::after-request="this.reset(); this.querySelector('.dropzone').classList.remove('has-file')"
+    >
+      <input type="hidden" name="client_id" id="bulk-client-id-input" value="" />
+
+      <div class="form-group">
+        <label>CSV file of emails</label>
+        <div class="dropzone-wrap">
+          <div class="dropzone" role="button" tabindex="0" aria-label="Upload DNC email list">
+            <div class="dropzone-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <div class="dropzone-text">
+              <strong>Click to browse</strong> or drag &amp; drop
+            </div>
+            <span class="dropzone-filename"></span>
+            <span class="dropzone-hint">.csv, .xlsx accepted — must contain an email column</span>
+            <input type="file" name="file" accept=".csv,.xls,.xlsx" required class="hidden-file-input" />
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:0">
+        <label>Reason for all entries</label>
+        <select name="reason">
+          <option value="bulk_import">Bulk import</option>
+          <option value="opt_out">Opt-out</option>
+          <option value="hard_bounce">Hard bounce</option>
+          <option value="complaint">Complaint</option>
+          <option value="legal">Legal</option>
+          <option value="manual">Manual</option>
+        </select>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          Import to DNC List
+        </button>
+        <div id="bulk-spinner" class="spinner htmx-indicator">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          Importing…
+        </div>
+      </div>
+    </form>
+  </div>
+
+</div><!-- /tab-manage -->
+
+<script>
+  (function () {
+    // ── Tab switching ────────────────────────────────────────────── //
+    const tabBtns   = document.querySelectorAll('.dnc-tab-btn');
+    const tabPanels = document.querySelectorAll('.tab-panel');
+
+    tabBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = btn.dataset.tab;
+        tabBtns.forEach(b => {
+          b.classList.toggle('active', b === btn);
+          b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+        });
+        tabPanels.forEach(p => {
+          p.style.display = p.id === target ? '' : 'none';
+        });
+      });
+    });
+
+    // ── Scrub button — enable only when file + client both set ───── //
+    const scrubBtn    = document.getElementById('scrub-btn');
+    const scrubFile   = document.getElementById('scrub-file-input');
+    const scrubClient = document.getElementById('scrub-client-select');
+
+    function checkScrubReady() {
+      const hasFile   = scrubFile.files && scrubFile.files.length > 0;
+      const hasClient = scrubClient.value !== '';
+      scrubBtn.disabled = !(hasFile && hasClient);
+    }
+
+    scrubFile.addEventListener('change', checkScrubReady);
+    scrubClient.addEventListener('change', checkScrubReady);
+    // Re-check after HTMX injects the client <option> elements
+    document.body.addEventListener('htmx:afterSettle', checkScrubReady);
+
+    // ── Manage tab — wire client select to load entries ──────────── //
+    const manageClient = document.getElementById('manage-client-select');
+    const addClientInput  = document.getElementById('add-client-id-input');
+    const bulkClientInput = document.getElementById('bulk-client-id-input');
+
+    function onManageClientChange() {
+      const cid = manageClient.value;
+      if (!cid) return;
+      // Sync hidden inputs so the add/bulk forms submit the right client_id
+      addClientInput.value  = cid;
+      bulkClientInput.value = cid;
+      // Load entries for this client
+      htmx.ajax('GET', `/api/dnc/entries?client_id=${encodeURIComponent(cid)}&offset=0`, {
+        target:  '#entries-table',
+        swap:    'innerHTML',
+      });
+    }
+
+    manageClient.addEventListener('change', onManageClientChange);
+
+    // After HTMX loads client options into manage select, keep hidden inputs in sync
+    document.body.addEventListener('htmx:afterSettle', function (e) {
+      if (e.detail && e.detail.target && e.detail.target.id === 'manage-client-select') {
+        onManageClientChange();
+      }
+    });
+  })();
+</script>
+{% endblock %}
