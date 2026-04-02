@@ -216,6 +216,26 @@
     border-color: rgba(248,113,113,.5);
   }
 
+  /* ── Brighter placeholders ───────────────────────────────────── */
+  input::placeholder,
+  textarea::placeholder { color: rgba(210,205,255,.55); }
+
+  /* ── Domain badge in entries table ──────────────────────────── */
+  .domain-badge {
+    display: inline-block;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: #a78bfa;
+    background: rgba(139,92,246,.15);
+    border: 1px solid rgba(139,92,246,.3);
+    border-radius: 5px;
+    padding: 1px 6px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
   /* ── Disabled button ─────────────────────────────────────────── */
   .btn-primary:disabled {
     opacity: .38;
@@ -399,7 +419,7 @@
       <div class="form-row">
         <div class="form-group" style="margin-bottom:0">
           <label>Email</label>
-          <input type="text" name="email" placeholder="contact@example.com" required />
+          <input type="text" name="email" placeholder="contact@example.com or company.com" required />
         </div>
         <div class="form-group" style="margin-bottom:0">
           <label>Reason</label>

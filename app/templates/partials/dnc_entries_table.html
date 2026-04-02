@@ -18,7 +18,12 @@
     <tbody>
       {% for entry in entries %}
       <tr>
-        <td>{{ entry.email }}</td>
+        <td>
+          {{ entry.email }}
+          {% if "@" not in entry.email %}
+          <span class="domain-badge">domain</span>
+          {% endif %}
+        </td>
         <td>{{ entry.reason }}</td>
         <td>{{ entry.added_by }}</td>
         <td>{{ entry.created_at[:10] }}</td>
@@ -59,5 +64,5 @@
 {% endif %}
 
 {% else %}
-<p class="result-meta" style="margin-top:8px; color: var(--text-3)">No DNC entries found for this client.</p>
+<p class="result-meta" style="margin-top:8px; color: var(--text-2)">No DNC entries found for this client.</p>
 {% endif %}

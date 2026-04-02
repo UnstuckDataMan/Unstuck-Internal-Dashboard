@@ -118,32 +118,51 @@ def _write_output(df: pd.DataFrame, ext: str, base: str, suffix: str) -> tuple[b
     )
 
 
-# ── DNC lookup (batched) ───────────────────────────────────────────────────────
+# ── DNC lookup (batched, supports full emails and domain blocks) ───────────────
 
-def _fetch_dnc_set(client_id: str, emails: list[str]) -> set[str]:
-    """
-    Query Supabase in chunks of CHUNK_SIZE.
-    Returns set of lowercased emails that are on the DNC list.
-    Emails in dnc_entries are always stored lowercase, so plain `in` filter works.
-    """
-    dnc: set[str] = set()
-    for i in range(0, len(emails), CHUNK_SIZE):
-        chunk = emails[i : i + CHUNK_SIZE]
-        email_filter = "(" + ",".join(chunk) + ")"
+def _batch_query_dnc(client_id: str, values: list[str]) -> set[str]:
+    """Query dnc_entries for an exact match against a list of values."""
+    matched: set[str] = set()
+    for i in range(0, len(values), CHUNK_SIZE):
+        chunk = values[i : i + CHUNK_SIZE]
+        val_filter = "(" + ",".join(chunk) + ")"
         r = http_req.get(
             f"{SUPABASE_URL}/rest/v1/dnc_entries",
             headers=_sb_headers(),
             params={
                 "select":    "email",
                 "client_id": f"eq.{client_id}",
-                "email":     f"in.{email_filter}",
+                "email":     f"in.{val_filter}",
             },
             timeout=30,
         )
         r.raise_for_status()
         for row in r.json():
-            dnc.add(row["email"])
-    return dnc
+            matched.add(row["email"])
+    return matched
+
+
+def _fetch_dnc_matches(client_id: str, norm_emails: list[str]) -> set[str]:
+    """
+    Returns the subset of norm_emails that should be removed.
+    Checks both exact email matches and domain-level blocks.
+    Domain entries in dnc_entries have no '@' (e.g. 'company.com').
+    """
+    # 1. Exact email matches
+    dnc_emails = _batch_query_dnc(client_id, norm_emails)
+
+    # 2. Domain-level blocks — query unique domains from the prospect list
+    unique_domains = list({e.split("@")[1] for e in norm_emails if "@" in e})
+    dnc_domains = _batch_query_dnc(client_id, unique_domains) if unique_domains else set()
+
+    # 3. Build removal set: email matched OR its domain is blocked
+    to_remove: set[str] = set()
+    for email in norm_emails:
+        if email in dnc_emails:
+            to_remove.add(email)
+        elif "@" in email and email.split("@")[1] in dnc_domains:
+            to_remove.add(email)
+    return to_remove
 
 
 # ── routes ─────────────────────────────────────────────────────────────────────
@@ -222,11 +241,11 @@ async def api_dnc_scrub(
     uploaded_count = len(df)
 
     try:
-        dnc_set = _fetch_dnc_set(client_id, df["_norm_email"].tolist())
+        to_remove = _fetch_dnc_matches(client_id, df["_norm_email"].tolist())
     except Exception as e:
         return error(f"Supabase error during DNC lookup: {e}")
 
-    removed_mask    = df["_norm_email"].isin(dnc_set)
+    removed_mask    = df["_norm_email"].isin(to_remove)
     df_clean        = df[~removed_mask].drop(columns=["_norm_email"])
     df_removed      = df[ removed_mask].drop(columns=["_norm_email"])
     removed_count   = len(df_removed)
@@ -388,7 +407,12 @@ async def add_dnc_entry(
         return error("Supabase is not configured.")
 
     email_norm = email.lower().strip()
-    if not email_norm or "@" not in email_norm:
+    is_domain = "@" not in email_norm
+    if not email_norm:
+        return error("Please enter an email address or domain.")
+    if is_domain and "." not in email_norm:
+        return error("Enter a valid domain (e.g. company.com) or full email address.")
+    if not is_domain and email_norm.count("@") != 1:
         return error("Please enter a valid email address.")
 
     payload: dict = {
