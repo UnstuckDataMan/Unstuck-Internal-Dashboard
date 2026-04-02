@@ -9,6 +9,7 @@
 <form id="contacted-bulk-form">
   <input type="hidden" name="client_id"   value="{{ client_id }}">
   <input type="hidden" name="industry_id" value="{{ industry_id }}">
+  <input type="hidden" name="location"    value="{{ location }}">
 
   <div class="bulk-actions">
     <button type="button" id="bulk-delete-btn"
@@ -30,6 +31,7 @@
           <th><input type="checkbox" id="select-all-contacted" title="Select all"></th>
           <th>Email</th>
           <th>Industry</th>
+          <th>Location</th>
           <th>Contacted</th>
           <th>Campaign</th>
           <th>Source</th>
@@ -42,12 +44,13 @@
           <td><input type="checkbox" name="ids" value="{{ entry.id }}"></td>
           <td>{{ entry.email }}</td>
           <td>{{ entry.client_industries.name if entry.client_industries else "—" }}</td>
+          <td>{{ entry.location or "—" }}</td>
           <td>{{ entry.contacted_at }}</td>
           <td>{{ entry.campaign_name or "—" }}</td>
           <td><span class="source-badge source-{{ entry.source | replace('_', '-') }}">{{ entry.source }}</span></td>
           <td>
             <button class="btn-delete"
-                    hx-delete="/api/dnc/contacted/{{ entry.id }}?client_id={{ client_id }}&industry_id={{ industry_id }}"
+                    hx-delete="/api/dnc/contacted/{{ entry.id }}?client_id={{ client_id }}&industry_id={{ industry_id }}&location={{ location | urlencode }}"
                     hx-target="#contacted-table"
                     hx-swap="innerHTML"
                     hx-confirm="Remove {{ entry.email }} from contacted list?">✕</button>
@@ -64,14 +67,14 @@
   {% if has_prev %}
   <button class="btn btn-download"
           hx-get="/api/dnc/contacted"
-          hx-vals='{"client_id":"{{ client_id }}","industry_id":"{{ industry_id }}","search":"{{ search }}","date_from":"{{ date_from }}","date_to":"{{ date_to }}","offset":"{{ offset - page_size }}"}'
+          hx-vals='{"client_id":"{{ client_id }}","industry_id":"{{ industry_id }}","location":"{{ location }}","search":"{{ search }}","date_from":"{{ date_from }}","date_to":"{{ date_to }}","offset":"{{ offset - page_size }}"}'
           hx-target="#contacted-table"
           hx-swap="innerHTML">← Prev</button>
   {% endif %}
   {% if has_next %}
   <button class="btn btn-download"
           hx-get="/api/dnc/contacted"
-          hx-vals='{"client_id":"{{ client_id }}","industry_id":"{{ industry_id }}","search":"{{ search }}","date_from":"{{ date_from }}","date_to":"{{ date_to }}","offset":"{{ offset + page_size }}"}'
+          hx-vals='{"client_id":"{{ client_id }}","industry_id":"{{ industry_id }}","location":"{{ location }}","search":"{{ search }}","date_from":"{{ date_from }}","date_to":"{{ date_to }}","offset":"{{ offset + page_size }}"}'
           hx-target="#contacted-table"
           hx-swap="innerHTML">Next →</button>
   {% endif %}

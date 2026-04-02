@@ -409,9 +409,10 @@
   .chips-empty { font-size: 13px; color: var(--text-3); padding: 4px 0; }
 
   /* ── Contacted table ─────────────────────────────────────────── */
+  .manage-controls-3 { grid-template-columns: 1fr 1fr 1fr; }
   .filter-row {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 12px;
     margin-bottom: 16px;
   }
@@ -594,6 +595,13 @@
             </div>
           </div>
         </div>
+        <div class="form-row" style="margin-top:14px; margin-bottom:0">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Location <span class="opt">optional — country or state</span></label>
+            <input type="text" name="location" id="scrub-location-input"
+                   placeholder="e.g. United States, California">
+          </div>
+        </div>
       </div>
 
       <div class="form-actions">
@@ -774,8 +782,8 @@
 ═══════════════════════════════════════════════════════════════ -->
 <div id="tab-manage-contacted" class="tab-panel" style="display:none">
 
-  <!-- Client + industry selectors -->
-  <div class="manage-controls">
+  <!-- Client + industry + location selectors -->
+  <div class="manage-controls manage-controls-3">
     <div class="form-group" style="margin-bottom:0">
       <label>Client</label>
       <select id="contacted-client-select"
@@ -791,6 +799,10 @@
       <select id="contact-industry-filter" name="industry_id">
         <option value="">All industries</option>
       </select>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label>Location filter <span class="opt">country or state</span></label>
+      <input type="text" id="contact-location-filter" placeholder="e.g. United States">
     </div>
   </div>
 
@@ -858,6 +870,7 @@
     <input type="hidden" name="search"      id="contact-filter-search"      value="">
     <input type="hidden" name="date_from"   id="contact-filter-date-from"   value="">
     <input type="hidden" name="date_to"     id="contact-filter-date-to"     value="">
+    <input type="hidden" name="location"    id="contact-filter-location"    value="">
   </div>
 
   <div id="contacted-table">
@@ -908,9 +921,15 @@
         </div>
       </div>
 
-      <div class="form-group" style="margin-top:14px;margin-bottom:0">
-        <label>Campaign name <span class="opt">optional</span></label>
-        <input type="text" name="campaign_name" placeholder="e.g. Q2 Outreach — Wave 1">
+      <div class="form-row" style="margin-top:14px">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Campaign name <span class="opt">optional</span></label>
+          <input type="text" name="campaign_name" placeholder="e.g. Q2 Outreach — Wave 1">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Location <span class="opt">optional — country or state</span></label>
+          <input type="text" name="location" placeholder="e.g. United States, California">
+        </div>
       </div>
 
       <div class="form-actions">
@@ -962,6 +981,10 @@
         <div class="form-group" style="margin-bottom:0">
           <label>Campaign name <span class="opt">optional</span></label>
           <input type="text" name="campaign_name" placeholder="e.g. Q2 Outreach">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Location <span class="opt">optional</span></label>
+          <input type="text" name="location" placeholder="e.g. United States">
         </div>
       </div>
 
@@ -1103,10 +1126,12 @@
     const contactedClientSelect   = document.getElementById('contacted-client-select');
     const contactFilterClientId   = document.getElementById('contact-filter-client-id');
     const contactFilterIndustryId = document.getElementById('contact-filter-industry-id');
+    const contactFilterLocation   = document.getElementById('contact-filter-location');
     const industryAddClientId     = document.getElementById('industry-add-client-id');
     const contactUploadClientId   = document.getElementById('contact-upload-client-id');
     const contactAddClientId      = document.getElementById('contact-add-client-id');
     const contactIndustryFilter   = document.getElementById('contact-industry-filter');
+    const contactLocationFilter   = document.getElementById('contact-location-filter');
 
     function loadContactedIndustriesManage(clientId) {
       if (!clientId) return;
@@ -1122,9 +1147,14 @@
       });
     }
 
-    function loadContactedTable(clientId, industryId) {
+    function loadContactedTable(clientId, industryId, location) {
       if (!clientId) return;
-      const params = new URLSearchParams({ client_id: clientId, industry_id: industryId || '', offset: '0' });
+      const params = new URLSearchParams({
+        client_id:   clientId,
+        industry_id: industryId || '',
+        location:    location    || '',
+        offset:      '0',
+      });
       htmx.ajax('GET', `/api/dnc/contacted?${params}`, {
         target: '#contacted-table',
         swap:   'innerHTML',
@@ -1138,9 +1168,11 @@
         if (el) el.value = cid;
       });
       contactFilterIndustryId.value = '';
+      contactFilterLocation.value   = '';
+      if (contactLocationFilter) contactLocationFilter.value = '';
       if (!cid) return;
       loadContactedIndustriesManage(cid);
-      loadContactedTable(cid, '');
+      loadContactedTable(cid, '', '');
     }
 
     contactedClientSelect.addEventListener('change', onContactedClientChange);
@@ -1154,9 +1186,25 @@
     contactIndustryFilter.addEventListener('change', () => {
       const cid = contactedClientSelect.value;
       const iid = contactIndustryFilter.value;
+      const loc = contactLocationFilter ? contactLocationFilter.value : '';
       contactFilterIndustryId.value = iid;
-      loadContactedTable(cid, iid);
+      loadContactedTable(cid, iid, loc);
     });
+
+    // Location filter → reload table (with debounce)
+    if (contactLocationFilter) {
+      let locTimer;
+      contactLocationFilter.addEventListener('input', () => {
+        clearTimeout(locTimer);
+        locTimer = setTimeout(() => {
+          const cid = contactedClientSelect.value;
+          const iid = contactIndustryFilter.value;
+          const loc = contactLocationFilter.value;
+          contactFilterLocation.value = loc;
+          loadContactedTable(cid, iid, loc);
+        }, 400);
+      });
+    }
 
     // ── Bulk delete: checkbox counter (event delegation) ─────────── //
     document.getElementById('tab-manage-contacted').addEventListener('change', function (e) {

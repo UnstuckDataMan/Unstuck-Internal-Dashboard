@@ -181,6 +181,7 @@ def _fetch_contacted_matches(
     norm_emails: list[str],
     cutoff_date: str,
     industry_id: str = "",
+    location: str = "",
 ) -> set[str]:
     """
     Returns the subset of norm_emails contacted on or after cutoff_date.
@@ -198,6 +199,8 @@ def _fetch_contacted_matches(
         ]
         if industry_id:
             params.append(("client_industry_id", f"eq.{industry_id}"))
+        if location.strip():
+            params.append(("location", f"ilike.*{location.strip()}*"))
         r = http_req.get(
             f"{SUPABASE_URL}/rest/v1/contacted_prospects",
             headers=_sb_headers(),
@@ -252,6 +255,7 @@ async def api_dnc_scrub(
     remove_contacted:    str        = Form(""),        # "on" when checkbox checked
     lookback_days_raw:   str        = Form("30"),      # "30", "60", "90", or "custom"
     lookback_custom_from: str       = Form(""),        # YYYY-MM-DD for custom range
+    location:            str        = Form(""),         # location filter for contacted check
 ):
     def error(msg: str):
         return templates.TemplateResponse(
@@ -314,7 +318,7 @@ async def api_dnc_scrub(
 
         try:
             contacted_removed_set = _fetch_contacted_matches(
-                client_id, df["_norm_email"].tolist(), cutoff_date, industry_id
+                client_id, df["_norm_email"].tolist(), cutoff_date, industry_id, location
             )
         except Exception as e:
             return error(f"Supabase error during recently-contacted lookup: {e}")
@@ -535,6 +539,7 @@ async def get_contacted(
     search:      str = Query(""),
     date_from:   str = Query(""),
     date_to:     str = Query(""),
+    location:    str = Query(""),
     offset:      int = Query(0, ge=0),
 ):
     def error(msg: str):
@@ -543,7 +548,7 @@ async def get_contacted(
             {"request": request, "error": msg, "entries": [], "total": 0,
              "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
              "client_id": client_id, "industry_id": industry_id,
-             "search": search, "date_from": date_from, "date_to": date_to},
+             "search": search, "date_from": date_from, "date_to": date_to, "location": location},
         )
 
     if not _sb_configured():
@@ -564,6 +569,8 @@ async def get_contacted(
         params.append(("contacted_at", f"gte.{date_from}"))
     if date_to:
         params.append(("contacted_at", f"lte.{date_to}"))
+    if location.strip():
+        params.append(("location", f"ilike.*{location.strip()}*"))
 
     try:
         r = http_req.get(
@@ -596,6 +603,7 @@ async def get_contacted(
             "search":      search,
             "date_from":   date_from,
             "date_to":     date_to,
+            "location":    location,
         },
     )
 
@@ -608,6 +616,7 @@ async def add_contacted(
     email:         str = Form(...),
     contacted_at:  str = Form(...),
     campaign_name: str = Form(""),
+    location:      str = Form(""),
 ):
     def error(msg: str):
         return templates.TemplateResponse(
@@ -615,7 +624,7 @@ async def add_contacted(
             {"request": request, "error": msg, "entries": [], "total": 0,
              "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
              "client_id": client_id, "industry_id": industry_id,
-             "search": "", "date_from": "", "date_to": ""},
+             "search": "", "date_from": "", "date_to": "", "location": ""},
         )
 
     if not _sb_configured():
@@ -638,6 +647,8 @@ async def add_contacted(
     }
     if campaign_name.strip():
         payload["campaign_name"] = campaign_name.strip()
+    if location.strip():
+        payload["location"] = location.strip()
 
     try:
         r = http_req.post(
@@ -652,7 +663,7 @@ async def add_contacted(
         return error(f"Supabase error: {e}")
 
     return await get_contacted(request, client_id=client_id, industry_id=industry_id,
-                               search="", date_from="", date_to="", offset=0)
+                               search="", date_from="", date_to="", location="", offset=0)
 
 
 @router.post("/api/dnc/contacted/upload")
@@ -663,6 +674,7 @@ async def upload_contacted(
     file:          UploadFile = File(...),
     contacted_at:  str        = Form(...),
     campaign_name: str        = Form(""),
+    location:      str        = Form(""),
 ):
     def error(msg: str):
         return templates.TemplateResponse(
@@ -670,7 +682,7 @@ async def upload_contacted(
             {"request": request, "error": msg, "entries": [], "total": 0,
              "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
              "client_id": client_id, "industry_id": industry_id,
-             "search": "", "date_from": "", "date_to": ""},
+             "search": "", "date_from": "", "date_to": "", "location": ""},
         )
 
     if not _sb_configured():
@@ -716,6 +728,7 @@ async def upload_contacted(
                 "contacted_at":       contacted_at,
                 "source":             "csv_upload",
                 **({"campaign_name": campaign} if campaign else {}),
+                **({"location": location.strip()} if location.strip() else {}),
             }
             for e in chunk
         ]
@@ -732,7 +745,7 @@ async def upload_contacted(
             return error(f"Supabase error during upload: {e}")
 
     return await get_contacted(request, client_id=client_id, industry_id=industry_id,
-                               search="", date_from="", date_to="", offset=0)
+                               search="", date_from="", date_to="", location="", offset=0)
 
 
 @router.delete("/api/dnc/contacted/{entry_id}")
@@ -741,6 +754,7 @@ async def delete_contacted(
     entry_id:    str,
     client_id:   str = Query(...),
     industry_id: str = Query(""),
+    location:    str = Query(""),
 ):
     if _sb_configured():
         try:
@@ -754,7 +768,7 @@ async def delete_contacted(
             pass
 
     return await get_contacted(request, client_id=client_id, industry_id=industry_id,
-                               search="", date_from="", date_to="", offset=0)
+                               search="", date_from="", date_to="", location=location, offset=0)
 
 
 @router.post("/api/dnc/contacted/bulk-delete")
@@ -762,6 +776,7 @@ async def bulk_delete_contacted(
     request:     Request,
     client_id:   str       = Form(...),
     industry_id: str       = Form(""),
+    location:    str       = Form(""),
     ids:         List[str] = Form(default=[]),
 ):
     if ids and _sb_configured():
@@ -777,7 +792,7 @@ async def bulk_delete_contacted(
             pass
 
     return await get_contacted(request, client_id=client_id, industry_id=industry_id,
-                               search="", date_from="", date_to="", offset=0)
+                               search="", date_from="", date_to="", location=location, offset=0)
 
 
 # ── DNC entries (existing — unchanged) ────────────────────────────────────────
