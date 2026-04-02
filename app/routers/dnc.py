@@ -5,8 +5,9 @@ import os
 import threading
 import time
 import uuid
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import pandas as pd
 import requests as http_req
@@ -29,7 +30,7 @@ _EMAIL_CANDIDATES = [
     "work email", "email_address", "mail", "email addr",
 ]
 
-# ── in-memory token store (same pattern as gender.py / city.py) ───────────────
+# ── in-memory token store ──────────────────────────────────────────────────────
 
 _store: dict[str, dict] = {}
 _store_lock = threading.Lock()
@@ -71,6 +72,16 @@ def _sb_headers(prefer: Optional[str] = None) -> dict:
 
 def _sb_configured() -> bool:
     return bool(SUPABASE_URL and SUPABASE_ANON_KEY)
+
+
+def _parse_total(headers: dict) -> int:
+    cr = headers.get("Content-Range", "")
+    if "/" in cr:
+        try:
+            return int(cr.split("/")[1])
+        except ValueError:
+            pass
+    return 0
 
 
 # ── file helpers ───────────────────────────────────────────────────────────────
@@ -118,6 +129,11 @@ def _write_output(df: pd.DataFrame, ext: str, base: str, suffix: str) -> tuple[b
     )
 
 
+def _normalize_industry_name(name: str) -> str:
+    """Title-case and trim an industry name: '  financial services  ' → 'Financial Services'"""
+    return " ".join(word.capitalize() for word in name.strip().split())
+
+
 # ── DNC lookup (batched, supports full emails and domain blocks) ───────────────
 
 def _batch_query_dnc(client_id: str, values: list[str]) -> set[str]:
@@ -144,18 +160,13 @@ def _batch_query_dnc(client_id: str, values: list[str]) -> set[str]:
 
 def _fetch_dnc_matches(client_id: str, norm_emails: list[str]) -> set[str]:
     """
-    Returns the subset of norm_emails that should be removed.
+    Returns the subset of norm_emails that should be removed by DNC check.
     Checks both exact email matches and domain-level blocks.
-    Domain entries in dnc_entries have no '@' (e.g. 'company.com').
     """
-    # 1. Exact email matches
     dnc_emails = _batch_query_dnc(client_id, norm_emails)
-
-    # 2. Domain-level blocks — query unique domains from the prospect list
     unique_domains = list({e.split("@")[1] for e in norm_emails if "@" in e})
     dnc_domains = _batch_query_dnc(client_id, unique_domains) if unique_domains else set()
 
-    # 3. Build removal set: email matched OR its domain is blocked
     to_remove: set[str] = set()
     for email in norm_emails:
         if email in dnc_emails:
@@ -163,6 +174,40 @@ def _fetch_dnc_matches(client_id: str, norm_emails: list[str]) -> set[str]:
         elif "@" in email and email.split("@")[1] in dnc_domains:
             to_remove.add(email)
     return to_remove
+
+
+def _fetch_contacted_matches(
+    client_id: str,
+    norm_emails: list[str],
+    cutoff_date: str,
+    industry_id: str = "",
+) -> set[str]:
+    """
+    Returns the subset of norm_emails contacted on or after cutoff_date.
+    Optionally scoped to a specific industry.
+    """
+    contacted: set[str] = set()
+    for i in range(0, len(norm_emails), CHUNK_SIZE):
+        chunk = norm_emails[i : i + CHUNK_SIZE]
+        email_filter = "(" + ",".join(chunk) + ")"
+        params: list[tuple[str, str]] = [
+            ("select",       "email"),
+            ("client_id",    f"eq.{client_id}"),
+            ("contacted_at", f"gte.{cutoff_date}"),
+            ("email",        f"in.{email_filter}"),
+        ]
+        if industry_id:
+            params.append(("client_industry_id", f"eq.{industry_id}"))
+        r = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+            headers=_sb_headers(),
+            params=params,
+            timeout=30,
+        )
+        r.raise_for_status()
+        for row in r.json():
+            contacted.add(row["email"])
+    return contacted
 
 
 # ── routes ─────────────────────────────────────────────────────────────────────
@@ -188,7 +233,7 @@ async def get_clients(request: Request):
         )
         r.raise_for_status()
         clients = r.json()
-    except Exception as e:
+    except Exception:
         clients = []
     return templates.TemplateResponse(
         "partials/dnc_clients_options.html",
@@ -196,11 +241,17 @@ async def get_clients(request: Request):
     )
 
 
+# ── scrub ──────────────────────────────────────────────────────────────────────
+
 @router.post("/api/dnc/scrub")
 async def api_dnc_scrub(
-    request:   Request,
-    file:      UploadFile = File(...),
-    client_id: str        = Form(...),
+    request:             Request,
+    file:                UploadFile = File(...),
+    client_id:           str        = Form(...),
+    industry_id:         str        = Form(""),
+    remove_contacted:    str        = Form(""),        # "on" when checkbox checked
+    lookback_days_raw:   str        = Form("30"),      # "30", "60", "90", or "custom"
+    lookback_custom_from: str       = Form(""),        # YYYY-MM-DD for custom range
 ):
     def error(msg: str):
         return templates.TemplateResponse(
@@ -236,60 +287,108 @@ async def api_dnc_scrub(
         )
     email_col = matches[0]
 
-    # Normalise emails for comparison (lowercase + strip)
     df["_norm_email"] = df[email_col].astype(str).str.lower().str.strip()
     uploaded_count = len(df)
 
+    # ── Pass 1: DNC check ─────────────────────────────────────────
     try:
-        to_remove = _fetch_dnc_matches(client_id, df["_norm_email"].tolist())
+        dnc_removed_set = _fetch_dnc_matches(client_id, df["_norm_email"].tolist())
     except Exception as e:
         return error(f"Supabase error during DNC lookup: {e}")
 
-    removed_mask    = df["_norm_email"].isin(to_remove)
-    df_clean        = df[~removed_mask].drop(columns=["_norm_email"])
-    df_removed      = df[ removed_mask].drop(columns=["_norm_email"])
-    removed_count   = len(df_removed)
-    remaining_count = len(df_clean)
+    # ── Pass 2: Recently contacted check (optional) ───────────────
+    contacted_removed_set: set[str] = set()
+    cutoff_date: Optional[str] = None
 
-    # Log scrub (non-fatal)
+    if remove_contacted == "on":
+        if lookback_days_raw == "custom":
+            if not lookback_custom_from:
+                return error("Please select a start date for the custom lookback range.")
+            cutoff_date = lookback_custom_from
+        else:
+            try:
+                days = int(lookback_days_raw)
+            except ValueError:
+                days = 30
+            cutoff_date = (date.today() - timedelta(days=days)).isoformat()
+
+        try:
+            contacted_removed_set = _fetch_contacted_matches(
+                client_id, df["_norm_email"].tolist(), cutoff_date, industry_id
+            )
+        except Exception as e:
+            return error(f"Supabase error during recently-contacted lookup: {e}")
+
+    # DNC takes priority — emails in both sets count only as DNC
+    contacted_only = contacted_removed_set - dnc_removed_set
+    all_removed    = dnc_removed_set | contacted_only
+
+    # ── Split and annotate ────────────────────────────────────────
+    removed_mask    = df["_norm_email"].isin(all_removed)
+    df_clean        = df[~removed_mask].drop(columns=["_norm_email"])
+
+    df_rem = df[removed_mask].copy()
+    df_rem["removal_reason"] = df_rem["_norm_email"].map(
+        lambda e: "DNC" if e in dnc_removed_set else "Recently Contacted"
+    )
+    df_rem = df_rem.drop(columns=["_norm_email"])
+
+    dnc_removed_count       = int((df_rem["removal_reason"] == "DNC").sum())
+    contacted_removed_count = int((df_rem["removal_reason"] == "Recently Contacted").sum())
+    removed_count           = len(df_rem)
+    remaining_count         = len(df_clean)
+
+    # ── Log scrub (non-fatal) ─────────────────────────────────────
     try:
+        log_payload: dict = {
+            "client_id":               client_id,
+            "uploaded_count":          uploaded_count,
+            "removed_count":           removed_count,
+            "remaining_count":         remaining_count,
+            "performed_by":            "dashboard_user",
+            "contacted_removed_count": contacted_removed_count,
+        }
+        if cutoff_date and lookback_days_raw != "custom":
+            log_payload["lookback_days"] = int(lookback_days_raw)
+        if industry_id:
+            log_payload["industry_filter"] = industry_id
         http_req.post(
             f"{SUPABASE_URL}/rest/v1/scrub_logs",
             headers=_sb_headers("return=minimal"),
-            json={
-                "client_id":       client_id,
-                "uploaded_count":  uploaded_count,
-                "removed_count":   removed_count,
-                "remaining_count": remaining_count,
-                "performed_by":    "dashboard_user",
-            },
+            json=log_payload,
             timeout=10,
         ).raise_for_status()
     except Exception:
         pass
 
+    # ── Serialize outputs ─────────────────────────────────────────
     base = Path(file.filename or "prospects").stem
-    clean_bytes, clean_mime, clean_name       = _write_output(df_clean,   ext, base, "clean")
-    removed_bytes, removed_mime, removed_name = _write_output(df_removed, ext, base, "removed")
+    clean_bytes, clean_mime, clean_name       = _write_output(df_clean, ext, base, "clean")
+    removed_bytes, removed_mime, removed_name = _write_output(df_rem,   ext, base, "removed")
 
     clean_token   = _store_result(clean_bytes,   clean_mime,   clean_name)
     removed_token = _store_result(removed_bytes, removed_mime, removed_name)
 
-    removed_emails_preview = df_removed[email_col].tolist()[:200]
+    # Separate preview lists (first 200 each)
+    dnc_preview       = df_rem[df_rem["removal_reason"] == "DNC"][email_col].tolist()[:200]
+    contacted_preview = df_rem[df_rem["removal_reason"] == "Recently Contacted"][email_col].tolist()[:200]
 
     return templates.TemplateResponse(
         "partials/dnc_scrub_result.html",
         {
-            "request":              request,
-            "uploaded_count":       uploaded_count,
-            "removed_count":        removed_count,
-            "remaining_count":      remaining_count,
-            "clean_token":          clean_token,
-            "clean_filename":       clean_name,
-            "removed_token":        removed_token,
-            "removed_filename":     removed_name,
-            "removed_emails":       removed_emails_preview,
-            "removed_emails_total": removed_count,
+            "request":                  request,
+            "uploaded_count":           uploaded_count,
+            "dnc_removed_count":        dnc_removed_count,
+            "contacted_removed_count":  contacted_removed_count,
+            "removed_count":            removed_count,
+            "remaining_count":          remaining_count,
+            "clean_token":              clean_token,
+            "clean_filename":           clean_name,
+            "removed_token":            removed_token,
+            "removed_filename":         removed_name,
+            "dnc_preview":              dnc_preview,
+            "contacted_preview":        contacted_preview,
+            "show_contacted":           remove_contacted == "on",
         },
     )
 
@@ -319,6 +418,369 @@ async def dnc_download_removed(token: str):
         headers={"Content-Disposition": f'attachment; filename="{entry["filename"]}"'},
     )
 
+
+# ── industries ─────────────────────────────────────────────────────────────────
+
+def _get_industries_for_client(client_id: str) -> list[dict]:
+    r = http_req.get(
+        f"{SUPABASE_URL}/rest/v1/client_industries",
+        headers=_sb_headers(),
+        params={"select": "id,name", "client_id": f"eq.{client_id}", "order": "name.asc"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+@router.get("/api/dnc/industries")
+async def get_industry_options(request: Request, client_id: str = Query("")):
+    """Returns <option> elements for industry dropdowns (scrub tab + manage tab upload/add forms)."""
+    industries = []
+    if client_id and _sb_configured():
+        try:
+            industries = _get_industries_for_client(client_id)
+        except Exception:
+            pass
+    return templates.TemplateResponse(
+        "partials/dnc_industries_options.html",
+        {"request": request, "industries": industries},
+    )
+
+
+@router.get("/api/dnc/industries/manage")
+async def get_industries_managed(request: Request, client_id: str = Query("")):
+    """Returns chips HTML + OOB option updates for all industry selects in the manage tab."""
+    industries = []
+    if client_id and _sb_configured():
+        try:
+            industries = _get_industries_for_client(client_id)
+        except Exception:
+            pass
+    return templates.TemplateResponse(
+        "partials/dnc_industries_managed.html",
+        {"request": request, "industries": industries, "client_id": client_id},
+    )
+
+
+@router.post("/api/dnc/industries")
+async def add_industry(
+    request:   Request,
+    client_id: str = Form(...),
+    name:      str = Form(...),
+):
+    def error(msg: str):
+        return templates.TemplateResponse(
+            "partials/dnc_industries_managed.html",
+            {"request": request, "industries": [], "client_id": client_id, "error": msg},
+        )
+
+    if not _sb_configured():
+        return error("Supabase is not configured.")
+
+    name_norm = _normalize_industry_name(name)
+    if not name_norm:
+        return error("Please enter an industry name.")
+
+    try:
+        r = http_req.post(
+            f"{SUPABASE_URL}/rest/v1/client_industries",
+            headers=_sb_headers("return=minimal"),
+            json={"client_id": client_id, "name": name_norm},
+            timeout=10,
+        )
+        if r.status_code == 409:
+            return error(f"'{name_norm}' already exists for this client.")
+        r.raise_for_status()
+    except Exception as e:
+        return error(f"Supabase error: {e}")
+
+    industries = _get_industries_for_client(client_id)
+    return templates.TemplateResponse(
+        "partials/dnc_industries_managed.html",
+        {"request": request, "industries": industries, "client_id": client_id},
+    )
+
+
+@router.delete("/api/dnc/industries/{industry_id}")
+async def delete_industry(
+    request:     Request,
+    industry_id: str,
+    client_id:   str = Query(...),
+):
+    if _sb_configured():
+        try:
+            http_req.delete(
+                f"{SUPABASE_URL}/rest/v1/client_industries",
+                headers=_sb_headers(),
+                params={"id": f"eq.{industry_id}"},
+                timeout=10,
+            ).raise_for_status()
+        except Exception:
+            pass
+
+    industries = _get_industries_for_client(client_id) if _sb_configured() else []
+    return templates.TemplateResponse(
+        "partials/dnc_industries_managed.html",
+        {"request": request, "industries": industries, "client_id": client_id},
+    )
+
+
+# ── contacted prospects ────────────────────────────────────────────────────────
+
+@router.get("/api/dnc/contacted")
+async def get_contacted(
+    request:     Request,
+    client_id:   str = Query(...),
+    industry_id: str = Query(""),
+    search:      str = Query(""),
+    date_from:   str = Query(""),
+    date_to:     str = Query(""),
+    offset:      int = Query(0, ge=0),
+):
+    def error(msg: str):
+        return templates.TemplateResponse(
+            "partials/dnc_contacted_table.html",
+            {"request": request, "error": msg, "entries": [], "total": 0,
+             "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
+             "client_id": client_id, "industry_id": industry_id,
+             "search": search, "date_from": date_from, "date_to": date_to},
+        )
+
+    if not _sb_configured():
+        return error("Supabase is not configured.")
+
+    params: list[tuple[str, str]] = [
+        ("select",    "id,email,contacted_at,campaign_name,source,created_at,client_industries(name)"),
+        ("client_id", f"eq.{client_id}"),
+        ("order",     "contacted_at.desc,created_at.desc"),
+        ("limit",     str(PAGE_SIZE)),
+        ("offset",    str(offset)),
+    ]
+    if industry_id:
+        params.append(("client_industry_id", f"eq.{industry_id}"))
+    if search.strip():
+        params.append(("email", f"ilike.*{search.strip()}*"))
+    if date_from:
+        params.append(("contacted_at", f"gte.{date_from}"))
+    if date_to:
+        params.append(("contacted_at", f"lte.{date_to}"))
+
+    try:
+        r = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+            headers={**_sb_headers(), "Prefer": "count=exact"},
+            params=params,
+            timeout=15,
+        )
+        r.raise_for_status()
+    except Exception as e:
+        return error(f"Supabase error: {e}")
+
+    total    = _parse_total(r.headers)
+    entries  = r.json()
+    has_prev = offset > 0
+    has_next = (offset + PAGE_SIZE) < total
+
+    return templates.TemplateResponse(
+        "partials/dnc_contacted_table.html",
+        {
+            "request":     request,
+            "entries":     entries,
+            "total":       total,
+            "offset":      offset,
+            "page_size":   PAGE_SIZE,
+            "has_prev":    has_prev,
+            "has_next":    has_next,
+            "client_id":   client_id,
+            "industry_id": industry_id,
+            "search":      search,
+            "date_from":   date_from,
+            "date_to":     date_to,
+        },
+    )
+
+
+@router.post("/api/dnc/contacted")
+async def add_contacted(
+    request:       Request,
+    client_id:     str = Form(...),
+    industry_id:   str = Form(...),
+    email:         str = Form(...),
+    contacted_at:  str = Form(...),
+    campaign_name: str = Form(""),
+):
+    def error(msg: str):
+        return templates.TemplateResponse(
+            "partials/dnc_contacted_table.html",
+            {"request": request, "error": msg, "entries": [], "total": 0,
+             "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
+             "client_id": client_id, "industry_id": industry_id,
+             "search": "", "date_from": "", "date_to": ""},
+        )
+
+    if not _sb_configured():
+        return error("Supabase is not configured.")
+
+    email_norm = email.lower().strip()
+    if not email_norm or "@" not in email_norm:
+        return error("Please enter a valid email address.")
+    if not contacted_at:
+        return error("Please select a contact date.")
+    if not industry_id:
+        return error("Please select an industry.")
+
+    payload: dict = {
+        "client_id":          client_id,
+        "client_industry_id": industry_id,
+        "email":              email_norm,
+        "contacted_at":       contacted_at,
+        "source":             "manual",
+    }
+    if campaign_name.strip():
+        payload["campaign_name"] = campaign_name.strip()
+
+    try:
+        r = http_req.post(
+            f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+            headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+            params={"on_conflict": "client_id,client_industry_id,email,contacted_at"},
+            json=payload,
+            timeout=10,
+        )
+        r.raise_for_status()
+    except Exception as e:
+        return error(f"Supabase error: {e}")
+
+    return await get_contacted(request, client_id=client_id, industry_id=industry_id,
+                               search="", date_from="", date_to="", offset=0)
+
+
+@router.post("/api/dnc/contacted/upload")
+async def upload_contacted(
+    request:       Request,
+    client_id:     str        = Form(...),
+    industry_id:   str        = Form(...),
+    file:          UploadFile = File(...),
+    contacted_at:  str        = Form(...),
+    campaign_name: str        = Form(""),
+):
+    def error(msg: str):
+        return templates.TemplateResponse(
+            "partials/dnc_contacted_table.html",
+            {"request": request, "error": msg, "entries": [], "total": 0,
+             "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
+             "client_id": client_id, "industry_id": industry_id,
+             "search": "", "date_from": "", "date_to": ""},
+        )
+
+    if not _sb_configured():
+        return error("Supabase is not configured.")
+    if not industry_id:
+        return error("Please select an industry before uploading.")
+    if not contacted_at:
+        return error("Please select a contact date.")
+
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_BYTES:
+        return error("File too large. Maximum 20 MB.")
+
+    try:
+        df, _ = _read_file(contents, file.filename or "contacts.csv")
+    except Exception as e:
+        return error(f"Could not read file: {e}")
+
+    col_matches = _detect_email_column(list(df.columns))
+    if not col_matches:
+        return error("No email column found in the uploaded file.")
+    email_col = col_matches[0]
+
+    emails = (
+        df[email_col].astype(str)
+        .str.lower().str.strip()
+        .drop_duplicates()
+        .tolist()
+    )
+    emails = [e for e in emails if e and "@" in e]
+    if not emails:
+        return error("No valid email addresses found in the file.")
+
+    campaign = campaign_name.strip() or None
+
+    for i in range(0, len(emails), CHUNK_SIZE):
+        chunk = emails[i : i + CHUNK_SIZE]
+        rows = [
+            {
+                "client_id":          client_id,
+                "client_industry_id": industry_id,
+                "email":              e,
+                "contacted_at":       contacted_at,
+                "source":             "csv_upload",
+                **({"campaign_name": campaign} if campaign else {}),
+            }
+            for e in chunk
+        ]
+        try:
+            r = http_req.post(
+                f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                params={"on_conflict": "client_id,client_industry_id,email,contacted_at"},
+                json=rows,
+                timeout=30,
+            )
+            r.raise_for_status()
+        except Exception as e:
+            return error(f"Supabase error during upload: {e}")
+
+    return await get_contacted(request, client_id=client_id, industry_id=industry_id,
+                               search="", date_from="", date_to="", offset=0)
+
+
+@router.delete("/api/dnc/contacted/{entry_id}")
+async def delete_contacted(
+    request:     Request,
+    entry_id:    str,
+    client_id:   str = Query(...),
+    industry_id: str = Query(""),
+):
+    if _sb_configured():
+        try:
+            http_req.delete(
+                f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                headers=_sb_headers(),
+                params={"id": f"eq.{entry_id}"},
+                timeout=10,
+            ).raise_for_status()
+        except Exception:
+            pass
+
+    return await get_contacted(request, client_id=client_id, industry_id=industry_id,
+                               search="", date_from="", date_to="", offset=0)
+
+
+@router.post("/api/dnc/contacted/bulk-delete")
+async def bulk_delete_contacted(
+    request:     Request,
+    client_id:   str       = Form(...),
+    industry_id: str       = Form(""),
+    ids:         List[str] = Form(default=[]),
+):
+    if ids and _sb_configured():
+        id_filter = "(" + ",".join(ids) + ")"
+        try:
+            http_req.delete(
+                f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                headers=_sb_headers(),
+                params={"id": f"in.{id_filter}"},
+                timeout=15,
+            ).raise_for_status()
+        except Exception:
+            pass
+
+    return await get_contacted(request, client_id=client_id, industry_id=industry_id,
+                               search="", date_from="", date_to="", offset=0)
+
+
+# ── DNC entries (existing — unchanged) ────────────────────────────────────────
 
 @router.get("/api/dnc/entries")
 async def get_dnc_entries(
@@ -359,14 +821,7 @@ async def get_dnc_entries(
     except Exception as e:
         return error(f"Supabase error: {e}")
 
-    total = 0
-    cr = r.headers.get("Content-Range", "")
-    if "/" in cr:
-        try:
-            total = int(cr.split("/")[1])
-        except ValueError:
-            pass
-
+    total    = _parse_total(r.headers)
     entries  = r.json()
     has_prev = offset > 0
     has_next = (offset + PAGE_SIZE) < total
@@ -479,7 +934,6 @@ async def bulk_import_dnc(
         .tolist()
     )
     emails = [e for e in emails if e and "@" in e]
-
     if not emails:
         return error("No valid email addresses found in the file.")
 
@@ -488,12 +942,7 @@ async def bulk_import_dnc(
     for i in range(0, len(emails), CHUNK_SIZE):
         chunk = emails[i : i + CHUNK_SIZE]
         rows = [
-            {
-                "client_id": client_id,
-                "email":     e,
-                "reason":    reason_clean,
-                "added_by":  "dashboard_user",
-            }
+            {"client_id": client_id, "email": e, "reason": reason_clean, "added_by": "dashboard_user"}
             for e in chunk
         ]
         try:

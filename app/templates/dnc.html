@@ -278,6 +278,173 @@
 
   /* ── Entries area ────────────────────────────────────────────── */
   #entries-table { margin-top: 6px; }
+
+  /* ── date input ──────────────────────────────────────────────── */
+  input[type="date"] {
+    width: 100%;
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: var(--font);
+    color: var(--text);
+    outline: none;
+    color-scheme: dark;
+    transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+    -webkit-appearance: none;
+  }
+  input[type="date"]:focus {
+    border-color: var(--border-focus);
+    box-shadow: var(--sh-glow);
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.6); cursor: pointer; }
+
+  /* ── toggle switch ───────────────────────────────────────────── */
+  label.toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-2);
+    text-transform: none;
+    letter-spacing: 0;
+    margin-bottom: 0;
+  }
+  label.toggle-row input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .toggle-knob {
+    width: 36px;
+    height: 20px;
+    background: rgba(255,255,255,.1);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    flex-shrink: 0;
+    position: relative;
+    transition: background .18s var(--ease), border-color .18s var(--ease);
+  }
+  .toggle-knob::after {
+    content: '';
+    position: absolute;
+    width: 14px; height: 14px;
+    background: white;
+    border-radius: 50%;
+    top: 2px; left: 2px;
+    transition: transform .18s var(--ease);
+    opacity: .45;
+  }
+  label.toggle-row input:checked ~ .toggle-knob {
+    background: var(--purple);
+    border-color: var(--purple);
+  }
+  label.toggle-row input:checked ~ .toggle-knob::after {
+    transform: translateX(16px);
+    opacity: 1;
+  }
+  .toggle-text { font-size: 13px; color: var(--text-2); }
+
+  /* ── Scrub result tags ───────────────────────────────────────── */
+  .dnc-stats-4 { grid-template-columns: repeat(4, 1fr); }
+  .stat-contacted .stat-num { color: #fb923c; }
+  .removal-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    border-radius: 5px;
+    padding: 2px 7px;
+    margin-right: 6px;
+  }
+  .removal-tag-dnc       { background: rgba(248,113,113,.18); color: var(--red); }
+  .removal-tag-contacted { background: rgba(251,146,60,.18); color: #fb923c; }
+  .removed-sub-details { margin-top: 12px; }
+  .removed-sub-summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-2);
+    padding: 8px 18px;
+    display: flex;
+    align-items: center;
+    list-style: none;
+    user-select: none;
+  }
+  .removed-sub-summary::-webkit-details-marker { display: none; }
+
+  /* ── Industry chips ──────────────────────────────────────────── */
+  .industry-chips-inner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .industry-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: rgba(139,92,246,.12);
+    border: 1px solid rgba(139,92,246,.28);
+    border-radius: 20px;
+    padding: 5px 10px 5px 14px;
+    font-size: 13px;
+    color: #c4b5fd;
+  }
+  .chip-delete {
+    background: transparent;
+    border: none;
+    color: rgba(196,181,253,.5);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color .15s var(--ease);
+    font-family: var(--font);
+  }
+  .chip-delete:hover { color: var(--red); }
+  .chips-empty { font-size: 13px; color: var(--text-3); padding: 4px 0; }
+
+  /* ── Contacted table ─────────────────────────────────────────── */
+  .filter-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 750px) { .filter-row { grid-template-columns: 1fr 1fr; } }
+  .bulk-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .bulk-delete-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .source-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: rgba(255,255,255,.07);
+    color: var(--text-3);
+  }
+  .source-csv-upload { background: rgba(99,102,241,.15); color: #a5b4fc; }
+  .source-manual     { background: rgba(74,222,128,.12); color: #86efac; }
+  .archive-note {
+    font-size: 11.5px;
+    color: var(--text-3);
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  #contacted-table { margin-top: 6px; }
 </style>
 
 <div class="page-header">
@@ -317,6 +484,17 @@
       <line x1="3" y1="18" x2="3.01" y2="18"/>
     </svg>
     Manage DNC Lists
+  </button>
+  <button class="dnc-tab-btn" data-tab="tab-manage-contacted" role="tab" aria-selected="false">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"
+         style="display:inline;vertical-align:-2px;margin-right:5px">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+    Manage Contacted
   </button>
 </div>
 
@@ -367,7 +545,7 @@
       <div class="form-divider"></div>
 
       <!-- Client selector -->
-      <div class="form-group" style="margin-bottom:0">
+      <div class="form-group">
         <label>Client</label>
         <select id="scrub-client-select" name="client_id"
                 hx-get="/api/dnc/clients"
@@ -376,6 +554,46 @@
                 hx-swap="innerHTML">
           <option value="">Loading clients…</option>
         </select>
+      </div>
+
+      <!-- Industry selector -->
+      <div class="form-group" style="margin-bottom:0">
+        <label>Industry <span class="opt">optional — defaults to all industries</span></label>
+        <select id="scrub-industry-select" name="industry_id">
+          <option value="">All industries</option>
+        </select>
+      </div>
+
+      <div class="form-divider"></div>
+
+      <!-- Recently contacted toggle -->
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="toggle-row">
+          <input type="checkbox" id="remove-contacted-toggle" name="remove_contacted" value="on">
+          <span class="toggle-knob"></span>
+          <span class="toggle-text">Also remove recently contacted prospects</span>
+        </label>
+      </div>
+
+      <!-- Lookback period (revealed when toggle is on) -->
+      <div id="lookback-section" style="display:none; margin-bottom:0">
+        <div class="form-row" style="margin-bottom:0">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Lookback period</label>
+            <select id="lookback-select" name="lookback_days_raw">
+              <option value="30">Last 30 days</option>
+              <option value="60">Last 60 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </div>
+          <div id="lookback-custom" style="display:none">
+            <div class="form-group" style="margin-bottom:0">
+              <label>Contacted since</label>
+              <input type="date" id="lookback-custom-from" name="lookback_custom_from">
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="form-actions">
@@ -551,6 +769,220 @@
 
 </div><!-- /tab-manage -->
 
+<!-- ═══════════════════════════════════════════════════════════════
+     Tab 3: Manage Contacted Lists
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-manage-contacted" class="tab-panel" style="display:none">
+
+  <!-- Client + industry selectors -->
+  <div class="manage-controls">
+    <div class="form-group" style="margin-bottom:0">
+      <label>Client</label>
+      <select id="contacted-client-select"
+              hx-get="/api/dnc/clients"
+              hx-trigger="load"
+              hx-target="#contacted-client-select"
+              hx-swap="innerHTML">
+        <option value="">Loading clients…</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label>Industry filter <span class="opt">for table below</span></label>
+      <select id="contact-industry-filter" name="industry_id">
+        <option value="">All industries</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Industry management -->
+  <details class="form-card" style="margin-bottom:24px" id="industry-manage-details">
+    <summary style="padding:18px 24px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text-2);list-style:none;display:flex;align-items:center;gap:8px;user-select:none">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" id="industry-chevron">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+      Manage Industries
+    </summary>
+    <div style="padding:0 24px 22px">
+      <div id="industry-chips" style="margin-bottom:16px">
+        <p class="chips-empty">Select a client to manage industries.</p>
+      </div>
+      <form hx-post="/api/dnc/industries"
+            hx-target="#industry-chips"
+            hx-swap="innerHTML"
+            hx-on::after-request="this.reset()">
+        <input type="hidden" name="client_id" id="industry-add-client-id" value="">
+        <div class="form-row" style="margin-bottom:0">
+          <input type="text" name="name" placeholder="e.g. SaaS, Fintech, Healthcare" required>
+          <button type="submit" class="btn btn-primary" style="align-self:end">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Industry
+          </button>
+        </div>
+      </form>
+    </div>
+  </details>
+
+  <!-- Contacted prospects table + filters -->
+  <p class="section-label">Contacted prospects</p>
+
+  <div class="filter-row">
+    <input type="hidden" id="contacted-client-id-hidden" name="client_id" value="">
+    <input type="text" id="contact-search" name="search" placeholder="Search email…"
+           hx-get="/api/dnc/contacted"
+           hx-trigger="input changed delay:400ms"
+           hx-target="#contacted-table"
+           hx-swap="innerHTML"
+           hx-include="#contact-filters">
+    <input type="date" id="contact-date-from" name="date_from"
+           hx-get="/api/dnc/contacted"
+           hx-trigger="change"
+           hx-target="#contacted-table"
+           hx-swap="innerHTML"
+           hx-include="#contact-filters">
+    <input type="date" id="contact-date-to" name="date_to"
+           hx-get="/api/dnc/contacted"
+           hx-trigger="change"
+           hx-target="#contacted-table"
+           hx-swap="innerHTML"
+           hx-include="#contact-filters">
+  </div>
+
+  <!-- Hidden filter state for hx-include -->
+  <div id="contact-filters" style="display:none">
+    <input type="hidden" name="client_id"   id="contact-filter-client-id"   value="">
+    <input type="hidden" name="industry_id" id="contact-filter-industry-id" value="">
+    <input type="hidden" name="search"      id="contact-filter-search"      value="">
+    <input type="hidden" name="date_from"   id="contact-filter-date-from"   value="">
+    <input type="hidden" name="date_to"     id="contact-filter-date-to"     value="">
+  </div>
+
+  <div id="contacted-table">
+    <p class="result-meta" style="color:var(--text-3);margin-top:8px">Select a client to view contacted prospects.</p>
+  </div>
+
+  <!-- Upload contacted prospects -->
+  <p class="section-label" style="margin-top:32px">Upload contacted list</p>
+  <div class="form-card">
+    <form hx-post="/api/dnc/contacted/upload"
+          hx-target="#contacted-table"
+          hx-swap="innerHTML"
+          hx-encoding="multipart/form-data"
+          hx-indicator="#contact-upload-spinner"
+          hx-on::after-request="this.reset(); this.querySelector('.dropzone') && this.querySelector('.dropzone').classList.remove('has-file')">
+      <input type="hidden" name="client_id" id="contact-upload-client-id" value="">
+
+      <div class="form-group">
+        <label>File <span class="opt">CSV or Excel — must contain an email column</span></label>
+        <div class="dropzone-wrap">
+          <div class="dropzone" role="button" tabindex="0">
+            <div class="dropzone-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <div class="dropzone-text"><strong>Click to browse</strong> or drag &amp; drop</div>
+            <span class="dropzone-filename"></span>
+            <span class="dropzone-hint">.csv, .xlsx accepted</span>
+            <input type="file" name="file" accept=".csv,.xls,.xlsx" required class="hidden-file-input">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Industry <span class="opt">required</span></label>
+          <select id="contact-upload-industry-select" name="industry_id" required>
+            <option value="">Select a client first</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Contact date <span class="opt">applied to all rows</span></label>
+          <input type="date" id="contact-upload-date" name="contacted_at" required>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:14px;margin-bottom:0">
+        <label>Campaign name <span class="opt">optional</span></label>
+        <input type="text" name="campaign_name" placeholder="e.g. Q2 Outreach — Wave 1">
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          Upload Contacted List
+        </button>
+        <div id="contact-upload-spinner" class="spinner htmx-indicator">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          Uploading…
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Quick add single entry -->
+  <p class="section-label">Quick add single contact</p>
+  <div class="form-card">
+    <form hx-post="/api/dnc/contacted"
+          hx-target="#contacted-table"
+          hx-swap="innerHTML"
+          hx-indicator="#contact-add-spinner"
+          hx-on::after-request="this.reset()">
+      <input type="hidden" name="client_id" id="contact-add-client-id" value="">
+
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Email</label>
+          <input type="text" name="email" placeholder="contact@example.com" required>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Industry <span class="opt">required</span></label>
+          <select id="contact-add-industry-select" name="industry_id" required>
+            <option value="">Select a client first</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row" style="margin-top:14px">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Contact date</label>
+          <input type="date" id="contact-add-date" name="contacted_at" required>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Campaign name <span class="opt">optional</span></label>
+          <input type="text" name="campaign_name" placeholder="e.g. Q2 Outreach">
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add Contact
+        </button>
+        <div id="contact-add-spinner" class="spinner htmx-indicator">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          Adding…
+        </div>
+      </div>
+    </form>
+  </div>
+
+</div><!-- /tab-manage-contacted -->
+
 <script>
   (function () {
     // ── Tab switching ────────────────────────────────────────────── //
@@ -624,6 +1056,132 @@
         onManageClientChange();
       }
     });
+
+    // ── Scrub tab: load industries when client changes ───────────── //
+    function loadScrubIndustries(clientId) {
+      const target = document.getElementById('scrub-industry-select');
+      if (!target) return;
+      if (!clientId) {
+        target.innerHTML = '<option value="">All industries</option>';
+        return;
+      }
+      htmx.ajax('GET', `/api/dnc/industries?client_id=${encodeURIComponent(clientId)}`, {
+        target: '#scrub-industry-select',
+        swap:   'innerHTML',
+      });
+    }
+
+    // Extend the existing scrub client change listener
+    scrubClient.addEventListener('change', () => {
+      loadScrubIndustries(scrubClient.value);
+    });
+
+    // Also load after HTMX populates scrub client options on page load
+    document.body.addEventListener('htmx:afterSettle', function (e) {
+      if (e.detail && e.detail.target && e.detail.target.id === 'scrub-client-select') {
+        loadScrubIndustries(scrubClient.value);
+      }
+    });
+
+    // ── Recently contacted toggle ────────────────────────────────── //
+    const contactedToggle  = document.getElementById('remove-contacted-toggle');
+    const lookbackSection  = document.getElementById('lookback-section');
+    const lookbackSelect   = document.getElementById('lookback-select');
+    const lookbackCustom   = document.getElementById('lookback-custom');
+    const lookbackFromInput = document.getElementById('lookback-custom-from');
+
+    contactedToggle.addEventListener('change', () => {
+      lookbackSection.style.display = contactedToggle.checked ? '' : 'none';
+    });
+    lookbackSelect.addEventListener('change', () => {
+      const isCustom = lookbackSelect.value === 'custom';
+      lookbackCustom.style.display = isCustom ? '' : 'none';
+      if (!isCustom && lookbackFromInput) lookbackFromInput.value = '';
+    });
+
+    // ── Manage Contacted tab ─────────────────────────────────────── //
+    const contactedClientSelect   = document.getElementById('contacted-client-select');
+    const contactFilterClientId   = document.getElementById('contact-filter-client-id');
+    const contactFilterIndustryId = document.getElementById('contact-filter-industry-id');
+    const industryAddClientId     = document.getElementById('industry-add-client-id');
+    const contactUploadClientId   = document.getElementById('contact-upload-client-id');
+    const contactAddClientId      = document.getElementById('contact-add-client-id');
+    const contactIndustryFilter   = document.getElementById('contact-industry-filter');
+
+    function loadContactedIndustriesManage(clientId) {
+      if (!clientId) return;
+      // Load chips + OOB updates for upload/add selects
+      htmx.ajax('GET', `/api/dnc/industries/manage?client_id=${encodeURIComponent(clientId)}`, {
+        target: '#industry-chips',
+        swap:   'innerHTML',
+      });
+      // Load filter dropdown separately (includes "All industries" option)
+      htmx.ajax('GET', `/api/dnc/industries?client_id=${encodeURIComponent(clientId)}`, {
+        target: '#contact-industry-filter',
+        swap:   'innerHTML',
+      });
+    }
+
+    function loadContactedTable(clientId, industryId) {
+      if (!clientId) return;
+      const params = new URLSearchParams({ client_id: clientId, industry_id: industryId || '', offset: '0' });
+      htmx.ajax('GET', `/api/dnc/contacted?${params}`, {
+        target: '#contacted-table',
+        swap:   'innerHTML',
+      });
+    }
+
+    function onContactedClientChange() {
+      const cid = contactedClientSelect.value;
+      // Sync all hidden client_id inputs
+      [contactFilterClientId, industryAddClientId, contactUploadClientId, contactAddClientId].forEach(el => {
+        if (el) el.value = cid;
+      });
+      contactFilterIndustryId.value = '';
+      if (!cid) return;
+      loadContactedIndustriesManage(cid);
+      loadContactedTable(cid, '');
+    }
+
+    contactedClientSelect.addEventListener('change', onContactedClientChange);
+
+    document.body.addEventListener('htmx:afterSettle', function (e) {
+      const id = e.detail && e.detail.target && e.detail.target.id;
+      if (id === 'contacted-client-select') onContactedClientChange();
+    });
+
+    // Industry filter → reload table
+    contactIndustryFilter.addEventListener('change', () => {
+      const cid = contactedClientSelect.value;
+      const iid = contactIndustryFilter.value;
+      contactFilterIndustryId.value = iid;
+      loadContactedTable(cid, iid);
+    });
+
+    // ── Bulk delete: checkbox counter (event delegation) ─────────── //
+    document.getElementById('tab-manage-contacted').addEventListener('change', function (e) {
+      if (e.target.name === 'ids' || e.target.id === 'select-all-contacted') {
+        if (e.target.id === 'select-all-contacted') {
+          document.querySelectorAll('#contacted-bulk-form input[name="ids"]')
+            .forEach(cb => { cb.checked = e.target.checked; });
+        }
+        const checked = document.querySelectorAll('#contacted-bulk-form input[name="ids"]:checked');
+        const btn     = document.getElementById('bulk-delete-btn');
+        const counter = document.getElementById('selected-count');
+        if (btn)     btn.disabled = checked.length === 0;
+        if (counter) counter.textContent = checked.length;
+      }
+    });
+
+    // ── Set today as default for date inputs ─────────────────────── //
+    const today = new Date().toISOString().split('T')[0];
+    ['contact-upload-date', 'contact-add-date'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.value = today; el.max = today; }
+    });
+    const customFromEl = document.getElementById('lookback-custom-from');
+    if (customFromEl) customFromEl.max = today;
+
   })();
 </script>
 {% endblock %}

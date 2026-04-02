@@ -1,0 +1,8 @@
+{% if industries %}
+  <option value="">All industries</option>
+  {% for ind in industries %}
+  <option value="{{ ind.id }}">{{ ind.name }}</option>
+  {% endfor %}
+{% else %}
+  <option value="" disabled>No industries — add in Manage tab</option>
+{% endif %}
