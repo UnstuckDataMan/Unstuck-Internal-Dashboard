@@ -500,14 +500,16 @@
     transform: translateY(-1px);
   }
   /* ── Add-client modal ───────────────────────────────────────── */
-  /* showModal() centres the <dialog> natively via the UA stylesheet  */
-  /* (position:fixed + margin:auto + inset:0) — we just style it.    */
   #add-client-modal {
-    border: none;
-    padding: 0;
-    background: var(--surface);
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
     border: 1px solid var(--border);
     border-radius: 18px;
+    padding: 0;
+    background: var(--surface);
     box-shadow: var(--sh-md), 0 0 0 1px rgba(139,92,246,.16);
     width: 370px;
     max-width: calc(100vw - 40px);
