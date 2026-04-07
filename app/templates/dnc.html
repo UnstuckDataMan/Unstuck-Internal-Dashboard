@@ -483,7 +483,7 @@
     border-color: rgba(248,113,113,.22);
     background: rgba(248,113,113,.03);
   }
-  .purge-card .section-desc {
+  .section-desc {
     font-size: 13px;
     color: var(--text-3);
     margin: 0 0 20px;
@@ -1069,17 +1069,16 @@
   </div>
 
   <!-- Purge old records -->
-  <p class="section-label" style="margin-top:32px; color:var(--red)">Danger zone</p>
-  <div class="form-card purge-card">
-    <p class="section-desc">
-      Permanently delete all contacted prospect records for the selected client older than
-      the chosen cutoff. Requires the purge password. This cannot be undone.
-    </p>
+  <p class="section-label" style="margin-top:32px">Prospect Purging (Admin Only)</p>
+  <div class="form-card">
     <form hx-post="/api/dnc/contacted/purge"
           hx-target="#purge-result"
           hx-swap="innerHTML"
-          hx-indicator="#purge-spinner"
-          hx-confirm="Permanently delete old contacted records for this client? This cannot be undone.">
+          hx-indicator="#purge-spinner">
+      <p class="section-desc">
+        Permanently delete all contacted prospect records for the selected client older than
+        the chosen cutoff. Requires the purge password. This cannot be undone.
+      </p>
 
       <div class="form-row">
         <div class="form-group" style="margin-bottom:0">
@@ -1116,7 +1115,8 @@
       </div>
 
       <div class="form-actions">
-        <button type="submit" class="btn btn-primary btn-danger">
+        <button type="submit" class="btn btn-primary btn-danger"
+                hx-confirm="Permanently delete old contacted records for this client? This cannot be undone.">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 6 5 6 21 6"/>
