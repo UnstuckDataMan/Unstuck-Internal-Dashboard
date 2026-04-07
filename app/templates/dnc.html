@@ -447,16 +447,47 @@
   }
   #contacted-table { margin-top: 6px; }
 
+  /* ── Password input — match dark theme (browsers override by default) ── */
+  input[type="password"] {
+    width: 100%;
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: var(--font);
+    color: var(--text);
+    outline: none;
+    transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+  }
+  input[type="password"]:hover {
+    background: rgba(255,255,255,.09);
+    border-color: rgba(255,255,255,.18);
+  }
+  input[type="password"]:focus {
+    border-color: var(--border-focus);
+    box-shadow: var(--sh-glow);
+    background: rgba(255,255,255,.08);
+  }
+  /* Override browser autofill light background */
+  input[type="password"]:-webkit-autofill,
+  input[type="password"]:-webkit-autofill:hover,
+  input[type="password"]:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #1a1730 inset;
+    -webkit-text-fill-color: var(--text);
+    caret-color: var(--text);
+  }
+
   /* ── Purge / danger zone ─────────────────────────────────────── */
   .purge-card {
-    border-color: rgba(248,113,113,.28);
-    background: rgba(248,113,113,.04);
+    border-color: rgba(248,113,113,.22);
+    background: rgba(248,113,113,.03);
   }
   .purge-card .section-desc {
     font-size: 13px;
     color: var(--text-3);
-    margin: 0 0 18px;
-    line-height: 1.5;
+    margin: 0 0 20px;
+    line-height: 1.6;
   }
   .btn-danger {
     background: linear-gradient(135deg, #ef4444, #dc2626);
@@ -1049,9 +1080,18 @@
           hx-swap="innerHTML"
           hx-indicator="#purge-spinner"
           hx-confirm="Permanently delete old contacted records for this client? This cannot be undone.">
-      <input type="hidden" name="client_id" id="purge-client-id" value="">
 
       <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Client</label>
+          <select id="purge-client-select" name="client_id"
+                  hx-get="/api/dnc/clients"
+                  hx-trigger="load"
+                  hx-target="#purge-client-select"
+                  hx-swap="innerHTML">
+            <option value="">Loading clients…</option>
+          </select>
+        </div>
         <div class="form-group" style="margin-bottom:0">
           <label>Delete records older than</label>
           <select id="purge-cutoff-select" name="cutoff_months">
@@ -1062,15 +1102,16 @@
             <option value="custom">Custom date…</option>
           </select>
         </div>
-        <div id="purge-custom-wrap" style="display:none">
-          <div class="form-group" style="margin-bottom:0">
-            <label>Delete records before</label>
-            <input type="date" name="cutoff_custom" id="purge-cutoff-custom">
-          </div>
-        </div>
         <div class="form-group" style="margin-bottom:0">
           <label>Authorisation password</label>
-          <input type="password" name="password" placeholder="Purge password" required autocomplete="off">
+          <input type="password" name="password" placeholder="Enter purge password" required autocomplete="new-password">
+        </div>
+      </div>
+
+      <div id="purge-custom-wrap" style="display:none; margin-top:14px">
+        <div class="form-group" style="margin-bottom:0; max-width:280px">
+          <label>Delete records before</label>
+          <input type="date" name="cutoff_custom" id="purge-cutoff-custom">
         </div>
       </div>
 
@@ -1220,7 +1261,6 @@
     const industryAddClientId     = document.getElementById('industry-add-client-id');
     const contactUploadClientId   = document.getElementById('contact-upload-client-id');
     const contactAddClientId      = document.getElementById('contact-add-client-id');
-    const purgeClientId           = document.getElementById('purge-client-id');
     const contactIndustryFilter   = document.getElementById('contact-industry-filter');
     const contactLocationFilter   = document.getElementById('contact-location-filter');
 
@@ -1255,7 +1295,7 @@
     function onContactedClientChange() {
       const cid = contactedClientSelect.value;
       // Sync all hidden client_id inputs
-      [contactFilterClientId, industryAddClientId, contactUploadClientId, contactAddClientId, purgeClientId].forEach(el => {
+      [contactFilterClientId, industryAddClientId, contactUploadClientId, contactAddClientId].forEach(el => {
         if (el) el.value = cid;
       });
       contactFilterIndustryId.value = '';
