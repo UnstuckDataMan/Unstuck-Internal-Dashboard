@@ -1,0 +1,57 @@
+{% if error %}
+{# ── Error path: keep dialog open, show inline message ──────────────── #}
+<dialog id="add-client-modal" open>
+  <div class="modal-card">
+    <p class="modal-title">New Client</p>
+    <p style="font-size:13px;color:#f87171;margin:0 0 4px">{{ error }}</p>
+    <form hx-post="/api/dnc/clients"
+          hx-target="#add-client-modal"
+          hx-swap="outerHTML"
+          style="display:flex;flex-direction:column;gap:12px">
+      <input type="text" name="name" placeholder="Client name" required autofocus
+             style="width:100%">
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button type="button" class="btn btn-download" id="modal-cancel-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Create Client
+        </button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+{% else %}
+{# ── Success path: replace dialog with hidden sentinel carrying the new ID #}
+<span id="add-client-modal"
+      style="display:none"
+      data-new-client-id="{{ new_client_id }}"></span>
+
+{# OOB: refresh all four client selects with the updated list #}
+<select id="manage-client-select" hx-swap-oob="innerHTML">
+  {% with selected_id = new_client_id %}
+  {% include "partials/dnc_clients_options.html" %}
+  {% endwith %}
+</select>
+
+<select id="contacted-client-select" hx-swap-oob="innerHTML">
+  {% with selected_id = new_client_id %}
+  {% include "partials/dnc_clients_options.html" %}
+  {% endwith %}
+</select>
+
+<select id="scrub-client-select" hx-swap-oob="innerHTML">
+  {% with selected_id = new_client_id %}
+  {% include "partials/dnc_clients_options.html" %}
+  {% endwith %}
+</select>
+
+<select id="purge-client-select" hx-swap-oob="innerHTML">
+  {% with selected_id = new_client_id %}
+  {% include "partials/dnc_clients_options.html" %}
+  {% endwith %}
+</select>
+{% endif %}

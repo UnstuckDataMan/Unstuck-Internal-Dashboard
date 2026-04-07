@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hmac
 import io
 import os
@@ -13,7 +14,7 @@ from typing import List, Optional
 import pandas as pd
 import requests as http_req
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from app.deps import templates
 
@@ -242,6 +243,60 @@ async def get_clients(request: Request):
     return templates.TemplateResponse(
         "partials/dnc_clients_options.html",
         {"request": request, "clients": clients},
+    )
+
+
+@router.post("/api/dnc/clients")
+async def create_client(
+    request: Request,
+    name:    str = Form(...),
+):
+    """Create a new client and return OOB-swap HTML to refresh all client selects."""
+
+    def error(msg: str):
+        return templates.TemplateResponse(
+            "partials/dnc_client_created.html",
+            {"request": request, "clients": [], "new_client_id": None, "error": msg},
+        )
+
+    if not _sb_configured():
+        return error("Supabase is not configured.")
+
+    name_norm = name.strip()
+    if not name_norm:
+        return error("Please enter a client name.")
+
+    try:
+        r = http_req.post(
+            f"{SUPABASE_URL}/rest/v1/clients",
+            headers=_sb_headers("return=representation"),
+            json={"name": name_norm},
+            timeout=10,
+        )
+        if r.status_code == 409:
+            return error(f"A client named \"{name_norm}\" already exists.")
+        r.raise_for_status()
+        new_client    = r.json()[0]
+        new_client_id = new_client["id"]
+    except Exception as exc:
+        return error(f"Could not create client: {exc}")
+
+    # Re-fetch full sorted list for OOB select updates
+    try:
+        rc = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/clients",
+            headers=_sb_headers(),
+            params={"select": "id,name", "order": "name.asc"},
+            timeout=10,
+        )
+        rc.raise_for_status()
+        clients = rc.json()
+    except Exception:
+        clients = [{"id": new_client_id, "name": name_norm}]
+
+    return templates.TemplateResponse(
+        "partials/dnc_client_created.html",
+        {"request": request, "clients": clients, "new_client_id": new_client_id, "error": None},
     )
 
 
@@ -916,6 +971,79 @@ async def get_dnc_entries(
     )
 
 
+@router.get("/api/dnc/entries/export")
+async def export_dnc_entries(
+    client_id: str = Query(...),
+):
+    """Download all DNC entries for a client as a CSV file."""
+    if not _sb_configured():
+        raise HTTPException(400, "Supabase is not configured.")
+    if not client_id:
+        raise HTTPException(400, "client_id is required.")
+
+    # Resolve client name for a friendly filename
+    client_name = "client"
+    try:
+        rc = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/clients",
+            headers=_sb_headers(),
+            params={"select": "name", "id": f"eq.{client_id}"},
+            timeout=10,
+        )
+        rc.raise_for_status()
+        rows_c = rc.json()
+        if rows_c:
+            client_name = rows_c[0]["name"].replace(" ", "_")
+    except Exception:
+        pass
+
+    # Paginated fetch — gather all rows
+    all_rows: list = []
+    fetch_offset = 0
+    batch = 1000
+    while True:
+        try:
+            r = http_req.get(
+                f"{SUPABASE_URL}/rest/v1/dnc_entries",
+                headers=_sb_headers(),
+                params={
+                    "select":    "email,reason,added_by,notes,created_at",
+                    "client_id": f"eq.{client_id}",
+                    "order":     "created_at.desc",
+                    "limit":     str(batch),
+                    "offset":    str(fetch_offset),
+                },
+                timeout=30,
+            )
+            r.raise_for_status()
+        except Exception as exc:
+            raise HTTPException(502, f"Supabase error: {exc}")
+        page = r.json()
+        all_rows.extend(page)
+        if len(page) < batch:
+            break
+        fetch_offset += batch
+
+    # Build CSV in memory
+    today_str = date.today().isoformat()
+    filename  = f"dnc_{client_name}_{today_str}.csv"
+    buf       = io.StringIO()
+    writer    = csv.DictWriter(
+        buf,
+        fieldnames=["email", "reason", "added_by", "notes", "created_at"],
+        extrasaction="ignore",
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    writer.writerows(all_rows)
+
+    return Response(
+        content=buf.getvalue().encode("utf-8"),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/api/dnc/entries")
 async def add_dnc_entry(
     request:   Request,
@@ -1007,9 +1135,10 @@ async def bulk_import_dnc(
         .drop_duplicates()
         .tolist()
     )
-    emails = [e for e in emails if e and "@" in e]
+    # Accept full emails (user@domain.com) AND bare domains (spam.com)
+    emails = [e for e in emails if e and ("@" in e or "." in e)]
     if not emails:
-        return error("No valid email addresses found in the file.")
+        return error("No valid email addresses or domains found in the file.")
 
     reason_clean = reason.strip() or "bulk_import"
 
@@ -1023,7 +1152,6 @@ async def bulk_import_dnc(
             r = http_req.post(
                 f"{SUPABASE_URL}/rest/v1/dnc_entries",
                 headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
-                params={"on_conflict": "client_id,email"},
                 json=rows,
                 timeout=30,
             )
