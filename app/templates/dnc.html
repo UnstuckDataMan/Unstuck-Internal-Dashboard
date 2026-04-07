@@ -500,13 +500,17 @@
     transform: translateY(-1px);
   }
   /* ── Add-client modal ───────────────────────────────────────── */
+  /* showModal() centres the <dialog> natively via the UA stylesheet  */
+  /* (position:fixed + margin:auto + inset:0) — we just style it.    */
   #add-client-modal {
     border: none;
     padding: 0;
-    background: transparent;
-    max-width: 100vw;
-    max-height: 100vh;
-    overflow: visible;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: var(--sh-md), 0 0 0 1px rgba(139,92,246,.16);
+    width: 370px;
+    max-width: calc(100vw - 40px);
   }
   #add-client-modal::backdrop {
     background: rgba(8, 8, 18, 0.76);
@@ -514,21 +518,12 @@
     -webkit-backdrop-filter: blur(4px);
   }
   .modal-card {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 18px;
+    /* Normal block — no fixed positioning needed; dialog is centred by browser */
     padding: 26px 28px 22px;
-    width: 370px;
-    max-width: calc(100vw - 40px);
-    box-shadow: var(--sh-md), 0 0 0 1px rgba(139,92,246,.16);
-    animation: resultIn .2s var(--ease-out) both;
     display: flex;
     flex-direction: column;
     gap: 14px;
+    animation: resultIn .2s var(--ease-out) both;
   }
   .modal-title {
     font-size: 15px;
