@@ -446,6 +446,39 @@
     border-radius: 10px;
   }
   #contacted-table { margin-top: 6px; }
+
+  /* ── Purge / danger zone ─────────────────────────────────────── */
+  .purge-card {
+    border-color: rgba(248,113,113,.28);
+    background: rgba(248,113,113,.04);
+  }
+  .purge-card .section-desc {
+    font-size: 13px;
+    color: var(--text-3);
+    margin: 0 0 18px;
+    line-height: 1.5;
+  }
+  .btn-danger {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: white;
+    border: none;
+    box-shadow: 0 2px 10px rgba(220,38,38,.3);
+  }
+  .btn-danger:hover:not(:disabled) {
+    box-shadow: 0 4px 16px rgba(220,38,38,.45);
+    transform: translateY(-1px);
+  }
+  .purge-success-box {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    background: rgba(74,222,128,.08);
+    border: 1px solid rgba(74,222,128,.25);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #86efac;
+  }
 </style>
 
 <div class="page-header">
@@ -557,14 +590,6 @@
         </select>
       </div>
 
-      <!-- Industry selector -->
-      <div class="form-group" style="margin-bottom:0">
-        <label>Industry <span class="opt">optional — defaults to all industries</span></label>
-        <select id="scrub-industry-select" name="industry_id">
-          <option value="">All industries</option>
-        </select>
-      </div>
-
       <div class="form-divider"></div>
 
       <!-- Recently contacted toggle -->
@@ -578,6 +603,14 @@
 
       <!-- Lookback period (revealed when toggle is on) -->
       <div id="lookback-section" style="display:none; margin-bottom:0">
+        <div class="form-row" style="margin-bottom:14px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Industry <span class="opt">optional — defaults to all industries</span></label>
+            <select id="scrub-industry-select" name="industry_id">
+              <option value="">All industries</option>
+            </select>
+          </div>
+        </div>
         <div class="form-row" style="margin-bottom:0">
           <div class="form-group" style="margin-bottom:0">
             <label>Lookback period</label>
@@ -1004,6 +1037,63 @@
     </form>
   </div>
 
+  <!-- Purge old records -->
+  <p class="section-label" style="margin-top:32px; color:var(--red)">Danger zone</p>
+  <div class="form-card purge-card">
+    <p class="section-desc">
+      Permanently delete all contacted prospect records for the selected client older than
+      the chosen cutoff. Requires the purge password. This cannot be undone.
+    </p>
+    <form hx-post="/api/dnc/contacted/purge"
+          hx-target="#purge-result"
+          hx-swap="innerHTML"
+          hx-indicator="#purge-spinner"
+          hx-confirm="Permanently delete old contacted records for this client? This cannot be undone.">
+      <input type="hidden" name="client_id" id="purge-client-id" value="">
+
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Delete records older than</label>
+          <select id="purge-cutoff-select" name="cutoff_months">
+            <option value="3">3 months</option>
+            <option value="6" selected>6 months</option>
+            <option value="9">9 months</option>
+            <option value="12">12 months</option>
+            <option value="custom">Custom date…</option>
+          </select>
+        </div>
+        <div id="purge-custom-wrap" style="display:none">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Delete records before</label>
+            <input type="date" name="cutoff_custom" id="purge-cutoff-custom">
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Authorisation password</label>
+          <input type="password" name="password" placeholder="Purge password" required autocomplete="off">
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary btn-danger">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6"/><path d="M14 11v6"/>
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+          </svg>
+          Purge Old Records
+        </button>
+        <div id="purge-spinner" class="spinner htmx-indicator">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          Purging…
+        </div>
+      </div>
+    </form>
+  </div>
+  <div id="purge-result" style="margin-top:14px"></div>
+
 </div><!-- /tab-manage-contacted -->
 
 <script>
@@ -1130,6 +1220,7 @@
     const industryAddClientId     = document.getElementById('industry-add-client-id');
     const contactUploadClientId   = document.getElementById('contact-upload-client-id');
     const contactAddClientId      = document.getElementById('contact-add-client-id');
+    const purgeClientId           = document.getElementById('purge-client-id');
     const contactIndustryFilter   = document.getElementById('contact-industry-filter');
     const contactLocationFilter   = document.getElementById('contact-location-filter');
 
@@ -1164,7 +1255,7 @@
     function onContactedClientChange() {
       const cid = contactedClientSelect.value;
       // Sync all hidden client_id inputs
-      [contactFilterClientId, industryAddClientId, contactUploadClientId, contactAddClientId].forEach(el => {
+      [contactFilterClientId, industryAddClientId, contactUploadClientId, contactAddClientId, purgeClientId].forEach(el => {
         if (el) el.value = cid;
       });
       contactFilterIndustryId.value = '';
@@ -1220,6 +1311,15 @@
         if (counter) counter.textContent = checked.length;
       }
     });
+
+    // ── Purge cutoff — show/hide custom date ─────────────────────── //
+    const purgeCutoffSelect = document.getElementById('purge-cutoff-select');
+    const purgeCustomWrap   = document.getElementById('purge-custom-wrap');
+    if (purgeCutoffSelect) {
+      purgeCutoffSelect.addEventListener('change', () => {
+        purgeCustomWrap.style.display = purgeCutoffSelect.value === 'custom' ? '' : 'none';
+      });
+    }
 
     // ── Set today as default for date inputs ─────────────────────── //
     const today = new Date().toISOString().split('T')[0];

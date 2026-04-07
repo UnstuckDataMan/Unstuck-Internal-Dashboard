@@ -1,0 +1,20 @@
+{% if error %}
+<div class="err-box">{{ error }}</div>
+{% else %}
+<div class="purge-success-box">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+       style="flex-shrink:0;color:#4ade80">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+  Deleted <strong>{{ deleted }}</strong> record{{ "s" if deleted != 1 else "" }}
+  with a contact date before <strong>{{ cutoff }}</strong>.
+</div>
+<!-- Auto-refresh the contacted table after purge -->
+<div hx-get="/api/dnc/contacted"
+     hx-vals='{"client_id":"{{ client_id }}","industry_id":"","location":"","search":"","date_from":"","date_to":"","offset":"0"}'
+     hx-target="#contacted-table"
+     hx-swap="innerHTML"
+     hx-trigger="load">
+</div>
+{% endif %}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import io
 import os
 import threading
@@ -793,6 +794,64 @@ async def bulk_delete_contacted(
 
     return await get_contacted(request, client_id=client_id, industry_id=industry_id,
                                search="", date_from="", date_to="", location=location, offset=0)
+
+
+# ── purge old contacted records ───────────────────────────────────────────────
+
+@router.post("/api/dnc/contacted/purge")
+async def purge_contacted(
+    request:       Request,
+    client_id:     str = Form(...),
+    cutoff_months: str = Form("6"),
+    cutoff_custom: str = Form(""),
+    password:      str = Form(...),
+):
+    def error(msg: str):
+        return templates.TemplateResponse(
+            "partials/dnc_purge_result.html",
+            {"request": request, "error": msg},
+        )
+
+    purge_pw = os.environ.get("PURGE_PASSWORD", "")
+    if not purge_pw:
+        return error("PURGE_PASSWORD is not configured on this server. Ask your administrator.")
+    if not hmac.compare_digest(password.encode(), purge_pw.encode()):
+        return error("Incorrect password.")
+    if not client_id:
+        return error("No client selected. Select a client before purging.")
+    if not _sb_configured():
+        return error("Supabase is not configured.")
+
+    if cutoff_months == "custom":
+        if not cutoff_custom:
+            return error("Please select a custom cutoff date.")
+        cutoff = cutoff_custom
+    else:
+        try:
+            months = int(cutoff_months)
+        except ValueError:
+            months = 6
+        cutoff = (date.today() - timedelta(days=months * 30)).isoformat()
+
+    try:
+        r = http_req.delete(
+            f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+            headers={**_sb_headers(), "Prefer": "count=exact"},
+            params={
+                "client_id":    f"eq.{client_id}",
+                "contacted_at": f"lt.{cutoff}",
+            },
+            timeout=30,
+        )
+        r.raise_for_status()
+        deleted = _parse_total(r.headers)
+    except Exception as e:
+        return error(f"Supabase error: {e}")
+
+    return templates.TemplateResponse(
+        "partials/dnc_purge_result.html",
+        {"request": request, "deleted": deleted, "cutoff": cutoff, "client_id": client_id},
+    )
 
 
 # ── DNC entries (existing — unchanged) ────────────────────────────────────────

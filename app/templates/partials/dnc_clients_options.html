@@ -1,4 +1,5 @@
 {% if clients %}
+  <option value="">Select a client…</option>
   {% for c in clients %}
   <option value="{{ c.id }}">{{ c.name }}</option>
   {% endfor %}
