@@ -1001,6 +1001,7 @@
         </button>
       </label>
       <select id="contacted-client-select"
+              name="client_id"
               hx-get="/api/dnc/clients"
               hx-trigger="load"
               hx-target="#contacted-client-select"
@@ -1016,7 +1017,14 @@
     </div>
     <div class="form-group" style="margin-bottom:0">
       <label>Location filter <span class="opt">country or state</span></label>
-      <input type="text" id="contact-location-filter" placeholder="e.g. United States">
+      <input type="text" id="contact-location-filter" name="location"
+             placeholder="e.g. United States"
+             hx-get="/api/dnc/contacted"
+             hx-trigger="input changed delay:400ms"
+             hx-target="#contacted-table"
+             hx-swap="innerHTML"
+             hx-include="[id='contacted-client-select'],[id='contact-industry-filter']"
+             hx-vals='{"offset": "0"}'>
     </div>
   </div>
 
@@ -1428,14 +1436,10 @@
 
     function loadContactedIndustriesManage(clientId) {
       if (!clientId) return;
-      // Load chips + OOB updates for upload/add selects
+      // Single request: loads chips + OOB-updates all industry selects
+      // (including #contact-industry-filter via OOB in dnc_industries_managed.html)
       htmx.ajax('GET', `/api/dnc/industries/manage?client_id=${encodeURIComponent(clientId)}`, {
         target: '#industry-chips',
-        swap:   'innerHTML',
-      });
-      // Load filter dropdown separately (includes "All industries" option)
-      htmx.ajax('GET', `/api/dnc/industries?client_id=${encodeURIComponent(clientId)}`, {
-        target: '#contact-industry-filter',
         swap:   'innerHTML',
       });
     }
@@ -1484,20 +1488,7 @@
       loadContactedTable(cid, iid, loc);
     });
 
-    // Location filter → reload table (with debounce)
-    if (contactLocationFilter) {
-      let locTimer;
-      contactLocationFilter.addEventListener('input', () => {
-        clearTimeout(locTimer);
-        locTimer = setTimeout(() => {
-          const cid = contactedClientSelect.value;
-          const iid = contactIndustryFilter.value;
-          const loc = contactLocationFilter.value;
-          contactFilterLocation.value = loc;
-          loadContactedTable(cid, iid, loc);
-        }, 400);
-      });
-    }
+    // Location filter is handled declaratively via hx-trigger on the input element.
 
     // ── Bulk delete: checkbox counter (event delegation) ─────────── //
     document.getElementById('tab-manage-contacted').addEventListener('change', function (e) {
