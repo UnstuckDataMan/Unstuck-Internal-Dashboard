@@ -611,7 +611,7 @@ async def get_contacted(
         return error("Supabase is not configured.")
 
     params: list[tuple[str, str]] = [
-        ("select",    "id,email,contacted_at,campaign_name,source,created_at,client_industries(name)"),
+        ("select",    "id,email,location,contacted_at,campaign_name,source,created_at,client_industries(name)"),
         ("client_id", f"eq.{client_id}"),
         ("order",     "contacted_at.desc,created_at.desc"),
         ("limit",     str(PAGE_SIZE)),
