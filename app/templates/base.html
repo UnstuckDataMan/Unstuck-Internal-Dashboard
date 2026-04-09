@@ -77,28 +77,26 @@
     .orb {
       position: absolute;
       border-radius: 50%;
-      filter: blur(90px);
-      opacity: .28;
+      /* radial-gradient fade removes the need for filter:blur entirely */
       will-change: transform;
     }
     .orb-1 {
       width: 640px; height: 640px;
-      background: radial-gradient(circle, #5b21b6 0%, transparent 68%);
+      background: radial-gradient(circle, rgba(91,33,182,0.40) 0%, transparent 70%);
       top: -240px; left: -180px;
       animation: orbDrift 16s ease-in-out infinite alternate;
     }
     .orb-2 {
       width: 440px; height: 440px;
-      background: radial-gradient(circle, #312e81 0%, transparent 68%);
+      background: radial-gradient(circle, rgba(49,46,129,0.36) 0%, transparent 70%);
       bottom: -120px; right: -120px;
       animation: orbDrift 20s ease-in-out infinite alternate-reverse;
     }
     .orb-3 {
       width: 280px; height: 280px;
-      background: radial-gradient(circle, #6b21a8 0%, transparent 68%);
+      background: radial-gradient(circle, rgba(107,33,168,0.22) 0%, transparent 70%);
       top: 40%; right: 10%;
       animation: orbDrift 12s ease-in-out infinite alternate;
-      opacity: .16;
     }
     @keyframes orbDrift {
       from { transform: translate(0, 0) scale(1); }
@@ -224,8 +222,8 @@
     /* ── Glass form card ─────────────────────────────────────── */
     .form-card {
       background: var(--surface);
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       border: 1px solid var(--border);
       border-radius: 22px;
       overflow: hidden;

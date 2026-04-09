@@ -46,30 +46,30 @@
     .blob {
       position: absolute;
       border-radius: 50%;
-      filter: blur(110px);
+      /* radial-gradient fade gives the same soft look as filter:blur without any GPU rasterisation */
       will-change: transform;
     }
     .blob-1 {
       width: 700px; height: 700px;
-      background: rgba(124, 58, 237, 0.42);
+      background: radial-gradient(circle, rgba(124,58,237,0.50) 0%, transparent 70%);
       top: -18%; left: -14%;
       animation: drift1 20s ease-in-out infinite;
     }
     .blob-2 {
       width: 560px; height: 560px;
-      background: rgba(232, 121, 249, 0.32);
+      background: radial-gradient(circle, rgba(232,121,249,0.38) 0%, transparent 70%);
       top: 15%; right: -18%;
       animation: drift2 24s ease-in-out infinite;
     }
     .blob-3 {
       width: 800px; height: 800px;
-      background: rgba(91, 94, 166, 0.28);
+      background: radial-gradient(circle, rgba(91,94,166,0.32) 0%, transparent 70%);
       bottom: -28%; left: 15%;
       animation: drift3 28s ease-in-out infinite;
     }
     .blob-4 {
       width: 380px; height: 380px;
-      background: rgba(180, 60, 240, 0.22);
+      background: radial-gradient(circle, rgba(180,60,240,0.26) 0%, transparent 70%);
       top: 45%; left: 38%;
       animation: drift4 18s ease-in-out infinite;
     }
@@ -121,7 +121,7 @@
     }
     .anim {
       opacity: 0;
-      animation: fadeUp 0.9s var(--ease-out) both;
+      animation: fadeUp 0.55s var(--ease-out) both;
       animation-delay: var(--d, 0s);
     }
 
@@ -147,9 +147,9 @@
       padding: 48px 40px;
       border-radius: 28px;
       /* Glass */
-      background: rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(48px) saturate(160%);
-      -webkit-backdrop-filter: blur(48px) saturate(160%);
+      background: rgba(255, 255, 255, 0.07);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
       border: 1px solid rgba(255, 255, 255, 0.10);
       box-shadow:
         0 8px 40px rgba(0, 0, 0, 0.45),
@@ -233,9 +233,9 @@
 
     /* ── Glass card ─────────────────────────────────────────────── */
     .tool-card {
-      background: rgba(255,255,255,.07);
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
+      background: rgba(255,255,255,.09);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       border: 1px solid rgba(255,255,255,.12);
       border-radius: 22px;
       overflow: hidden;
@@ -243,10 +243,10 @@
         0 4px 24px rgba(0,0,0,.35),
         inset 0 1px 0 rgba(255,255,255,.10);
       transition:
-        transform    0.38s var(--ease),
-        box-shadow   0.38s var(--ease),
-        border-color 0.38s var(--ease),
-        background   0.38s var(--ease);
+        transform    0.2s var(--ease),
+        box-shadow   0.2s var(--ease),
+        border-color 0.2s var(--ease),
+        background   0.2s var(--ease);
       will-change: transform;
       height: 100%;
     }
@@ -265,7 +265,7 @@
       height: 6px;
       background: var(--gradient);
       opacity: 0.85;
-      transition: height 0.38s var(--ease), opacity 0.38s var(--ease);
+      transition: height 0.2s var(--ease), opacity 0.2s var(--ease);
     }
     .card-link:hover .card-bar { height: 8px; opacity: 1; }
 
@@ -280,7 +280,7 @@
       justify-content: center;
       margin-bottom: 14px;
       box-shadow: 0 4px 14px rgba(124,58,237,.40);
-      transition: transform 0.38s var(--ease), box-shadow 0.38s var(--ease);
+      transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
     }
     .card-link:hover .card-icon {
       transform: scale(1.1) rotate(-4deg);
