@@ -79,6 +79,7 @@
       border-radius: 50%;
       filter: blur(90px);
       opacity: .28;
+      will-change: transform;
     }
     .orb-1 {
       width: 640px; height: 640px;
@@ -169,6 +170,7 @@
       z-index: 1;
       overflow-y: auto;
       padding: 44px 24px 80px;
+      will-change: transform;
     }
     .page-inner {
       max-width: 660px;
@@ -514,9 +516,7 @@
 
     /* ── Table ───────────────────────────────────────────────── */
     .tbl-wrap {
-      background: var(--surface);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      background: rgba(255,255,255,.09);
       border: 1px solid var(--border);
       border-radius: 16px;
       overflow: auto;
