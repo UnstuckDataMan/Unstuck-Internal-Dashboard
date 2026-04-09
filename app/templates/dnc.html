@@ -578,6 +578,97 @@
     color: #fff;
   }
 
+  /* ── Add-entry success banner ───────────────────────────────── */
+  .add-entry-success-banner {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    background: rgba(74,222,128,.08);
+    border: 1px solid rgba(74,222,128,.25);
+    border-radius: 10px;
+    padding: 11px 15px;
+    font-size: 13px;
+    color: #4ade80;
+    margin-top: 10px;
+    animation: resultIn .3s var(--ease-out) both;
+  }
+  .add-entry-success-banner svg { flex-shrink: 0; }
+
+  /* ── Domain block confirmation modal ───────────────────────── */
+  #domain-block-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.55);
+    padding: 30px 32px 28px;
+    max-width: 460px;
+    width: 90vw;
+    color: var(--text);
+  }
+  #domain-block-modal::backdrop {
+    background: rgba(0,0,0,.55);
+    backdrop-filter: blur(3px);
+  }
+  .domain-block-title {
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 6px;
+  }
+  .domain-block-sub {
+    font-size: 12.5px;
+    color: var(--text-2);
+    margin: 0 0 22px;
+  }
+  .domain-block-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    margin-bottom: 24px;
+  }
+  .domain-block-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    line-height: 1.45;
+  }
+  .domain-block-check input[type="checkbox"] {
+    margin-top: 2px;
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    accent-color: #7c3aed;
+    cursor: pointer;
+  }
+  .domain-block-continue {
+    width: 100%;
+    padding: 10px 0;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: var(--font);
+    border: none;
+    border-radius: 10px;
+    cursor: not-allowed;
+    background: rgba(124,58,237,.25);
+    color: rgba(255,255,255,.4);
+    transition: background .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease);
+  }
+  .domain-block-continue.ready {
+    background: var(--gradient-vivid);
+    color: #fff;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(124,58,237,.35);
+  }
+
   .purge-success-box {
     display: flex;
     align-items: center;
@@ -860,11 +951,11 @@
   <p class="section-label">Add entry</p>
   <div class="form-card">
     <form
+      id="add-entry-form"
       hx-post="/api/dnc/entries"
       hx-target="#entries-table"
       hx-swap="innerHTML"
       hx-indicator="#add-spinner"
-      hx-on::after-request="this.reset()"
     >
       <input type="hidden" name="client_id" id="add-client-id-input" value="" />
 
@@ -878,7 +969,7 @@
             </div>
           </label>
           <input type="text" id="add-entry-email-input" name="email"
-                 placeholder="contact@example.com" required />
+                 placeholder="e.g. contact@example.com or company.com" required />
         </div>
         <div class="form-group" style="margin-bottom:0">
           <label>Reason</label>
@@ -913,6 +1004,32 @@
       </div>
     </form>
   </div>
+
+  <!-- Add-entry inline success banner -->
+  <div id="add-entry-success" class="add-entry-success-banner" style="display:none">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+    <span id="add-entry-success-msg">Entry added to DNC list.</span>
+  </div>
+
+  <!-- Domain block confirmation modal -->
+  <dialog id="domain-block-modal">
+    <p class="domain-block-title">Domain Block Successfully Added</p>
+    <p class="domain-block-sub" id="domain-block-sub">The domain has been added to your DNC list. Please confirm the following actions:</p>
+    <div class="domain-block-checks">
+      <label class="domain-block-check">
+        <input type="checkbox" id="domain-check-mailmerge" />
+        Remove anyone from the same company from your Mail Merge Sheet
+      </label>
+      <label class="domain-block-check">
+        <input type="checkbox" id="domain-check-meetalfred" />
+        Remove anyone from the same company from the relevant MeetAlfred Campaign
+      </label>
+    </div>
+    <button type="button" class="domain-block-continue" id="domain-block-continue">Continue</button>
+  </dialog>
 
   <!-- Bulk import -->
   <p class="section-label">Bulk import</p>
@@ -1568,38 +1685,82 @@
     });
 
     // ── Email / Domain entry-type toggle ─────────────────────────── //
-    const entryTypeToggle    = document.getElementById('entry-type-toggle');
-    const addEntryEmailInput = document.getElementById('add-entry-email-input');
+    const entryTypeToggle      = document.getElementById('entry-type-toggle');
+    const addEntryEmailInput   = document.getElementById('add-entry-email-input');
+    const addEntryForm         = document.getElementById('add-entry-form');
+    const addEntrySuccess      = document.getElementById('add-entry-success');
+    const addEntrySuccessMsg   = document.getElementById('add-entry-success-msg');
+    const domainBlockModal     = document.getElementById('domain-block-modal');
+    const domainCheckMail      = document.getElementById('domain-check-mailmerge');
+    const domainCheckAlfred    = document.getElementById('domain-check-meetalfred');
+    const domainBlockContinue  = document.getElementById('domain-block-continue');
+    let _successTimer = null;
 
     if (entryTypeToggle && addEntryEmailInput) {
+      // Toggle active class only — no live placeholder changes, no live @ stripping
       entryTypeToggle.querySelectorAll('.entry-type-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           entryTypeToggle.querySelectorAll('.entry-type-btn')
             .forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
-          if (btn.dataset.type === 'domain') {
-            addEntryEmailInput.placeholder = 'e.g. company.com';
-            // Strip accidental @ already typed
-            if (addEntryEmailInput.value.includes('@')) {
-              addEntryEmailInput.value = addEntryEmailInput.value.split('@').pop() || '';
-            }
-          } else {
-            addEntryEmailInput.placeholder = 'contact@example.com';
-          }
         });
       });
+    }
 
-      // On submit in domain mode: normalise the value
-      const addEntryForm = addEntryEmailInput.closest('form');
-      if (addEntryForm) {
-        addEntryForm.addEventListener('submit', () => {
-          const activeBtn = entryTypeToggle.querySelector('.entry-type-btn.active');
-          if (activeBtn && activeBtn.dataset.type === 'domain') {
-            addEntryEmailInput.value = addEntryEmailInput.value
-              .replace(/@/g, '').trim().toLowerCase();
-          }
-        });
+    if (addEntryForm) {
+      // On submit in domain mode: strip everything up to and including '@'
+      addEntryForm.addEventListener('submit', () => {
+        const activeBtn = entryTypeToggle
+          ? entryTypeToggle.querySelector('.entry-type-btn.active')
+          : null;
+        if (activeBtn && activeBtn.dataset.type === 'domain') {
+          const val = addEntryEmailInput.value;
+          addEntryEmailInput.value = (val.includes('@') ? val.split('@').pop() : val)
+            .trim().toLowerCase();
+        }
+      });
+
+      // After HTMX request: reset form, show success banner, open domain modal if needed
+      addEntryForm.addEventListener('htmx:afterRequest', (evt) => {
+        if (!evt.detail.successful) return;
+
+        const activeBtn = entryTypeToggle
+          ? entryTypeToggle.querySelector('.entry-type-btn.active')
+          : null;
+        const isDomain = activeBtn && activeBtn.dataset.type === 'domain';
+
+        addEntryForm.reset();
+
+        if (addEntrySuccess && addEntrySuccessMsg) {
+          if (_successTimer) clearTimeout(_successTimer);
+          addEntrySuccessMsg.textContent = isDomain
+            ? 'Domain block added to DNC list.'
+            : 'Email added to DNC list.';
+          addEntrySuccess.style.display = 'flex';
+          _successTimer = setTimeout(() => { addEntrySuccess.style.display = 'none'; }, 4000);
+        }
+
+        if (isDomain && domainBlockModal) {
+          if (domainCheckMail)   domainCheckMail.checked = false;
+          if (domainCheckAlfred) domainCheckAlfred.checked = false;
+          if (domainBlockContinue) domainBlockContinue.classList.remove('ready');
+          domainBlockModal.showModal();
+        }
+      });
+    }
+
+    // Domain block modal — enable Continue only when both boxes checked
+    if (domainCheckMail && domainCheckAlfred && domainBlockContinue) {
+      function _updateDomainContinue() {
+        domainBlockContinue.classList.toggle(
+          'ready', domainCheckMail.checked && domainCheckAlfred.checked
+        );
       }
+      domainCheckMail.addEventListener('change', _updateDomainContinue);
+      domainCheckAlfred.addEventListener('change', _updateDomainContinue);
+      domainBlockContinue.addEventListener('click', () => {
+        if (domainBlockContinue.classList.contains('ready')) domainBlockModal.close();
+      });
     }
 
   })();
