@@ -7,17 +7,17 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.wsgi import WSGIMiddleware
 
 from app.deps import templates
-from app.routers import gender, city, dnc
+from app.routers import gender, city, dnc, reply_bank
 
 app = FastAPI(title="Data Enrichment Dashboard")
 
 _BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(_BASE / "static")), name="static")
-app.mount("/reply-bank", StaticFiles(directory=str(_BASE.parent / "reply_bank"), html=True), name="reply-bank")
 
 app.include_router(gender.router)
 app.include_router(city.router)
 app.include_router(dnc.router)
+app.include_router(reply_bank.router)
 
 # ── Mail Merge Tool (Flask WSGI sub-application) ──────────────────────────────
 # Load mail_merge/app.py explicitly by file path to avoid collision with the
