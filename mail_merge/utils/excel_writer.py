@@ -126,6 +126,8 @@ def write_merge_output(
     if has_chaser:
         sec_template += ['Chaser Body']
     sec_template += ['A/B Variant']
+    if has_schedule:
+        sec_template += ['Chaser Send Time']
     # Section 5: tracking
     sec_tracking = ['Lead Status', 'Notes']
 
@@ -141,7 +143,7 @@ def write_merge_output(
         color_map[h] = C['hdr_sender']
     for h in ['Subject Line', 'Email Body', 'A/B Variant']:
         color_map[h] = C['hdr_template']
-    for h in ['Chaser Body']:
+    for h in ['Chaser Body', 'Chaser Send Time']:
         color_map[h] = C['hdr_chaser']
     for h in sec_tracking:
         color_map[h] = C['hdr_tracking']
@@ -152,7 +154,7 @@ def write_merge_output(
         'Sender Account': 30, 'First Name': 18, 'Recipient Email': 34,
         'Subject Line': 44,   'Email Body': 64,
         'Chaser Body': 64,
-        'A/B Variant': 12,
+        'A/B Variant': 12,    'Chaser Send Time': 14,
         'Lead Status': 18,    'Send Time': 12,
         'Notes': 32,
     }
@@ -219,6 +221,7 @@ def write_merge_output(
                 'Email Body': row_data.get('__email_body__', ''),
                 'Chaser Body': row_data.get('__chaser_body__', ''),
                 'A/B Variant': row_data.get('__template_variant__', ''),
+                'Chaser Send Time': row_data.get('__chaser_send_time__', ''),
                 'Lead Status': '',
                 'Send Time': row_data.get('__send_time__', ''),
                 'Notes': '',

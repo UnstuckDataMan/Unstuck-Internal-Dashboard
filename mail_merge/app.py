@@ -7,7 +7,7 @@ from werkzeug.utils import secure_filename
 
 from utils.excel_reader import parse_prospect_file
 from utils.merge import validate_templates, perform_merge
-from utils.scheduler import generate_schedule, get_working_days
+from utils.scheduler import generate_schedule, get_working_days, _dvariance
 from utils.excel_writer import write_merge_output
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -217,6 +217,14 @@ def generate_merge():
             row['__send_date__'] = entry['date']
             row['__send_time__'] = entry['send_time']
             row['__sender_number__'] = entry['sender_number']
+            chaser_offset = _dvariance(
+                f"chaser-{entry['date']}-p{entry['prospect_id']}", 4, 5
+            )
+            send_h, send_m = map(int, entry['send_time'].split(':'))
+            total_chaser_mins = send_h * 60 + send_m + chaser_offset
+            row['__chaser_send_time__'] = (
+                f"{total_chaser_mins // 60:02d}:{total_chaser_mins % 60:02d}"
+            )
 
         # Sort chronologically by date → sender profile order → send time,
         # so the sheet reads: Sender 1 today, Sender 2 today, Sender 1 tomorrow …
