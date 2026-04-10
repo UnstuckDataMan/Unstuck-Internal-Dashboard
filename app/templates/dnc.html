@@ -948,6 +948,9 @@
     <p class="result-meta" style="color: var(--text-3); margin-top:8px">Select a client to view DNC entries.</p>
   </div>
 
+  <!-- Inline error for single-entry add (shown below table, not replacing it) -->
+  <div id="add-entry-error" style="margin-bottom:10px"></div>
+
   <!-- Add single entry -->
   <p class="section-label">Add entry</p>
   <div class="form-card">
@@ -1724,11 +1727,18 @@
       // After HTMX request: reset form, show success banner, open domain modal if needed
       addEntryForm.addEventListener('htmx:afterRequest', (evt) => {
         if (!evt.detail.successful) return;
+        // Server signals a validation/duplicate error via this header
+        const isError = evt.detail.xhr.getResponseHeader('HX-Add-Error') === 'true';
+        if (isError) return;
 
         const activeBtn = entryTypeToggle
           ? entryTypeToggle.querySelector('.entry-type-btn.active')
           : null;
         const isDomain = activeBtn && activeBtn.dataset.type === 'domain';
+
+        // Clear any previous error message
+        const errDiv = document.getElementById('add-entry-error');
+        if (errDiv) errDiv.innerHTML = '';
 
         addEntryForm.reset();
 

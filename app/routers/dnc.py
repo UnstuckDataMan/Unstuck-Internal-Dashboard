@@ -14,7 +14,7 @@ from typing import List, Optional
 import pandas as pd
 import requests as http_req
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from app.deps import templates
 
@@ -1053,11 +1053,14 @@ async def add_dnc_entry(
     notes:     str = Form(""),
 ):
     def error(msg: str):
-        return templates.TemplateResponse(
-            "partials/dnc_entries_table.html",
-            {"request": request, "error": msg, "entries": [], "total": 0,
-             "offset": 0, "page_size": PAGE_SIZE, "has_prev": False,
-             "has_next": False, "client_id": client_id, "search": ""},
+        # Retarget the swap to #add-entry-error so the table is left untouched
+        return HTMLResponse(
+            content=f'<div class="err-box" style="margin-top:0">{msg}</div>',
+            headers={
+                "HX-Retarget": "#add-entry-error",
+                "HX-Reswap":   "innerHTML",
+                "HX-Add-Error": "true",
+            },
         )
 
     if not _sb_configured():
