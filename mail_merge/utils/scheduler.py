@@ -6,22 +6,18 @@ Rules enforced:
   - Output send_time is expressed in the SENDER's local timezone (DST-aware)
   - Sender 1 starts at ~09:05; each subsequent sender starts ~60 min later
   - Small deterministic variance on start times (±5 min, based on hash)
-  - Max 15 sends per sender per day
-  - Global 5-minute minimum gap between ANY two sends across ALL senders
-  - Senders start in staggered waves; daily counts auto-scale to monthly target
-  - Weekends and England bank holidays are excluded
-  - Prospect count range: 100–1650 (each prospect = 2 sends total incl. chaser,
-    but only the initial send is scheduled)
+  - Weekends excluded; no bank holiday exclusion
+  - Sends fill consecutive working days from start_date until all prospects
+    are scheduled — no monthly cap
+  - Per-day total is always exactly nominal × num_senders; variance
+    redistributes who sends more/fewer each day within the allowed band
 """
 import hashlib
-import math
-from calendar import monthrange
 from datetime import date, datetime, time, timedelta
 from typing import Dict, List, Optional
 
 from dateutil import tz as tz_mod
 
-from utils.bank_holidays import get_england_bank_holidays
 
 # --------------------------------------------------------------------------- #
 # Deterministic variance
@@ -38,54 +34,14 @@ def _dvariance(seed: str, lo: int, hi: int) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# Working day calculation
+# Working day helpers
 # --------------------------------------------------------------------------- #
 
-def get_working_days(year: int, month: int) -> List[date]:
-    """Return every working day (Mon–Fri, excluding England bank holidays) in a month."""
-    bank_hols = get_england_bank_holidays(year)
-    _, days_in_month = monthrange(year, month)
-    return [
-        date(year, month, d)
-        for d in range(1, days_in_month + 1)
-        if date(year, month, d).weekday() < 5
-        and date(year, month, d) not in bank_hols
-    ]
-
-
-def get_working_days_info(
-    year: int,
-    month: int,
-    prospect_count: int,
-    max_per_sender_per_day: int = 15,
-) -> Dict:
-    """
-    Calculate and return scheduling statistics for the given parameters.
-    Used by the frontend to display live info before generating a schedule.
-    """
-    import calendar as cal_mod
-    working_days = get_working_days(year, month)
-    n_days = len(working_days)
-
-    if n_days == 0:
-        raise ValueError(f"No working days found in {cal_mod.month_name[month]} {year}.")
-
-    prospect_count = max(1, prospect_count)
-
-    prospects_per_day = math.ceil(prospect_count / n_days)
-    senders_per_day = math.ceil(prospects_per_day / max_per_sender_per_day)
-    sends_per_sender = math.ceil(prospects_per_day / senders_per_day)
-
-    return {
-        'working_days': n_days,
-        'working_day_dates': [d.isoformat() for d in working_days],
-        'total_sends_incl_chasers': prospect_count * 2,
-        'prospects_per_day': prospects_per_day,
-        'senders_per_day': senders_per_day,
-        'sends_per_sender_per_day': sends_per_sender,
-        'send_window': '08:30 - 15:30',
-        'month_name': cal_mod.month_name[month],
-    }
+def _next_working_day(d: date) -> date:
+    """Advance d until it lands on a weekday (Mon–Fri)."""
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
 
 
 # --------------------------------------------------------------------------- #
@@ -96,8 +52,12 @@ SENDER_OFFSET_MINS = 60      # 1 hour between staggered senders (compressed if n
 MAX_PER_SENDER_PER_DAY = 15
 
 # Variance band for each nominal sends-per-day setting.
-# e.g. 10 → each sender gets 8–12 sends on a full working day.
-SENDS_VARIANCE: dict = {5: 1, 10: 2, 15: 2}
+# Each sender's daily count = nominal ± variance, but the SUM across all
+# senders always equals nominal × num_senders (variance is redistributed).
+#   5/day  → 3–7   (± 2)
+#   10/day → 8–12  (± 2)
+#   15/day → 13–17 (± 2)
+SENDS_VARIANCE: dict = {5: 2, 10: 2, 15: 2}
 
 
 def _parse_hhmm(t: str) -> tuple:
@@ -107,10 +67,9 @@ def _parse_hhmm(t: str) -> tuple:
 
 
 def generate_schedule(
-    year: int,
-    month: int,
     prospect_count: int,
     sender_emails: List[str],
+    start_date: Optional[date] = None,
     recipient_tz: str = 'Europe/London',
     sender_tz: str = 'Europe/London',
     max_per_sender_per_day: int = 15,
@@ -118,15 +77,18 @@ def generate_schedule(
     window_end: str = '15:30',
 ) -> List[Dict]:
     """
-    Generate a complete sending schedule for `prospect_count` initial emails
-    spread across the working days of `year`/`month`.
+    Generate a complete sending schedule for `prospect_count` initial emails,
+    filling consecutive working weekdays (Mon–Fri) from `start_date` until
+    all prospects are scheduled.  No monthly cap is applied.
+
+    `start_date` defaults to the next working weekday from today.
 
     The send window (default 08:30–15:30) is applied in `recipient_tz`.
     The returned `send_time` values are expressed in `sender_tz` (DST-aware).
 
-    `max_per_sender_per_day` caps how many sends each account can make per
-    working day.  The caller is responsible for pre-clamping `prospect_count`
-    to the monthly capacity before calling this function.
+    On each full working day the total sends equals exactly
+    `max_per_sender_per_day × len(sender_emails)`; variance is redistributed
+    across sender accounts so individual counts differ while the total is fixed.
 
     Returns a list of dicts, each representing one scheduled send:
       date, day_of_week, send_time, sender, sender_number, prospect_id
@@ -135,6 +97,10 @@ def generate_schedule(
         raise ValueError("Prospect count must be at least 1.")
     if not sender_emails:
         raise ValueError("At least one sender email is required.")
+
+    # Resolve start date
+    if start_date is None:
+        start_date = _next_working_day(date.today())
 
     # Parse send-window boundaries
     win_start_h, win_start_m = _parse_hhmm(window_start)
@@ -153,11 +119,6 @@ def generate_schedule(
     # Sender 1 starts 5 minutes into the window
     s1_start_mins = win_start_mins + 5
 
-    working_days = get_working_days(year, month)
-    n_days = len(working_days)
-    if n_days == 0:
-        raise ValueError("No working days in the selected month.")
-
     # Timezone objects for DST-aware conversion
     rec_zone = tz_mod.gettz(recipient_tz)
     snd_zone = tz_mod.gettz(sender_tz)
@@ -168,56 +129,62 @@ def generate_schedule(
 
     schedule: List[Dict] = []
     prospect_idx = 0
+    work_day = start_date
 
-    for day_num, work_day in enumerate(working_days):
-        if prospect_idx >= prospect_count:
-            break
+    while prospect_idx < prospect_count:
+
+        # Skip weekends
+        if work_day.weekday() >= 5:
+            work_day += timedelta(days=1)
+            continue
 
         # ── How many prospects to assign today ──────────────────────────── #
-        # Each sender gets a deterministic varied limit (nominal ± variance)
-        # so the daily output looks natural rather than perfectly uniform.
-        # The last (partial) day is capped by whatever prospects remain.
         remaining_prospects = prospect_count - prospect_idx
+        full_day_target     = max_per_sender_per_day * len(sender_emails)
+        day_target          = min(full_day_target, remaining_prospects)
+        senders_today       = min(day_target, len(sender_emails))
 
-        variance_amt = SENDS_VARIANCE.get(max_per_sender_per_day, 0)
-        raw_limits = []
-        for s_idx in range(len(sender_emails)):
-            delta = (
+        v = SENDS_VARIANCE.get(max_per_sender_per_day, 0)
+
+        if day_target == full_day_target and v > 0 and senders_today > 1:
+            # Full day: generate per-sender offsets and balance them to sum=0
+            # so the total stays exactly full_day_target.
+            offsets = [
                 _dvariance(
-                    f"{year}-{month:02d}-{work_day.day:02d}-limit-s{s_idx}",
-                    -variance_amt, variance_amt,
+                    f"{work_day.isoformat()}-limit-s{s_idx}", -v, v
                 )
-                if variance_amt else 0
-            )
-            raw_limits.append(max(1, max_per_sender_per_day + delta))
-
-        day_target = min(sum(raw_limits), remaining_prospects)
-
-        # ── How many senders are active today ───────────────────────────── #
-        # Use ALL available senders (up to day_target — no point activating
-        # a sender if there are fewer prospects than senders).
-        senders_today = min(day_target, len(sender_emails))
-
-        # Assign each active sender their individual varied count.
-        # On the last (partial) day, fill greedily so the total stays exact.
-        per_sender_counts: list = []
-        assigned = 0
-        for s_idx in range(senders_today):
-            count = min(raw_limits[s_idx], day_target - assigned)
-            per_sender_counts.append(count)
-            assigned += count
-            if assigned >= day_target:
-                per_sender_counts.extend([0] * (senders_today - len(per_sender_counts)))
-                break
+                for s_idx in range(senders_today)
+            ]
+            surplus = sum(offsets)
+            if surplus != 0:
+                order = sorted(
+                    range(senders_today),
+                    key=lambda i: -offsets[i] if surplus > 0 else offsets[i],
+                )
+                for i in order:
+                    if surplus == 0:
+                        break
+                    if surplus > 0:
+                        cut = min(offsets[i] - (-v), surplus)
+                        offsets[i] -= cut
+                        surplus    -= cut
+                    else:
+                        add = min(v - offsets[i], -surplus)
+                        offsets[i] += add
+                        surplus    += add
+            per_sender_counts = [max_per_sender_per_day + off for off in offsets]
+        else:
+            # Partial last day: distribute evenly across active senders
+            base = day_target // senders_today
+            rem  = day_target % senders_today
+            per_sender_counts = [
+                base + (1 if s < rem else 0) for s in range(senders_today)
+            ] + [0] * (len(sender_emails) - senders_today)
 
         day_win_end = datetime.combine(work_day, time(win_end_h, win_end_m))
 
         # ── Compute each sender's deterministic start time ───────────────── #
-        # Compress the inter-sender offset so the LAST sender starts no later
-        # than 45 min before window end.  This guarantees every sender has
-        # enough room to produce varied send times (the effective-end variance
-        # below shifts up to 20 min, so we need ≥20 min of headroom minimum).
-        max_last_start_mins = win_end_mins - 45
+        max_last_start_mins   = win_end_mins - 45
         available_for_stagger = max(0, max_last_start_mins - s1_start_mins)
         offset_mins = (
             min(SENDER_OFFSET_MINS, max(5, available_for_stagger // (senders_today - 1)))
@@ -227,35 +194,25 @@ def generate_schedule(
         sender_starts: List[datetime] = []
         for s_idx in range(senders_today):
             base_mins = s1_start_mins + s_idx * offset_mins
-            variance = _dvariance(
-                f"{year}-{month:02d}-{work_day.day:02d}-s{s_idx}", -5, 5)
+            variance  = _dvariance(
+                f"{work_day.isoformat()}-s{s_idx}", -5, 5)
             start_mins = base_mins + variance
             s_hour, s_min = divmod(max(start_mins, win_start_mins), 60)
             t = datetime.combine(work_day, time(s_hour, s_min))
-            # Clamp to window end so avail_secs is never negative
             t = min(t, day_win_end)
             sender_starts.append(t)
 
         # ── Per-sender independent slot generation ───────────────────────── #
-        # Each sender schedules their sends evenly from their staggered start
-        # to the window end.  Different accounts can send at the same clock
-        # time, so there is no global gap constraint — just natural per-sender
-        # spacing.  Each sender uses their own varied count from per_sender_counts.
         adjusted: List[tuple] = []
         for s_idx in range(senders_today):
-            n_sends      = per_sender_counts[s_idx]
+            n_sends = per_sender_counts[s_idx]
             if n_sends == 0:
                 continue
             sender_start = sender_starts[s_idx]
 
-            # Per-sender, per-day effective window end.
-            # Use a negative-only shift (-20 to 0 min) so the hard-window clamp
-            # never cancels the variance — the last slot lands somewhere in the
-            # final 20 minutes of the window, varying by day and by sender.
             end_shift = _dvariance(
-                f"{year}-{month:02d}-{work_day.day:02d}-wend-s{s_idx}", -20, 0)
+                f"{work_day.isoformat()}-wend-s{s_idx}", -20, 0)
             effective_end = day_win_end + timedelta(minutes=end_shift)
-            # Guarantee at least 1 minute of window so interval > 0
             effective_end = max(effective_end, sender_start + timedelta(minutes=1))
 
             avail_secs = (effective_end - sender_start).total_seconds()
@@ -277,9 +234,6 @@ def generate_schedule(
         adjusted.sort(key=lambda x: x[0])
 
         # ── Resolve per-minute conflicts across senders ──────────────────── #
-        # Excel outputs HH:MM only, so two slots at the same minute look like
-        # simultaneous sends.  Sort descending and bump each conflict 1 minute
-        # earlier until unique, keeping sends inside the window.
         win_floor = datetime.combine(work_day, time(win_start_h, win_start_m))
         adjusted.sort(key=lambda x: x[0], reverse=True)
         used_minutes: set = set()
@@ -296,19 +250,18 @@ def generate_schedule(
         for send_dt, sender, s_num in adjusted:
             if prospect_idx >= prospect_count:
                 break
-            # send_dt is naive, expressed in recipient's local time.
-            # Attach recipient tz → convert to sender tz for the output time.
             slot_aware   = send_dt.replace(tzinfo=rec_zone)
             sender_local = slot_aware.astimezone(snd_zone)
             schedule.append({
-                'date': work_day.isoformat(),
+                'date':        work_day.isoformat(),
                 'day_of_week': work_day.strftime('%A'),
-                'send_time': sender_local.strftime('%H:%M'),
-                'sender': sender,
+                'send_time':   sender_local.strftime('%H:%M'),
+                'sender':      sender,
                 'sender_number': s_num,
                 'prospect_id': prospect_idx + 1,
             })
             prospect_idx += 1
 
-    return schedule
+        work_day += timedelta(days=1)
 
+    return schedule

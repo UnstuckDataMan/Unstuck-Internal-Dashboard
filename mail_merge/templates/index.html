@@ -956,38 +956,11 @@ td .truncate {
       <div class="card-header">
         <div class="step-badge">4</div>
         <h2>Schedule Settings</h2>
-        <span class="step-subtitle">Select the month to distribute sends across</span>
+        <span class="step-subtitle">Configure your sending schedule</span>
       </div>
       <div class="card-body">
 
-        <div class="row" style="display:flex;gap:16px;align-items:flex-end">
-          <div class="flex-1">
-            <label for="sch-month">Send Month</label>
-            <select id="sch-month" onchange="scheduleCapacityUpdate()">
-              <option value="1">January</option>
-              <option value="2">February</option>
-              <option value="3">March</option>
-              <option value="4">April</option>
-              <option value="5">May</option>
-              <option value="6">June</option>
-              <option value="7">July</option>
-              <option value="8">August</option>
-              <option value="9">September</option>
-              <option value="10">October</option>
-              <option value="11">November</option>
-              <option value="12">December</option>
-            </select>
-          </div>
-          <div class="flex-1">
-            <label for="sch-year">Year</label>
-            <select id="sch-year" onchange="scheduleCapacityUpdate()">
-              <option value="2026">2026</option>
-              <option value="2027">2027</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="row" style="display:flex;gap:16px;align-items:flex-end;margin-top:16px">
+        <div class="row" style="display:flex;gap:16px;align-items:flex-end;margin-top:0px">
           <div class="flex-1">
             <label for="recipient-tz">Recipient Timezone</label>
             <select id="recipient-tz">
@@ -1034,12 +1007,10 @@ td .truncate {
             <button type="button" class="seg-btn" data-value="15" onclick="setSendsPerDay(15)">~15 /day</button>
           </div>
           <p class="field-hint" style="margin-top:6px">
-            Approximate emails each sender sends per working day (4–6 / 8–12 / 13–17).
-            Remaining prospects carry over to the following month.
+            Approximate emails each sender sends per working day (3–7 / 8–12 / 13–17).
+            Sends fill consecutive working days (Mon–Fri) until all prospects are scheduled.
           </p>
         </div>
-
-        <div id="capacity-banner" style="display:none;margin-top:14px"></div>
 
       </div>
     </div>
@@ -1147,7 +1118,6 @@ function setSendsPerDay(n) {
   document.querySelectorAll('#sends-per-day-group .seg-btn').forEach(btn => {
     btn.classList.toggle('seg-active', parseInt(btn.dataset.value) === n);
   });
-  scheduleCapacityUpdate();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1209,7 +1179,6 @@ function uploadFile(file) {
 
       renderColumns(data.headers);
       buildPlaceholderBar(data.headers);
-      scheduleCapacityUpdate();
 
       if (state.subjectCount === 0) addTemplate('subject');
       if (state.bodyCount === 0) addTemplate('body');
@@ -1399,7 +1368,6 @@ function loadSelectedProfile() {
     document.getElementById('sender-emails').value = emails.join('\n');
     // Pre-fill the name input so user can re-save under the same name to update
     document.getElementById('profile-name').value = name;
-    scheduleCapacityUpdate();
   }
 }
 
@@ -1495,75 +1463,6 @@ function validateTemplates() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Capacity banner
-// ─────────────────────────────────────────────────────────────────────────────
-let _capacityTimer = null;
-function scheduleCapacityUpdate() {
-  clearTimeout(_capacityTimer);
-  _capacityTimer = setTimeout(updateCapacityBanner, 350);
-}
-
-function _nextMonthLabel(month, year) {
-  const names = ['','January','February','March','April','May','June','July',
-                 'August','September','October','November','December'];
-  const nm = month === 12 ? 1  : month + 1;
-  const ny = month === 12 ? year + 1 : year;
-  return `${names[nm]} ${ny}`;
-}
-
-async function updateCapacityBanner() {
-  const banner = document.getElementById('capacity-banner');
-  if (!banner) return;
-
-  const year  = parseInt(document.getElementById('sch-year')?.value);
-  const month = parseInt(document.getElementById('sch-month')?.value);
-  if (!year || !month) { banner.style.display = 'none'; return; }
-
-  const senderRaw   = document.getElementById('sender-emails')?.value ?? '';
-  const senderCount = senderRaw.split('\n').map(s => s.trim()).filter(Boolean).length;
-  if (senderCount === 0) { banner.style.display = 'none'; return; }
-
-  try {
-    const r = await fetch(`api/schedule-capacity?year=${year}&month=${month}&sender_count=${senderCount}&sends_per_day=${_sendsPerDay}`);
-    const d = await r.json();
-    if (d.error) { banner.style.display = 'none'; return; }
-
-    const maxCap   = d.max_capacity;
-    const workDays = d.working_days;
-    const target   = state.totalRows || 0;
-    const scheduled = Math.min(target, maxCap);
-    const overflow  = target - scheduled;
-
-    const names  = ['','January','February','March','April','May','June','July',
-                    'August','September','October','November','December'];
-    const capStr = `${workDays} day${workDays!==1?'s':''} × ${senderCount} ` +
-                   `sender${senderCount!==1?'s':''} × ${_sendsPerDay}/day = ` +
-                   `<strong>${maxCap.toLocaleString()} max</strong>`;
-
-    if (overflow > 0) {
-      banner.style.cssText =
-        'display:block;margin-top:14px;padding:12px 16px;border-radius:8px;' +
-        'font-size:.83rem;line-height:1.5;background:#FFF8E1;border:1px solid #FFB300;color:#5D4037;font-family:var(--font)';
-      banner.innerHTML =
-        `⚠&nbsp; <strong>${names[month]} capacity:</strong> ${capStr}. ` +
-        `Scheduling <strong>${scheduled.toLocaleString()}</strong> this month; ` +
-        `<strong>${overflow.toLocaleString()} carry over to ${_nextMonthLabel(month, year)}</strong>.`;
-    } else {
-      banner.style.cssText =
-        'display:block;margin-top:14px;padding:12px 16px;border-radius:8px;' +
-        'font-size:.83rem;line-height:1.5;background:#E8F5E9;border:1px solid #66BB6A;color:#1B5E20;font-family:var(--font)';
-      banner.innerHTML =
-        `✓&nbsp; <strong>${names[month]} capacity:</strong> ${capStr}. ` +
-        (target > 0
-          ? `All <strong>${scheduled.toLocaleString()}</strong> targeted prospects fit this month.`
-          : 'Set a monthly target or upload a prospect file to see volume.');
-    }
-  } catch (e) {
-    banner.style.display = 'none';
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Generate merge
 // ─────────────────────────────────────────────────────────────────────────────
 function generateMerge() {
@@ -1621,8 +1520,6 @@ function generateMerge() {
       sender_emails:     senders,
       missing_value:     missingVal,
       email_column:      emailCol,
-      year:              parseInt(document.getElementById('sch-year').value),
-      month:             parseInt(document.getElementById('sch-month').value),
       recipient_tz:      document.getElementById('recipient-tz').value,
       sender_tz:         document.getElementById('sender-tz').value,
       sends_per_day:     _sendsPerDay,
@@ -1717,23 +1614,6 @@ function escHtml(s) {
 // ─────────────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   renderSavedProfiles();
-
-  document.getElementById('sender-emails')
-    ?.addEventListener('input', scheduleCapacityUpdate);
-
-  (function () {
-    const now      = new Date();
-    const monthSel = document.getElementById('sch-month');
-    const yearSel  = document.getElementById('sch-year');
-    if (monthSel) monthSel.value = now.getMonth() + 1;
-    if (yearSel) {
-      const yr = now.getFullYear().toString();
-      if (![...yearSel.options].some(o => o.value === yr)) {
-        yearSel.insertAdjacentHTML('afterbegin', `<option value="${yr}">${yr}</option>`);
-      }
-      yearSel.value = yr;
-    }
-  })();
 });
 </script>
 </body>

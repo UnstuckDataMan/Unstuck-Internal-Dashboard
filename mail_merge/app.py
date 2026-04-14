@@ -7,7 +7,7 @@ from werkzeug.utils import secure_filename
 
 from utils.excel_reader import parse_prospect_file
 from utils.merge import validate_templates, perform_merge
-from utils.scheduler import generate_schedule, get_working_days, _dvariance
+from utils.scheduler import generate_schedule, _dvariance
 from utils.excel_writer import write_merge_output
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -103,35 +103,6 @@ def validate_templates_route():
     return jsonify({'valid': len(errors) == 0, 'errors': errors})
 
 
-@app.route('/api/schedule-capacity', methods=['GET'])
-def schedule_capacity():
-    """Return working-day count and max schedulable prospect count for a given
-    month, sender count, and daily-limit setting.  Used by the frontend to
-    render the live capacity banner before the user hits Generate."""
-    year         = request.args.get('year',         type=int)
-    month        = request.args.get('month',        type=int)
-    sender_count  = request.args.get('sender_count',  type=int, default=1)
-    sends_per_day = request.args.get('sends_per_day', type=int, default=10)
-
-    if not year or not month:
-        return jsonify({'error': 'year and month are required'}), 400
-
-    sender_count  = max(1, sender_count  or 1)
-    sends_per_day = sends_per_day if sends_per_day in (5, 10, 15) else 10
-
-    try:
-        working_days = get_working_days(year, month)
-        n_days       = len(working_days)
-        max_capacity = sends_per_day * sender_count * n_days
-        return jsonify({
-            'working_days': n_days,
-            'max_capacity': max_capacity,
-            'daily_sends':  sends_per_day * sender_count,
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/api/generate-merge', methods=['POST'])
 def generate_merge():
     data = request.json
@@ -143,8 +114,6 @@ def generate_merge():
     sender_emails = data.get('sender_emails', [])
     missing_value = data.get('missing_value', '[MISSING]')
     email_column = data.get('email_column', '')
-    year = data.get('year')
-    month = data.get('month')
     recipient_tz      = data.get('recipient_tz', 'Europe/London')
     sender_tz         = data.get('sender_tz', 'Europe/London')
     sends_per_day_raw = data.get('sends_per_day', 10)
@@ -160,17 +129,12 @@ def generate_merge():
         return jsonify({'error': 'At least one email body template is required'}), 400
     if not sender_emails:
         return jsonify({'error': 'At least one sender email address is required'}), 400
-    if not year or not month:
-        return jsonify({'error': 'Schedule month and year are required'}), 400
 
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], file_id)
     if not os.path.exists(filepath):
         return jsonify({'error': 'Prospect file not found. Please re-upload.'}), 404
 
     try:
-        year = int(year)
-        month = int(month)
-
         headers, all_rows, _ = parse_prospect_file(filepath)
 
         all_templates = subject_templates + body_templates
@@ -189,24 +153,12 @@ def generate_merge():
             email_column
         )
 
-        # ── Capacity-aware scheduling ──────────────────────────────────────
         total_prospects = len(merged_rows)
+        scheduled_count = total_prospects
 
-        # How many can fit at the chosen sends-per-day rate?
-        working_days_list = get_working_days(year, month)
-        max_capacity    = sends_per_day * len(sender_emails) * len(working_days_list)
-        scheduled_count = min(total_prospects, max_capacity)
-        overflow_count  = total_prospects - scheduled_count
-
-        if scheduled_count < 1:
-            return jsonify({
-                'error': 'No prospects can be scheduled. '
-                         'Check your month selection, sender count, and daily limit.'
-            }), 400
-
-        # Generate schedule for the schedulable subset and join onto rows
+        # Generate schedule — fills consecutive working weekdays from today
         schedule = generate_schedule(
-            year, month, scheduled_count, sender_emails,
+            scheduled_count, sender_emails,
             recipient_tz=recipient_tz, sender_tz=sender_tz,
             max_per_sender_per_day=sends_per_day,
             window_start=window_start,
@@ -244,9 +196,8 @@ def generate_merge():
 
         return jsonify({
             'download_id': output_filename,
-            'total_rows': len(merged_rows),        # rows in the Excel (= scheduled_count)
+            'total_rows': len(merged_rows),
             'scheduled_count': len(merged_rows),
-            'overflow_count': overflow_count,
             'preview': [
                 {
                     'sender': r.get('__sender_account__', ''),
