@@ -70,6 +70,7 @@ def generate_schedule(
     prospect_count: int,
     sender_emails: List[str],
     start_date: Optional[date] = None,
+    campaign_seed: str = '',
     recipient_tz: str = 'Europe/London',
     sender_tz: str = 'Europe/London',
     max_per_sender_per_day: int = 15,
@@ -151,7 +152,7 @@ def generate_schedule(
             # so the total stays exactly full_day_target.
             offsets = [
                 _dvariance(
-                    f"{work_day.isoformat()}-limit-s{s_idx}", -v, v
+                    f"{campaign_seed}-{work_day.isoformat()}-limit-s{s_idx}", -v, v
                 )
                 for s_idx in range(senders_today)
             ]
@@ -195,7 +196,7 @@ def generate_schedule(
         for s_idx in range(senders_today):
             base_mins = s1_start_mins + s_idx * offset_mins
             variance  = _dvariance(
-                f"{work_day.isoformat()}-s{s_idx}", -5, 5)
+                f"{campaign_seed}-{work_day.isoformat()}-s{s_idx}", -5, 5)
             start_mins = base_mins + variance
             s_hour, s_min = divmod(max(start_mins, win_start_mins), 60)
             t = datetime.combine(work_day, time(s_hour, s_min))
@@ -211,7 +212,7 @@ def generate_schedule(
             sender_start = sender_starts[s_idx]
 
             end_shift = _dvariance(
-                f"{work_day.isoformat()}-wend-s{s_idx}", -20, 0)
+                f"{campaign_seed}-{work_day.isoformat()}-wend-s{s_idx}", -20, 0)
             effective_end = day_win_end + timedelta(minutes=end_shift)
             effective_end = max(effective_end, sender_start + timedelta(minutes=1))
 

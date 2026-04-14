@@ -157,8 +157,10 @@ def generate_merge():
         scheduled_count = total_prospects
 
         # Generate schedule — fills consecutive working weekdays from today
+        campaign_seed = uuid.uuid4().hex[:8]
         schedule = generate_schedule(
             scheduled_count, sender_emails,
+            campaign_seed=campaign_seed,
             recipient_tz=recipient_tz, sender_tz=sender_tz,
             max_per_sender_per_day=sends_per_day,
             window_start=window_start,
