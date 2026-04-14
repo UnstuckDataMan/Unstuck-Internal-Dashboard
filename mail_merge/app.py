@@ -166,9 +166,10 @@ def generate_merge():
         )
         for entry in schedule:
             row = merged_rows[entry['prospect_id'] - 1]
-            row['__send_date__'] = entry['date']
-            row['__send_time__'] = entry['send_time']
+            row['__send_date__']     = entry['date']
+            row['__send_time__']     = entry['send_time']
             row['__sender_number__'] = entry['sender_number']
+            row['__sender_account__'] = entry['sender']   # schedule drives sender, not merge round-robin
             chaser_offset = _dvariance(
                 f"chaser-{entry['date']}-p{entry['prospect_id']}", 4, 5
             )
