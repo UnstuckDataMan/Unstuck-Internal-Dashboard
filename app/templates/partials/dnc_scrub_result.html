@@ -4,7 +4,10 @@
 <div class="result-wrap">
 
   <!-- Stats grid -->
-  <div class="dnc-stats {% if show_contacted %}dnc-stats-4{% endif %}">
+  <div class="dnc-stats
+    {%- if show_contacted and save_contacted_on %} dnc-stats-5
+    {%- elif show_contacted or save_contacted_on %} dnc-stats-4
+    {%- endif %}">
     <div class="stat-card">
       <span class="stat-num">{{ uploaded_count }}</span>
       <span class="stat-lbl">Uploaded</span>
@@ -23,6 +26,12 @@
       <span class="stat-num">{{ remaining_count }}</span>
       <span class="stat-lbl">Remaining</span>
     </div>
+    {% if save_contacted_on %}
+    <div class="stat-card stat-saved">
+      <span class="stat-num">{{ contacted_saved_count }}</span>
+      <span class="stat-lbl">Saved to Contacted</span>
+    </div>
+    {% endif %}
   </div>
 
   <!-- Download buttons -->

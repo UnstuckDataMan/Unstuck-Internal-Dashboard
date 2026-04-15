@@ -290,12 +290,14 @@ async def create_client(
 
 @router.post("/api/dnc/scrub")
 async def api_dnc_scrub(
-    request:             Request,
-    file:                UploadFile = File(...),
-    client_id:           str        = Form(...),
-    remove_contacted:    str        = Form(""),        # "on" when checkbox checked
-    lookback_days_raw:   str        = Form("30"),      # "30", "60", "90", or "custom"
-    lookback_custom_from: str       = Form(""),        # YYYY-MM-DD for custom range
+    request:              Request,
+    file:                 UploadFile = File(...),
+    client_id:            str        = Form(...),
+    remove_contacted:     str        = Form(""),        # "on" when checkbox checked
+    lookback_days_raw:    str        = Form("30"),      # "30", "60", "90", or "custom"
+    lookback_custom_from: str        = Form(""),        # YYYY-MM-DD for custom range
+    save_contacted:       str        = Form("on"),      # "on" = auto-save clean list
+    campaign_name:        str        = Form(""),        # optional campaign tag
 ):
     def error(msg: str):
         return templates.TemplateResponse(
@@ -382,6 +384,36 @@ async def api_dnc_scrub(
     removed_count           = len(df_rem)
     remaining_count         = len(df_clean)
 
+    # ── Auto-save clean contacts to contacted_prospects (non-fatal) ──
+    contacted_saved_count = 0
+    if save_contacted == "on" and remaining_count > 0 and _sb_configured():
+        clean_norm_emails = df.loc[~removed_mask, "_norm_email"].tolist()
+        campaign          = campaign_name.strip() or None
+        today             = date.today().isoformat()
+        try:
+            for i in range(0, len(clean_norm_emails), CHUNK_SIZE):
+                chunk = clean_norm_emails[i : i + CHUNK_SIZE]
+                rows = [
+                    {
+                        "client_id":    client_id,
+                        "email":        e,
+                        "contacted_at": today,
+                        "source":       "scrub_upload",
+                        **({"campaign_name": campaign} if campaign else {}),
+                    }
+                    for e in chunk
+                ]
+                r = http_req.post(
+                    f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                    headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                    json=rows,
+                    timeout=30,
+                )
+                r.raise_for_status()
+                contacted_saved_count += len(chunk)
+        except Exception:
+            contacted_saved_count = 0  # non-fatal — scrub result is unaffected
+
     # ── Log scrub (non-fatal) ─────────────────────────────────────
     try:
         log_payload: dict = {
@@ -431,6 +463,9 @@ async def api_dnc_scrub(
             "dnc_preview":              dnc_preview,
             "contacted_preview":        contacted_preview,
             "show_contacted":           remove_contacted == "on",
+            "save_contacted_on":        save_contacted == "on",
+            "contacted_saved_count":    contacted_saved_count,
+            "campaign_name":            campaign_name.strip(),
         },
     )
 

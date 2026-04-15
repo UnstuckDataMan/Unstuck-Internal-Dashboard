@@ -351,7 +351,9 @@
 
   /* ── Scrub result tags ───────────────────────────────────────── */
   .dnc-stats-4 { grid-template-columns: repeat(4, 1fr); }
+  .dnc-stats-5 { grid-template-columns: repeat(5, 1fr); }
   .stat-contacted .stat-num { color: #fb923c; }
+  .stat-saved .stat-num     { color: #818cf8; }
   .removal-tag {
     display: inline-block;
     font-size: 10px;
@@ -817,6 +819,25 @@
               <input type="date" id="lookback-custom-from" name="lookback_custom_from">
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="form-divider" style="margin-top:16px"></div>
+
+      <!-- Save clean list to contacted history -->
+      <div class="form-group" style="margin-bottom:12px; margin-top:14px">
+        <label class="toggle-row">
+          <input type="checkbox" id="save-contacted-toggle" name="save_contacted" value="on" checked>
+          <span class="toggle-knob"></span>
+          <span class="toggle-text">Save clean list to contacted history</span>
+        </label>
+      </div>
+
+      <div id="save-contacted-section">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Campaign name <span class="opt">optional</span></label>
+          <input type="text" name="campaign_name" id="scrub-campaign-name"
+                 placeholder="e.g. Q2 Outreach — Wave 1">
         </div>
       </div>
 
@@ -1396,6 +1417,15 @@
       lookbackCustom.style.display = isCustom ? '' : 'none';
       if (!isCustom && lookbackFromInput) lookbackFromInput.value = '';
     });
+
+    // ── Save-to-contacted toggle ─────────────────────────────────── //
+    const saveContactedToggle  = document.getElementById('save-contacted-toggle');
+    const saveContactedSection = document.getElementById('save-contacted-section');
+    if (saveContactedToggle && saveContactedSection) {
+      saveContactedToggle.addEventListener('change', () => {
+        saveContactedSection.style.display = saveContactedToggle.checked ? '' : 'none';
+      });
+    }
 
     // ── Manage Contacted tab ─────────────────────────────────────── //
     const contactedClientSelect = document.getElementById('contacted-client-select');
