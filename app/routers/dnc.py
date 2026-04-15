@@ -131,11 +131,6 @@ def _write_output(df: pd.DataFrame, ext: str, base: str, suffix: str) -> tuple[b
     )
 
 
-def _normalize_industry_name(name: str) -> str:
-    """Title-case and trim an industry name: '  financial services  ' → 'Financial Services'"""
-    return " ".join(word.capitalize() for word in name.strip().split())
-
-
 # ── DNC lookup (batched, supports full emails and domain blocks) ───────────────
 
 def _batch_query_dnc(client_id: str, values: list[str]) -> set[str]:
@@ -182,13 +177,8 @@ def _fetch_contacted_matches(
     client_id: str,
     norm_emails: list[str],
     cutoff_date: str,
-    industry_id: str = "",
-    location: str = "",
 ) -> set[str]:
-    """
-    Returns the subset of norm_emails contacted on or after cutoff_date.
-    Optionally scoped to a specific industry.
-    """
+    """Returns the subset of norm_emails contacted on or after cutoff_date."""
     contacted: set[str] = set()
     for i in range(0, len(norm_emails), CHUNK_SIZE):
         chunk = norm_emails[i : i + CHUNK_SIZE]
@@ -199,10 +189,6 @@ def _fetch_contacted_matches(
             ("contacted_at", f"gte.{cutoff_date}"),
             ("email",        f"in.{email_filter}"),
         ]
-        if industry_id:
-            params.append(("client_industry_id", f"eq.{industry_id}"))
-        if location.strip():
-            params.append(("location", f"ilike.*{location.strip()}*"))
         r = http_req.get(
             f"{SUPABASE_URL}/rest/v1/contacted_prospects",
             headers=_sb_headers(),
@@ -307,11 +293,9 @@ async def api_dnc_scrub(
     request:             Request,
     file:                UploadFile = File(...),
     client_id:           str        = Form(...),
-    industry_id:         str        = Form(""),
     remove_contacted:    str        = Form(""),        # "on" when checkbox checked
     lookback_days_raw:   str        = Form("30"),      # "30", "60", "90", or "custom"
     lookback_custom_from: str       = Form(""),        # YYYY-MM-DD for custom range
-    location:            str        = Form(""),         # location filter for contacted check
 ):
     def error(msg: str):
         return templates.TemplateResponse(
@@ -374,7 +358,7 @@ async def api_dnc_scrub(
 
         try:
             contacted_removed_set = _fetch_contacted_matches(
-                client_id, df["_norm_email"].tolist(), cutoff_date, industry_id, location
+                client_id, df["_norm_email"].tolist(), cutoff_date
             )
         except Exception as e:
             return error(f"Supabase error during recently-contacted lookup: {e}")
@@ -410,8 +394,6 @@ async def api_dnc_scrub(
         }
         if cutoff_date and lookback_days_raw != "custom":
             log_payload["lookback_days"] = int(lookback_days_raw)
-        if industry_id:
-            log_payload["industry_filter"] = industry_id
         http_req.post(
             f"{SUPABASE_URL}/rest/v1/scrub_logs",
             headers=_sb_headers("return=minimal"),
@@ -481,152 +463,41 @@ async def dnc_download_removed(token: str):
 
 # ── industries ─────────────────────────────────────────────────────────────────
 
-def _get_industries_for_client(client_id: str) -> list[dict]:
-    r = http_req.get(
-        f"{SUPABASE_URL}/rest/v1/client_industries",
-        headers=_sb_headers(),
-        params={"select": "id,name", "client_id": f"eq.{client_id}", "order": "name.asc"},
-        timeout=10,
-    )
-    r.raise_for_status()
-    return r.json()
-
-
-@router.get("/api/dnc/industries")
-async def get_industry_options(request: Request, client_id: str = Query("")):
-    """Returns <option> elements for industry dropdowns (scrub tab + manage tab upload/add forms)."""
-    industries = []
-    if client_id and _sb_configured():
-        try:
-            industries = _get_industries_for_client(client_id)
-        except Exception:
-            pass
-    return templates.TemplateResponse(
-        "partials/dnc_industries_options.html",
-        {"request": request, "industries": industries},
-    )
-
-
-@router.get("/api/dnc/industries/manage")
-async def get_industries_managed(request: Request, client_id: str = Query("")):
-    """Returns chips HTML + OOB option updates for all industry selects in the manage tab."""
-    industries = []
-    if client_id and _sb_configured():
-        try:
-            industries = _get_industries_for_client(client_id)
-        except Exception:
-            pass
-    return templates.TemplateResponse(
-        "partials/dnc_industries_managed.html",
-        {"request": request, "industries": industries, "client_id": client_id},
-    )
-
-
-@router.post("/api/dnc/industries")
-async def add_industry(
-    request:   Request,
-    client_id: str = Form(...),
-    name:      str = Form(...),
-):
-    def error(msg: str):
-        return templates.TemplateResponse(
-            "partials/dnc_industries_managed.html",
-            {"request": request, "industries": [], "client_id": client_id, "error": msg},
-        )
-
-    if not _sb_configured():
-        return error("Supabase is not configured.")
-
-    name_norm = _normalize_industry_name(name)
-    if not name_norm:
-        return error("Please enter an industry name.")
-
-    try:
-        r = http_req.post(
-            f"{SUPABASE_URL}/rest/v1/client_industries",
-            headers=_sb_headers("return=minimal"),
-            json={"client_id": client_id, "name": name_norm},
-            timeout=10,
-        )
-        if r.status_code == 409:
-            return error(f"'{name_norm}' already exists for this client.")
-        r.raise_for_status()
-    except Exception as e:
-        return error(f"Supabase error: {e}")
-
-    industries = _get_industries_for_client(client_id)
-    return templates.TemplateResponse(
-        "partials/dnc_industries_managed.html",
-        {"request": request, "industries": industries, "client_id": client_id},
-    )
-
-
-@router.delete("/api/dnc/industries/{industry_id}")
-async def delete_industry(
-    request:     Request,
-    industry_id: str,
-    client_id:   str = Query(...),
-):
-    if _sb_configured():
-        try:
-            http_req.delete(
-                f"{SUPABASE_URL}/rest/v1/client_industries",
-                headers=_sb_headers(),
-                params={"id": f"eq.{industry_id}"},
-                timeout=10,
-            ).raise_for_status()
-        except Exception:
-            pass
-
-    industries = _get_industries_for_client(client_id) if _sb_configured() else []
-    return templates.TemplateResponse(
-        "partials/dnc_industries_managed.html",
-        {"request": request, "industries": industries, "client_id": client_id},
-    )
-
-
 # ── contacted prospects ────────────────────────────────────────────────────────
 
 @router.get("/api/dnc/contacted")
 async def get_contacted(
-    request:     Request,
-    client_id:   str = Query(...),
-    industry_id: str = Query(""),
-    search:      str = Query(""),
-    date_from:   str = Query(""),
-    date_to:     str = Query(""),
-    location:    str = Query(""),
-    offset:      int = Query(0, ge=0),
+    request:   Request,
+    client_id: str = Query(...),
+    search:    str = Query(""),
+    date_from: str = Query(""),
+    date_to:   str = Query(""),
+    offset:    int = Query(0, ge=0),
 ):
     def error(msg: str):
         return templates.TemplateResponse(
             "partials/dnc_contacted_table.html",
             {"request": request, "error": msg, "entries": [], "total": 0,
              "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
-             "client_id": client_id, "industry_id": industry_id,
-             "search": search, "date_from": date_from, "date_to": date_to, "location": location},
+             "client_id": client_id, "search": search, "date_from": date_from, "date_to": date_to},
         )
 
     if not _sb_configured():
         return error("Supabase is not configured.")
 
     params: list[tuple[str, str]] = [
-        ("select",    "id,email,location,contacted_at,campaign_name,source,created_at,client_industries(name)"),
+        ("select",    "id,email,contacted_at,campaign_name,source,created_at"),
         ("client_id", f"eq.{client_id}"),
         ("order",     "contacted_at.desc,created_at.desc"),
         ("limit",     str(PAGE_SIZE)),
         ("offset",    str(offset)),
     ]
-    if industry_id:
-        params.append(("client_industry_id", f"eq.{industry_id}"))
     if search.strip():
         params.append(("email", f"ilike.*{search.strip()}*"))
     if date_from:
         params.append(("contacted_at", f"gte.{date_from}"))
     if date_to:
         params.append(("contacted_at", f"lte.{date_to}"))
-    if location.strip():
-        params.append(("location", f"ilike.*{location.strip()}*"))
 
     try:
         r = http_req.get(
@@ -647,19 +518,17 @@ async def get_contacted(
     return templates.TemplateResponse(
         "partials/dnc_contacted_table.html",
         {
-            "request":     request,
-            "entries":     entries,
-            "total":       total,
-            "offset":      offset,
-            "page_size":   PAGE_SIZE,
-            "has_prev":    has_prev,
-            "has_next":    has_next,
-            "client_id":   client_id,
-            "industry_id": industry_id,
-            "search":      search,
-            "date_from":   date_from,
-            "date_to":     date_to,
-            "location":    location,
+            "request":   request,
+            "entries":   entries,
+            "total":     total,
+            "offset":    offset,
+            "page_size": PAGE_SIZE,
+            "has_prev":  has_prev,
+            "has_next":  has_next,
+            "client_id": client_id,
+            "search":    search,
+            "date_from": date_from,
+            "date_to":   date_to,
         },
     )
 
@@ -668,19 +537,16 @@ async def get_contacted(
 async def add_contacted(
     request:       Request,
     client_id:     str = Form(...),
-    industry_id:   str = Form(...),
     email:         str = Form(...),
     contacted_at:  str = Form(...),
     campaign_name: str = Form(""),
-    location:      str = Form(""),
 ):
     def error(msg: str):
         return templates.TemplateResponse(
             "partials/dnc_contacted_table.html",
             {"request": request, "error": msg, "entries": [], "total": 0,
              "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
-             "client_id": client_id, "industry_id": industry_id,
-             "search": "", "date_from": "", "date_to": "", "location": ""},
+             "client_id": client_id, "search": "", "date_from": "", "date_to": ""},
         )
 
     if not _sb_configured():
@@ -691,26 +557,20 @@ async def add_contacted(
         return error("Please enter a valid email address.")
     if not contacted_at:
         return error("Please select a contact date.")
-    if not industry_id:
-        return error("Please select an industry.")
 
     payload: dict = {
-        "client_id":          client_id,
-        "client_industry_id": industry_id,
-        "email":              email_norm,
-        "contacted_at":       contacted_at,
-        "source":             "manual",
+        "client_id":    client_id,
+        "email":        email_norm,
+        "contacted_at": contacted_at,
+        "source":       "manual",
     }
     if campaign_name.strip():
         payload["campaign_name"] = campaign_name.strip()
-    if location.strip():
-        payload["location"] = location.strip()
 
     try:
         r = http_req.post(
             f"{SUPABASE_URL}/rest/v1/contacted_prospects",
             headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
-            params={"on_conflict": "client_id,client_industry_id,email,contacted_at"},
             json=payload,
             timeout=10,
         )
@@ -718,33 +578,28 @@ async def add_contacted(
     except Exception as e:
         return error(f"Supabase error: {e}")
 
-    return await get_contacted(request, client_id=client_id, industry_id=industry_id,
-                               search="", date_from="", date_to="", location="", offset=0)
+    return await get_contacted(request, client_id=client_id,
+                               search="", date_from="", date_to="", offset=0)
 
 
 @router.post("/api/dnc/contacted/upload")
 async def upload_contacted(
     request:       Request,
     client_id:     str        = Form(...),
-    industry_id:   str        = Form(...),
     file:          UploadFile = File(...),
     contacted_at:  str        = Form(...),
     campaign_name: str        = Form(""),
-    location:      str        = Form(""),
 ):
     def error(msg: str):
         return templates.TemplateResponse(
             "partials/dnc_contacted_table.html",
             {"request": request, "error": msg, "entries": [], "total": 0,
              "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
-             "client_id": client_id, "industry_id": industry_id,
-             "search": "", "date_from": "", "date_to": "", "location": ""},
+             "client_id": client_id, "search": "", "date_from": "", "date_to": ""},
         )
 
     if not _sb_configured():
         return error("Supabase is not configured.")
-    if not industry_id:
-        return error("Please select an industry before uploading.")
     if not contacted_at:
         return error("Please select a contact date.")
 
@@ -778,13 +633,11 @@ async def upload_contacted(
         chunk = emails[i : i + CHUNK_SIZE]
         rows = [
             {
-                "client_id":          client_id,
-                "client_industry_id": industry_id,
-                "email":              e,
-                "contacted_at":       contacted_at,
-                "source":             "csv_upload",
+                "client_id":    client_id,
+                "email":        e,
+                "contacted_at": contacted_at,
+                "source":       "csv_upload",
                 **({"campaign_name": campaign} if campaign else {}),
-                **({"location": location.strip()} if location.strip() else {}),
             }
             for e in chunk
         ]
@@ -792,7 +645,6 @@ async def upload_contacted(
             r = http_req.post(
                 f"{SUPABASE_URL}/rest/v1/contacted_prospects",
                 headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
-                params={"on_conflict": "client_id,client_industry_id,email,contacted_at"},
                 json=rows,
                 timeout=30,
             )
@@ -800,17 +652,15 @@ async def upload_contacted(
         except Exception as e:
             return error(f"Supabase error during upload: {e}")
 
-    return await get_contacted(request, client_id=client_id, industry_id=industry_id,
-                               search="", date_from="", date_to="", location="", offset=0)
+    return await get_contacted(request, client_id=client_id,
+                               search="", date_from="", date_to="", offset=0)
 
 
 @router.delete("/api/dnc/contacted/{entry_id}")
 async def delete_contacted(
-    request:     Request,
-    entry_id:    str,
-    client_id:   str = Query(...),
-    industry_id: str = Query(""),
-    location:    str = Query(""),
+    request:   Request,
+    entry_id:  str,
+    client_id: str = Query(...),
 ):
     if _sb_configured():
         try:
@@ -823,17 +673,15 @@ async def delete_contacted(
         except Exception:
             pass
 
-    return await get_contacted(request, client_id=client_id, industry_id=industry_id,
-                               search="", date_from="", date_to="", location=location, offset=0)
+    return await get_contacted(request, client_id=client_id,
+                               search="", date_from="", date_to="", offset=0)
 
 
 @router.post("/api/dnc/contacted/bulk-delete")
 async def bulk_delete_contacted(
-    request:     Request,
-    client_id:   str       = Form(...),
-    industry_id: str       = Form(""),
-    location:    str       = Form(""),
-    ids:         List[str] = Form(default=[]),
+    request:   Request,
+    client_id: str       = Form(...),
+    ids:       List[str] = Form(default=[]),
 ):
     if ids and _sb_configured():
         id_filter = "(" + ",".join(ids) + ")"
@@ -847,8 +695,8 @@ async def bulk_delete_contacted(
         except Exception:
             pass
 
-    return await get_contacted(request, client_id=client_id, industry_id=industry_id,
-                               search="", date_from="", date_to="", location=location, offset=0)
+    return await get_contacted(request, client_id=client_id,
+                               search="", date_from="", date_to="", offset=0)
 
 
 # ── purge old contacted records ───────────────────────────────────────────────

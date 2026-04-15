@@ -377,36 +377,6 @@
   }
   .removed-sub-summary::-webkit-details-marker { display: none; }
 
-  /* ── Industry chips ──────────────────────────────────────────── */
-  .industry-chips-inner {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .industry-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    background: rgba(139,92,246,.12);
-    border: 1px solid rgba(139,92,246,.28);
-    border-radius: 20px;
-    padding: 5px 10px 5px 14px;
-    font-size: 13px;
-    color: #c4b5fd;
-  }
-  .chip-delete {
-    background: transparent;
-    border: none;
-    color: rgba(196,181,253,.5);
-    font-size: 12px;
-    cursor: pointer;
-    padding: 0;
-    line-height: 1;
-    transition: color .15s var(--ease);
-    font-family: var(--font);
-  }
-  .chip-delete:hover { color: var(--red); }
-  .chips-empty { font-size: 13px; color: var(--text-3); padding: 4px 0; }
 
   /* ── Contacted table ─────────────────────────────────────────── */
   .manage-controls-3 { grid-template-columns: 1fr 1fr 1fr; }
@@ -831,14 +801,6 @@
 
       <!-- Lookback period (revealed when toggle is on) -->
       <div id="lookback-section" style="display:none; margin-bottom:0">
-        <div class="form-row" style="margin-bottom:14px">
-          <div class="form-group" style="margin-bottom:0">
-            <label>Industry <span class="opt">optional — defaults to all industries</span></label>
-            <select id="scrub-industry-select" name="industry_id">
-              <option value="">All industries</option>
-            </select>
-          </div>
-        </div>
         <div class="form-row" style="margin-bottom:0">
           <div class="form-group" style="margin-bottom:0">
             <label>Lookback period</label>
@@ -854,13 +816,6 @@
               <label>Contacted since</label>
               <input type="date" id="lookback-custom-from" name="lookback_custom_from">
             </div>
-          </div>
-        </div>
-        <div class="form-row" style="margin-top:14px; margin-bottom:0">
-          <div class="form-group" style="margin-bottom:0">
-            <label>Location <span class="opt">optional — country or state</span></label>
-            <input type="text" name="location" id="scrub-location-input"
-                   placeholder="e.g. United States, California">
           </div>
         </div>
       </div>
@@ -1107,8 +1062,8 @@
 ═══════════════════════════════════════════════════════════════ -->
 <div id="tab-manage-contacted" class="tab-panel" style="display:none">
 
-  <!-- Client + industry + location selectors -->
-  <div class="manage-controls manage-controls-3">
+  <!-- Client selector -->
+  <div class="manage-controls">
     <div class="form-group" style="margin-bottom:0">
       <label style="display:flex;align-items:center;justify-content:space-between">
         Client
@@ -1130,56 +1085,7 @@
         <option value="">Loading clients…</option>
       </select>
     </div>
-    <div class="form-group" style="margin-bottom:0">
-      <label>Industry filter <span class="opt">for table below</span></label>
-      <select id="contact-industry-filter" name="industry_id">
-        <option value="">All industries</option>
-      </select>
-    </div>
-    <div class="form-group" style="margin-bottom:0">
-      <label>Location filter <span class="opt">country or state</span></label>
-      <input type="text" id="contact-location-filter" name="location"
-             placeholder="e.g. United States"
-             hx-get="/api/dnc/contacted"
-             hx-trigger="input changed delay:400ms"
-             hx-target="#contacted-table"
-             hx-swap="innerHTML"
-             hx-include="[id='contacted-client-select'],[id='contact-industry-filter']"
-             hx-vals='{"offset": "0"}'>
-    </div>
   </div>
-
-  <!-- Industry management -->
-  <details class="form-card" style="margin-bottom:24px" id="industry-manage-details">
-    <summary style="padding:18px 24px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text-2);list-style:none;display:flex;align-items:center;gap:8px;user-select:none">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" id="industry-chevron">
-        <polyline points="6 9 12 15 18 9"/>
-      </svg>
-      Manage Industries
-    </summary>
-    <div style="padding:0 24px 22px">
-      <div id="industry-chips" style="margin-bottom:16px">
-        <p class="chips-empty">Select a client to manage industries.</p>
-      </div>
-      <form hx-post="/api/dnc/industries"
-            hx-target="#industry-chips"
-            hx-swap="innerHTML"
-            hx-on::after-request="this.reset()">
-        <input type="hidden" name="client_id" id="industry-add-client-id" value="">
-        <div class="form-row" style="margin-bottom:0">
-          <input type="text" name="name" placeholder="e.g. SaaS, Fintech, Healthcare" required>
-          <button type="submit" class="btn btn-primary" style="align-self:end">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-            Add Industry
-          </button>
-        </div>
-      </form>
-    </div>
-  </details>
 
   <!-- Contacted prospects table + filters -->
   <p class="section-label">Contacted prospects</p>
@@ -1208,12 +1114,10 @@
 
   <!-- Hidden filter state for hx-include -->
   <div id="contact-filters" style="display:none">
-    <input type="hidden" name="client_id"   id="contact-filter-client-id"   value="">
-    <input type="hidden" name="industry_id" id="contact-filter-industry-id" value="">
-    <input type="hidden" name="search"      id="contact-filter-search"      value="">
-    <input type="hidden" name="date_from"   id="contact-filter-date-from"   value="">
-    <input type="hidden" name="date_to"     id="contact-filter-date-to"     value="">
-    <input type="hidden" name="location"    id="contact-filter-location"    value="">
+    <input type="hidden" name="client_id" id="contact-filter-client-id" value="">
+    <input type="hidden" name="search"    id="contact-filter-search"    value="">
+    <input type="hidden" name="date_from" id="contact-filter-date-from" value="">
+    <input type="hidden" name="date_to"   id="contact-filter-date-to"   value="">
   </div>
 
   <div id="contacted-table">
@@ -1253,25 +1157,12 @@
 
       <div class="form-row">
         <div class="form-group" style="margin-bottom:0">
-          <label>Industry <span class="opt">required</span></label>
-          <select id="contact-upload-industry-select" name="industry_id" required>
-            <option value="">Select a client first</option>
-          </select>
-        </div>
-        <div class="form-group" style="margin-bottom:0">
           <label>Contact date <span class="opt">applied to all rows</span></label>
           <input type="date" id="contact-upload-date" name="contacted_at" required>
         </div>
-      </div>
-
-      <div class="form-row" style="margin-top:14px">
         <div class="form-group" style="margin-bottom:0">
           <label>Campaign name <span class="opt">optional</span></label>
           <input type="text" name="campaign_name" placeholder="e.g. Q2 Outreach — Wave 1">
-        </div>
-        <div class="form-group" style="margin-bottom:0">
-          <label>Location <span class="opt">optional — country or state</span></label>
-          <input type="text" name="location" placeholder="e.g. United States, California">
         </div>
       </div>
 
@@ -1309,26 +1200,14 @@
           <input type="text" name="email" placeholder="contact@example.com" required>
         </div>
         <div class="form-group" style="margin-bottom:0">
-          <label>Industry <span class="opt">required</span></label>
-          <select id="contact-add-industry-select" name="industry_id" required>
-            <option value="">Select a client first</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="form-row" style="margin-top:14px">
-        <div class="form-group" style="margin-bottom:0">
           <label>Contact date</label>
           <input type="date" id="contact-add-date" name="contacted_at" required>
         </div>
-        <div class="form-group" style="margin-bottom:0">
-          <label>Campaign name <span class="opt">optional</span></label>
-          <input type="text" name="campaign_name" placeholder="e.g. Q2 Outreach">
-        </div>
-        <div class="form-group" style="margin-bottom:0">
-          <label>Location <span class="opt">optional</span></label>
-          <input type="text" name="location" placeholder="e.g. United States">
-        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:14px; margin-bottom:0">
+        <label>Campaign name <span class="opt">optional</span></label>
+        <input type="text" name="campaign_name" placeholder="e.g. Q2 Outreach">
       </div>
 
       <div class="form-actions">
@@ -1502,32 +1381,6 @@
       }
     });
 
-    // ── Scrub tab: load industries when client changes ───────────── //
-    function loadScrubIndustries(clientId) {
-      const target = document.getElementById('scrub-industry-select');
-      if (!target) return;
-      if (!clientId) {
-        target.innerHTML = '<option value="">All industries</option>';
-        return;
-      }
-      htmx.ajax('GET', `/api/dnc/industries?client_id=${encodeURIComponent(clientId)}`, {
-        target: '#scrub-industry-select',
-        swap:   'innerHTML',
-      });
-    }
-
-    // Extend the existing scrub client change listener
-    scrubClient.addEventListener('change', () => {
-      loadScrubIndustries(scrubClient.value);
-    });
-
-    // Also load after HTMX populates scrub client options on page load
-    document.body.addEventListener('htmx:afterSettle', function (e) {
-      if (e.detail && e.detail.target && e.detail.target.id === 'scrub-client-select') {
-        loadScrubIndustries(scrubClient.value);
-      }
-    });
-
     // ── Recently contacted toggle ────────────────────────────────── //
     const contactedToggle  = document.getElementById('remove-contacted-toggle');
     const lookbackSection  = document.getElementById('lookback-section');
@@ -1545,35 +1398,14 @@
     });
 
     // ── Manage Contacted tab ─────────────────────────────────────── //
-    const contactedClientSelect   = document.getElementById('contacted-client-select');
-    const contactFilterClientId   = document.getElementById('contact-filter-client-id');
-    const contactFilterIndustryId = document.getElementById('contact-filter-industry-id');
-    const contactFilterLocation   = document.getElementById('contact-filter-location');
-    const industryAddClientId     = document.getElementById('industry-add-client-id');
-    const contactUploadClientId   = document.getElementById('contact-upload-client-id');
-    const contactAddClientId      = document.getElementById('contact-add-client-id');
-    const contactIndustryFilter   = document.getElementById('contact-industry-filter');
-    const contactLocationFilter   = document.getElementById('contact-location-filter');
+    const contactedClientSelect = document.getElementById('contacted-client-select');
+    const contactFilterClientId = document.getElementById('contact-filter-client-id');
+    const contactUploadClientId = document.getElementById('contact-upload-client-id');
+    const contactAddClientId    = document.getElementById('contact-add-client-id');
 
-    function loadContactedIndustriesManage(clientId) {
+    function loadContactedTable(clientId) {
       if (!clientId) return;
-      // Single request: loads chips + OOB-updates all industry selects
-      // (including #contact-industry-filter via OOB in dnc_industries_managed.html)
-      htmx.ajax('GET', `/api/dnc/industries/manage?client_id=${encodeURIComponent(clientId)}`, {
-        target: '#industry-chips',
-        swap:   'innerHTML',
-      });
-    }
-
-    function loadContactedTable(clientId, industryId, location) {
-      if (!clientId) return;
-      const params = new URLSearchParams({
-        client_id:   clientId,
-        industry_id: industryId || '',
-        location:    location    || '',
-        offset:      '0',
-      });
-      htmx.ajax('GET', `/api/dnc/contacted?${params}`, {
+      htmx.ajax('GET', `/api/dnc/contacted?client_id=${encodeURIComponent(clientId)}&offset=0`, {
         target: '#contacted-table',
         swap:   'innerHTML',
       });
@@ -1581,16 +1413,11 @@
 
     function onContactedClientChange() {
       const cid = contactedClientSelect.value;
-      // Sync all hidden client_id inputs
-      [contactFilterClientId, industryAddClientId, contactUploadClientId, contactAddClientId].forEach(el => {
+      [contactFilterClientId, contactUploadClientId, contactAddClientId].forEach(el => {
         if (el) el.value = cid;
       });
-      contactFilterIndustryId.value = '';
-      contactFilterLocation.value   = '';
-      if (contactLocationFilter) contactLocationFilter.value = '';
       if (!cid) return;
-      loadContactedIndustriesManage(cid);
-      loadContactedTable(cid, '', '');
+      loadContactedTable(cid);
     }
 
     contactedClientSelect.addEventListener('change', onContactedClientChange);
@@ -1599,17 +1426,6 @@
       const id = e.detail && e.detail.target && e.detail.target.id;
       if (id === 'contacted-client-select') onContactedClientChange();
     });
-
-    // Industry filter → reload table
-    contactIndustryFilter.addEventListener('change', () => {
-      const cid = contactedClientSelect.value;
-      const iid = contactIndustryFilter.value;
-      const loc = contactLocationFilter ? contactLocationFilter.value : '';
-      contactFilterIndustryId.value = iid;
-      loadContactedTable(cid, iid, loc);
-    });
-
-    // Location filter is handled declaratively via hx-trigger on the input element.
 
     // ── Bulk delete: checkbox counter (event delegation) ─────────── //
     document.getElementById('tab-manage-contacted').addEventListener('change', function (e) {
