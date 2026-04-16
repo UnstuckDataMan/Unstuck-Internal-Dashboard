@@ -296,7 +296,7 @@ async def api_dnc_scrub(
     remove_contacted:     str        = Form(""),        # "on" when checkbox checked
     lookback_days_raw:    str        = Form("30"),      # "30", "60", "90", or "custom"
     lookback_custom_from: str        = Form(""),        # YYYY-MM-DD for custom range
-    save_contacted:       str        = Form("on"),      # "on" = auto-save clean list
+    save_contacted:       str        = Form(""),        # "on" when checkbox checked; absent (empty) when unchecked
     campaign_name:        str        = Form(""),        # optional campaign tag
 ):
     def error(msg: str):
