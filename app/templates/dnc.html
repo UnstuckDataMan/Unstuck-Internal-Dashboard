@@ -653,6 +653,345 @@
     font-size: 13px;
     color: #86efac;
   }
+
+  /* ── Mail Merge Tab ──────────────────────────────────────── */
+  .mm-step-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 6px;
+  }
+  .mm-step-num {
+    width: 20px; height: 20px;
+    border-radius: 6px;
+    background: var(--gradient-vivid);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: 0;
+  }
+  .mm-section { margin-bottom: 20px; }
+  .mm-section:last-child { margin-bottom: 0; }
+
+  /* Column pills */
+  .mm-col-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .mm-col-pill {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: .78rem;
+    cursor: pointer;
+    transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+    color: var(--text-2);
+    user-select: none;
+  }
+  .mm-col-pill:hover {
+    background: var(--purple);
+    color: #fff;
+    border-color: var(--purple);
+  }
+
+  /* Placeholder insert bar */
+  .mm-ph-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    background: rgba(139,92,246,.06);
+    border: 1px solid rgba(139,92,246,.18);
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-bottom: 16px;
+  }
+  .mm-ph-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-right: 4px;
+  }
+  .mm-ph-chip {
+    font-size: .75rem;
+    font-family: ui-monospace, 'SF Mono', monospace;
+    background: rgba(139,92,246,.12);
+    border: 1px solid rgba(139,92,246,.25);
+    color: #c4b5fd;
+    border-radius: 5px;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: background .15s var(--ease), color .15s var(--ease);
+    user-select: none;
+  }
+  .mm-ph-chip:hover {
+    background: var(--purple);
+    color: #fff;
+    border-color: var(--purple);
+  }
+
+  /* Template group card */
+  .mm-template-group {
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    position: relative;
+  }
+  .mm-template-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .mm-variant-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #a78bfa;
+    background: rgba(139,92,246,.15);
+    border: 1px solid rgba(139,92,246,.25);
+    border-radius: 5px;
+    padding: 2px 8px;
+  }
+  .mm-remove-btn {
+    background: none;
+    border: 1px solid rgba(248,113,113,.2);
+    border-radius: 6px;
+    color: var(--text-3);
+    cursor: pointer;
+    font-size: 11px;
+    font-family: var(--font);
+    padding: 2px 8px;
+    transition: color .15s var(--ease), background .15s var(--ease), border-color .15s var(--ease);
+  }
+  .mm-remove-btn:hover {
+    color: var(--red);
+    background: rgba(248,113,113,.1);
+    border-color: rgba(248,113,113,.35);
+  }
+  .mm-add-btn {
+    background: none;
+    border: 1.5px dashed var(--border);
+    border-radius: 10px;
+    padding: 8px 14px;
+    color: var(--text-3);
+    cursor: pointer;
+    font-size: .82rem;
+    font-family: var(--font);
+    transition: border-color .2s var(--ease), color .2s var(--ease);
+    width: 100%;
+    margin-top: 4px;
+    text-align: center;
+  }
+  .mm-add-btn:hover {
+    border-color: var(--purple);
+    color: #a78bfa;
+  }
+
+  /* Segment control (sends per day) */
+  .mm-segment {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(255,255,255,.04);
+  }
+  .mm-seg-btn {
+    padding: 8px 18px;
+    background: none;
+    border: none;
+    border-right: 1px solid var(--border);
+    color: var(--text-3);
+    cursor: pointer;
+    font-size: .82rem;
+    font-family: var(--font);
+    font-weight: 500;
+    transition: background .15s var(--ease), color .15s var(--ease);
+  }
+  .mm-seg-btn:last-child { border-right: none; }
+  .mm-seg-btn:hover { background: rgba(255,255,255,.06); color: var(--text-2); }
+  .mm-seg-btn.active {
+    background: var(--purple);
+    color: #fff;
+  }
+
+  /* Sender profiles panel */
+  .mm-profiles-panel {
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-top: 12px;
+  }
+  .mm-profiles-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .mm-profiles-row select { flex: 1; }
+  .mm-profiles-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 12px 0;
+  }
+
+  /* Alerts / feedback */
+  .mm-alert {
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: .84rem;
+    margin-top: 12px;
+    line-height: 1.5;
+    animation: resultIn .25s var(--ease-out) both;
+  }
+  .mm-alert-error   { background: rgba(248,113,113,.10); color: #fca5a5; border: 1px solid rgba(248,113,113,.2); }
+  .mm-alert-success { background: rgba(74,222,128,.08);  color: #6ee7b7; border: 1px solid rgba(74,222,128,.2); }
+  .mm-alert-warning { background: rgba(251,191,36,.10);  color: #fcd34d; border: 1px solid rgba(251,191,36,.2); }
+  .mm-alert-info    { background: rgba(139,92,246,.08);  color: #c4b5fd; border: 1px solid rgba(139,92,246,.2); }
+  .mm-alert ul { margin: 6px 0 0 16px; }
+  .mm-alert li { margin-bottom: 2px; }
+  .mm-hidden { display: none !important; }
+
+  /* Download row */
+  .mm-download-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: rgba(74,222,128,.06);
+    border: 1px solid rgba(74,222,128,.2);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-top: 16px;
+    animation: resultIn .3s var(--ease-out) both;
+  }
+  .mm-download-info { flex: 1; }
+  .mm-download-info strong { color: #6ee7b7; font-size: .9rem; }
+  .mm-download-info p { font-size: .78rem; color: var(--text-3); margin-top: 2px; }
+
+  /* Merge stat cards */
+  .mm-stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  /* Chaser details */
+  .mm-chaser-details summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: #a78bfa;
+    padding: 4px 0;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .mm-chaser-details summary::-webkit-details-marker { display: none; }
+  .mm-chaser-details summary::before {
+    content: '▸';
+    font-size: 10px;
+    color: var(--text-3);
+    transition: transform .18s var(--ease);
+  }
+  .mm-chaser-details[open] summary::before { transform: rotate(90deg); }
+
+  /* Field hint */
+  .mm-hint {
+    font-size: .76rem;
+    color: var(--text-3);
+    margin-top: 5px;
+    line-height: 1.45;
+  }
+  .mm-hint code {
+    font-family: ui-monospace, 'SF Mono', monospace;
+    font-size: .82em;
+    background: rgba(139,92,246,.12);
+    color: #c4b5fd;
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid rgba(139,92,246,.18);
+  }
+
+  /* Upload feedback inside card */
+  .mm-upload-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: rgba(139,92,246,.06);
+    border: 1px solid rgba(139,92,246,.15);
+    border-radius: 10px;
+    font-size: .84rem;
+    color: var(--text-2);
+  }
+  .mm-upload-status.success {
+    background: rgba(74,222,128,.06);
+    border-color: rgba(74,222,128,.2);
+    color: #6ee7b7;
+  }
+  .mm-upload-status.error {
+    background: rgba(248,113,113,.08);
+    border-color: rgba(248,113,113,.2);
+    color: #fca5a5;
+  }
+
+  /* Time input styling */
+  input[type="time"] {
+    width: 100%;
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: var(--font);
+    color: var(--text);
+    outline: none;
+    color-scheme: dark;
+    transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+    -webkit-appearance: none;
+  }
+  input[type="time"]:focus {
+    border-color: var(--border-focus);
+    box-shadow: var(--sh-glow);
+  }
+
+  /* Email col selector row */
+  .mm-email-col-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .mm-email-col-row label {
+    margin-bottom: 0;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  .mm-email-col-row select { flex: 1; }
 </style>
 
 <!-- ── Add client modal ─────────────────────────────────────────── -->
@@ -705,6 +1044,17 @@
       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
     </svg>
     Scrub Prospects
+  </button>
+  <button class="dnc-tab-btn" data-tab="tab-merge" role="tab" aria-selected="false">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"
+         style="display:inline;vertical-align:-2px;margin-right:5px">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/>
+      <line x1="16" y1="17" x2="8" y2="17"/>
+    </svg>
+    Mail Merge
   </button>
   <button class="dnc-tab-btn" data-tab="tab-manage" role="tab" aria-selected="false">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -862,7 +1212,308 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════
-     Tab 2: Manage DNC Lists
+     Tab 2: Mail Merge
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-merge" class="tab-panel" style="display:none">
+
+  <!-- ── Step 1: Upload ────────────────────────────────────────── -->
+  <p class="mm-step-label"><span class="mm-step-num">1</span> Upload Prospect Spreadsheet</p>
+  <div class="form-card mm-section">
+    <div style="padding:26px 28px 24px">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Excel file <span class="opt">.xlsx or .xls — max 32 MB</span></label>
+        <div class="dropzone-wrap">
+          <div class="dropzone" id="mm-upload-zone" role="button" tabindex="0"
+               aria-label="Upload prospect spreadsheet">
+            <div class="dropzone-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <div class="dropzone-text">
+              <strong>Click to browse</strong> or drag &amp; drop
+            </div>
+            <span class="dropzone-filename" id="mm-upload-filename"></span>
+            <span class="dropzone-hint">.xlsx, .xls accepted</span>
+            <input type="file" id="mm-file-input" accept=".xlsx,.xls" class="hidden-file-input" />
+          </div>
+        </div>
+      </div>
+
+      <div id="mm-upload-feedback"></div>
+
+      <!-- Columns section (shown after upload) -->
+      <div id="mm-columns-section" class="mm-hidden">
+        <div class="form-divider" style="margin-top:16px;margin-bottom:14px"></div>
+        <label>Detected Columns <span class="opt" id="mm-col-count"></span></label>
+        <div class="mm-col-pills" id="mm-columns-display"></div>
+
+        <div class="mm-email-col-row">
+          <label style="font-size:11px">Recipient email column</label>
+          <select id="mm-email-col-select">
+            <option value="">— Auto-detect —</option>
+          </select>
+        </div>
+
+        <p class="mm-hint" style="margin-top:10px">
+          <strong id="mm-row-count-badge"></strong>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step 2: Email Templates ───────────────────────────────── -->
+  <p class="mm-step-label"><span class="mm-step-num">2</span> Email Templates</p>
+  <div class="form-card mm-section">
+    <div style="padding:26px 28px 24px">
+
+      <!-- Placeholder insertion bar (shown after upload) -->
+      <div id="mm-ph-bar-wrap" class="mm-hidden">
+        <div class="mm-ph-bar" id="mm-ph-bar">
+          <span class="mm-ph-label">Insert:</span>
+        </div>
+      </div>
+
+      <label style="margin-bottom:10px">Subject Line Templates</label>
+      <div id="mm-subjects-container"></div>
+      <button type="button" class="mm-add-btn" id="mm-add-subject-btn">+ Add Subject Variant</button>
+
+      <div class="form-divider" style="margin:18px 0"></div>
+
+      <label style="margin-bottom:10px">Email Body Templates</label>
+      <div id="mm-bodies-container"></div>
+      <button type="button" class="mm-add-btn" id="mm-add-body-btn">+ Add Body Variant</button>
+
+      <div class="form-divider" style="margin:18px 0"></div>
+
+      <details class="mm-chaser-details" id="mm-chaser-section">
+        <summary>
+          Chaser / Follow-up <span style="font-weight:400;color:var(--text-3);font-size:.8rem;margin-left:4px">(optional)</span>
+        </summary>
+        <div style="margin-top:14px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Chaser Email Body</label>
+            <textarea id="mm-chaser-body" rows="5"
+                      placeholder="Hi {{first_name}},&#10;&#10;Just following up on my previous message..."></textarea>
+          </div>
+        </div>
+      </details>
+
+    </div>
+  </div>
+
+  <!-- ── Step 3: Sender Accounts ───────────────────────────────── -->
+  <p class="mm-step-label"><span class="mm-step-num">3</span> Sender Accounts</p>
+  <div class="form-card mm-section">
+    <div style="padding:26px 28px 24px">
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0;flex:1">
+          <label>Sender email addresses <span class="opt">one per line</span></label>
+          <textarea id="mm-sender-emails"
+                    placeholder="sender1@company.com&#10;sender2@company.com&#10;sender3@company.com"
+                    rows="5"
+                    style="font-family:ui-monospace,'SF Mono',monospace;font-size:.82rem;resize:none"></textarea>
+          <p class="mm-hint">Prospects are assigned to senders in round-robin rotation.</p>
+        </div>
+        <div class="form-group" style="margin-bottom:0;flex:1">
+          <label>Saved Sender Profiles</label>
+          <div class="mm-profiles-panel">
+            <div class="mm-profiles-row">
+              <select id="mm-profile-select">
+                <option value="">— Select a profile —</option>
+              </select>
+              <button type="button" class="btn btn-download" id="mm-load-profile-btn" disabled
+                      style="padding:8px 12px;font-size:12px;white-space:nowrap">Load</button>
+              <button type="button" class="btn-delete" id="mm-delete-profile-btn" disabled
+                      style="width:30px;height:30px;font-size:13px">✕</button>
+            </div>
+            <p class="mm-hint" style="margin-top:6px">
+              Load a profile to use or edit it — modify the emails above, then save with the same name to update.
+            </p>
+            <hr class="mm-profiles-divider">
+            <div class="mm-profiles-row">
+              <input type="text" id="mm-profile-name" placeholder="New profile name…" style="flex:1">
+              <button type="button" class="btn btn-download" id="mm-save-profile-btn"
+                      style="padding:8px 12px;font-size:12px;white-space:nowrap">Save current</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step 4: Schedule Settings ─────────────────────────────── -->
+  <p class="mm-step-label"><span class="mm-step-num">4</span> Schedule Settings</p>
+  <div class="form-card mm-section">
+    <div style="padding:26px 28px 24px">
+
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Recipient Timezone</label>
+          <select id="mm-recipient-tz">
+            <option value="Europe/London">UK (GMT / BST)</option>
+            <option value="America/New_York">US Eastern (ET)</option>
+            <option value="America/Chicago">US Central (CT)</option>
+            <option value="America/Denver">US Mountain (MT)</option>
+            <option value="America/Los_Angeles">US Pacific (PT)</option>
+            <option value="America/Anchorage">US Alaska (AKT)</option>
+            <option value="Pacific/Honolulu">US Hawaii (HT)</option>
+          </select>
+          <p class="mm-hint">Send window applies in this timezone.</p>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Sender Timezone</label>
+          <select id="mm-sender-tz">
+            <option value="Europe/London">UK (GMT / BST)</option>
+            <option value="Africa/Johannesburg">South Africa (SAST)</option>
+          </select>
+          <p class="mm-hint">Output Send Time shown in this timezone.</p>
+        </div>
+      </div>
+
+      <div class="form-divider" style="margin:16px 0"></div>
+
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Send Window Start</label>
+          <input type="time" id="mm-window-start" value="08:30">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Send Window End</label>
+          <input type="time" id="mm-window-end" value="15:30">
+        </div>
+      </div>
+      <p class="mm-hint">Times are in the recipient's local timezone. Minimum 7-hour window.</p>
+
+      <div class="form-divider" style="margin:16px 0"></div>
+
+      <div class="form-group" style="margin-bottom:0">
+        <label>Sends Per Day <span class="opt">per sender account</span></label>
+        <div class="mm-segment" id="mm-sends-per-day-group">
+          <button type="button" class="mm-seg-btn" data-value="5">~5 /day</button>
+          <button type="button" class="mm-seg-btn active" data-value="10">~10 /day</button>
+          <button type="button" class="mm-seg-btn" data-value="15">~15 /day</button>
+        </div>
+        <p class="mm-hint">Approximate emails each sender sends per working day (3–7 / 8–12 / 13–17).</p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Step 5: Options ───────────────────────────────────────── -->
+  <p class="mm-step-label"><span class="mm-step-num">5</span> Options</p>
+  <div class="form-card mm-section">
+    <div style="padding:26px 28px 24px">
+      <div class="form-group" style="margin-bottom:0;max-width:340px">
+        <label>Missing Cell Replacement</label>
+        <input type="text" id="mm-missing-value" value="[MISSING]"
+               placeholder="Text to insert when a cell is blank">
+        <p class="mm-hint">Inserted when a prospect row has an empty cell for a placeholder.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step 6: Validate & Generate ───────────────────────────── -->
+  <p class="mm-step-label"><span class="mm-step-num">6</span> Validate &amp; Generate</p>
+  <div class="form-card mm-section">
+    <div style="padding:26px 28px 24px">
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <button type="button" class="btn btn-download" id="mm-validate-btn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          Validate Templates
+        </button>
+        <button type="button" class="btn btn-primary" id="mm-generate-btn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+          Generate Outreach Sheet
+        </button>
+      </div>
+
+      <div id="mm-validate-feedback"></div>
+      <div id="mm-generate-feedback"></div>
+
+      <!-- Preview table -->
+      <div id="mm-preview-section" class="mm-hidden">
+        <div class="form-divider" style="margin:18px 0 14px"></div>
+        <label>Output Preview <span class="opt">first 5 rows</span></label>
+        <div class="tbl-wrap" style="margin-bottom:0">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Sender</th>
+                <th>Recipient</th>
+                <th>Subject</th>
+                <th>Body Preview</th>
+                <th>Variant</th>
+                <th>Date</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody id="mm-preview-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Stats row after generate -->
+      <div id="mm-stats-section" class="mm-hidden">
+        <div class="mm-stats-row">
+          <div class="stat-card">
+            <span class="stat-num" id="mm-stat-prospects">0</span>
+            <span class="stat-lbl">Prospects</span>
+          </div>
+          <div class="stat-card stat-clean">
+            <span class="stat-num" id="mm-stat-senders">0</span>
+            <span class="stat-lbl">Senders</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="mm-stat-scheduled" style="color:#818cf8">0</span>
+            <span class="stat-lbl">Scheduled</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Download row -->
+      <div id="mm-download-section" class="mm-hidden">
+        <div class="mm-download-row">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6ee7b7"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <div class="mm-download-info">
+            <strong>Outreach sheet generated!</strong>
+            <p id="mm-row-count-text"></p>
+          </div>
+          <input type="text" id="mm-output-filename" placeholder="File name…"
+                 style="width:180px">
+          <button type="button" class="btn btn-primary" id="mm-download-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /tab-merge -->
+
+<!-- ═══════════════════════════════════════════════════════════════
+     Tab 3: Manage DNC Lists (was Tab 2 before merge tab)
 ═══════════════════════════════════════════════════════════════ -->
 <div id="tab-manage" class="tab-panel" style="display:none">
 
@@ -1079,7 +1730,7 @@
 </div><!-- /tab-manage -->
 
 <!-- ═══════════════════════════════════════════════════════════════
-     Tab 3: Manage Contacted Lists
+     Tab 4: Manage Contacted Lists
 ═══════════════════════════════════════════════════════════════ -->
 <div id="tab-manage-contacted" class="tab-panel" style="display:none">
 
@@ -1621,5 +2272,519 @@
     }
 
   })();
+</script>
+
+<!-- ── Mail Merge Tool JS ──────────────────────────────────────── -->
+<script>
+(function MergeToolInit() {
+  // ── State ────────────────────────────────────────────────────
+  const mm = {
+    fileId: null,
+    headers: [],
+    totalRows: 0,
+    focusedField: null,
+    subjectCount: 0,
+    bodyCount: 0,
+    downloadId: null,
+    sendsPerDay: 10,
+    profilesCache: {},
+    initialized: false,
+  };
+
+  // ── Helpers ──────────────────────────────────────────────────
+  function $(id) { return document.getElementById(id); }
+  function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function showAlert(container, type, html) {
+    if (!container) return;
+    container.innerHTML =
+      `<div class="mm-alert mm-alert-${type}">${html}</div>`;
+  }
+  function clearAlert(container) {
+    if (container) container.innerHTML = '';
+  }
+
+  function getTemplates(selector) {
+    return Array.from(document.querySelectorAll(selector))
+      .map(el => el.value.trim()).filter(Boolean);
+  }
+
+  // ── File Upload ──────────────────────────────────────────────
+  function wireUpload() {
+    const zone     = $('mm-upload-zone');
+    const fileInput = $('mm-file-input');
+    const fnameEl  = $('mm-upload-filename');
+    if (!zone || !fileInput) return;
+
+    zone.addEventListener('click', () => fileInput.click());
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.classList.remove('dragover');
+      const f = e.dataTransfer.files[0];
+      if (f) doUpload(f);
+    });
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files[0];
+      if (f) doUpload(f);
+    });
+  }
+
+  async function doUpload(file) {
+    const feedback = $('mm-upload-feedback');
+    const fnameEl  = $('mm-upload-filename');
+    const zone     = $('mm-upload-zone');
+    showAlert(feedback, 'info', 'Reading file…');
+    zone.classList.add('has-file');
+    fnameEl.textContent = file.name;
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const resp = await fetch('/api/merge/upload-prospects', { method: 'POST', body: fd });
+      const data = await resp.json();
+      if (data.error) {
+        showAlert(feedback, 'error', data.error);
+        return;
+      }
+      mm.fileId    = data.file_id;
+      mm.headers   = data.headers;
+      mm.totalRows = data.total_rows;
+
+      showAlert(feedback, 'success',
+        `<strong>${file.name}</strong> loaded — ${data.total_rows.toLocaleString()} rows, ${data.headers.length} columns`);
+
+      renderColumns(data.headers);
+      buildPlaceholderBar(data.headers);
+      if (mm.subjectCount === 0) addTemplate('subject');
+      if (mm.bodyCount === 0) addTemplate('body');
+    } catch (err) {
+      showAlert(feedback, 'error', 'Upload failed: ' + err.message);
+    }
+  }
+
+  // ── Columns Display ──────────────────────────────────────────
+  function renderColumns(headers) {
+    const section  = $('mm-columns-section');
+    const display  = $('mm-columns-display');
+    const emailSel = $('mm-email-col-select');
+    const colCount = $('mm-col-count');
+    const rowBadge = $('mm-row-count-badge');
+
+    section.classList.remove('mm-hidden');
+    colCount.textContent = headers.length + ' columns';
+    rowBadge.textContent = mm.totalRows.toLocaleString() + ' prospect rows ready for merge';
+
+    display.innerHTML = '';
+    emailSel.innerHTML = '<option value="">— Auto-detect —</option>';
+
+    let autoEmail = '';
+    const emailTerms = ['email', 'e-mail', 'emailaddress', 'email address', 'recipient'];
+
+    headers.forEach(h => {
+      const pill = document.createElement('span');
+      pill.className = 'mm-col-pill';
+      pill.textContent = h;
+      pill.title = 'Click to insert {{' + h + '}} at cursor';
+      pill.addEventListener('click', () => insertPlaceholder(h));
+      display.appendChild(pill);
+
+      const opt = document.createElement('option');
+      opt.value = h;
+      opt.textContent = h;
+      emailSel.appendChild(opt);
+
+      if (!autoEmail && emailTerms.some(t => h.toLowerCase().includes(t))) autoEmail = h;
+    });
+
+    if (autoEmail) emailSel.value = autoEmail;
+  }
+
+  // ── Placeholder Bar ──────────────────────────────────────────
+  function buildPlaceholderBar(headers) {
+    const bar  = $('mm-ph-bar');
+    const wrap = $('mm-ph-bar-wrap');
+    bar.innerHTML = '<span class="mm-ph-label">Insert:</span>';
+    headers.forEach(h => {
+      const chip = document.createElement('span');
+      chip.className = 'mm-ph-chip';
+      chip.textContent = '{{' + h + '}}';
+      chip.addEventListener('click', () => insertPlaceholder(h));
+      bar.appendChild(chip);
+    });
+    wrap.classList.remove('mm-hidden');
+  }
+
+  function insertPlaceholder(colName) {
+    const el = mm.focusedField;
+    if (!el) return;
+    const ph    = '{{' + colName + '}}';
+    const start = el.selectionStart;
+    const end   = el.selectionEnd;
+    el.value = el.value.substring(0, start) + ph + el.value.substring(end);
+    el.selectionStart = el.selectionEnd = start + ph.length;
+    el.focus();
+  }
+
+  // ── Template Management ──────────────────────────────────────
+  function addTemplate(type) {
+    const isSubject = type === 'subject';
+    const container = $(isSubject ? 'mm-subjects-container' : 'mm-bodies-container');
+
+    if (isSubject) mm.subjectCount++;
+    else mm.bodyCount++;
+
+    const idx   = isSubject ? mm.subjectCount : mm.bodyCount;
+    const id    = 'mm-' + type + '-' + idx;
+    const label = isSubject ? 'Subject' : 'Body';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'mm-template-group';
+    wrap.id = 'mm-group-' + id;
+
+    const header = document.createElement('div');
+    header.className = 'mm-template-header';
+    header.innerHTML =
+      '<span class="mm-variant-badge">' + label + ' Variant ' + idx + '</span>' +
+      '<button type="button" class="mm-remove-btn">Remove</button>';
+    header.querySelector('.mm-remove-btn').addEventListener('click', () => wrap.remove());
+
+    const body = document.createElement('div');
+    if (isSubject) {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.id = id;
+      inp.className = 'mm-subject-input';
+      inp.placeholder = 'e.g. Quick question for {{first_name}} at {{company}}';
+      inp.addEventListener('focus', () => { mm.focusedField = inp; });
+      body.appendChild(inp);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.id = id;
+      ta.className = 'mm-body-input';
+      ta.rows = 7;
+      ta.placeholder = 'Hi {{first_name}},\n\n{I noticed {{company}} is expanding|I see {{company}} is hiring} — I\'d love to connect.\n\nWould you be open to a quick call?\n\nBest,\n[Your name]';
+      ta.addEventListener('focus', () => { mm.focusedField = ta; });
+      body.appendChild(ta);
+
+      const hint = document.createElement('p');
+      hint.className = 'mm-hint';
+      hint.innerHTML = 'Use <code>{{column}}</code> for data merge. Use <code>{option A|option B}</code> for inline variants.';
+      body.appendChild(hint);
+    }
+
+    wrap.appendChild(header);
+    wrap.appendChild(body);
+    container.appendChild(wrap);
+  }
+
+  // ── Sender Profiles ──────────────────────────────────────────
+  async function renderSavedProfiles() {
+    const sel = $('mm-profile-select');
+    const prev = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+
+    try {
+      const resp = await fetch('/api/merge/sender-profiles');
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed to load');
+
+      mm.profilesCache = {};
+      data.forEach(p => {
+        mm.profilesCache[p.profile_name] = p.emails || [];
+        const opt = document.createElement('option');
+        opt.value = p.profile_name;
+        opt.textContent = p.profile_name;
+        sel.appendChild(opt);
+      });
+      if (prev && mm.profilesCache[prev]) sel.value = prev;
+    } catch (_e) {
+      const opt = document.createElement('option');
+      opt.disabled = true;
+      opt.textContent = 'Could not load profiles';
+      sel.appendChild(opt);
+    }
+    updateProfileButtons();
+  }
+
+  function updateProfileButtons() {
+    const has = !!$('mm-profile-select').value;
+    $('mm-load-profile-btn').disabled   = !has;
+    $('mm-delete-profile-btn').disabled = !has;
+  }
+
+  function loadSelectedProfile() {
+    const name = $('mm-profile-select').value;
+    if (!name) return;
+    const emails = mm.profilesCache[name];
+    if (emails && emails.length) {
+      $('mm-sender-emails').value = emails.join('\n');
+      $('mm-profile-name').value  = name;
+    }
+  }
+
+  async function saveProfile() {
+    const name     = $('mm-profile-name').value.trim();
+    const emailRaw = $('mm-sender-emails').value.trim();
+    if (!name)     return alert('Enter a profile name.');
+    if (!emailRaw) return alert('Enter at least one sender email.');
+    const emails = emailRaw.split('\n').map(e => e.trim()).filter(Boolean);
+    try {
+      const resp = await fetch('/api/merge/sender-profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_name: name, emails }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed to save');
+      $('mm-profile-name').value = '';
+      mm.profilesCache[name] = emails;
+      await renderSavedProfiles();
+      $('mm-profile-select').value = name;
+      updateProfileButtons();
+    } catch (err) {
+      alert('Could not save profile: ' + err.message);
+    }
+  }
+
+  async function deleteSelectedProfile() {
+    const name = $('mm-profile-select').value;
+    if (!name || !confirm('Delete profile "' + name + '"?')) return;
+    try {
+      const resp = await fetch('/api/merge/sender-profiles/' + encodeURIComponent(name), { method: 'DELETE' });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed to delete');
+      if ($('mm-profile-name').value === name) $('mm-profile-name').value = '';
+      await renderSavedProfiles();
+    } catch (err) {
+      alert('Could not delete profile: ' + err.message);
+    }
+  }
+
+  // ── Validate Templates ───────────────────────────────────────
+  async function validateTemplates() {
+    const fb = $('mm-validate-feedback');
+    if (!mm.fileId) {
+      showAlert(fb, 'warning', 'Please upload a prospect file first.');
+      return;
+    }
+    const subjects   = getTemplates('.mm-subject-input');
+    const bodies     = getTemplates('.mm-body-input');
+    const chaserBody = ($('mm-chaser-body') || {}).value || '';
+
+    if (!subjects.length) { showAlert(fb, 'error', 'Add at least one subject line template.'); return; }
+    if (!bodies.length)   { showAlert(fb, 'error', 'Add at least one email body template.'); return; }
+
+    const btn = $('mm-validate-btn');
+    btn.disabled = true;
+
+    try {
+      const resp = await fetch('/api/merge/validate-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          headers: mm.headers,
+          subject_templates: subjects,
+          body_templates: bodies,
+          chaser_body: chaserBody,
+        }),
+      });
+      const data = await resp.json();
+      if (data.valid) {
+        showAlert(fb, 'success', 'All placeholders matched — templates are valid.');
+      } else {
+        showAlert(fb, 'error', 'Validation failed:<ul>' + data.errors.map(e => '<li>' + escHtml(e) + '</li>').join('') + '</ul>');
+      }
+    } catch (err) {
+      showAlert(fb, 'error', 'Network error: ' + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ── Generate Merge ───────────────────────────────────────────
+  async function generateMerge() {
+    const fb = $('mm-generate-feedback');
+    clearAlert($('mm-validate-feedback'));
+    if (!mm.fileId) {
+      showAlert(fb, 'warning', 'Please upload a prospect file first.');
+      return;
+    }
+    const subjects   = getTemplates('.mm-subject-input');
+    const bodies     = getTemplates('.mm-body-input');
+    const chaserBody = ($('mm-chaser-body') || {}).value || '';
+    const senderRaw  = $('mm-sender-emails').value.trim();
+    const senders    = senderRaw.split('\n').map(s => s.trim()).filter(Boolean);
+    const missingVal = $('mm-missing-value').value.trim() || '[MISSING]';
+    const emailCol   = $('mm-email-col-select').value;
+
+    if (!subjects.length || !bodies.length) {
+      showAlert(fb, 'error', 'At least one subject and one body template are required.');
+      return;
+    }
+    if (!senders.length) {
+      showAlert(fb, 'error', 'At least one sender email address is required.');
+      return;
+    }
+
+    const winStart = $('mm-window-start').value || '08:30';
+    const winEnd   = $('mm-window-end').value   || '15:30';
+    const [sh, sm] = winStart.split(':').map(Number);
+    const [eh, em] = winEnd.split(':').map(Number);
+    const windowMins = (eh * 60 + em) - (sh * 60 + sm);
+    if (windowMins <= 0) {
+      showAlert(fb, 'error', 'Send window end must be after the start.');
+      return;
+    }
+    if (windowMins < 420) {
+      showAlert(fb, 'error', 'Send window must be at least 7 hours. Current window is ' +
+        Math.floor(windowMins/60) + 'h ' + (windowMins%60) + 'm.');
+      return;
+    }
+
+    const btn = $('mm-generate-btn');
+    btn.disabled = true;
+    $('mm-download-section').classList.add('mm-hidden');
+    $('mm-preview-section').classList.add('mm-hidden');
+    $('mm-stats-section').classList.add('mm-hidden');
+
+    try {
+      const resp = await fetch('/api/merge/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_id:           mm.fileId,
+          subject_templates: subjects,
+          body_templates:    bodies,
+          chaser_body:       chaserBody,
+          sender_emails:     senders,
+          missing_value:     missingVal,
+          email_column:      emailCol,
+          recipient_tz:      $('mm-recipient-tz').value,
+          sender_tz:         $('mm-sender-tz').value,
+          sends_per_day:     mm.sendsPerDay,
+          window_start:      winStart,
+          window_end:        winEnd,
+        }),
+      });
+      const data = await resp.json();
+
+      if (data.error) {
+        let msg = data.error;
+        if (data.details) msg += '<ul>' + data.details.map(e => '<li>' + escHtml(e) + '</li>').join('') + '</ul>';
+        showAlert(fb, 'error', msg);
+        return;
+      }
+
+      mm.downloadId = data.download_id;
+      const sched = (data.scheduled_count || data.total_rows).toLocaleString();
+      showAlert(fb, 'success',
+        'Merge complete — <strong>' + sched + '</strong> prospects scheduled.');
+
+      // Preview table
+      renderPreview(data.preview);
+
+      // Stats
+      $('mm-stat-prospects').textContent = data.total_rows.toLocaleString();
+      $('mm-stat-senders').textContent   = senders.length;
+      $('mm-stat-scheduled').textContent = sched;
+      $('mm-stats-section').classList.remove('mm-hidden');
+
+      // Download row
+      let countTxt = sched + ' rows';
+      countTxt += ' · ' + senders.length + ' sender(s)';
+      countTxt += ' · ' + subjects.length + ' subject variant(s)';
+      countTxt += ' · ' + bodies.length + ' body variant(s)';
+      $('mm-row-count-text').textContent  = countTxt;
+      $('mm-output-filename').value       = 'Outreach Merge';
+      $('mm-download-section').classList.remove('mm-hidden');
+
+    } catch (err) {
+      showAlert(fb, 'error', 'Network error: ' + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function renderPreview(rows) {
+    const tbody = $('mm-preview-body');
+    tbody.innerHTML = '';
+    rows.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + (i + 1) + '</td>' +
+        '<td style="font-family:ui-monospace,monospace;font-size:.78rem">' + escHtml(r.sender) + '</td>' +
+        '<td style="font-family:ui-monospace,monospace;font-size:.78rem">' + escHtml(r.recipient) + '</td>' +
+        '<td>' + escHtml(r.subject) + '</td>' +
+        '<td><div style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+          escHtml(r.body_preview) + '</div></td>' +
+        '<td><span class="mm-variant-badge">' + escHtml(r.variant) + '</span></td>' +
+        '<td>' + escHtml(r.send_date) + '</td>' +
+        '<td>' + escHtml(r.send_time) + '</td>';
+      tbody.appendChild(tr);
+    });
+    $('mm-preview-section').classList.remove('mm-hidden');
+  }
+
+  // ── Download ─────────────────────────────────────────────────
+  function downloadFile() {
+    if (!mm.downloadId) return;
+    const name = $('mm-output-filename').value.trim();
+    const url  = '/api/merge/download/' + mm.downloadId +
+      (name ? '?name=' + encodeURIComponent(name) : '');
+    window.location.href = url;
+  }
+
+  // ── Wire Everything ──────────────────────────────────────────
+  function init() {
+    if (mm.initialized) return;
+    mm.initialized = true;
+
+    wireUpload();
+
+    // Chaser textarea focus tracking
+    const chaserTa = $('mm-chaser-body');
+    if (chaserTa) chaserTa.addEventListener('focus', () => { mm.focusedField = chaserTa; });
+
+    // Add template buttons
+    $('mm-add-subject-btn').addEventListener('click', () => addTemplate('subject'));
+    $('mm-add-body-btn').addEventListener('click', () => addTemplate('body'));
+
+    // Sends per day segment
+    $('mm-sends-per-day-group').addEventListener('click', e => {
+      const btn = e.target.closest('.mm-seg-btn');
+      if (!btn) return;
+      mm.sendsPerDay = parseInt(btn.dataset.value, 10);
+      document.querySelectorAll('#mm-sends-per-day-group .mm-seg-btn').forEach(b =>
+        b.classList.toggle('active', b === btn));
+    });
+
+    // Profile buttons
+    $('mm-profile-select').addEventListener('change', updateProfileButtons);
+    $('mm-load-profile-btn').addEventListener('click', loadSelectedProfile);
+    $('mm-save-profile-btn').addEventListener('click', saveProfile);
+    $('mm-delete-profile-btn').addEventListener('click', deleteSelectedProfile);
+
+    // Action buttons
+    $('mm-validate-btn').addEventListener('click', validateTemplates);
+    $('mm-generate-btn').addEventListener('click', generateMerge);
+    $('mm-download-btn').addEventListener('click', downloadFile);
+
+    // Load saved profiles
+    renderSavedProfiles();
+  }
+
+  // Fire init on first tab click
+  document.querySelectorAll('.dnc-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.tab === 'tab-merge') init();
+    });
+  });
+})();
 </script>
 {% endblock %}
