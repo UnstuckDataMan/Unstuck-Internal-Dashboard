@@ -251,6 +251,8 @@
     font-family: var(--font);
     transition: background .15s var(--ease), border-color .15s var(--ease);
     margin-top: 2px;
+    position: relative;
+    z-index: 2;
   }
   .dropzone-clear:hover {
     background: rgba(248,113,113,.2);
@@ -2007,7 +2009,8 @@
     const scrubZone     = scrubClearBtn.closest('.dropzone');
     const scrubFname    = scrubZone.querySelector('.dropzone-filename');
     scrubClearBtn.addEventListener('click', (e) => {
-      e.stopPropagation(); // don't re-open the file picker
+      e.stopPropagation();
+      e.preventDefault();
       scrubFile.value = '';
       scrubZone.classList.remove('has-file');
       scrubFname.textContent = '';
