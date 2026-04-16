@@ -1297,7 +1297,7 @@
           <div class="form-group" style="margin-bottom:0">
             <label>Chaser Email Body</label>
             <textarea id="mm-chaser-body" rows="5"
-                      placeholder="Hi {{first_name}},&#10;&#10;Just following up on my previous message..."></textarea>
+                      placeholder="Hi {{ '{{' }}first_name{{ '}}' }},&#10;&#10;Just following up on my previous message..."></textarea>
           </div>
         </div>
       </details>
@@ -2275,6 +2275,7 @@
 </script>
 
 <!-- ── Mail Merge Tool JS ──────────────────────────────────────── -->
+{% raw %}
 <script>
 (function MergeToolInit() {
   // ── State ────────────────────────────────────────────────────
@@ -2787,4 +2788,5 @@
   });
 })();
 </script>
+{% endraw %}
 {% endblock %}
