@@ -2271,6 +2271,17 @@
       });
     }
 
+    // ── "Use in Mail Merge" button (rendered by HTMX in scrub result) ─── //
+    document.body.addEventListener('click', (e) => {
+      const btn = e.target.closest('#send-to-merge-btn');
+      if (!btn) return;
+      const token    = btn.dataset.token;
+      const filename = btn.dataset.filename;
+      if (token && window._MergeTool) {
+        window._MergeTool.loadFromScrub(token, filename);
+      }
+    });
+
   })();
 </script>
 
@@ -2779,6 +2790,48 @@
     // Load saved profiles
     renderSavedProfiles();
   }
+
+  // ── Load from Scrub handoff ───────────────────────────────
+  async function loadFromScrub(token, filename) {
+    init();
+
+    // Switch to merge tab
+    const mergeBtn = document.querySelector('[data-tab="tab-merge"]');
+    if (mergeBtn) mergeBtn.click();
+
+    const feedback = $('mm-upload-feedback');
+    const fnameEl  = $('mm-upload-filename');
+    const zone     = $('mm-upload-zone');
+    showAlert(feedback, 'info', 'Loading clean list into Mail Merge…');
+    if (zone) zone.classList.add('has-file');
+    if (fnameEl) fnameEl.textContent = filename || 'scrub_clean.xlsx';
+
+    try {
+      const resp = await fetch('/api/dnc/send-to-merge/' + encodeURIComponent(token));
+      const data = await resp.json();
+      if (data.error) {
+        showAlert(feedback, 'error', data.error);
+        return;
+      }
+      mm.fileId    = data.file_id;
+      mm.headers   = data.headers;
+      mm.totalRows = data.total_rows;
+
+      showAlert(feedback, 'success',
+        '<strong>' + (filename || 'Clean list') + '</strong> loaded — ' +
+        data.total_rows.toLocaleString() + ' rows, ' + data.headers.length + ' columns');
+
+      renderColumns(data.headers);
+      buildPlaceholderBar(data.headers);
+      if (mm.subjectCount === 0) addTemplate('subject');
+      if (mm.bodyCount === 0) addTemplate('body');
+    } catch (err) {
+      showAlert(feedback, 'error', 'Failed to load clean list: ' + err.message);
+    }
+  }
+
+  // Expose for cross-tab handoff
+  window._MergeTool = { init, loadFromScrub };
 
   // Fire init on first tab click
   document.querySelectorAll('.dnc-tab-btn').forEach(btn => {

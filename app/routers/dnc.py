@@ -473,7 +473,7 @@ async def api_dnc_scrub(
 @router.get("/api/dnc/download/{token}")
 async def dnc_download_clean(token: str):
     with _store_lock:
-        entry = _store.pop(token, None)
+        entry = _store.get(token)
     if entry is None:
         raise HTTPException(404, "Download link has expired or already been used.")
     return Response(
@@ -486,7 +486,7 @@ async def dnc_download_clean(token: str):
 @router.get("/api/dnc/download-removed/{token}")
 async def dnc_download_removed(token: str):
     with _store_lock:
-        entry = _store.pop(token, None)
+        entry = _store.get(token)
     if entry is None:
         raise HTTPException(404, "Download link has expired or already been used.")
     return Response(
@@ -494,6 +494,58 @@ async def dnc_download_removed(token: str):
         media_type=entry["mime"],
         headers={"Content-Disposition": f'attachment; filename="{entry["filename"]}"'},
     )
+
+
+@router.get("/api/dnc/send-to-merge/{token}")
+async def send_clean_to_merge(token: str):
+    """Take the scrub clean-list, save as Excel in mail_merge/uploads, return
+    the same JSON shape as /api/merge/upload-prospects so the JS can hand off."""
+    import sys
+    from pathlib import Path as _Path
+
+    with _store_lock:
+        entry = _store.get(token)
+    if entry is None:
+        raise HTTPException(404, "Download link has expired.")
+
+    raw_bytes = entry["data"]
+    orig_name = entry["filename"]
+
+    # ── Ensure mail_merge utils are importable ──────────────────────
+    _mm_dir = _Path(__file__).resolve().parents[2] / "mail_merge"
+    if str(_mm_dir) not in sys.path:
+        sys.path.insert(0, str(_mm_dir))
+    from utils.excel_reader import parse_prospect_file   # noqa: E402
+
+    upload_dir = _mm_dir / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Convert CSV → Excel if needed ───────────────────────────────
+    if orig_name.lower().endswith(".csv"):
+        df_tmp = pd.read_csv(io.BytesIO(raw_bytes))
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as w:
+            df_tmp.to_excel(w, index=False, sheet_name="data")
+        raw_bytes = buf.getvalue()
+        orig_name = orig_name.rsplit(".", 1)[0] + ".xlsx"
+
+    safe_name = f"{uuid.uuid4().hex}_{orig_name}"
+    filepath  = upload_dir / safe_name
+    filepath.write_bytes(raw_bytes)
+
+    try:
+        headers, all_rows, total_rows = parse_prospect_file(str(filepath))
+        preview = [dict(row) for row in all_rows[:5]]
+        return {
+            "file_id":    safe_name,
+            "headers":    headers,
+            "preview":    preview,
+            "total_rows": total_rows,
+        }
+    except Exception as exc:
+        return HTMLResponse(
+            f"Failed to parse clean file for merge: {exc}", status_code=400,
+        )
 
 
 # ── industries ─────────────────────────────────────────────────────────────────
