@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Copy Bank — Unstuck Agency</title>
+  <style>
+    :root {
+      --bg:           #0b0b18;
+      --bg-panel:     #10101e;
+      --bg-card:      #14142a;
+      --bg-card-hdr:  #0f0f1e;
+      --bg-input:     #0d0d20;
+      --border:       #1e1e38;
+      --border-hi:    #2a2a48;
+      --text:         #e0e0f0;
+      --text-dim:     #8080a8;
+      --text-muted:   #50507a;
+      --accent-from:  #7c3aed;
+      --accent-to:    #6366f1;
+      --success-from: #16a34a;
+      --success-to:   #22c55e;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      background-image: radial-gradient(ellipse at 20% 60%, #1a0f2e 0%, transparent 60%),
+                        radial-gradient(ellipse at 80% 20%, #0f1030 0%, transparent 55%);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      color: var(--text);
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .home-link {
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: none; flex-shrink: 0;
+    }
+    .home-icon {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .home-icon svg { width: 18px; height: 18px; fill: white; }
+    header h1 {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: -.2px;
+    }
+    .gear-btn {
+      width: 32px; height: 32px; border-radius: 8px;
+      border: none; background: transparent; color: var(--text-muted);
+      font-size: 17px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s, color .15s; flex-shrink: 0;
+    }
+    .gear-btn:hover { background: var(--bg-card); color: var(--text-dim); }
+
+    /* ── Layout ── */
+    .main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Left panel ── */
+    .left-panel {
+      width: 270px; flex-shrink: 0;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow-y: auto;
+    }
+    .panel-section { padding: 16px; }
+    .panel-section + .panel-section { border-top: 1px solid var(--border); }
+    .section-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
+      text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;
+    }
+    .field { margin-bottom: 10px; }
+    .field:last-child { margin-bottom: 0; }
+    .field select {
+      width: 100%; padding: 8px 10px;
+      border: 1px solid var(--border-hi); border-radius: 8px;
+      font-size: 13px; color: var(--text);
+      background: var(--bg-input);
+      transition: border-color .15s; outline: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2360607a' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+    .field select:focus { border-color: var(--accent-from); box-shadow: 0 0 0 3px rgba(124,58,237,.15); }
+    .field select option { background: #1a1a30; }
+
+    /* ── Toggle buttons ── */
+    .toggle-group {
+      display: flex; border: 1px solid var(--border-hi);
+      border-radius: 8px; overflow: hidden;
+    }
+    .toggle-btn {
+      flex: 1; padding: 7px 4px; border: none;
+      background: var(--bg-input);
+      font-size: 12px; font-weight: 500; color: var(--text-dim);
+      cursor: pointer; transition: background .15s, color .15s;
+    }
+    .toggle-btn + .toggle-btn { border-left: 1px solid var(--border-hi); }
+    .toggle-btn.active {
+      background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+      color: white; font-weight: 600;
+    }
+    .toggle-btn:hover:not(.active) { background: var(--bg-card); color: var(--text); }
+
+    /* ── Right panel ── */
+    .right-panel {
+      flex: 1; display: flex; flex-direction: column;
+      overflow: hidden; background: transparent;
+    }
+    .rp-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 20px; background: var(--bg-panel);
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .rp-topbar-hint { font-size: 12px; color: var(--text-muted); }
+    .copy-all-btn {
+      padding: 7px 20px;
+      background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+      color: white; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: opacity .15s;
+    }
+    .copy-all-btn:hover { opacity: .85; }
+    .copy-all-btn.success { background: linear-gradient(135deg, var(--success-from) 0%, var(--success-to) 100%); }
+
+    .rp-scroll {
+      flex: 1; overflow-y: auto; padding: 20px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+
+    /* ── Loading / error states ── */
+    .rp-state {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 10px;
+      font-size: 13px; color: var(--text-muted);
+    }
+    .rp-state.error { color: #f87171; }
+    .spinner {
+      width: 24px; height: 24px;
+      border: 2px solid var(--border-hi);
+      border-top-color: var(--accent-from);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Channel sections ── */
+    .channel-section {
+      background: var(--bg-card); border-radius: 12px;
+      border: 1px solid var(--border-hi); overflow: hidden;
+      position: relative;
+    }
+    .channel-section::before {
+      content: '';
+      display: block; height: 2px;
+      background: linear-gradient(90deg, var(--accent-from) 0%, #a855f7 50%, var(--accent-to) 100%);
+    }
+    .channel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg-card-hdr);
+      border-bottom: 1px solid var(--border);
+    }
+    .channel-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.2px; color: var(--text-dim);
+    }
+    .copy-channel-btn {
+      padding: 5px 14px; border-radius: 7px;
+      background: transparent; border: 1px solid var(--border-hi);
+      font-size: 12px; font-weight: 600; color: var(--text-dim);
+      cursor: pointer; transition: all .15s;
+    }
+    .copy-channel-btn:hover { border-color: var(--accent-from); color: #a78bfa; background: rgba(124,58,237,.1); }
+    .copy-channel-btn.success {
+      background: linear-gradient(135deg, var(--success-from) 0%, var(--success-to) 100%);
+      color: white; border-color: transparent;
+    }
+
+    /* ── Variation cards ── */
+    .variation-card { padding: 16px; border-bottom: 1px solid var(--border); }
+    .variation-card:last-child { border-bottom: none; }
+    .var-card-top {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .var-card-label {
+      font-size: 10px; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+    .copy-var-btn {
+      padding: 5px 14px; border-radius: 7px;
+      background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+      color: white; border: none;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      transition: opacity .15s;
+    }
+    .copy-var-btn:hover { opacity: .85; }
+    .copy-var-btn.success { background: linear-gradient(135deg, var(--success-from) 0%, var(--success-to) 100%); }
+    .var-subject {
+      font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;
+    }
+    .var-subject span { font-weight: 400; color: var(--text); }
+    .var-body {
+      font-size: 13.5px; line-height: 1.7; color: var(--text);
+      white-space: pre-wrap; font-family: inherit;
+    }
+    .channel-empty {
+      padding: 28px 16px; text-align: center;
+      font-size: 13px; color: var(--text-muted); font-style: italic;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+
+    /* ═══════════════════════════════════════
+       PASSWORD MODAL
+    ═══════════════════════════════════════ */
+    .pw-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.75); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center; z-index: 500;
+    }
+    .pw-overlay.visible { display: flex; }
+    .pw-box {
+      background: var(--bg-card); border: 1px solid var(--border-hi);
+      border-radius: 16px; padding: 28px; width: 320px;
+      box-shadow: 0 24px 64px rgba(0,0,0,.5);
+    }
+    .pw-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 18px; }
+    .pw-input {
+      width: 100%; padding: 10px 12px;
+      background: var(--bg-input); border: 1px solid var(--border-hi);
+      border-radius: 8px; color: var(--text);
+      font-size: 14px; outline: none; margin-bottom: 6px;
+      transition: border-color .15s; font-family: inherit;
+    }
+    .pw-input:focus { border-color: var(--accent-from); box-shadow: 0 0 0 3px rgba(124,58,237,.15); }
+    .pw-error { font-size: 12px; color: #f87171; margin-bottom: 14px; min-height: 18px; }
+    .pw-row { display: flex; gap: 10px; justify-content: flex-end; }
+    .pw-cancel-btn {
+      padding: 8px 18px; border-radius: 8px;
+      border: 1px solid var(--border-hi); background: transparent;
+      color: var(--text-dim); font-size: 13px; font-weight: 500;
+      cursor: pointer; transition: border-color .15s, color .15s;
+    }
+    .pw-cancel-btn:hover { border-color: var(--text-muted); color: var(--text); }
+    .pw-submit-btn {
+      padding: 8px 22px; border-radius: 8px; border: none;
+      background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+      color: white; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: opacity .15s;
+    }
+    .pw-submit-btn:hover { opacity: .85; }
+
+    /* ═══════════════════════════════════════
+       ADMIN PANEL
+    ═══════════════════════════════════════ */
+    .admin-panel {
+      display: none; flex: 1; flex-direction: column;
+      overflow: hidden; background: var(--bg);
+    }
+    .admin-panel.visible { display: flex; }
+    .admin-header {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 24px; background: var(--bg-panel);
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .admin-back-btn {
+      padding: 6px 14px; border: 1px solid var(--border-hi);
+      background: transparent; border-radius: 7px;
+      font-size: 13px; font-weight: 500; color: var(--text-dim);
+      cursor: pointer; transition: border-color .15s, color .15s;
+    }
+    .admin-back-btn:hover { border-color: var(--accent-from); color: #a78bfa; }
+    .admin-title { font-size: 14px; font-weight: 700; color: var(--text); }
+    .admin-subtitle { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+
+    .admin-selectors {
+      display: flex; gap: 10px; padding: 14px 24px;
+      background: var(--bg-panel); border-bottom: 1px solid var(--border);
+      flex-shrink: 0; flex-wrap: wrap;
+    }
+    .admin-selectors select {
+      flex: 1; min-width: 120px; padding: 8px 10px;
+      border: 1px solid var(--border-hi); border-radius: 8px;
+      font-size: 13px; color: var(--text); background: var(--bg-input);
+      outline: none; cursor: pointer; transition: border-color .15s; appearance: none;
+    }
+    .admin-selectors select:focus { border-color: var(--accent-from); }
+    .admin-selectors select option { background: #1a1a30; }
+
+    .admin-body {
+      flex: 1; overflow-y: auto; padding: 24px;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+    .admin-card {
+      background: var(--bg-card); border-radius: 12px;
+      border: 1px solid var(--border-hi); padding: 20px;
+    }
+    .admin-card-title {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.2px; color: var(--text-muted); margin-bottom: 16px;
+    }
+    .adm-var-row {
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px; margin-bottom: 12px; background: var(--bg-input);
+    }
+    .adm-var-row:last-of-type { margin-bottom: 0; }
+    .adm-var-header {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 10px;
+    }
+    .adm-var-label {
+      font-size: 11px; font-weight: 700; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: .5px;
+    }
+    .adm-remove-btn {
+      padding: 3px 10px; border: 1px solid var(--border-hi);
+      background: transparent; border-radius: 6px;
+      font-size: 11px; font-weight: 600; color: var(--text-muted);
+      cursor: pointer; transition: all .15s;
+    }
+    .adm-remove-btn:hover { border-color: #f87171; color: #f87171; }
+    .adm-field-label {
+      font-size: 11px; font-weight: 600; color: var(--text-dim);
+      margin-bottom: 5px; margin-top: 10px;
+    }
+    .adm-field-label:first-child { margin-top: 0; }
+    .admin-textarea {
+      width: 100%; padding: 9px 11px;
+      border: 1px solid var(--border-hi); border-radius: 8px;
+      font-size: 13px; line-height: 1.6; color: var(--text);
+      background: var(--bg); resize: vertical; font-family: inherit;
+      outline: none; transition: border-color .15s;
+    }
+    .admin-textarea.subject-ta { min-height: 52px; }
+    .admin-textarea.body-ta { min-height: 160px; }
+    .admin-textarea:focus { border-color: var(--accent-from); box-shadow: 0 0 0 3px rgba(124,58,237,.15); }
+    .admin-textarea::placeholder { color: var(--text-muted); }
+    .adm-add-btn {
+      width: 100%; padding: 9px; margin-top: 12px;
+      border: 1px dashed var(--border-hi); border-radius: 8px;
+      background: transparent; color: var(--text-muted);
+      font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s;
+    }
+    .adm-add-btn:hover { border-color: var(--accent-from); color: #a78bfa; background: rgba(124,58,237,.08); }
+    .admin-save-row {
+      display: flex; align-items: center;
+      justify-content: flex-end; gap: 10px; margin-top: 16px;
+    }
+    .admin-save-btn {
+      padding: 8px 24px;
+      background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+      color: white; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s;
+    }
+    .admin-save-btn:hover { opacity: .85; }
+    .admin-save-btn.success { background: linear-gradient(135deg, var(--success-from) 0%, var(--success-to) 100%); }
+    .admin-save-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .save-status { font-size: 12px; color: var(--text-muted); margin-right: auto; }
+    .save-status.ok  { color: #4ade80; }
+    .save-status.err { color: #f87171; }
+    .admin-action-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .admin-action-btn {
+      padding: 8px 18px; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      border: 1px solid var(--border-hi); background: transparent; color: var(--text-dim);
+      transition: border-color .15s, color .15s;
+    }
+    .admin-action-btn:hover { border-color: var(--accent-from); color: #a78bfa; }
+    .admin-action-btn.danger:hover { border-color: #f87171; color: #f87171; }
+  </style>
+</head>
+<body>
+
+<!-- PASSWORD MODAL -->
+<div class="pw-overlay" id="pw-overlay">
+  <div class="pw-box">
+    <div class="pw-title">Admin Access</div>
+    <input type="password" id="pw-input" class="pw-input" placeholder="Password" autocomplete="current-password">
+    <div class="pw-error" id="pw-error"></div>
+    <div class="pw-row">
+      <button class="pw-cancel-btn" id="pw-cancel">Cancel</button>
+      <button class="pw-submit-btn" id="pw-submit">Enter</button>
+    </div>
+  </div>
+</div>
+
+<header>
+  <a href="/" class="home-link">
+    <div class="home-icon">
+      <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+        <path d="M10 2.5L2 9h2v8.5h5v-5h2v5h5V9h2L10 2.5z"/>
+      </svg>
+    </div>
+  </a>
+  <h1>Copy Bank</h1>
+  <button class="gear-btn" id="gear-btn" title="Admin">&#9881;</button>
+</header>
+
+<div class="main">
+  <!-- LEFT PANEL -->
+  <div class="left-panel">
+
+    <div class="panel-section">
+      <div class="section-label">Sending Account</div>
+      <div class="field">
+        <select id="sender">
+          <option value="Robyn">Robyn</option>
+          <option value="Glen">Glen</option>
+          <option value="Leo">Leo</option>
+          <option value="Chris">Chris</option>
+          <option value="Devlin">Devlin</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-label">Channel</div>
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-channel="email">Email</button>
+        <button class="toggle-btn active" data-channel="flyout">Fly-out</button>
+        <button class="toggle-btn active" data-channel="linkedin">LinkedIn</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-label">Territory</div>
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-territory="US">US</button>
+        <button class="toggle-btn" data-territory="UK">UK</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-label">Industry</div>
+      <div class="field">
+        <select id="industry">
+          <option value="PR">PR</option>
+          <option value="Marketing">Marketing</option>
+          <option value="Media">Media</option>
+          <option value="SaaS">SaaS</option>
+          <option value="AI">AI</option>
+          <option value="Accounting">Accounting</option>
+          <option value="Cybersecurity">Cybersecurity</option>
+        </select>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel" id="right-panel">
+    <div class="rp-topbar">
+      <span class="rp-topbar-hint" id="rp-hint">Loading templates&hellip;</span>
+      <button class="copy-all-btn" id="copy-all-btn">Copy All</button>
+    </div>
+    <div class="rp-scroll" id="rp-scroll">
+      <div class="rp-state" id="rp-loading">
+        <div class="spinner"></div>
+        <span>Loading from Supabase&hellip;</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN PANEL -->
+<div class="admin-panel" id="admin-panel">
+  <div class="admin-header">
+    <button class="admin-back-btn" id="admin-back-btn">&#8592; Back</button>
+    <span class="admin-title">Template Admin</span>
+    <span class="admin-subtitle">Saves publish to all users instantly</span>
+  </div>
+
+  <div class="admin-selectors">
+    <select id="adm-territory">
+      <option value="US">US</option>
+      <option value="UK">UK</option>
+    </select>
+    <select id="adm-industry">
+      <option value="PR">PR</option>
+      <option value="Marketing">Marketing</option>
+      <option value="Media">Media</option>
+      <option value="SaaS">SaaS</option>
+      <option value="AI">AI</option>
+      <option value="Accounting">Accounting</option>
+      <option value="Cybersecurity">Cybersecurity</option>
+    </select>
+  </div>
+
+  <div class="admin-body">
+
+    <div class="admin-card">
+      <div class="admin-card-title">Email</div>
+      <div id="adm-email-rows"></div>
+      <button class="adm-add-btn" id="adm-add-email">+ Add email variation</button>
+      <div class="admin-save-row">
+        <span class="save-status" id="save-status"></span>
+        <button class="admin-save-btn" id="adm-save">Save &amp; Publish</button>
+      </div>
+    </div>
+
+    <div class="admin-card">
+      <div class="admin-card-title">Fly-out</div>
+      <div id="adm-flyout-rows"></div>
+      <button class="adm-add-btn" id="adm-add-flyout">+ Add fly-out variation</button>
+    </div>
+
+    <div class="admin-card">
+      <div class="admin-card-title">LinkedIn Sequence</div>
+      <div id="adm-linkedin-rows"></div>
+      <button class="adm-add-btn" id="adm-add-linkedin">+ Add LinkedIn step</button>
+    </div>
+
+    <div class="admin-card">
+      <div class="admin-card-title">Actions</div>
+      <div class="admin-action-row">
+        <button class="admin-action-btn danger" id="adm-clear">Clear this combination</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  SUPABASE CONFIG  (injected server-side — never in source)
+// ════════════════════════════════════════════════════════
+const SUPABASE_URL      = "{{ supabase_url }}";
+const SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+const SB_TABLE          = "copy_bank_templates";
+
+function sbHeaders(prefer) {
+  const h = {
+    "apikey":        SUPABASE_ANON_KEY,
+    "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+    "Content-Type":  "application/json",
+  };
+  if (prefer) h["Prefer"] = prefer;
+  return h;
+}
+
+// ════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════
+const TEMPLATES        = {};   // populated from Supabase on load
+let   activeChannels   = new Set(['email', 'flyout', 'linkedin']);
+let   territory        = 'US';
+let   dataReady        = false;
+
+// ════════════════════════════════════════════════════════
+//  CONSTANTS
+// ════════════════════════════════════════════════════════
+const CHANNEL_ORDER  = ['email', 'flyout', 'linkedin'];
+const CHANNEL_LABELS = { email: 'Email', flyout: 'Fly-out', linkedin: 'LinkedIn' };
+const ADMIN_PASSWORD = 'unstuck2025';
+
+const ALL_KEYS = [
+  'US_PR','US_Marketing','US_Media','US_SaaS','US_AI','US_Accounting','US_Cybersecurity',
+  'UK_PR','UK_Marketing','UK_Media','UK_SaaS','UK_AI','UK_Accounting','UK_Cybersecurity',
+];
+
+function defaultContent() {
+  return {
+    email:    [{ subject: '', body: '' }],
+    flyout:   [{ body: '' }],
+    linkedin: [{ body: '' }],
+  };
+}
+
+// ════════════════════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════════════════════
+function escHtml(str) {
+  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function copyText(text, btn, label) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  }
+  btn.textContent = '\u2713 Copied!';
+  btn.classList.add('success');
+  setTimeout(function() { btn.textContent = label; btn.classList.remove('success'); }, 2000);
+}
+
+// ════════════════════════════════════════════════════════
+//  SUPABASE — load all templates at startup
+// ════════════════════════════════════════════════════════
+async function loadFromSupabase() {
+  try {
+    const res = await fetch(
+      SUPABASE_URL + '/rest/v1/' + SB_TABLE + '?select=key,content',
+      { headers: sbHeaders() }
+    );
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const rows = await res.json();
+
+    // Seed defaults for all keys, then overlay what Supabase has
+    ALL_KEYS.forEach(function(k) { TEMPLATES[k] = defaultContent(); });
+    rows.forEach(function(row) {
+      if (row.key && row.content) TEMPLATES[row.key] = row.content;
+    });
+
+    dataReady = true;
+    document.getElementById('rp-hint').textContent = 'Showing all active channels';
+    render();
+  } catch(e) {
+    const scroll = document.getElementById('rp-scroll');
+    scroll.innerHTML = '';
+    const err = document.createElement('div');
+    err.className = 'rp-state error';
+    err.textContent = 'Failed to load templates: ' + e.message;
+    scroll.appendChild(err);
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  SUPABASE — upsert one key (admin save)
+// ════════════════════════════════════════════════════════
+async function saveToSupabase(key, content) {
+  const res = await fetch(
+    SUPABASE_URL + '/rest/v1/' + SB_TABLE + '?on_conflict=key',
+    {
+      method:  'POST',
+      headers: sbHeaders('resolution=merge-duplicates,return=minimal'),
+      body:    JSON.stringify({ key: key, content: content }),
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error('Supabase ' + res.status + ': ' + text);
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  ASSEMBLE CHANNEL
+// ════════════════════════════════════════════════════════
+function assembleChannel(ch, items, sender) {
+  return items.map(function(item, i) {
+    const rawBody = (item.body || '').trim();
+    const body    = rawBody ? rawBody + '\n\n' + sender : '';
+    if (ch === 'email')    return { label: 'Variation ' + (i+1), subject: (item.subject||'').trim(), body: body };
+    if (ch === 'linkedin') return { label: 'Step ' + (i+1), body: body };
+    return { label: 'Variation ' + (i+1), body: body };
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  RENDER
+// ════════════════════════════════════════════════════════
+function render() {
+  const container = document.getElementById('rp-scroll');
+  if (!dataReady) return;
+
+  const sender   = document.getElementById('sender').value;
+  const industry = document.getElementById('industry').value;
+  const key      = territory + '_' + industry;
+  const data     = TEMPLATES[key] || defaultContent();
+  container.innerHTML = '';
+
+  for (const ch of CHANNEL_ORDER) {
+    if (!activeChannels.has(ch)) continue;
+
+    const items      = data[ch] || [];
+    const assembled  = assembleChannel(ch, items, sender);
+    const hasContent = assembled.some(function(a) { return a.body; });
+    const label      = CHANNEL_LABELS[ch];
+
+    const section = document.createElement('div');
+    section.className = 'channel-section';
+
+    const header = document.createElement('div');
+    header.className = 'channel-header';
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'channel-title';
+    titleEl.textContent = label;
+
+    const copyChBtn = document.createElement('button');
+    copyChBtn.className = 'copy-channel-btn';
+    copyChBtn.textContent = 'Copy all ' + label;
+    (function(asm, c, lbl, has) {
+      copyChBtn.addEventListener('click', async function() {
+        if (!has) return;
+        const parts = asm.filter(function(a) { return a.body; })
+          .map(function(a) { return (c==='email' && a.subject) ? 'Subject: '+a.subject+'\n\n'+a.body : a.body; });
+        await copyText(parts.join('\n\n'), copyChBtn, 'Copy all ' + lbl);
+      });
+    })(assembled, ch, label, hasContent);
+
+    header.appendChild(titleEl);
+    header.appendChild(copyChBtn);
+    section.appendChild(header);
+
+    if (!hasContent) {
+      const empty = document.createElement('div');
+      empty.className = 'channel-empty';
+      empty.textContent = 'No ' + label.toLowerCase() + ' copy set for this combination yet.';
+      section.appendChild(empty);
+    } else {
+      assembled.forEach(function(a) {
+        if (!a.body) return;
+        const card = document.createElement('div');
+        card.className = 'variation-card';
+
+        const cardTop = document.createElement('div');
+        cardTop.className = 'var-card-top';
+
+        const labelEl = document.createElement('span');
+        labelEl.className = 'var-card-label';
+        labelEl.textContent = a.label;
+
+        const textToCopy = (ch==='email' && a.subject) ? 'Subject: '+a.subject+'\n\n'+a.body : a.body;
+
+        const copyVarBtn = document.createElement('button');
+        copyVarBtn.className = 'copy-var-btn';
+        copyVarBtn.textContent = 'Copy';
+        copyVarBtn.addEventListener('click', async function() {
+          await copyText(textToCopy, copyVarBtn, 'Copy');
+        });
+
+        cardTop.appendChild(labelEl);
+        cardTop.appendChild(copyVarBtn);
+        card.appendChild(cardTop);
+
+        if (ch === 'email' && a.subject) {
+          const subEl = document.createElement('div');
+          subEl.className = 'var-subject';
+          subEl.innerHTML = 'Subject: <span>' + escHtml(a.subject) + '</span>';
+          card.appendChild(subEl);
+        }
+
+        const bodyEl = document.createElement('div');
+        bodyEl.className = 'var-body';
+        bodyEl.textContent = a.body;
+        card.appendChild(bodyEl);
+
+        section.appendChild(card);
+      });
+    }
+
+    container.appendChild(section);
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  COPY ALL
+// ════════════════════════════════════════════════════════
+document.getElementById('copy-all-btn').addEventListener('click', async function() {
+  if (!dataReady) return;
+  const sender   = document.getElementById('sender').value;
+  const industry = document.getElementById('industry').value;
+  const data     = TEMPLATES[territory + '_' + industry] || defaultContent();
+  const parts    = [];
+  for (const ch of CHANNEL_ORDER) {
+    if (!activeChannels.has(ch)) continue;
+    assembleChannel(ch, data[ch]||[], sender)
+      .filter(function(a) { return a.body; })
+      .forEach(function(a) {
+        parts.push((ch==='email' && a.subject) ? 'Subject: '+a.subject+'\n\n'+a.body : a.body);
+      });
+  }
+  if (parts.length === 0) return;
+  await copyText(parts.join('\n\n'), document.getElementById('copy-all-btn'), 'Copy All');
+});
+
+// ════════════════════════════════════════════════════════
+//  EVENT LISTENERS — main view
+// ════════════════════════════════════════════════════════
+document.getElementById('sender').addEventListener('change', render);
+document.getElementById('industry').addEventListener('change', render);
+
+document.querySelectorAll('[data-channel]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    const ch = btn.dataset.channel;
+    if (activeChannels.has(ch)) {
+      if (activeChannels.size > 1) { activeChannels.delete(ch); btn.classList.remove('active'); }
+    } else {
+      activeChannels.add(ch); btn.classList.add('active');
+    }
+    render();
+  });
+});
+
+document.querySelectorAll('[data-territory]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    territory = btn.dataset.territory;
+    document.querySelectorAll('[data-territory]').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    render();
+  });
+});
+
+// ════════════════════════════════════════════════════════
+//  PASSWORD MODAL
+// ════════════════════════════════════════════════════════
+function showPwModal() {
+  document.getElementById('pw-overlay').classList.add('visible');
+  document.getElementById('pw-input').value = '';
+  document.getElementById('pw-error').textContent = '';
+  setTimeout(function() { document.getElementById('pw-input').focus(); }, 50);
+}
+function hidePwModal() {
+  document.getElementById('pw-overlay').classList.remove('visible');
+}
+function tryPassword() {
+  if (document.getElementById('pw-input').value === ADMIN_PASSWORD) {
+    hidePwModal(); adminShow();
+  } else {
+    document.getElementById('pw-error').textContent = 'Incorrect password';
+    document.getElementById('pw-input').value = '';
+    document.getElementById('pw-input').focus();
+  }
+}
+document.getElementById('gear-btn').addEventListener('click', showPwModal);
+document.getElementById('pw-cancel').addEventListener('click', hidePwModal);
+document.getElementById('pw-submit').addEventListener('click', tryPassword);
+document.getElementById('pw-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') tryPassword();
+  if (e.key === 'Escape') hidePwModal();
+});
+document.getElementById('pw-overlay').addEventListener('click', function(e) {
+  if (e.target === this) hidePwModal();
+});
+
+// ════════════════════════════════════════════════════════
+//  ADMIN SHOW/HIDE
+// ════════════════════════════════════════════════════════
+function adminShow() {
+  document.querySelector('.main').style.display = 'none';
+  document.getElementById('admin-panel').classList.add('visible');
+  adminRender();
+}
+function adminHide() {
+  document.getElementById('admin-panel').classList.remove('visible');
+  document.querySelector('.main').style.display = 'flex';
+  render();
+}
+document.getElementById('admin-back-btn').addEventListener('click', adminHide);
+['adm-territory','adm-industry'].forEach(function(id) {
+  document.getElementById(id).addEventListener('change', adminRender);
+});
+
+// ════════════════════════════════════════════════════════
+//  ADMIN HELPERS
+// ════════════════════════════════════════════════════════
+function getAdmKey() {
+  return document.getElementById('adm-territory').value + '_' + document.getElementById('adm-industry').value;
+}
+function getAdmData() {
+  const d = TEMPLATES[getAdmKey()] || defaultContent();
+  return {
+    email:    (d.email    || [{subject:'',body:''}]).map(function(i) { return {subject:i.subject||'',body:i.body||''}; }),
+    flyout:   (d.flyout   || [{body:''}]).map(function(i) { return {body:i.body||''}; }),
+    linkedin: (d.linkedin || [{body:''}]).map(function(i) { return {body:i.body||''}; }),
+  };
+}
+
+function buildEmailRow(item, idx, total) {
+  const div = document.createElement('div');
+  div.className = 'adm-var-row'; div.dataset.type = 'email'; div.dataset.idx = idx;
+  div.innerHTML =
+    '<div class="adm-var-header"><span class="adm-var-label">Variation '+(idx+1)+'</span>' +
+    (total>1 ? '<button class="adm-remove-btn" data-remove="email" data-idx="'+idx+'">&times; Remove</button>' : '') + '</div>' +
+    '<div class="adm-field-label">Subject line</div>' +
+    '<textarea class="admin-textarea subject-ta" data-field="subject">'+escHtml(item.subject)+'</textarea>' +
+    '<div class="adm-field-label">Email body</div>' +
+    '<textarea class="admin-textarea body-ta" data-field="body">'+escHtml(item.body)+'</textarea>';
+  return div;
+}
+function buildBodyRow(type, item, idx, total, rowLabel) {
+  const div = document.createElement('div');
+  div.className = 'adm-var-row'; div.dataset.type = type; div.dataset.idx = idx;
+  div.innerHTML =
+    '<div class="adm-var-header"><span class="adm-var-label">'+rowLabel+' '+(idx+1)+'</span>' +
+    (total>1 ? '<button class="adm-remove-btn" data-remove="'+type+'" data-idx="'+idx+'">&times; Remove</button>' : '') + '</div>' +
+    '<textarea class="admin-textarea body-ta" data-field="body">'+escHtml(item.body)+'</textarea>';
+  return div;
+}
+
+function adminRender() {
+  const d = getAdmData();
+  ['adm-email-rows','adm-flyout-rows','adm-linkedin-rows'].forEach(function(id) {
+    document.getElementById(id).innerHTML = '';
+  });
+  d.email.forEach(function(item,i)    { document.getElementById('adm-email-rows').appendChild(buildEmailRow(item,i,d.email.length)); });
+  d.flyout.forEach(function(item,i)   { document.getElementById('adm-flyout-rows').appendChild(buildBodyRow('flyout',item,i,d.flyout.length,'Variation')); });
+  d.linkedin.forEach(function(item,i) { document.getElementById('adm-linkedin-rows').appendChild(buildBodyRow('linkedin',item,i,d.linkedin.length,'Step')); });
+
+  document.querySelectorAll('[data-remove]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const type = btn.dataset.remove;
+      const idx  = parseInt(btn.dataset.idx);
+      const d2   = collectAdmData();
+      d2[type].splice(idx, 1);
+      if (d2[type].length === 0) d2[type] = type==='email' ? [{subject:'',body:''}] : [{body:''}];
+      TEMPLATES[getAdmKey()] = d2;
+      adminRender();
+    });
+  });
+}
+
+function collectAdmData() {
+  const d = { email:[], flyout:[], linkedin:[] };
+  document.querySelectorAll('#adm-email-rows .adm-var-row').forEach(function(row) {
+    d.email.push({ subject: row.querySelector('[data-field="subject"]').value, body: row.querySelector('[data-field="body"]').value });
+  });
+  document.querySelectorAll('#adm-flyout-rows .adm-var-row').forEach(function(row) {
+    d.flyout.push({ body: row.querySelector('[data-field="body"]').value });
+  });
+  document.querySelectorAll('#adm-linkedin-rows .adm-var-row').forEach(function(row) {
+    d.linkedin.push({ body: row.querySelector('[data-field="body"]').value });
+  });
+  return d;
+}
+
+// Add buttons
+document.getElementById('adm-add-email').addEventListener('click', function() {
+  const d = collectAdmData(); d.email.push({subject:'',body:''}); TEMPLATES[getAdmKey()] = d; adminRender();
+  document.getElementById('adm-email-rows').lastElementChild.scrollIntoView({behavior:'smooth'});
+});
+document.getElementById('adm-add-flyout').addEventListener('click', function() {
+  const d = collectAdmData(); d.flyout.push({body:''}); TEMPLATES[getAdmKey()] = d; adminRender();
+  document.getElementById('adm-flyout-rows').lastElementChild.scrollIntoView({behavior:'smooth'});
+});
+document.getElementById('adm-add-linkedin').addEventListener('click', function() {
+  const d = collectAdmData(); d.linkedin.push({body:''}); TEMPLATES[getAdmKey()] = d; adminRender();
+  document.getElementById('adm-linkedin-rows').lastElementChild.scrollIntoView({behavior:'smooth'});
+});
+
+// ════════════════════════════════════════════════════════
+//  SAVE & PUBLISH — upsert to Supabase
+// ════════════════════════════════════════════════════════
+document.getElementById('adm-save').addEventListener('click', async function() {
+  const key  = getAdmKey();
+  const data = collectAdmData();
+  TEMPLATES[key] = data;   // update in-memory immediately
+
+  const btn      = document.getElementById('adm-save');
+  const statusEl = document.getElementById('save-status');
+  btn.disabled   = true;
+  btn.textContent = 'Saving\u2026';
+  statusEl.textContent = '';
+  statusEl.className   = 'save-status';
+
+  try {
+    await saveToSupabase(key, data);
+    btn.textContent = '\u2713 Published!';
+    btn.classList.add('success');
+    statusEl.textContent = 'All users will see this on next refresh';
+    statusEl.className   = 'save-status ok';
+  } catch(e) {
+    btn.textContent = 'Error';
+    statusEl.textContent = e.message;
+    statusEl.className   = 'save-status err';
+  }
+
+  btn.disabled = false;
+  setTimeout(function() {
+    btn.textContent = 'Save & Publish';
+    btn.classList.remove('success');
+    statusEl.textContent = '';
+    statusEl.className   = 'save-status';
+  }, 4000);
+});
+
+// Clear this combination
+document.getElementById('adm-clear').addEventListener('click', async function() {
+  const key = getAdmKey();
+  if (!confirm('Clear all copy for ' + key + '? This cannot be undone.')) return;
+  const empty = defaultContent();
+  TEMPLATES[key] = empty;
+  try {
+    await saveToSupabase(key, empty);
+    adminRender();
+    alert('Cleared.');
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+});
+
+// ════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════
+loadFromSupabase();
+</script>
+</body>
+</html>
