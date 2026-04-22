@@ -994,6 +994,78 @@
     font-size: 11px;
   }
   .mm-email-col-row select { flex: 1; }
+
+  /* ── Campaign selector (Manage Contacted) ─────────────────── */
+  .campaign-selector { }
+  .campaign-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+    margin-top: 4px;
+  }
+  .campaign-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .18s var(--ease), box-shadow .18s var(--ease), background .18s var(--ease);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    outline: none;
+    font-family: var(--font);
+    width: 100%;
+  }
+  .campaign-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(139,92,246,.12);
+    background: var(--surface-hover);
+  }
+  .campaign-card-count {
+    font-family: var(--font-display);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+  }
+  .campaign-card-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text-3);
+    word-break: break-word;
+    hyphens: auto;
+  }
+  .campaign-card-all .campaign-card-count  { color: var(--accent); }
+  .campaign-card-none .campaign-card-count { color: var(--text-2); }
+
+  /* ── Contacted table nav ─────────────────────────────────── */
+  .contacted-nav-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .contacted-view-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .contacted-filter-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .contacted-filter-row input[type="text"] {
+    flex: 1;
+    min-width: 160px;
+  }
 </style>
 
 <!-- ── Add client modal ─────────────────────────────────────────── -->
@@ -1761,38 +1833,8 @@
     </div>
   </div>
 
-  <!-- Contacted prospects table + filters -->
-  <p class="section-label">Contacted prospects</p>
-
-  <div class="filter-row">
-    <input type="hidden" id="contacted-client-id-hidden" name="client_id" value="">
-    <input type="text" id="contact-search" name="search" placeholder="Search email…"
-           hx-get="/api/dnc/contacted"
-           hx-trigger="input changed delay:400ms"
-           hx-target="#contacted-table"
-           hx-swap="innerHTML"
-           hx-include="#contact-filters">
-    <input type="date" id="contact-date-from" name="date_from"
-           hx-get="/api/dnc/contacted"
-           hx-trigger="change"
-           hx-target="#contacted-table"
-           hx-swap="innerHTML"
-           hx-include="#contact-filters">
-    <input type="date" id="contact-date-to" name="date_to"
-           hx-get="/api/dnc/contacted"
-           hx-trigger="change"
-           hx-target="#contacted-table"
-           hx-swap="innerHTML"
-           hx-include="#contact-filters">
-  </div>
-
-  <!-- Hidden filter state for hx-include -->
-  <div id="contact-filters" style="display:none">
-    <input type="hidden" name="client_id" id="contact-filter-client-id" value="">
-    <input type="hidden" name="search"    id="contact-filter-search"    value="">
-    <input type="hidden" name="date_from" id="contact-filter-date-from" value="">
-    <input type="hidden" name="date_to"   id="contact-filter-date-to"   value="">
-  </div>
+  <!-- Campaign selector / contacted prospects -->
+  <p class="section-label">Contacted prospects by campaign</p>
 
   <div id="contacted-table">
     <p class="result-meta" style="color:var(--text-3);margin-top:8px">Select a client to view contacted prospects.</p>
@@ -2083,13 +2125,12 @@
 
     // ── Manage Contacted tab ─────────────────────────────────────── //
     const contactedClientSelect = document.getElementById('contacted-client-select');
-    const contactFilterClientId = document.getElementById('contact-filter-client-id');
     const contactUploadClientId = document.getElementById('contact-upload-client-id');
     const contactAddClientId    = document.getElementById('contact-add-client-id');
 
-    function loadContactedTable(clientId) {
+    function loadCampaigns(clientId) {
       if (!clientId) return;
-      htmx.ajax('GET', `/api/dnc/contacted?client_id=${encodeURIComponent(clientId)}&offset=0`, {
+      htmx.ajax('GET', `/api/dnc/contacted/campaigns?client_id=${encodeURIComponent(clientId)}`, {
         target: '#contacted-table',
         swap:   'innerHTML',
       });
@@ -2097,11 +2138,11 @@
 
     function onContactedClientChange() {
       const cid = contactedClientSelect.value;
-      [contactFilterClientId, contactUploadClientId, contactAddClientId].forEach(el => {
+      [contactUploadClientId, contactAddClientId].forEach(el => {
         if (el) el.value = cid;
       });
       if (!cid) return;
-      loadContactedTable(cid);
+      loadCampaigns(cid);
     }
 
     contactedClientSelect.addEventListener('change', onContactedClientChange);

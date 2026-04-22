@@ -552,6 +552,155 @@ async def send_clean_to_merge(token: str):
 
 # ── contacted prospects ────────────────────────────────────────────────────────
 
+@router.get("/api/dnc/contacted/campaigns")
+async def get_contacted_campaigns(
+    request:   Request,
+    client_id: str = Query(...),
+):
+    """Return campaign groups (name + count) for the campaign-first selector UI."""
+    from collections import Counter
+
+    def error(msg: str):
+        return templates.TemplateResponse(
+            "partials/dnc_contacted_campaigns.html",
+            {"request": request, "error": msg, "campaigns": [],
+             "total_count": 0, "no_campaign_count": 0, "client_id": client_id},
+        )
+
+    if not _sb_configured():
+        return error("Supabase is not configured.")
+
+    # Fetch all campaign_names for this client in pages (one lightweight column)
+    all_names: list = []
+    fetch_offset = 0
+    batch = 1000
+    while True:
+        try:
+            r = http_req.get(
+                f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                headers=_sb_headers(),
+                params={
+                    "select":    "campaign_name",
+                    "client_id": f"eq.{client_id}",
+                    "limit":     str(batch),
+                    "offset":    str(fetch_offset),
+                },
+                timeout=30,
+            )
+            r.raise_for_status()
+        except Exception as e:
+            return error(f"Supabase error: {e}")
+
+        page = r.json()
+        all_names.extend(row.get("campaign_name") for row in page)
+        if len(page) < batch:
+            break
+        fetch_offset += batch
+
+    total_count      = len(all_names)
+    no_campaign_count = sum(1 for n in all_names if n is None)
+    named_counter    = Counter(n for n in all_names if n is not None)
+    campaigns        = [{"name": k, "count": v} for k, v in named_counter.most_common()]
+
+    return templates.TemplateResponse(
+        "partials/dnc_contacted_campaigns.html",
+        {
+            "request":           request,
+            "campaigns":         campaigns,
+            "total_count":       total_count,
+            "no_campaign_count": no_campaign_count,
+            "client_id":         client_id,
+            "error":             None,
+        },
+    )
+
+
+@router.get("/api/dnc/contacted/export")
+async def export_contacted(
+    client_id: str = Query(...),
+    campaign:  str = Query(""),
+):
+    """Download contacted prospects as CSV, filtered by campaign."""
+    if not _sb_configured():
+        raise HTTPException(400, "Supabase is not configured.")
+
+    # Build base params
+    base_params: list[tuple[str, str]] = [
+        ("select",    "email,contacted_at,campaign_name,source"),
+        ("client_id", f"eq.{client_id}"),
+        ("order",     "contacted_at.desc,created_at.desc"),
+    ]
+    if campaign and campaign != "__all__":
+        if campaign == "__none__":
+            base_params.append(("campaign_name", "is.null"))
+        else:
+            base_params.append(("campaign_name", f"eq.{campaign}"))
+
+    # Resolve client name for filename
+    client_name = "client"
+    try:
+        rc = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/clients",
+            headers=_sb_headers(),
+            params={"select": "name", "id": f"eq.{client_id}"},
+            timeout=10,
+        )
+        rc.raise_for_status()
+        rows_c = rc.json()
+        if rows_c:
+            client_name = rows_c[0]["name"].replace(" ", "_")
+    except Exception:
+        pass
+
+    # Fetch all matching rows in pages
+    all_rows: list = []
+    fetch_offset = 0
+    batch = 1000
+    while True:
+        p = list(base_params) + [("limit", str(batch)), ("offset", str(fetch_offset))]
+        try:
+            r = http_req.get(
+                f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                headers=_sb_headers(),
+                params=p,
+                timeout=30,
+            )
+            r.raise_for_status()
+        except Exception as exc:
+            raise HTTPException(502, f"Supabase error: {exc}")
+        page = r.json()
+        all_rows.extend(page)
+        if len(page) < batch:
+            break
+        fetch_offset += batch
+
+    # Build filename
+    today_str = date.today().isoformat()
+    if campaign == "__none__":
+        cam_slug = "no_campaign"
+    elif campaign and campaign != "__all__":
+        cam_slug = campaign.replace(" ", "_")[:40]
+    else:
+        cam_slug = "all"
+    filename = f"contacted_{client_name}_{cam_slug}_{today_str}.csv"
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf,
+        fieldnames=["email", "contacted_at", "campaign_name", "source"],
+        extrasaction="ignore",
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    writer.writerows(all_rows)
+
+    return Response(
+        content=buf.getvalue().encode("utf-8"),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/api/dnc/contacted")
 async def get_contacted(
     request:   Request,
@@ -560,13 +709,15 @@ async def get_contacted(
     date_from: str = Query(""),
     date_to:   str = Query(""),
     offset:    int = Query(0, ge=0),
+    campaign:  str = Query(""),   # "" or "__all__" = all; "__none__" = null; else exact name
 ):
     def error(msg: str):
         return templates.TemplateResponse(
             "partials/dnc_contacted_table.html",
             {"request": request, "error": msg, "entries": [], "total": 0,
              "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
-             "client_id": client_id, "search": search, "date_from": date_from, "date_to": date_to},
+             "client_id": client_id, "search": search, "date_from": date_from,
+             "date_to": date_to, "campaign": campaign},
         )
 
     if not _sb_configured():
@@ -585,6 +736,12 @@ async def get_contacted(
         params.append(("contacted_at", f"gte.{date_from}"))
     if date_to:
         params.append(("contacted_at", f"lte.{date_to}"))
+    # Campaign filter
+    if campaign and campaign != "__all__":
+        if campaign == "__none__":
+            params.append(("campaign_name", "is.null"))
+        else:
+            params.append(("campaign_name", f"eq.{campaign}"))
 
     try:
         r = http_req.get(
@@ -602,20 +759,30 @@ async def get_contacted(
     has_prev = offset > 0
     has_next = (offset + PAGE_SIZE) < total
 
+    # Derive human-readable label for the campaign
+    if campaign == "__none__":
+        campaign_label = "No Campaign"
+    elif campaign and campaign != "__all__":
+        campaign_label = campaign
+    else:
+        campaign_label = "All Contacts"
+
     return templates.TemplateResponse(
         "partials/dnc_contacted_table.html",
         {
-            "request":   request,
-            "entries":   entries,
-            "total":     total,
-            "offset":    offset,
-            "page_size": PAGE_SIZE,
-            "has_prev":  has_prev,
-            "has_next":  has_next,
-            "client_id": client_id,
-            "search":    search,
-            "date_from": date_from,
-            "date_to":   date_to,
+            "request":        request,
+            "entries":        entries,
+            "total":          total,
+            "offset":         offset,
+            "page_size":      PAGE_SIZE,
+            "has_prev":       has_prev,
+            "has_next":       has_next,
+            "client_id":      client_id,
+            "search":         search,
+            "date_from":      date_from,
+            "date_to":        date_to,
+            "campaign":       campaign,
+            "campaign_label": campaign_label,
         },
     )
 
@@ -630,10 +797,9 @@ async def add_contacted(
 ):
     def error(msg: str):
         return templates.TemplateResponse(
-            "partials/dnc_contacted_table.html",
-            {"request": request, "error": msg, "entries": [], "total": 0,
-             "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
-             "client_id": client_id, "search": "", "date_from": "", "date_to": ""},
+            "partials/dnc_contacted_campaigns.html",
+            {"request": request, "error": msg, "campaigns": [],
+             "total_count": 0, "no_campaign_count": 0, "client_id": client_id},
         )
 
     if not _sb_configured():
@@ -665,8 +831,7 @@ async def add_contacted(
     except Exception as e:
         return error(f"Supabase error: {e}")
 
-    return await get_contacted(request, client_id=client_id,
-                               search="", date_from="", date_to="", offset=0)
+    return await get_contacted_campaigns(request, client_id=client_id)
 
 
 @router.post("/api/dnc/contacted/upload")
@@ -679,10 +844,9 @@ async def upload_contacted(
 ):
     def error(msg: str):
         return templates.TemplateResponse(
-            "partials/dnc_contacted_table.html",
-            {"request": request, "error": msg, "entries": [], "total": 0,
-             "offset": 0, "page_size": PAGE_SIZE, "has_prev": False, "has_next": False,
-             "client_id": client_id, "search": "", "date_from": "", "date_to": ""},
+            "partials/dnc_contacted_campaigns.html",
+            {"request": request, "error": msg, "campaigns": [],
+             "total_count": 0, "no_campaign_count": 0, "client_id": client_id},
         )
 
     if not _sb_configured():
@@ -739,8 +903,7 @@ async def upload_contacted(
         except Exception as e:
             return error(f"Supabase error during upload: {e}")
 
-    return await get_contacted(request, client_id=client_id,
-                               search="", date_from="", date_to="", offset=0)
+    return await get_contacted_campaigns(request, client_id=client_id)
 
 
 @router.delete("/api/dnc/contacted/{entry_id}")
@@ -748,6 +911,7 @@ async def delete_contacted(
     request:   Request,
     entry_id:  str,
     client_id: str = Query(...),
+    campaign:  str = Query(""),   # pass through so table reloads with same campaign
 ):
     if _sb_configured():
         try:
@@ -761,7 +925,8 @@ async def delete_contacted(
             pass
 
     return await get_contacted(request, client_id=client_id,
-                               search="", date_from="", date_to="", offset=0)
+                               search="", date_from="", date_to="", offset=0,
+                               campaign=campaign)
 
 
 @router.post("/api/dnc/contacted/bulk-delete")
@@ -769,6 +934,7 @@ async def bulk_delete_contacted(
     request:   Request,
     client_id: str       = Form(...),
     ids:       List[str] = Form(default=[]),
+    campaign:  str       = Form(""),   # pass through so table reloads with same campaign
 ):
     if ids and _sb_configured():
         id_filter = "(" + ",".join(ids) + ")"
@@ -783,7 +949,8 @@ async def bulk_delete_contacted(
             pass
 
     return await get_contacted(request, client_id=client_id,
-                               search="", date_from="", date_to="", offset=0)
+                               search="", date_from="", date_to="", offset=0,
+                               campaign=campaign)
 
 
 # ── purge old contacted records ───────────────────────────────────────────────

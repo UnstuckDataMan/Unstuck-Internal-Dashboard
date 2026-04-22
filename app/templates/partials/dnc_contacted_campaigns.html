@@ -1,0 +1,48 @@
+{% if error %}
+<div class="err-box">{{ error }}</div>
+{% elif total_count == 0 %}
+<p class="result-meta" style="color:var(--text-2);margin-top:8px">
+  No contacted prospects found for this client.
+</p>
+{% else %}
+<div class="campaign-selector">
+  <p class="result-meta" style="margin-bottom:14px">
+    <strong>{{ total_count }}</strong> contacted prospect{{ "s" if total_count != 1 else "" }}
+    across <strong>{{ campaigns | length }}</strong> named campaign{{ "s" if campaigns | length != 1 else "" }}
+  </p>
+
+  <div class="campaign-grid">
+
+    <!-- All Contacts -->
+    <button class="campaign-card campaign-card-all"
+            hx-get="/api/dnc/contacted?client_id={{ client_id }}&campaign=__all__&offset=0"
+            hx-target="#contacted-table"
+            hx-swap="innerHTML">
+      <span class="campaign-card-count">{{ total_count }}</span>
+      <span class="campaign-card-label">All Contacts</span>
+    </button>
+
+    {% if no_campaign_count > 0 %}
+    <!-- No Campaign -->
+    <button class="campaign-card campaign-card-none"
+            hx-get="/api/dnc/contacted?client_id={{ client_id }}&campaign=__none__&offset=0"
+            hx-target="#contacted-table"
+            hx-swap="innerHTML">
+      <span class="campaign-card-count">{{ no_campaign_count }}</span>
+      <span class="campaign-card-label">No Campaign</span>
+    </button>
+    {% endif %}
+
+    {% for cam in campaigns %}
+    <button class="campaign-card"
+            hx-get="/api/dnc/contacted?client_id={{ client_id }}&campaign={{ cam.name | urlencode }}&offset=0"
+            hx-target="#contacted-table"
+            hx-swap="innerHTML">
+      <span class="campaign-card-count">{{ cam.count }}</span>
+      <span class="campaign-card-label">{{ cam.name }}</span>
+    </button>
+    {% endfor %}
+
+  </div>
+</div>
+{% endif %}

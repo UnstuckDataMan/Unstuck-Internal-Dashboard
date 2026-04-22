@@ -1,6 +1,67 @@
 {% if error %}
+<!-- Nav row even on error so user can go back -->
+<div class="contacted-nav-row">
+  <div style="display:flex;align-items:center;gap:10px">
+    <button class="btn btn-download"
+            hx-get="/api/dnc/contacted/campaigns?client_id={{ client_id }}"
+            hx-target="#contacted-table"
+            hx-swap="innerHTML">← Campaigns</button>
+  </div>
+</div>
 <div class="err-box">{{ error }}</div>
-{% elif entries %}
+{% else %}
+
+<!-- ── Navigation & download row ── -->
+<div class="contacted-nav-row">
+  <div style="display:flex;align-items:center;gap:10px">
+    <button class="btn btn-download"
+            hx-get="/api/dnc/contacted/campaigns?client_id={{ client_id }}"
+            hx-target="#contacted-table"
+            hx-swap="innerHTML">← Campaigns</button>
+    <span class="contacted-view-label">{{ campaign_label }}</span>
+  </div>
+  <a href="/api/dnc/contacted/export?client_id={{ client_id }}&campaign={{ campaign | urlencode }}"
+     class="btn btn-download">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="7 10 12 15 17 10"/>
+      <line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+    Download CSV
+  </a>
+</div>
+
+<!-- ── Hidden state for hx-include ── -->
+<div id="ct-state" style="display:none">
+  <input type="hidden" name="client_id" value="{{ client_id }}">
+  <input type="hidden" name="campaign"  value="{{ campaign }}">
+</div>
+
+<!-- ── Filters ── -->
+<div class="contacted-filter-row">
+  <input type="text" id="ct-search" name="search" value="{{ search }}"
+         placeholder="Search email…"
+         hx-get="/api/dnc/contacted"
+         hx-trigger="input changed delay:400ms"
+         hx-target="#contacted-table"
+         hx-swap="innerHTML"
+         hx-include="#ct-state, #ct-date-from, #ct-date-to">
+  <input type="date" id="ct-date-from" name="date_from" value="{{ date_from }}"
+         hx-get="/api/dnc/contacted"
+         hx-trigger="change"
+         hx-target="#contacted-table"
+         hx-swap="innerHTML"
+         hx-include="#ct-state, #ct-search, #ct-date-to">
+  <input type="date" id="ct-date-to" name="date_to" value="{{ date_to }}"
+         hx-get="/api/dnc/contacted"
+         hx-trigger="change"
+         hx-target="#contacted-table"
+         hx-swap="innerHTML"
+         hx-include="#ct-state, #ct-search, #ct-date-from">
+</div>
+
+{% if entries %}
 
 <p class="result-meta" style="margin-bottom:14px">
   Showing {{ offset + 1 }}–{{ [offset + page_size, total] | min }} of <strong>{{ total }}</strong> entr{{ "y" if total == 1 else "ies" }}
@@ -8,6 +69,7 @@
 
 <form id="contacted-bulk-form">
   <input type="hidden" name="client_id" value="{{ client_id }}">
+  <input type="hidden" name="campaign"  value="{{ campaign }}">
 
   <div class="bulk-actions">
     <button type="button" id="bulk-delete-btn"
@@ -44,7 +106,7 @@
           <td><span class="source-badge source-{{ entry.source | replace('_', '-') }}">{{ entry.source }}</span></td>
           <td>
             <button class="btn-delete"
-                    hx-delete="/api/dnc/contacted/{{ entry.id }}?client_id={{ client_id }}"
+                    hx-delete="/api/dnc/contacted/{{ entry.id }}?client_id={{ client_id }}&campaign={{ campaign | urlencode }}"
                     hx-target="#contacted-table"
                     hx-swap="innerHTML"
                     hx-confirm="Remove {{ entry.email }} from contacted list?">✕</button>
@@ -61,14 +123,16 @@
   {% if has_prev %}
   <button class="btn btn-download"
           hx-get="/api/dnc/contacted"
-          hx-vals='{"client_id":"{{ client_id }}","search":"{{ search }}","date_from":"{{ date_from }}","date_to":"{{ date_to }}","offset":"{{ offset - page_size }}"}'
+          hx-vals='{"offset":"{{ offset - page_size }}"}'
+          hx-include="#ct-state, #ct-search, #ct-date-from, #ct-date-to"
           hx-target="#contacted-table"
           hx-swap="innerHTML">← Prev</button>
   {% endif %}
   {% if has_next %}
   <button class="btn btn-download"
           hx-get="/api/dnc/contacted"
-          hx-vals='{"client_id":"{{ client_id }}","search":"{{ search }}","date_from":"{{ date_from }}","date_to":"{{ date_to }}","offset":"{{ offset + page_size }}"}'
+          hx-vals='{"offset":"{{ offset + page_size }}"}'
+          hx-include="#ct-state, #ct-search, #ct-date-from, #ct-date-to"
           hx-target="#contacted-table"
           hx-swap="innerHTML">Next →</button>
   {% endif %}
@@ -81,4 +145,6 @@
 
 {% else %}
 <p class="result-meta" style="margin-top:8px; color: var(--text-2)">No contacted prospects found for the selected filters.</p>
+{% endif %}
+
 {% endif %}
