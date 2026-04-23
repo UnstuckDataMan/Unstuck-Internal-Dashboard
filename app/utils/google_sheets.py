@@ -5,6 +5,11 @@ Requires:
   - GOOGLE_SHEETS_SA_JSON env var: base64-encoded service account JSON key
     (Sheets API + Drive API must both be enabled on the Cloud project)
 
+Optional:
+  - GOOGLE_DRIVE_FOLDER_ID env var: ID of a Drive folder shared with the
+    service account (Editor). Sheets are moved there after creation so they
+    count against the folder owner's quota, not the service account's.
+
 One-time setup:
   1. Google Cloud Console → enable Sheets API + Drive API
   2. IAM & Admin → Service Accounts → Create → download JSON key
@@ -20,11 +25,15 @@ import re
 
 import gspread
 import openpyxl
+from google.oauth2.service_account import Credentials
+from google.auth.transport.requests import AuthorizedSession
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
+
+_DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
 
 
 def is_configured() -> bool:
@@ -32,25 +41,48 @@ def is_configured() -> bool:
     return bool(os.environ.get("GOOGLE_SHEETS_SA_JSON", "").strip())
 
 
-def _client() -> gspread.Client:
-    """Authenticate with the service account and return a gspread Client."""
+def _decode_sa_json() -> dict:
+    """Decode the base64 service account JSON from the env var."""
     raw = os.environ.get("GOOGLE_SHEETS_SA_JSON", "").strip()
     if not raw:
         raise RuntimeError(
             "GOOGLE_SHEETS_SA_JSON env var is not set. "
             "Follow the setup instructions to configure Google Sheets integration."
         )
-    # Add lenient padding so base64 doesn't choke on truncated strings
-    padded = raw + "=="
     try:
-        info = json.loads(base64.b64decode(padded))
+        return json.loads(base64.b64decode(raw + "=="))
     except Exception as exc:
         raise RuntimeError(f"Could not decode GOOGLE_SHEETS_SA_JSON: {exc}") from exc
 
-    # Use gspread v6 native service_account_from_dict — properly wires up
-    # both the Sheets and Drive APIs (gspread.authorize() is v5 legacy and
-    # doesn't correctly support Drive file creation with parent folders).
+
+def _client() -> gspread.Client:
+    """Return an authenticated gspread Client (gspread v6 native method)."""
+    info = _decode_sa_json()
     return gspread.service_account_from_dict(info, scopes=SCOPES)
+
+
+def _move_to_folder(file_id: str, folder_id: str) -> None:
+    """
+    Move a Drive file into folder_id using a direct Drive v3 REST call.
+    Two-step (create in root, then move) is more reliable with service
+    accounts than setting parents at creation time.
+    """
+    info = _decode_sa_json()
+    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+    session = AuthorizedSession(creds)
+    resp = session.patch(
+        f"{_DRIVE_FILES_URL}/{file_id}",
+        params={
+            "addParents":    folder_id,
+            "removeParents": "root",
+            "fields":        "id,parents",
+        },
+    )
+    if not resp.ok:
+        raise RuntimeError(
+            f"Could not move sheet to Drive folder (HTTP {resp.status_code}): "
+            f"{resp.text[:300]}"
+        )
 
 
 def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
@@ -60,15 +92,16 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     to a new Google Sheet, freeze the header row, and share it as
     "anyone with link can edit".
 
-    Returns: {"sheet_id": str, "sheet_url": str}
+    If GOOGLE_DRIVE_FOLDER_ID is set, the sheet is moved into that folder
+    after creation (so it counts against the folder owner's quota).
+
+    Returns: {"sheet_id": str, "sheet_url": str, "title": str}
     """
     # ── Read Excel output ─────────────────────────────────────────────────
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
 
-    # excel_writer.py always names the main sheet "Outreach List"
     sheet_name = "Outreach List"
     if sheet_name not in wb.sheetnames:
-        # Fallback: use first sheet
         sheet_name = wb.sheetnames[0]
 
     ws = wb[sheet_name]
@@ -77,7 +110,6 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     if not raw_rows:
         raise ValueError("The merge output file is empty.")
 
-    # Convert all values to strings (None → "")
     str_rows = [
         [str(v) if v is not None else "" for v in row]
         for row in raw_rows
@@ -85,20 +117,15 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     headers   = str_rows[0]
     data_rows = str_rows[1:]
 
-    # ── Create Google Sheet ───────────────────────────────────────────────
-    # If a shared Drive folder is configured, create the sheet there so it
-    # uses the folder owner's quota instead of the service account's quota.
+    # ── Create Google Sheet (always in root first) ────────────────────────
     gc = _client()
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
-    sh = gc.create(title, folder_id=folder_id if folder_id else None)
+    sh = gc.create(title)          # always create in root — avoids folder 404
     gsheet = sh.sheet1
     gsheet.update_title("Outreach List")
 
-    # Write in one batch (gspread v6 uses update with range notation)
     all_rows = [headers] + data_rows
     gsheet.update(all_rows, "A1")
 
-    # Bold header row + freeze it
     gsheet.format(
         f"A1:{_col_letter(len(headers))}1",
         {"textFormat": {"bold": True}},
@@ -106,14 +133,27 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     gsheet.freeze(rows=1)
 
     # ── Share publicly ────────────────────────────────────────────────────
-    # "anyone with the link can edit" — no Google account required
     sh.share("", perm_type="anyone", role="writer")
 
-    return {
+    # ── Move to shared folder (best-effort) ───────────────────────────────
+    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+    folder_warning = None
+    if folder_id:
+        try:
+            _move_to_folder(sh.id, folder_id)
+        except Exception as exc:
+            # Non-fatal: sheet already exists and is publicly shared.
+            # Log the warning but don't fail the whole operation.
+            folder_warning = str(exc)
+
+    result = {
         "sheet_id":  sh.id,
         "sheet_url": sh.url,
         "title":     title,
     }
+    if folder_warning:
+        result["folder_warning"] = folder_warning
+    return result
 
 
 def extract_sheet_id(url_or_id: str) -> str:
@@ -135,10 +175,8 @@ def read_sheet_status(sheet_id: str) -> dict:
     gc = _client()
     sh = gc.open_by_key(sheet_id)
     gsheet = sh.sheet1
-    records = gsheet.get_all_records()  # list[dict] keyed by header row
+    records = gsheet.get_all_records()
 
-    total = len(records)
-    # Filter out separator rows — they have no email address
     data_rows = [r for r in records if str(r.get("Recipient Email", "")).strip()]
     total = len(data_rows)
     sent  = sum(
@@ -160,7 +198,7 @@ def read_leads(sheet_id: str) -> list[dict]:
     gc = _client()
     sh = gc.open_by_key(sheet_id)
     gsheet = sh.sheet1
-    records = gsheet.get_all_records()  # list[dict] keyed by header row
+    records = gsheet.get_all_records()
 
     results: list[dict] = []
     for record in records:
