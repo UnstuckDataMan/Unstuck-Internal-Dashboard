@@ -111,49 +111,36 @@ def cleanup_service_account_drive(older_than_days: int = 0) -> dict:
 
 def _create_spreadsheet(title: str) -> tuple[str, str]:
     """
-    Create a blank Google Sheet.
+    Create a blank Google Spreadsheet inside the configured Shared Drive.
 
-    Strategy:
-      1. If GOOGLE_DRIVE_FOLDER_ID is set → create via Drive API inside that
-         folder.  The file is parented under the folder owner's quota, not the
-         service account's.
-      2. Otherwise → create via Sheets API v4 (no Drive storage required).
+    Requires GOOGLE_DRIVE_FOLDER_ID to be set to the Shared Drive ID.
+    Files created in a Shared Drive are owned by the drive (not the service
+    account), so they never count against individual user quotas.
 
     Returns (spreadsheet_id, spreadsheet_url).
     """
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
-    session   = _authed_session()
-
-    if folder_id:
-        # ── Drive API: create inside user's shared folder ─────────────────
-        resp = session.post(
-            _DRIVE_FILES_URL,
-            params={"supportsAllDrives": "true"},
-            json={
-                "name":     title,
-                "mimeType": "application/vnd.google-apps.spreadsheet",
-                "parents":  [folder_id],
-            },
+    drive_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+    if not drive_id:
+        raise RuntimeError(
+            "GOOGLE_DRIVE_FOLDER_ID env var is not set. "
+            "Set it to your Shared Drive ID."
         )
-        if not resp.ok:
-            raise RuntimeError(
-                f"Drive create-in-folder failed (HTTP {resp.status_code}): "
-                f"{resp.text[:400]}"
-            )
-        sid = resp.json()["id"]
-    else:
-        # ── Sheets API: no Drive storage quota required ───────────────────
-        resp = session.post(
-            "https://sheets.googleapis.com/v4/spreadsheets",
-            json={"properties": {"title": title}},
-        )
-        if not resp.ok:
-            raise RuntimeError(
-                f"Sheets API create failed (HTTP {resp.status_code}): "
-                f"{resp.text[:400]}"
-            )
-        sid = resp.json()["spreadsheetId"]
 
+    session = _authed_session()
+    resp = session.post(
+        _DRIVE_FILES_URL,
+        params={"supportsAllDrives": "true"},
+        json={
+            "name":     title,
+            "mimeType": "application/vnd.google-apps.spreadsheet",
+            "parents":  [drive_id],
+        },
+    )
+    if not resp.ok:
+        raise RuntimeError(
+            f"Drive create failed (HTTP {resp.status_code}): {resp.text[:400]}"
+        )
+    sid = resp.json()["id"]
     url = f"https://docs.google.com/spreadsheets/d/{sid}/edit"
     return sid, url
 
