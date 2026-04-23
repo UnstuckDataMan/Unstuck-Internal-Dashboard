@@ -85,8 +85,11 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     data_rows = str_rows[1:]
 
     # ── Create Google Sheet ───────────────────────────────────────────────
+    # If a shared Drive folder is configured, create the sheet there so it
+    # uses the folder owner's quota instead of the service account's quota.
     gc = _client()
-    sh = gc.create(title)
+    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+    sh = gc.create(title, folder_id=folder_id if folder_id else None)
     gsheet = sh.sheet1
     gsheet.update_title("Outreach List")
 
