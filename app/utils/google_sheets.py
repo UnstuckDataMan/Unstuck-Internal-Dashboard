@@ -61,28 +61,32 @@ def _client() -> gspread.Client:
     return gspread.service_account_from_dict(info, scopes=SCOPES)
 
 
-def _move_to_folder(file_id: str, folder_id: str) -> None:
+def _create_in_folder(title: str, folder_id: str) -> str:
     """
-    Move a Drive file into folder_id using a direct Drive v3 REST call.
-    Two-step (create in root, then move) is more reliable with service
-    accounts than setting parents at creation time.
+    Create a blank Google Sheet directly inside folder_id using the Drive
+    v3 REST API with an AuthorizedSession.  The file is owned by the folder
+    and counts against the folder owner's quota, NOT the service account's.
+
+    Returns the new spreadsheet file ID.
     """
     info = _decode_sa_json()
     creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     session = AuthorizedSession(creds)
-    resp = session.patch(
-        f"{_DRIVE_FILES_URL}/{file_id}",
-        params={
-            "addParents":    folder_id,
-            "removeParents": "root",
-            "fields":        "id,parents",
+    resp = session.post(
+        _DRIVE_FILES_URL,
+        params={"fields": "id", "supportsAllDrives": "true"},
+        json={
+            "name":     title,
+            "mimeType": "application/vnd.google-apps.spreadsheet",
+            "parents":  [folder_id],
         },
     )
     if not resp.ok:
         raise RuntimeError(
-            f"Could not move sheet to Drive folder (HTTP {resp.status_code}): "
-            f"{resp.text[:300]}"
+            f"Drive create-in-folder failed (HTTP {resp.status_code}): "
+            f"{resp.text[:400]}"
         )
+    return resp.json()["id"]
 
 
 def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
@@ -117,9 +121,19 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     headers   = str_rows[0]
     data_rows = str_rows[1:]
 
-    # ── Create Google Sheet (always in root first) ────────────────────────
+    # ── Create Google Sheet ───────────────────────────────────────────────
+    # If a shared folder is configured, create the file directly inside it
+    # via the Drive REST API — this uses the folder owner's quota, not the
+    # service account's.  Fall back to root creation if no folder is set.
     gc = _client()
-    sh = gc.create(title)          # always create in root — avoids folder 404
+    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+
+    if folder_id:
+        file_id = _create_in_folder(title, folder_id)
+        sh = gc.open_by_key(file_id)
+    else:
+        sh = gc.create(title)
+
     gsheet = sh.sheet1
     gsheet.update_title("Outreach List")
 
@@ -135,25 +149,11 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     # ── Share publicly ────────────────────────────────────────────────────
     sh.share("", perm_type="anyone", role="writer")
 
-    # ── Move to shared folder (best-effort) ───────────────────────────────
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
-    folder_warning = None
-    if folder_id:
-        try:
-            _move_to_folder(sh.id, folder_id)
-        except Exception as exc:
-            # Non-fatal: sheet already exists and is publicly shared.
-            # Log the warning but don't fail the whole operation.
-            folder_warning = str(exc)
-
-    result = {
+    return {
         "sheet_id":  sh.id,
         "sheet_url": sh.url,
         "title":     title,
     }
-    if folder_warning:
-        result["folder_warning"] = folder_warning
-    return result
 
 
 def extract_sheet_id(url_or_id: str) -> str:
