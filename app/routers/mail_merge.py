@@ -328,7 +328,87 @@ async def delete_sender_profile(profile_name: str):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-# ── 7. Download Generated File ───────────────────────────────────────────────
+# ── 7. Google Sheets — upload outreach sheet ─────────────────────────────────
+
+@router.post("/api/merge/upload-to-sheets")
+async def upload_to_sheets(request: Request):
+    """
+    Read a previously-generated merge xlsx (identified by download_id),
+    write it to a new Google Sheet, share as "anyone with link can edit",
+    save a campaign record to Supabase, and return the sheet URL + ID.
+    """
+    from datetime import date as _date
+    from app.utils.google_sheets import is_configured, create_outreach_sheet
+
+    data                = await request.json()
+    download_id         = (data.get("download_id") or "").strip()
+    client_name         = (data.get("client_name") or "Client").strip() or "Client"
+    client_id           = (data.get("client_id") or "").strip()
+    campaign            = (data.get("campaign_name") or "").strip()
+    sender_profile_name = (data.get("sender_profile_name") or "").strip()
+    total_prospects     = int(data.get("total_prospects") or 0)
+
+    if not is_configured():
+        return JSONResponse(
+            {"error": "Google Sheets is not configured on this server. "
+                      "Ask your administrator to set GOOGLE_SERVICE_ACCOUNT_JSON."},
+            status_code=400,
+        )
+
+    if not download_id or "/" in download_id or "\\" in download_id or ".." in download_id:
+        return JSONResponse({"error": "Invalid download_id."}, status_code=400)
+
+    xlsx_path = OUTPUT_DIR / download_id
+    if not xlsx_path.exists():
+        return JSONResponse(
+            {"error": "Merge file not found — please regenerate the outreach sheet first."},
+            status_code=404,
+        )
+
+    # Build sheet title: "ClientName – Campaign – YYYY-MM-DD"
+    parts = [client_name]
+    if campaign:
+        parts.append(campaign)
+    parts.append(_date.today().isoformat())
+    title = " – ".join(parts)
+
+    try:
+        result = create_outreach_sheet(title, str(xlsx_path))
+    except Exception as exc:
+        return JSONResponse({"error": f"Google Sheets error: {exc}"}, status_code=500)
+
+    # ── Save campaign record to Supabase (best-effort — don't block on failure) ──
+    if _sb_configured():
+        try:
+            http_req.post(
+                f"{SUPABASE_URL}/rest/v1/campaigns",
+                headers=_sb_headers("return=minimal"),
+                json={
+                    "campaign_name":       campaign or title,
+                    "sender_profile_name": sender_profile_name,
+                    "client_id":           client_id or None,
+                    "client_name":         client_name,
+                    "sheet_id":            result["sheet_id"],
+                    "sheet_url":           result["sheet_url"],
+                    "total_prospects":     total_prospects,
+                    "sent_count":          0,
+                },
+                timeout=10,
+            )
+        except Exception:
+            pass  # Campaign tracking is non-critical; sheet upload already succeeded
+
+    return result  # {"sheet_id": ..., "sheet_url": ..., "title": ...}
+
+
+@router.get("/api/merge/sheets-status")
+async def sheets_status():
+    """Return whether Google Sheets integration is configured."""
+    from app.utils.google_sheets import is_configured
+    return {"configured": is_configured()}
+
+
+# ── 8. Download Generated File ───────────────────────────────────────────────
 
 @router.get("/api/merge/download/{filename}")
 async def download_file(filename: str, name: Optional[str] = Query(None)):

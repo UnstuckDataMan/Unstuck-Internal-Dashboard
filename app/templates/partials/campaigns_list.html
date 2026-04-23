@@ -1,0 +1,184 @@
+{% if error %}
+<div class="camp-error">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+    <line x1="12" y1="16" x2="12.01" y2="16"/>
+  </svg>
+  Could not load campaigns: {{ error }}
+</div>
+{% elif not campaigns %}
+<div class="camp-empty">
+  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"
+       style="opacity:.35;margin-bottom:10px">
+    <rect x="2" y="3" width="20" height="14" rx="2"/>
+    <path d="M8 21h8M12 17v4"/>
+  </svg>
+  <p>No campaigns yet.</p>
+  <p style="font-size:.82rem;color:var(--text-3);margin-top:4px">
+    Upload a merge to Google Sheets to create your first campaign.
+  </p>
+</div>
+{% else %}
+{# ── Active campaigns (not yet complete) ────────────────────────── #}
+{% set has_active = namespace(value=false) %}
+{% for c in campaigns %}
+  {% if not (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
+    {% set has_active.value = true %}
+  {% endif %}
+{% endfor %}
+
+{% if has_active.value %}
+<p class="camp-section-label">Active Campaigns</p>
+<div class="camp-grid">
+  {% for c in campaigns %}
+  {% if not (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
+  {% set remaining = (c.total_prospects - c.sent_count) if c.total_prospects > c.sent_count else 0 %}
+  <div class="camp-card camp-card-active">
+    <div class="camp-card-header">
+      <span class="camp-name">{{ c.campaign_name or '(unnamed)' }}</span>
+      <span class="camp-badge camp-badge-active">Active</span>
+    </div>
+    <div class="camp-meta">
+      {% if c.client_name %}
+      <span class="camp-meta-item">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+        {{ c.client_name }}
+      </span>
+      {% endif %}
+      {% if c.sender_profile_name %}
+      <span class="camp-meta-item">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+          <polyline points="22,6 12,13 2,6"/>
+        </svg>
+        {{ c.sender_profile_name }}
+      </span>
+      {% endif %}
+      <span class="camp-meta-item">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+          <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+        {{ c.created_at[:10] if c.created_at else '' }}
+      </span>
+    </div>
+    <div class="camp-prospects">
+      <span class="camp-prospects-num camp-prospects-active">{{ remaining }}</span>
+      <span class="camp-prospects-lbl"> prospects remaining</span>
+      {% if c.total_prospects %}
+      <span class="camp-prospects-of"> / {{ c.total_prospects }} total</span>
+      {% endif %}
+    </div>
+    <div class="camp-actions">
+      {% if c.sheet_url %}
+      <a href="{{ c.sheet_url }}" target="_blank" rel="noopener" class="camp-open-btn">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+          <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+        Open Sheet
+      </a>
+      {% endif %}
+      <button class="camp-refresh-btn"
+              hx-post="/api/campaigns/{{ c.id }}/refresh"
+              hx-target="#campaigns-panel-inner"
+              hx-swap="innerHTML"
+              hx-indicator="#camp-spinner">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="1 4 1 10 7 10"/>
+          <path d="M3.51 15a9 9 0 1 0 .49-3.37"/>
+        </svg>
+        Refresh
+      </button>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── Past campaigns (all sent) ───────────────────────────────────── #}
+{% set has_past = namespace(value=false) %}
+{% for c in campaigns %}
+  {% if c.total_prospects > 0 and c.sent_count >= c.total_prospects %}
+    {% set has_past.value = true %}
+  {% endif %}
+{% endfor %}
+
+{% if has_past.value %}
+<p class="camp-section-label" style="margin-top:28px">Past Campaigns</p>
+<div class="camp-grid">
+  {% for c in campaigns %}
+  {% if c.total_prospects > 0 and c.sent_count >= c.total_prospects %}
+  <div class="camp-card camp-card-past">
+    <div class="camp-card-header">
+      <span class="camp-name">{{ c.campaign_name or '(unnamed)' }}</span>
+      <span class="camp-badge camp-badge-past">Complete</span>
+    </div>
+    <div class="camp-meta">
+      {% if c.client_name %}
+      <span class="camp-meta-item">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+        {{ c.client_name }}
+      </span>
+      {% endif %}
+      {% if c.sender_profile_name %}
+      <span class="camp-meta-item">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+          <polyline points="22,6 12,13 2,6"/>
+        </svg>
+        {{ c.sender_profile_name }}
+      </span>
+      {% endif %}
+      <span class="camp-meta-item">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+          <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+        {{ c.created_at[:10] if c.created_at else '' }}
+      </span>
+    </div>
+    <div class="camp-prospects">
+      <span class="camp-prospects-num camp-prospects-past">{{ c.sent_count }}</span>
+      <span class="camp-prospects-lbl"> sent</span>
+      {% if c.total_prospects %}
+      <span class="camp-prospects-of"> / {{ c.total_prospects }} total</span>
+      {% endif %}
+    </div>
+    <div class="camp-actions">
+      {% if c.sheet_url %}
+      <a href="{{ c.sheet_url }}" target="_blank" rel="noopener" class="camp-open-btn">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+          <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+        View Sheet
+      </a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+{% endif %}

@@ -1066,6 +1066,232 @@
     flex: 1;
     min-width: 160px;
   }
+
+  /* ── Google Sheets button ─────────────────────────────────── */
+  .btn-sheets {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 16px;
+    background: #1e7e41;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .18s var(--ease), box-shadow .18s var(--ease);
+  }
+  .btn-sheets:hover:not(:disabled) {
+    background: #165f30;
+    box-shadow: 0 0 0 3px rgba(30,126,65,.25);
+  }
+  .btn-sheets:disabled { opacity: .55; cursor: not-allowed; }
+  .mm-sheets-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .mm-sheets-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .mm-sheets-open-link {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 7px 14px; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; font-size: .82rem; color: var(--text); text-decoration: none;
+    transition: border-color .15s, background .15s;
+  }
+  .mm-sheets-open-link:hover { border-color: var(--accent); background: var(--surface-hover); }
+  .mm-sync-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 7px 14px; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; font-size: .82rem; color: var(--text); cursor: pointer;
+    font-family: var(--font); transition: border-color .15s, background .15s;
+  }
+  .mm-sync-btn:hover:not(:disabled) { border-color: #4ade80; color: #4ade80; }
+  .mm-sync-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+  /* ── Output format toggle (Excel / Sheets) ──────────────────── */
+  .mm-output-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .mm-output-opt {
+    padding: 8px 18px;
+    font-size: .82rem;
+    font-weight: 600;
+    font-family: var(--font);
+    color: var(--text-2);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .mm-output-opt.active {
+    background: var(--gradient-vivid);
+    color: white;
+  }
+  .mm-output-opt:not(.active):hover {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  /* ── Campaigns tab ───────────────────────────────────────────── */
+  .camp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .camp-header-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .camp-client-filter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .camp-client-filter label {
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+  .camp-client-filter select {
+    font-size: .82rem;
+    padding: 6px 10px;
+    min-width: 160px;
+  }
+  #camp-spinner {
+    display: none;
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  #camp-spinner.htmx-request { display: inline-block; }
+  .camp-section-label {
+    font-size: .78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text-3);
+    margin: 0 0 12px;
+  }
+  .camp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+  }
+  .camp-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: var(--sh-sm);
+    transition: border-color .18s, box-shadow .18s;
+  }
+  .camp-card-active { border-left: 3px solid #4ade80; }
+  .camp-card-past   { border-left: 3px solid var(--text-3); opacity: .8; }
+  .camp-card:hover  { border-color: var(--accent); box-shadow: var(--sh-md); }
+  .camp-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .camp-name {
+    font-size: .92rem;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  .camp-badge {
+    font-size: .68rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .camp-badge-active { background: rgba(74,222,128,.15); color: #4ade80; }
+  .camp-badge-past   { background: var(--surface-2); color: var(--text-3); }
+  .camp-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+  }
+  .camp-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: .78rem;
+    color: var(--text-2);
+  }
+  .camp-prospects {
+    font-size: .85rem;
+    color: var(--text-2);
+  }
+  .camp-prospects-num {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .camp-prospects-active { color: #4ade80; }
+  .camp-prospects-past   { color: var(--text-3); }
+  .camp-prospects-lbl  { font-size: .8rem; color: var(--text-2); }
+  .camp-prospects-of   { font-size: .75rem; color: var(--text-3); }
+  .camp-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+  }
+  .camp-open-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; font-size: .78rem; color: var(--text); text-decoration: none;
+    font-family: var(--font); font-weight: 600;
+    transition: border-color .15s, background .15s;
+  }
+  .camp-open-btn:hover { border-color: var(--accent); background: var(--surface-hover); }
+  .camp-refresh-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px; background: transparent; border: 1px solid var(--border);
+    border-radius: 8px; font-size: .78rem; color: var(--text-2); cursor: pointer;
+    font-family: var(--font); font-weight: 600;
+    transition: border-color .15s, color .15s;
+  }
+  .camp-refresh-btn:hover { border-color: var(--accent); color: var(--text); }
+  .camp-empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-2);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: .9rem;
+  }
+  .camp-error {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px; background: rgba(239,68,68,.08);
+    border: 1px solid rgba(239,68,68,.25); border-radius: 10px;
+    font-size: .85rem; color: #f87171;
+  }
 </style>
 
 <!-- ── Add client modal ─────────────────────────────────────────── -->
@@ -1153,6 +1379,15 @@
       <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
     </svg>
     Manage Contacted
+  </button>
+  <button class="dnc-tab-btn" data-tab="tab-campaigns" role="tab" aria-selected="false">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"
+         style="display:inline;vertical-align:-2px;margin-right:5px">
+      <rect x="2" y="3" width="20" height="14" rx="2"/>
+      <path d="M8 21h8M12 17v4"/>
+    </svg>
+    Campaigns
   </button>
 </div>
 
@@ -1494,6 +1729,34 @@
   <p class="mm-step-label"><span class="mm-step-num">6</span> Validate &amp; Generate</p>
   <div class="form-card mm-section">
     <div style="padding:26px 28px 24px">
+
+      <!-- Output format toggle -->
+      <div style="margin-bottom:16px">
+        <label style="display:block;margin-bottom:8px;font-size:.82rem;font-weight:600;color:var(--text-2)">
+          Output format
+        </label>
+        <div class="mm-output-toggle" id="mm-output-toggle">
+          <button type="button" class="mm-output-opt active" data-format="excel" id="mm-fmt-excel">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            Excel
+          </button>
+          <button type="button" class="mm-output-opt" data-format="sheets" id="mm-fmt-sheets">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+            </svg>
+            Google Sheets
+          </button>
+        </div>
+        <p class="mm-hint" id="mm-fmt-hint" style="margin-top:6px">
+          Download as an Excel file.
+        </p>
+      </div>
+
       <div style="display:flex;gap:12px;flex-wrap:wrap">
         <button type="button" class="btn btn-download" id="mm-validate-btn">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1579,6 +1842,37 @@
             Download
           </button>
         </div>
+      </div>
+
+      <!-- Google Sheets upload section (revealed after generate) -->
+      <div id="mm-sheets-section" class="mm-hidden mm-sheets-section">
+        <div class="mm-step-label" style="margin-bottom:10px">Upload to Google Sheets</div>
+        <div class="form-row">
+          <div class="form-group" style="margin-bottom:0;flex:1">
+            <label>Campaign name <span class="opt">used in sheet title</span></label>
+            <input type="text" id="mm-campaign-name" placeholder="e.g. Q2 Outreach — Wave 1">
+          </div>
+          <div class="form-group" style="margin-bottom:0;flex:1">
+            <label>Client <span class="opt">for DNC sync</span></label>
+            <select id="mm-sheets-client"
+                    hx-get="/api/dnc/clients"
+                    hx-trigger="load"
+                    hx-target="#mm-sheets-client"
+                    hx-swap="innerHTML">
+              <option value="">— select client —</option>
+            </select>
+          </div>
+        </div>
+        <div class="mm-sheets-actions">
+          <button type="button" class="btn-sheets" id="mm-upload-sheets-btn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+            </svg>
+            Upload to Google Sheets
+          </button>
+        </div>
+        <div id="mm-sheets-result" style="margin-top:10px"></div>
       </div>
 
     </div>
@@ -1801,6 +2095,43 @@
     </form>
   </div>
 
+  <!-- ── Sync leads from Google Sheet ──────────────────────── -->
+  <p class="section-label" style="margin-top:32px">Sync leads from Google Sheet</p>
+  <div class="form-card">
+    <p class="section-desc">
+      Paste a Google Sheet URL (generated by the Mail Merge tab) to automatically add
+      <strong>Lead</strong> and <strong>Unsubscribe</strong> rows to this client's DNC list.
+    </p>
+    <div class="form-row">
+      <div class="form-group" style="margin-bottom:0;flex:2">
+        <label>Google Sheet URL</label>
+        <input type="text" id="sync-sheet-url"
+               placeholder="https://docs.google.com/spreadsheets/d/…">
+      </div>
+      <div class="form-group" style="margin-bottom:0;flex:1">
+        <label>Client</label>
+        <select id="sync-sheet-client"
+                hx-get="/api/dnc/clients"
+                hx-trigger="load"
+                hx-target="#sync-sheet-client"
+                hx-swap="innerHTML">
+          <option value="">Loading…</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-actions" style="margin-top:14px">
+      <button class="btn btn-primary" id="sync-sheet-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="1 4 1 10 7 10"/>
+          <path d="M3.51 15a9 9 0 1 0 .49-3.37"/>
+        </svg>
+        Sync Leads → DNC
+      </button>
+      <div id="sync-sheet-result" style="font-size:.85rem;margin-left:4px"></div>
+    </div>
+  </div>
+
 </div><!-- /tab-manage -->
 
 <!-- ═══════════════════════════════════════════════════════════════
@@ -2011,6 +2342,44 @@
 
 </div><!-- /tab-manage-contacted -->
 
+<!-- ═══════════════════════════════════════════════════════════════
+     Tab 5: Campaigns
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-campaigns" class="tab-panel" style="display:none">
+
+  <div class="form-card">
+    <div class="camp-header">
+      <span class="camp-header-title">All Campaigns</span>
+      <div class="camp-client-filter">
+        <label for="camp-client-filter-sel">Filter by client</label>
+        <select id="camp-client-filter-sel"
+                hx-get="/api/dnc/clients"
+                hx-trigger="load"
+                hx-target="#camp-client-filter-sel"
+                hx-swap="innerHTML">
+          <option value="">All clients</option>
+        </select>
+        <svg id="camp-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-6.22-8.56"/>
+        </svg>
+      </div>
+    </div>
+
+    <div id="campaigns-panel-inner"
+         hx-get="/api/campaigns"
+         hx-trigger="load"
+         hx-target="#campaigns-panel-inner"
+         hx-swap="innerHTML"
+         hx-indicator="#camp-spinner">
+      <div style="text-align:center;padding:32px;color:var(--text-3);font-size:.85rem">
+        Loading campaigns…
+      </div>
+    </div>
+  </div>
+
+</div><!-- /tab-campaigns -->
+
 <script>
   (function () {
     // ── Tab switching ────────────────────────────────────────────── //
@@ -2173,6 +2542,59 @@
     if (purgeCutoffSelect) {
       purgeCutoffSelect.addEventListener('change', () => {
         purgeCustomWrap.style.display = purgeCutoffSelect.value === 'custom' ? '' : 'none';
+      });
+    }
+
+    // ── Campaigns tab — client filter ───────────────────────────── //
+    const campClientSel = document.getElementById('camp-client-filter-sel');
+    if (campClientSel) {
+      campClientSel.addEventListener('change', () => {
+        const cid = campClientSel.value;
+        const url = cid
+          ? `/api/campaigns?client_id=${encodeURIComponent(cid)}`
+          : '/api/campaigns';
+        htmx.ajax('GET', url, {
+          target:    '#campaigns-panel-inner',
+          swap:      'innerHTML',
+          indicator: '#camp-spinner',
+        });
+      });
+    }
+
+    // ── Sync from Google Sheet (Manage DNC tab) ──────────────────── //
+    const syncSheetBtn = document.getElementById('sync-sheet-btn');
+    if (syncSheetBtn) {
+      syncSheetBtn.addEventListener('click', async () => {
+        const url      = (document.getElementById('sync-sheet-url')?.value || '').trim();
+        const clientId = document.getElementById('sync-sheet-client')?.value || '';
+        const resultEl = document.getElementById('sync-sheet-result');
+        if (!url || !clientId) {
+          resultEl.innerHTML = '<span style="color:#f87171">Please enter a Sheet URL and select a client.</span>';
+          return;
+        }
+        const origHtml    = syncSheetBtn.innerHTML;
+        syncSheetBtn.disabled  = true;
+        syncSheetBtn.textContent = 'Syncing…';
+        resultEl.innerHTML = '';
+        try {
+          const res = await fetch('/api/dnc/sync-from-sheet', {
+            method:  'POST',
+            headers: {'Content-Type': 'application/json'},
+            body:    JSON.stringify({ sheet_id: url, client_id: clientId }),
+          }).then(r => r.json());
+          if (res.error) {
+            resultEl.innerHTML = `<span style="color:#f87171">${res.error}</span>`;
+          } else if (!res.leads_added && !res.unsubscribes_added) {
+            resultEl.innerHTML = `<span style="color:var(--text-2)">${res.message || 'No Lead or Unsubscribe rows found in the sheet.'}</span>`;
+          } else {
+            resultEl.innerHTML = `<span style="color:#4ade80">✓ Added to DNC — Leads: <strong>${res.leads_added}</strong>, Unsubscribes: <strong>${res.unsubscribes_added}</strong></span>`;
+          }
+        } catch (err) {
+          resultEl.innerHTML = `<span style="color:#f87171">Network error: ${err.message}</span>`;
+        } finally {
+          syncSheetBtn.disabled = false;
+          syncSheetBtn.innerHTML = origHtml;
+        }
       });
     }
 
@@ -2342,9 +2764,14 @@
     subjectCount: 0,
     bodyCount: 0,
     downloadId: null,
+    sheetsId: null,
+    sheetsUrl: null,
     sendsPerDay: 10,
     profilesCache: {},
     initialized: false,
+    scheduledCount: 0,
+    senderProfileName: '',
+    outputFormat: 'excel',   // 'excel' | 'sheets'
   };
 
   // ── Helpers ──────────────────────────────────────────────────
@@ -2737,8 +3164,10 @@
         return;
       }
 
-      mm.downloadId = data.download_id;
-      const sched = (data.scheduled_count || data.total_rows).toLocaleString();
+      mm.downloadId         = data.download_id;
+      mm.scheduledCount     = data.scheduled_count || data.total_rows;
+      mm.senderProfileName  = ($('mm-profile-select')?.value) || '';
+      const sched = mm.scheduledCount.toLocaleString();
       showAlert(fb, 'success',
         'Merge complete — <strong>' + sched + '</strong> prospects scheduled.');
 
@@ -2751,14 +3180,27 @@
       $('mm-stat-scheduled').textContent = sched;
       $('mm-stats-section').classList.remove('mm-hidden');
 
-      // Download row
+      // Download row (always generate xlsx, only show download in Excel mode)
       let countTxt = sched + ' rows';
       countTxt += ' · ' + senders.length + ' sender(s)';
       countTxt += ' · ' + subjects.length + ' subject variant(s)';
       countTxt += ' · ' + bodies.length + ' body variant(s)';
       $('mm-row-count-text').textContent  = countTxt;
       $('mm-output-filename').value       = 'Outreach Merge';
-      $('mm-download-section').classList.remove('mm-hidden');
+      if (mm.outputFormat === 'excel') {
+        $('mm-download-section').classList.remove('mm-hidden');
+      }
+
+      // Reveal Google Sheets upload section; reset previous result
+      mm.sheetsId  = null;
+      mm.sheetsUrl = null;
+      $('mm-sheets-result').innerHTML = '';
+      $('mm-sheets-section').classList.remove('mm-hidden');
+
+      // Auto-upload to Sheets if that format is selected
+      if (mm.outputFormat === 'sheets') {
+        await uploadToSheets();
+      }
 
     } catch (err) {
       showAlert(fb, 'error', 'Network error: ' + err.message);
@@ -2796,6 +3238,129 @@
     window.location.href = url;
   }
 
+  // ── Upload to Google Sheets ──────────────────────────────────
+  async function uploadToSheets() {
+    const btn      = $('mm-upload-sheets-btn');
+    const resultEl = $('mm-sheets-result');
+    if (!mm.downloadId) {
+      resultEl.innerHTML = '<div class="mm-alert mm-alert-error">Generate the outreach sheet first.</div>';
+      return;
+    }
+    const origHtml   = btn.innerHTML;
+    btn.disabled     = true;
+    btn.textContent  = 'Uploading…';
+    resultEl.innerHTML = '';
+
+    const clientSel  = $('mm-sheets-client');
+    const clientId   = clientSel ? clientSel.value : '';
+    const clientName = (clientSel && clientSel.selectedIndex >= 0)
+      ? clientSel.options[clientSel.selectedIndex].text.trim()
+      : '';
+    const campaignEl = $('mm-campaign-name');
+    const campaign   = campaignEl ? campaignEl.value.trim() : '';
+
+    try {
+      const res = await fetch('/api/merge/upload-to-sheets', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({
+          download_id:         mm.downloadId,
+          client_name:         clientName || 'Client',
+          client_id:           clientId || '',
+          campaign_name:       campaign,
+          sender_profile_name: mm.senderProfileName,
+          total_prospects:     mm.scheduledCount,
+        }),
+      }).then(r => r.json());
+
+      if (res.error) {
+        resultEl.innerHTML = `<div class="mm-alert mm-alert-error">${res.error}</div>`;
+        return;
+      }
+
+      mm.sheetsId  = res.sheet_id;
+      mm.sheetsUrl = res.sheet_url;
+
+      resultEl.innerHTML =
+        `<div class="mm-alert mm-alert-success" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">` +
+          `<span>✓ Sheet created</span>` +
+          `<a href="${res.sheet_url}" target="_blank" rel="noopener" class="mm-sheets-open-link">` +
+            `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">` +
+              `<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>` +
+              `<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>` +
+            `</svg>Open Sheet` +
+          `</a>` +
+          (clientId
+            ? `<button class="mm-sync-btn" id="mm-sync-now-btn">` +
+                `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">` +
+                  `<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.37"/>` +
+                `</svg>Sync Leads → DNC` +
+              `</button>`
+            : `<span style="font-size:.78rem;color:var(--text-3)">(Select a client above to enable lead sync)</span>`)  +
+        `</div>`;
+
+      // Wire sync button (dynamically inserted)
+      const syncBtn = $('mm-sync-now-btn');
+      if (syncBtn) {
+        syncBtn.addEventListener('click', () => syncLeadsToDNC(clientId, syncBtn));
+      }
+
+    } catch (err) {
+      resultEl.innerHTML = `<div class="mm-alert mm-alert-error">Network error: ${err.message}</div>`;
+    } finally {
+      btn.disabled  = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+
+  async function syncLeadsToDNC(clientId, btn) {
+    if (!mm.sheetsId) return;
+    if (!clientId) {
+      alert('No client selected — cannot determine which DNC list to update.');
+      return;
+    }
+    const origHtml   = btn.innerHTML;
+    btn.disabled     = true;
+    btn.textContent  = 'Syncing…';
+
+    try {
+      const res = await fetch('/api/dnc/sync-from-sheet', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({ sheet_id: mm.sheetsId, client_id: clientId }),
+      }).then(r => r.json());
+
+      if (res.error) {
+        btn.innerHTML = origHtml;
+        btn.disabled  = false;
+        // Show error inline beneath the button
+        const errEl = document.createElement('div');
+        errEl.className = 'mm-alert mm-alert-error';
+        errEl.style.marginTop = '8px';
+        errEl.textContent = res.error;
+        btn.parentElement.appendChild(errEl);
+        return;
+      }
+
+      // Replace sync button with success message
+      const total = (res.leads_added || 0) + (res.unsubscribes_added || 0);
+      if (total === 0) {
+        btn.innerHTML = '✓ No new entries (all already in DNC or sheet has no Lead/Unsubscribe rows)';
+        btn.disabled  = true;
+      } else {
+        btn.innerHTML =
+          `✓ Added to DNC — Leads: ${res.leads_added}, Unsubscribes: ${res.unsubscribes_added}`;
+        btn.disabled = true;
+        btn.style.color      = '#4ade80';
+        btn.style.borderColor= '#4ade80';
+      }
+    } catch (err) {
+      btn.innerHTML = origHtml;
+      btn.disabled  = false;
+      alert('Network error: ' + err.message);
+    }
+  }
+
   // ── Wire Everything ──────────────────────────────────────────
   function init() {
     if (mm.initialized) return;
@@ -2826,10 +3391,35 @@
     $('mm-save-profile-btn').addEventListener('click', saveProfile);
     $('mm-delete-profile-btn').addEventListener('click', deleteSelectedProfile);
 
+    // Output format toggle
+    const outputToggle = $('mm-output-toggle');
+    if (outputToggle) {
+      outputToggle.addEventListener('click', e => {
+        const btn = e.target.closest('.mm-output-opt');
+        if (!btn) return;
+        mm.outputFormat = btn.dataset.format;
+        outputToggle.querySelectorAll('.mm-output-opt').forEach(b =>
+          b.classList.toggle('active', b === btn));
+        const hint = $('mm-fmt-hint');
+        if (hint) {
+          hint.textContent = mm.outputFormat === 'sheets'
+            ? 'After generating, the sheet is automatically uploaded to Google Sheets for team access.'
+            : 'Download as an Excel file.';
+        }
+        // Show/hide download section based on current result + format
+        if (mm.downloadId) {
+          const dl = $('mm-download-section');
+          if (dl) dl.classList.toggle('mm-hidden', mm.outputFormat !== 'excel');
+        }
+      });
+    }
+
     // Action buttons
     $('mm-validate-btn').addEventListener('click', validateTemplates);
     $('mm-generate-btn').addEventListener('click', generateMerge);
     $('mm-download-btn').addEventListener('click', downloadFile);
+    const uploadSheetsBtn = $('mm-upload-sheets-btn');
+    if (uploadSheetsBtn) uploadSheetsBtn.addEventListener('click', uploadToSheets);
 
     // Load saved profiles
     renderSavedProfiles();

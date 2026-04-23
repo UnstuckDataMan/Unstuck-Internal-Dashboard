@@ -953,6 +953,92 @@ async def bulk_delete_contacted(
                                campaign=campaign)
 
 
+# ── Google Sheets → DNC sync ──────────────────────────────────────────────────
+
+@router.post("/api/dnc/sync-from-sheet")
+async def sync_from_sheet(request: Request):
+    """
+    Read 'Lead Status' and 'Recipient Email' columns from a Google Sheet and
+    bulk-add matching rows to dnc_entries for the given client.
+
+    Lead        → reason: "lead"    (already engaged; exclude from future cold outreach)
+    Unsubscribe → reason: "opt_out" (explicitly opted out)
+    Reply / blank → ignored
+    """
+    from app.utils.google_sheets import is_configured, extract_sheet_id, read_leads
+
+    data      = await request.json()
+    sheet_ref = (data.get("sheet_id") or "").strip()
+    client_id = (data.get("client_id") or "").strip()
+
+    if not is_configured():
+        return HTMLResponse(
+            content='{"error":"Google Sheets is not configured on this server."}',
+            status_code=400,
+            media_type="application/json",
+        )
+    if not sheet_ref or not client_id:
+        return HTMLResponse(
+            content='{"error":"Both sheet_id (or URL) and client_id are required."}',
+            status_code=400,
+            media_type="application/json",
+        )
+    if not _sb_configured():
+        return HTMLResponse(
+            content='{"error":"Supabase is not configured."}',
+            status_code=400,
+            media_type="application/json",
+        )
+
+    sheet_id = extract_sheet_id(sheet_ref)
+
+    try:
+        leads = read_leads(sheet_id)
+    except Exception as exc:
+        return HTMLResponse(
+            content=f'{{"error":"Could not read Google Sheet: {exc}"}}',
+            status_code=500,
+            media_type="application/json",
+        )
+
+    if not leads:
+        return {
+            "leads_added": 0, "unsubscribes_added": 0,
+            "message": "No Lead or Unsubscribe rows found in the sheet.",
+        }
+
+    rows = [
+        {
+            "client_id": client_id,
+            "email":     entry["email"],
+            "reason":    "lead" if entry["status"] == "Lead" else "opt_out",
+            "added_by":  "google_sheets_sync",
+        }
+        for entry in leads
+    ]
+
+    for i in range(0, len(rows), CHUNK_SIZE):
+        chunk = rows[i : i + CHUNK_SIZE]
+        try:
+            r = http_req.post(
+                f"{SUPABASE_URL}/rest/v1/dnc_entries",
+                headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                json=chunk,
+                timeout=30,
+            )
+            r.raise_for_status()
+        except Exception as exc:
+            return HTMLResponse(
+                content=f'{{"error":"Supabase error: {exc}"}}',
+                status_code=500,
+                media_type="application/json",
+            )
+
+    leads_added        = sum(1 for e in leads if e["status"] == "Lead")
+    unsubscribes_added = sum(1 for e in leads if e["status"] == "Unsubscribe")
+    return {"leads_added": leads_added, "unsubscribes_added": unsubscribes_added}
+
+
 # ── purge old contacted records ───────────────────────────────────────────────
 
 @router.post("/api/dnc/contacted/purge")
