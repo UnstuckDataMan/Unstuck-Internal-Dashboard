@@ -351,7 +351,7 @@ async def upload_to_sheets(request: Request):
     if not is_configured():
         return JSONResponse(
             {"error": "Google Sheets is not configured on this server. "
-                      "Ask your administrator to set GOOGLE_SERVICE_ACCOUNT_JSON."},
+                      "Ask your administrator to set GOOGLE_SHEETS_SA_JSON."},
             status_code=400,
         )
 
