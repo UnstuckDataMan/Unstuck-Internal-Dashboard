@@ -5,16 +5,12 @@ Requires:
   - GOOGLE_SHEETS_SA_JSON env var: base64-encoded service account JSON key
     (Sheets API + Drive API must both be enabled on the Cloud project)
 
-Optional:
-  - GOOGLE_DRIVE_FOLDER_ID env var: ID of a Drive folder shared with the
-    service account (Editor). Sheets are moved there after creation so they
-    count against the folder owner's quota, not the service account's.
-
 One-time setup:
   1. Google Cloud Console → enable Sheets API + Drive API
   2. IAM & Admin → Service Accounts → Create → download JSON key
-  3. Base64-encode: base64 -w0 service-account.json
+  3. Base64-encode: base64 -w0 service-account.json  (PowerShell: see README)
   4. Add as GOOGLE_SHEETS_SA_JSON env var in Render
+  5. Do NOT commit the JSON key file to git
 """
 from __future__ import annotations
 
@@ -22,6 +18,7 @@ import base64
 import json
 import os
 import re
+from datetime import datetime, timezone, timedelta
 
 import gspread
 import openpyxl
@@ -34,6 +31,9 @@ SCOPES = [
 ]
 
 _DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
+
+# Sheets older than this are eligible for auto-cleanup
+_CLEANUP_DAYS = 60
 
 
 def is_configured() -> bool:
@@ -61,32 +61,42 @@ def _client() -> gspread.Client:
     return gspread.service_account_from_dict(info, scopes=SCOPES)
 
 
-def _create_in_folder(title: str, folder_id: str) -> str:
-    """
-    Create a blank Google Sheet directly inside folder_id using the Drive
-    v3 REST API with an AuthorizedSession.  The file is owned by the folder
-    and counts against the folder owner's quota, NOT the service account's.
-
-    Returns the new spreadsheet file ID.
-    """
+def _authed_session() -> AuthorizedSession:
+    """Return an AuthorizedSession for direct Drive REST calls."""
     info = _decode_sa_json()
     creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-    session = AuthorizedSession(creds)
-    resp = session.post(
+    return AuthorizedSession(creds)
+
+
+def _cleanup_old_sheets(session: AuthorizedSession, older_than_days: int = _CLEANUP_DAYS) -> int:
+    """
+    Delete spreadsheets owned by the service account that are older than
+    `older_than_days` days.  Returns the number of files deleted.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+    cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%S")
+
+    resp = session.get(
         _DRIVE_FILES_URL,
-        params={"fields": "id", "supportsAllDrives": "true"},
-        json={
-            "name":     title,
-            "mimeType": "application/vnd.google-apps.spreadsheet",
-            "parents":  [folder_id],
+        params={
+            "q": (
+                f"mimeType='application/vnd.google-apps.spreadsheet'"
+                f" and trashed=false"
+                f" and createdTime < '{cutoff_str}'"
+            ),
+            "fields": "files(id,name,createdTime)",
+            "pageSize": 100,
         },
     )
     if not resp.ok:
-        raise RuntimeError(
-            f"Drive create-in-folder failed (HTTP {resp.status_code}): "
-            f"{resp.text[:400]}"
-        )
-    return resp.json()["id"]
+        return 0  # best-effort, don't block on cleanup failure
+
+    deleted = 0
+    for f in resp.json().get("files", []):
+        del_resp = session.delete(f"{_DRIVE_FILES_URL}/{f['id']}")
+        if del_resp.ok or del_resp.status_code == 204:
+            deleted += 1
+    return deleted
 
 
 def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
@@ -96,8 +106,8 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     to a new Google Sheet, freeze the header row, and share it as
     "anyone with link can edit".
 
-    If GOOGLE_DRIVE_FOLDER_ID is set, the sheet is moved into that folder
-    after creation (so it counts against the folder owner's quota).
+    Old sheets (>60 days) are automatically deleted before creating to
+    prevent the service account Drive quota from filling up.
 
     Returns: {"sheet_id": str, "sheet_url": str, "title": str}
     """
@@ -121,19 +131,13 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     headers   = str_rows[0]
     data_rows = str_rows[1:]
 
+    # ── Auto-clean old sheets to keep Drive quota healthy ─────────────────
+    session = _authed_session()
+    _cleanup_old_sheets(session)
+
     # ── Create Google Sheet ───────────────────────────────────────────────
-    # If a shared folder is configured, create the file directly inside it
-    # via the Drive REST API — this uses the folder owner's quota, not the
-    # service account's.  Fall back to root creation if no folder is set.
     gc = _client()
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
-
-    if folder_id:
-        file_id = _create_in_folder(title, folder_id)
-        sh = gc.open_by_key(file_id)
-    else:
-        sh = gc.create(title)
-
+    sh = gc.create(title)
     gsheet = sh.sheet1
     gsheet.update_title("Outreach List")
 
