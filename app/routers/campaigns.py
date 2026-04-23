@@ -221,12 +221,15 @@ async def sync_campaign(request: Request, campaign_id: str):
         for i in range(0, len(dnc_rows), CHUNK_SIZE):
             chunk = dnc_rows[i : i + CHUNK_SIZE]
             try:
-                http_req.post(
+                r = http_req.post(
                     f"{SUPABASE_URL}/rest/v1/dnc_entries",
                     headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
                     json=chunk,
                     timeout=30,
-                ).raise_for_status()
+                )
+                # 409 = entries already exist in DNC — treat as success
+                if r.status_code not in (200, 201, 204, 409):
+                    r.raise_for_status()
             except Exception as exc:
                 return HTMLResponse(
                     f'<span class="camp-sync-err">DNC write error: {exc}</span>'
