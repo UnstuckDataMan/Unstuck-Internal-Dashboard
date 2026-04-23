@@ -3235,9 +3235,7 @@
       $('mm-sheets-section').classList.remove('mm-hidden');
 
       // Auto-upload to Sheets if that format is selected
-      if (mm.outputFormat === 'sheets') {
-        await uploadToSheets();
-      }
+      // Upload to Sheets requires a manual button click — never auto-trigger
 
     } catch (err) {
       showAlert(fb, 'error', 'Network error: ' + err.message);

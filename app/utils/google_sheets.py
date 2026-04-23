@@ -444,6 +444,22 @@ def extract_sheet_id(url_or_id: str) -> str:
     return m.group(1) if m else url_or_id.strip()
 
 
+def _is_sent(value) -> bool:
+    """Return True if a Send Status cell value counts as 'sent'.
+
+    Handles all representations gspread may return:
+      • Python bool True  (UNFORMATTED_VALUE render)
+      • String "TRUE"     (FORMATTED_VALUE render)
+      • String "Sent"     (legacy dropdown before checkbox migration)
+      • Integer 1         (edge case numeric true)
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value == 1
+    return str(value).strip().upper() in ("TRUE", "SENT")
+
+
 def read_sheet_status(sheet_id: str) -> dict:
     """
     Count total prospect rows and how many have Send Status ticked / = "Sent".
@@ -454,36 +470,30 @@ def read_sheet_status(sheet_id: str) -> dict:
     gc = _client()
     sh = gc.open_by_key(sheet_id)
     gsheet = sh.sheet1
-    records = gsheet.get_all_records()
+    # UNFORMATTED_VALUE returns Python booleans for checkbox cells
+    records = gsheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
 
     data_rows = [r for r in records if str(r.get("Recipient Email", "")).strip()]
     total     = len(data_rows)
-    sent      = sum(
-        1 for r in data_rows
-        if (r.get("Send Status") is True
-            or str(r.get("Send Status", "")).strip().upper() in ("TRUE", "SENT"))
-    )
+    sent      = sum(1 for r in data_rows if _is_sent(r.get("Send Status", "")))
     return {"total": total, "sent": sent, "is_complete": (total > 0 and sent >= total)}
 
 
 def read_sent_emails(sheet_id: str) -> list[str]:
     """
-    Return the list of Recipient Email values where Send Status is ticked
-    (checkbox = TRUE) or equals "Sent".  Skips separator rows (no email).
+    Return the list of Recipient Email values where Send Status is ticked.
+    Uses UNFORMATTED_VALUE so checkbox cells come back as Python booleans.
+    Skips separator rows (no email address).
     """
     gc = _client()
     sh = gc.open_by_key(sheet_id)
     gsheet = sh.sheet1
-    records = gsheet.get_all_records()
+    records = gsheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
 
     emails: list[str] = []
     for r in records:
-        status = r.get("Send Status", "")
-        email  = str(r.get("Recipient Email", "")).strip().lower()
-        if (
-            (status is True or str(status).strip().upper() in ("TRUE", "SENT"))
-            and email and "@" in email
-        ):
+        email = str(r.get("Recipient Email", "")).strip().lower()
+        if _is_sent(r.get("Send Status", "")) and email and "@" in email:
             emails.append(email)
     return emails
 

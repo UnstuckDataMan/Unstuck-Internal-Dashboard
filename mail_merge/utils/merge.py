@@ -200,3 +200,37 @@ def perform_merge(
         merged_rows.append(enriched)
 
     return merged_rows
+
+
+def reassign_templates(
+    sorted_rows: List[Dict],
+    subject_templates: List[str],
+    body_templates: List[str],
+    headers: List[str],
+    missing_value: str = '[MISSING]',
+) -> None:
+    """
+    Re-fill subject / body / variant for every row based on its FINAL position
+    in the sorted output so the sheet displays a clean 1-2-3-1-2-3 pattern.
+
+    Must be called AFTER the rows have been sorted (date → sender → time).
+    Mutates rows in-place.
+    """
+    header_map = _build_header_map(headers)
+    n_s = len(subject_templates)
+    n_b = len(body_templates)
+
+    for j, row in enumerate(sorted_rows):
+        s_idx    = j % n_s
+        b_idx    = j % n_b
+        inline_i = j // max(n_s, n_b)
+
+        row["__subject_line__"] = _fill(
+            _expand_inline_variants(subject_templates[s_idx], inline_i),
+            row, header_map, missing_value,
+        )
+        row["__email_body__"] = _fill(
+            _expand_inline_variants(body_templates[b_idx], inline_i),
+            row, header_map, missing_value,
+        )
+        row["__template_variant__"] = f"S{s_idx + 1}/B{b_idx + 1}"

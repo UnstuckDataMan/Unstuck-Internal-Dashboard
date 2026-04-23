@@ -23,7 +23,7 @@ if str(_MM_DIR) not in sys.path:
     sys.path.insert(0, str(_MM_DIR))
 
 from utils.excel_reader import parse_prospect_file      # noqa: E402
-from utils.merge import validate_templates, perform_merge  # noqa: E402
+from utils.merge import validate_templates, perform_merge, reassign_templates  # noqa: E402
 from utils.scheduler import generate_schedule, _dvariance  # noqa: E402
 from utils.excel_writer import write_merge_output          # noqa: E402
 
@@ -218,6 +218,11 @@ async def generate_merge(request: Request):
             r.get("__send_time__", ""),
         ))
         merged_rows = [r for r in merged_rows if r.get("__send_date__")]
+
+        # Re-assign templates in final sorted order → output shows 1-2-3-1-2-3
+        reassign_templates(
+            merged_rows, subject_templates, body_templates, headers, missing_value
+        )
 
         # Write Excel output
         has_chaser = bool(chaser_body)
