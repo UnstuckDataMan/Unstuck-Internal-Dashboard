@@ -169,20 +169,16 @@ def perform_merge(
                     break
 
     merged_rows: List[Dict] = []
-    sender_copy_counters = [0] * len(sender_emails)
 
     for i, row in enumerate(rows):
         sender_idx = i % len(sender_emails)
         sender = sender_emails[sender_idx]
 
-        copy_counter = sender_copy_counters[sender_idx]
-        s_idx = copy_counter % len(subject_templates)
-        b_idx = copy_counter % len(body_templates)
-        sender_copy_counters[sender_idx] += 1
-
-        # Inline variants advance once per full cycle of body templates, so
-        # Copy A and Copy B both use v1 before either advances to v2.
-        inline_idx = copy_counter // len(body_templates)
+        # Global sequential rotation: templates cycle 1-2-3-1-2-3 across ALL
+        # prospects in order, regardless of how many senders there are.
+        s_idx = i % len(subject_templates)
+        b_idx = i % len(body_templates)
+        inline_idx = i // len(body_templates)
 
         subject = _fill(_expand_inline_variants(subject_templates[s_idx], inline_idx), row, header_map, missing_value)
         body    = _fill(_expand_inline_variants(body_templates[b_idx],    inline_idx), row, header_map, missing_value)

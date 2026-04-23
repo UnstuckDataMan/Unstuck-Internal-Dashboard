@@ -1277,6 +1277,27 @@
     transition: border-color .15s, color .15s;
   }
   .camp-refresh-btn:hover { border-color: var(--accent); color: var(--text); }
+  .camp-sync-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px; background: transparent; border: 1px solid #4ade80;
+    border-radius: 8px; font-size: .78rem; color: #4ade80; cursor: pointer;
+    font-family: var(--font); font-weight: 600;
+    transition: background .15s, color .15s;
+  }
+  .camp-sync-btn:hover { background: rgba(74,222,128,.1); }
+  .camp-delete-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px; background: transparent; border: 1px solid var(--border);
+    border-radius: 8px; font-size: .78rem; color: var(--text-3); cursor: pointer;
+    font-family: var(--font); font-weight: 600;
+    transition: border-color .15s, color .15s;
+  }
+  .camp-delete-btn:hover { border-color: #f87171; color: #f87171; }
+  .camp-sync-result {
+    margin-top: 6px; font-size: .78rem;
+  }
+  .camp-sync-ok  { color: #4ade80; }
+  .camp-sync-err { color: #f87171; }
   .camp-empty {
     text-align: center;
     padding: 48px 24px;
@@ -2351,15 +2372,15 @@
     <div style="padding:26px 28px 24px">
 
       <div class="camp-header">
-        <span class="camp-header-title">All Campaigns</span>
+        <span class="camp-header-title">Campaigns</span>
         <div class="camp-client-filter">
-          <label for="camp-client-filter-sel">Filter by client</label>
+          <label for="camp-client-filter-sel">Client</label>
           <select id="camp-client-filter-sel"
                   hx-get="/api/dnc/clients"
                   hx-trigger="load"
                   hx-target="#camp-client-filter-sel"
                   hx-swap="innerHTML">
-            <option value="">All clients</option>
+            <option value="">— select client —</option>
           </select>
           <svg id="camp-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -2368,14 +2389,15 @@
         </div>
       </div>
 
-      <div id="campaigns-panel-inner"
-           hx-get="/api/campaigns"
-           hx-trigger="load"
-           hx-target="#campaigns-panel-inner"
-           hx-swap="innerHTML"
-           hx-indicator="#camp-spinner">
-        <div style="text-align:center;padding:32px;color:var(--text-3);font-size:.85rem">
-          Loading campaigns…
+      <div id="campaigns-panel-inner">
+        <div class="camp-empty">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"
+               style="opacity:.35;margin-bottom:10px">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          <p>Select a client above to view their campaigns.</p>
         </div>
       </div>
 
@@ -2554,9 +2576,20 @@
     if (campClientSel) {
       campClientSel.addEventListener('change', () => {
         const cid = campClientSel.value;
-        const url = cid
-          ? `/api/campaigns?client_id=${encodeURIComponent(cid)}`
-          : '/api/campaigns';
+        if (!cid) {
+          document.getElementById('campaigns-panel-inner').innerHTML =
+            `<div class="camp-empty">
+               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"
+                    style="opacity:.35;margin-bottom:10px">
+                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                 <circle cx="12" cy="7" r="4"/>
+               </svg>
+               <p>Select a client above to view their campaigns.</p>
+             </div>`;
+          return;
+        }
+        const url = `/api/campaigns?client_id=${encodeURIComponent(cid)}`;
         htmx.ajax('GET', url, {
           target:    '#campaigns-panel-inner',
           swap:      'innerHTML',
