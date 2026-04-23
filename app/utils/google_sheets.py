@@ -111,24 +111,50 @@ def cleanup_service_account_drive(older_than_days: int = 0) -> dict:
 
 def _create_spreadsheet(title: str) -> tuple[str, str]:
     """
-    Create a blank Google Sheet via the Sheets API (not the Drive API).
-    This bypasses Drive storage quota limits that apply to service accounts.
+    Create a blank Google Sheet.
+
+    Strategy:
+      1. If GOOGLE_DRIVE_FOLDER_ID is set → create via Drive API inside that
+         folder.  The file is parented under the folder owner's quota, not the
+         service account's.
+      2. Otherwise → create via Sheets API v4 (no Drive storage required).
 
     Returns (spreadsheet_id, spreadsheet_url).
     """
-    session = _authed_session()
-    resp = session.post(
-        "https://sheets.googleapis.com/v4/spreadsheets",
-        json={"properties": {"title": title}},
-    )
-    if not resp.ok:
-        raise RuntimeError(
-            f"Sheets API create failed (HTTP {resp.status_code}): "
-            f"{resp.text[:400]}"
+    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+    session   = _authed_session()
+
+    if folder_id:
+        # ── Drive API: create inside user's shared folder ─────────────────
+        resp = session.post(
+            _DRIVE_FILES_URL,
+            params={"supportsAllDrives": "true"},
+            json={
+                "name":     title,
+                "mimeType": "application/vnd.google-apps.spreadsheet",
+                "parents":  [folder_id],
+            },
         )
-    data = resp.json()
-    sid  = data["spreadsheetId"]
-    url  = f"https://docs.google.com/spreadsheets/d/{sid}/edit"
+        if not resp.ok:
+            raise RuntimeError(
+                f"Drive create-in-folder failed (HTTP {resp.status_code}): "
+                f"{resp.text[:400]}"
+            )
+        sid = resp.json()["id"]
+    else:
+        # ── Sheets API: no Drive storage quota required ───────────────────
+        resp = session.post(
+            "https://sheets.googleapis.com/v4/spreadsheets",
+            json={"properties": {"title": title}},
+        )
+        if not resp.ok:
+            raise RuntimeError(
+                f"Sheets API create failed (HTTP {resp.status_code}): "
+                f"{resp.text[:400]}"
+            )
+        sid = resp.json()["spreadsheetId"]
+
+    url = f"https://docs.google.com/spreadsheets/d/{sid}/edit"
     return sid, url
 
 
