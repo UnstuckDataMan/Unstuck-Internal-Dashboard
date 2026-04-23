@@ -20,7 +20,6 @@ import re
 
 import gspread
 import openpyxl
-from google.oauth2.service_account import Credentials
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -48,8 +47,10 @@ def _client() -> gspread.Client:
     except Exception as exc:
         raise RuntimeError(f"Could not decode GOOGLE_SHEETS_SA_JSON: {exc}") from exc
 
-    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-    return gspread.authorize(creds)
+    # Use gspread v6 native service_account_from_dict — properly wires up
+    # both the Sheets and Drive APIs (gspread.authorize() is v5 legacy and
+    # doesn't correctly support Drive file creation with parent folders).
+    return gspread.service_account_from_dict(info, scopes=SCOPES)
 
 
 def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
