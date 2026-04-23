@@ -109,30 +109,27 @@ def cleanup_service_account_drive(older_than_days: int = 0) -> dict:
     return {"deleted": deleted, "errors": errors}
 
 
-def _create_in_folder(title: str, folder_id: str) -> str:
+def _create_spreadsheet(title: str) -> tuple[str, str]:
     """
-    Create a blank Google Sheet directly inside folder_id via the Drive v3
-    REST API. The file is owned by the folder and counts against the folder
-    owner's quota, not the service account's.
+    Create a blank Google Sheet via the Sheets API (not the Drive API).
+    This bypasses Drive storage quota limits that apply to service accounts.
 
-    Returns the new spreadsheet file ID.
+    Returns (spreadsheet_id, spreadsheet_url).
     """
     session = _authed_session()
     resp = session.post(
-        _DRIVE_FILES_URL,
-        params={"fields": "id", "supportsAllDrives": "true"},
-        json={
-            "name":     title,
-            "mimeType": "application/vnd.google-apps.spreadsheet",
-            "parents":  [folder_id],
-        },
+        "https://sheets.googleapis.com/v4/spreadsheets",
+        json={"properties": {"title": title}},
     )
     if not resp.ok:
         raise RuntimeError(
-            f"Drive create-in-folder failed (HTTP {resp.status_code}): "
+            f"Sheets API create failed (HTTP {resp.status_code}): "
             f"{resp.text[:400]}"
         )
-    return resp.json()["id"]
+    data = resp.json()
+    sid  = data["spreadsheetId"]
+    url  = f"https://docs.google.com/spreadsheets/d/{sid}/edit"
+    return sid, url
 
 
 def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
@@ -142,9 +139,8 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     to a new Google Sheet, freeze the header row, and share it as
     "anyone with link can edit".
 
-    If GOOGLE_DRIVE_FOLDER_ID is set, the sheet is created directly inside
-    that folder (using the folder owner's quota). Otherwise it is created in
-    the service account's root Drive.
+    Uses the Sheets API (not Drive API) to create the file, which bypasses
+    the Drive storage quota limitation that affects GCP service accounts.
 
     Returns: {"sheet_id": str, "sheet_url": str, "title": str}
     """
@@ -168,21 +164,11 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     headers   = str_rows[0]
     data_rows = str_rows[1:]
 
-    # ── Create Google Sheet ───────────────────────────────────────────────
-    gc        = _client()
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+    # ── Create via Sheets API (bypasses Drive storage quota) ─────────────
+    file_id, sheet_url = _create_spreadsheet(title)
 
-    # ── Auto-clean old service-account sheets (keeps quota healthy) ──────
-    cleanup_service_account_drive(older_than_days=30)
-
-    if folder_id:
-        # Create directly in the shared folder — uses folder owner's quota
-        file_id = _create_in_folder(title, folder_id)
-        sh      = gc.open_by_key(file_id)
-    else:
-        # Fallback: create in service account root
-        sh = gc.create(title)
-
+    gc     = _client()
+    sh     = gc.open_by_key(file_id)
     gsheet = sh.sheet1
     gsheet.update_title("Outreach List")
 
@@ -199,8 +185,8 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     sh.share("", perm_type="anyone", role="writer")
 
     return {
-        "sheet_id":  sh.id,
-        "sheet_url": sh.url,
+        "sheet_id":  file_id,
+        "sheet_url": sheet_url,
         "title":     title,
     }
 
