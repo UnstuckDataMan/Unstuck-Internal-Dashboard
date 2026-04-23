@@ -1356,6 +1356,15 @@
     </svg>
     Mail Merge
   </button>
+  <button class="dnc-tab-btn" data-tab="tab-campaigns" role="tab" aria-selected="false">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"
+         style="display:inline;vertical-align:-2px;margin-right:5px">
+      <rect x="2" y="3" width="20" height="14" rx="2"/>
+      <path d="M8 21h8M12 17v4"/>
+    </svg>
+    Campaigns
+  </button>
   <button class="dnc-tab-btn" data-tab="tab-manage" role="tab" aria-selected="false">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"
@@ -1379,15 +1388,6 @@
       <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
     </svg>
     Manage Contacted
-  </button>
-  <button class="dnc-tab-btn" data-tab="tab-campaigns" role="tab" aria-selected="false">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"
-         style="display:inline;vertical-align:-2px;margin-right:5px">
-      <rect x="2" y="3" width="20" height="14" rx="2"/>
-      <path d="M8 21h8M12 17v4"/>
-    </svg>
-    Campaigns
   </button>
 </div>
 
@@ -2348,33 +2348,37 @@
 <div id="tab-campaigns" class="tab-panel" style="display:none">
 
   <div class="form-card">
-    <div class="camp-header">
-      <span class="camp-header-title">All Campaigns</span>
-      <div class="camp-client-filter">
-        <label for="camp-client-filter-sel">Filter by client</label>
-        <select id="camp-client-filter-sel"
-                hx-get="/api/dnc/clients"
-                hx-trigger="load"
-                hx-target="#camp-client-filter-sel"
-                hx-swap="innerHTML">
-          <option value="">All clients</option>
-        </select>
-        <svg id="camp-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12a9 9 0 1 1-6.22-8.56"/>
-        </svg>
-      </div>
-    </div>
+    <div style="padding:26px 28px 24px">
 
-    <div id="campaigns-panel-inner"
-         hx-get="/api/campaigns"
-         hx-trigger="load"
-         hx-target="#campaigns-panel-inner"
-         hx-swap="innerHTML"
-         hx-indicator="#camp-spinner">
-      <div style="text-align:center;padding:32px;color:var(--text-3);font-size:.85rem">
-        Loading campaigns…
+      <div class="camp-header">
+        <span class="camp-header-title">All Campaigns</span>
+        <div class="camp-client-filter">
+          <label for="camp-client-filter-sel">Filter by client</label>
+          <select id="camp-client-filter-sel"
+                  hx-get="/api/dnc/clients"
+                  hx-trigger="load"
+                  hx-target="#camp-client-filter-sel"
+                  hx-swap="innerHTML">
+            <option value="">All clients</option>
+          </select>
+          <svg id="camp-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-6.22-8.56"/>
+          </svg>
+        </div>
       </div>
+
+      <div id="campaigns-panel-inner"
+           hx-get="/api/campaigns"
+           hx-trigger="load"
+           hx-target="#campaigns-panel-inner"
+           hx-swap="innerHTML"
+           hx-indicator="#camp-spinner">
+        <div style="text-align:center;padding:32px;color:var(--text-3);font-size:.85rem">
+          Loading campaigns…
+        </div>
+      </div>
+
     </div>
   </div>
 
