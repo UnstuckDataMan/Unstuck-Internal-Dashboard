@@ -71,6 +71,44 @@ def _authed_session() -> AuthorizedSession:
     return AuthorizedSession(creds)
 
 
+def cleanup_service_account_drive(older_than_days: int = 0) -> dict:
+    """
+    Delete spreadsheets owned by the service account.
+    older_than_days=0 deletes ALL sheets; >0 deletes only older ones.
+    Returns {"deleted": int, "errors": int}
+    """
+    session = _authed_session()
+    q = "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+    if older_than_days > 0:
+        from datetime import datetime, timezone, timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).strftime("%Y-%m-%dT%H:%M:%S")
+        q += f" and createdTime < '{cutoff}'"
+
+    # Page through all matching files
+    files, page_token = [], None
+    while True:
+        params: dict = {"q": q, "fields": "nextPageToken,files(id,name)", "pageSize": 100}
+        if page_token:
+            params["pageToken"] = page_token
+        resp = session.get(_DRIVE_FILES_URL, params=params)
+        if not resp.ok:
+            break
+        data = resp.json()
+        files.extend(data.get("files", []))
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+
+    deleted = errors = 0
+    for f in files:
+        r = session.delete(f"{_DRIVE_FILES_URL}/{f['id']}")
+        if r.ok or r.status_code == 204:
+            deleted += 1
+        else:
+            errors += 1
+    return {"deleted": deleted, "errors": errors}
+
+
 def _create_in_folder(title: str, folder_id: str) -> str:
     """
     Create a blank Google Sheet directly inside folder_id via the Drive v3
@@ -133,6 +171,9 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     # ── Create Google Sheet ───────────────────────────────────────────────
     gc        = _client()
     folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+
+    # ── Auto-clean old service-account sheets (keeps quota healthy) ──────
+    cleanup_service_account_drive(older_than_days=30)
 
     if folder_id:
         # Create directly in the shared folder — uses folder owner's quota

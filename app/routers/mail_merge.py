@@ -408,6 +408,19 @@ async def sheets_status():
     return {"configured": is_configured()}
 
 
+@router.post("/api/merge/cleanup-drive")
+async def cleanup_drive():
+    """Delete ALL spreadsheets from the service account's Drive to free quota."""
+    from app.utils.google_sheets import is_configured, cleanup_service_account_drive
+    if not is_configured():
+        return JSONResponse({"error": "Google Sheets not configured."}, status_code=503)
+    try:
+        result = cleanup_service_account_drive(older_than_days=0)
+        return result
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 # ── 8. Download Generated File ───────────────────────────────────────────────
 
 @router.get("/api/merge/download/{filename}")
