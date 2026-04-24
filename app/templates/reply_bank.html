@@ -164,12 +164,24 @@
     .copy-btn:active { transform: scale(.97); }
     .copy-btn.success { background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%); }
 
+    /* ── Format toolbar (admin) ── */
+    .format-toolbar { display: flex; gap: 4px; margin-bottom: 6px; }
+    .fmt-btn {
+      width: 28px; height: 28px;
+      border: 1.5px solid #e5e7eb; border-radius: 6px;
+      background: white; cursor: pointer;
+      font-size: 13px; color: #374151;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color .15s, color .15s;
+      line-height: 1; user-select: none;
+    }
+    .fmt-btn:hover { border-color: #7c3aed; color: #7c3aed; }
+
     /* ── Message box ── */
     .message-box {
       flex: 1;
       padding: 24px;
       overflow-y: auto;
-      white-space: pre-wrap;
       font-size: 13.5px;
       line-height: 1.65;
       color: #111827;
@@ -558,12 +570,22 @@
         <div class="admin-template-label">
           Email <span class="edited-chip" id="chip-adm-email" style="display:none">Edited</span>
         </div>
+        <div class="format-toolbar">
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-email','b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-email','i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-email','u')" title="Underline"><u>U</u></button>
+        </div>
         <textarea class="admin-textarea" id="adm-email" spellcheck="true"></textarea>
       </div>
 
       <div class="admin-template-block">
         <div class="admin-template-label">
           LinkedIn <span class="edited-chip" id="chip-adm-linkedin" style="display:none">Edited</span>
+        </div>
+        <div class="format-toolbar">
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-linkedin','b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-linkedin','i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-linkedin','u')" title="Underline"><u>U</u></button>
         </div>
         <textarea class="admin-textarea" id="adm-linkedin" spellcheck="true"></textarea>
       </div>
@@ -585,14 +607,29 @@
 
       <div class="snippet-row">
         <div class="snippet-label">Pay per lead? <span class="edited-chip" id="chip-payPerLead" style="display:none">Edited</span></div>
+        <div class="format-toolbar">
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-payPerLead','b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-payPerLead','i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-payPerLead','u')" title="Underline"><u>U</u></button>
+        </div>
         <textarea class="snippet-textarea" id="snip-payPerLead" spellcheck="true"></textarea>
       </div>
       <div class="snippet-row">
         <div class="snippet-label">Referral confusion? <span class="edited-chip" id="chip-referral" style="display:none">Edited</span></div>
+        <div class="format-toolbar">
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-referral','b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-referral','i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-referral','u')" title="Underline"><u>U</u></button>
+        </div>
         <textarea class="snippet-textarea" id="snip-referral" spellcheck="true"></textarea>
       </div>
       <div class="snippet-row">
         <div class="snippet-label">Face-to-face request <span class="edited-chip" id="chip-f2f" style="display:none">Edited</span></div>
+        <div class="format-toolbar">
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-f2f','b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-f2f','i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-f2f','u')" title="Underline"><u>U</u></button>
+        </div>
         <textarea class="snippet-textarea" id="snip-f2f" spellcheck="true"></textarea>
       </div>
 
@@ -600,10 +637,20 @@
 
       <div class="snippet-row">
         <div class="snippet-label">US Pricing <span class="edited-chip" id="chip-usPricing" style="display:none">Edited</span></div>
+        <div class="format-toolbar">
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-usPricing','b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-usPricing','i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-usPricing','u')" title="Underline"><u>U</u></button>
+        </div>
         <textarea class="snippet-textarea" id="snip-usPricing" spellcheck="true"></textarea>
       </div>
       <div class="snippet-row">
         <div class="snippet-label">UK Pricing <span class="edited-chip" id="chip-ukPricing" style="display:none">Edited</span></div>
+        <div class="format-toolbar">
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-ukPricing','b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-ukPricing','i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-ukPricing','u')" title="Underline"><u>U</u></button>
+        </div>
         <textarea class="snippet-textarea" id="snip-ukPricing" spellcheck="true"></textarea>
       </div>
 
@@ -611,10 +658,20 @@
 
       <div class="snippet-row">
         <div class="snippet-label">Leo's link <span class="edited-chip" id="chip-leoLink" style="display:none">Edited</span></div>
+        <div class="format-toolbar">
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-leoLink','b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-leoLink','i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-leoLink','u')" title="Underline"><u>U</u></button>
+        </div>
         <textarea class="snippet-textarea" id="snip-leoLink" spellcheck="true"></textarea>
       </div>
       <div class="snippet-row">
         <div class="snippet-label">Other senders' link <span class="edited-chip" id="chip-otherLink" style="display:none">Edited</span></div>
+        <div class="format-toolbar">
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-otherLink','b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-otherLink','i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-otherLink','u')" title="Underline"><u>U</u></button>
+        </div>
         <textarea class="snippet-textarea" id="snip-otherLink" spellcheck="true"></textarea>
       </div>
 
@@ -697,6 +754,29 @@ const OPTIONS = {"industries":["PR","Marketing","Media","SaaS","AI","Accounting"
 let channel   = 'Email';
 let territory = 'US';
 let style     = 'Standard';
+let _lastMsg  = ''; // last assembled raw message, used by copy handler
+
+// ════════════════════════════════════════════════════════
+//  FORMATTING HELPERS
+// ════════════════════════════════════════════════════════
+function applyFormat(textareaId, tag) {
+  const ta    = document.getElementById(textareaId);
+  const start = ta.selectionStart;
+  const end   = ta.selectionEnd;
+  if (start === end) return;
+  const wrapped = `<${tag}>${ta.value.substring(start, end)}</${tag}>`;
+  ta.value = ta.value.substring(0, start) + wrapped + ta.value.substring(end);
+  ta.selectionStart = start + wrapped.length;
+  ta.selectionEnd   = start + wrapped.length;
+  ta.focus();
+}
+
+function sanitizeHtml(str) {
+  // Strip any tags that aren't the allowed formatting set, then convert \n → <br>
+  return str
+    .replace(/<(?!\/?(?:b|i|u|strong|em)\b)[^>]*>/gi, '')
+    .replace(/\n/g, '<br>');
+}
 
 // ════════════════════════════════════════════════════════
 //  MESSAGE ASSEMBLY
@@ -794,14 +874,14 @@ function render() {
   }
 
   const msg = assemble();
-
+  _lastMsg = msg || '';
   box.className = 'message-box';
 
   if (msg === 'NOT_AVAILABLE') {
     box.classList.add('not-available');
     box.textContent = 'No template available for this combination.';
   } else if (msg) {
-    box.textContent = msg;
+    box.innerHTML = sanitizeHtml(msg);
   } else {
     box.classList.add('placeholder');
     box.textContent = 'Select options to generate a message…';
@@ -831,22 +911,36 @@ document.querySelectorAll('[data-channel]').forEach(btn => {
 
 // Territory buttons are rendered dynamically — see renderTerritoryButtons()
 
-// Copy button
+// Copy button — rich text (text/html) + plain text (text/plain) fallback
 document.getElementById('copy-btn').addEventListener('click', async () => {
   const box = document.getElementById('message-box');
   if (box.classList.contains('placeholder') ||
       box.classList.contains('not-available')) return;
-  const text = box.textContent;
+
+  const plainText = _lastMsg.replace(/<[^>]+>/g, '');
+  const htmlBody  = sanitizeHtml(_lastMsg);
+
   try {
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'text/html':  new Blob([`<html><body>${htmlBody}</body></html>`], { type: 'text/html' }),
+        'text/plain': new Blob([plainText], { type: 'text/plain' }),
+      })
+    ]);
   } catch {
-    const range = document.createRange();
-    range.selectNodeContents(box);
-    window.getSelection().removeAllRanges();
-    window.getSelection().addRange(range);
-    document.execCommand('copy');
-    window.getSelection().removeAllRanges();
+    // Fallback: plain text only
+    try {
+      await navigator.clipboard.writeText(plainText);
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents(box);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+      document.execCommand('copy');
+      window.getSelection().removeAllRanges();
+    }
   }
+
   const btn = document.getElementById('copy-btn');
   btn.textContent = '✓ Copied!';
   btn.classList.add('success');
