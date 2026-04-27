@@ -355,6 +355,8 @@
     .admin-textarea {
       width: 100%;
       min-height: 160px;
+      max-height: 400px;
+      overflow-y: auto;
       padding: 10px 12px;
       border: 1.5px solid #e5e7eb;
       border-radius: 8px;
@@ -362,10 +364,11 @@
       line-height: 1.6;
       color: #111827;
       background: #fafafa;
-      resize: vertical;
       font-family: inherit;
       outline: none;
       transition: border-color .15s;
+      white-space: pre-wrap;
+      word-wrap: break-word;
     }
     .admin-textarea:focus { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,.1); background: white; }
     .admin-save-row {
@@ -394,6 +397,8 @@
     .snippet-textarea {
       width: 100%;
       min-height: 64px;
+      max-height: 200px;
+      overflow-y: auto;
       padding: 8px 10px;
       border: 1.5px solid #e5e7eb;
       border-radius: 8px;
@@ -401,10 +406,11 @@
       line-height: 1.5;
       color: #111827;
       background: #fafafa;
-      resize: vertical;
       font-family: inherit;
       outline: none;
       transition: border-color .15s;
+      white-space: pre-wrap;
+      word-wrap: break-word;
     }
     .snippet-textarea:focus { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,.1); }
     .admin-action-row {
@@ -571,11 +577,11 @@
           Email <span class="edited-chip" id="chip-adm-email" style="display:none">Edited</span>
         </div>
         <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-email','b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-email','i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-email','u')" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <textarea class="admin-textarea" id="adm-email" spellcheck="true"></textarea>
+        <div class="admin-textarea" id="adm-email" contenteditable="true" spellcheck="true"></div>
       </div>
 
       <div class="admin-template-block">
@@ -583,11 +589,11 @@
           LinkedIn <span class="edited-chip" id="chip-adm-linkedin" style="display:none">Edited</span>
         </div>
         <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-linkedin','b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-linkedin','i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('adm-linkedin','u')" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <textarea class="admin-textarea" id="adm-linkedin" spellcheck="true"></textarea>
+        <div class="admin-textarea" id="adm-linkedin" contenteditable="true" spellcheck="true"></div>
       </div>
 
       <div class="admin-save-row">
@@ -608,29 +614,29 @@
       <div class="snippet-row">
         <div class="snippet-label">Pay per lead? <span class="edited-chip" id="chip-payPerLead" style="display:none">Edited</span></div>
         <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-payPerLead','b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-payPerLead','i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-payPerLead','u')" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <textarea class="snippet-textarea" id="snip-payPerLead" spellcheck="true"></textarea>
+        <div class="snippet-textarea" id="snip-payPerLead" contenteditable="true" spellcheck="true"></div>
       </div>
       <div class="snippet-row">
         <div class="snippet-label">Referral confusion? <span class="edited-chip" id="chip-referral" style="display:none">Edited</span></div>
         <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-referral','b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-referral','i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-referral','u')" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <textarea class="snippet-textarea" id="snip-referral" spellcheck="true"></textarea>
+        <div class="snippet-textarea" id="snip-referral" contenteditable="true" spellcheck="true"></div>
       </div>
       <div class="snippet-row">
         <div class="snippet-label">Face-to-face request <span class="edited-chip" id="chip-f2f" style="display:none">Edited</span></div>
         <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-f2f','b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-f2f','i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-f2f','u')" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <textarea class="snippet-textarea" id="snip-f2f" spellcheck="true"></textarea>
+        <div class="snippet-textarea" id="snip-f2f" contenteditable="true" spellcheck="true"></div>
       </div>
 
       <div class="admin-snippet-group-label" style="margin-top:18px">Pricing — auto-selected by territory (US or UK)</div>
@@ -638,20 +644,20 @@
       <div class="snippet-row">
         <div class="snippet-label">US Pricing <span class="edited-chip" id="chip-usPricing" style="display:none">Edited</span></div>
         <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-usPricing','b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-usPricing','i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-usPricing','u')" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <textarea class="snippet-textarea" id="snip-usPricing" spellcheck="true"></textarea>
+        <div class="snippet-textarea" id="snip-usPricing" contenteditable="true" spellcheck="true"></div>
       </div>
       <div class="snippet-row">
         <div class="snippet-label">UK Pricing <span class="edited-chip" id="chip-ukPricing" style="display:none">Edited</span></div>
         <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-ukPricing','b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-ukPricing','i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-ukPricing','u')" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <textarea class="snippet-textarea" id="snip-ukPricing" spellcheck="true"></textarea>
+        <div class="snippet-textarea" id="snip-ukPricing" contenteditable="true" spellcheck="true"></div>
       </div>
 
       <div class="admin-snippet-group-label" style="margin-top:18px">Meeting link — auto-selected by sender (Leo or others)</div>
@@ -659,20 +665,20 @@
       <div class="snippet-row">
         <div class="snippet-label">Leo's link <span class="edited-chip" id="chip-leoLink" style="display:none">Edited</span></div>
         <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-leoLink','b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-leoLink','i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-leoLink','u')" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <textarea class="snippet-textarea" id="snip-leoLink" spellcheck="true"></textarea>
+        <div class="snippet-textarea" id="snip-leoLink" contenteditable="true" spellcheck="true"></div>
       </div>
       <div class="snippet-row">
         <div class="snippet-label">Other senders' link <span class="edited-chip" id="chip-otherLink" style="display:none">Edited</span></div>
         <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-otherLink','b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-otherLink','i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('snip-otherLink','u')" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <textarea class="snippet-textarea" id="snip-otherLink" spellcheck="true"></textarea>
+        <div class="snippet-textarea" id="snip-otherLink" contenteditable="true" spellcheck="true"></div>
       </div>
 
       <div class="admin-save-row">
@@ -759,16 +765,32 @@ let _lastMsg  = ''; // last assembled raw message, used by copy handler
 // ════════════════════════════════════════════════════════
 //  FORMATTING HELPERS
 // ════════════════════════════════════════════════════════
-function applyFormat(textareaId, tag) {
-  const ta    = document.getElementById(textareaId);
-  const start = ta.selectionStart;
-  const end   = ta.selectionEnd;
-  if (start === end) return;
-  const wrapped = `<${tag}>${ta.value.substring(start, end)}</${tag}>`;
-  ta.value = ta.value.substring(0, start) + wrapped + ta.value.substring(end);
-  ta.selectionStart = start + wrapped.length;
-  ta.selectionEnd   = start + wrapped.length;
-  ta.focus();
+// applyFormat uses execCommand so bold→click again→unbold (native toggle)
+function applyFormat(tag) {
+  const cmd = tag === 'b' ? 'bold' : tag === 'i' ? 'italic' : 'underline';
+  document.execCommand(cmd);
+}
+
+// Read a contenteditable div back to a clean string (newlines + <b>/<i>/<u> only)
+function getRichContent(el) {
+  let html = el.innerHTML;
+  // Chrome wraps new paragraphs in <div> — convert those to line breaks
+  html = html.replace(/<div>/gi, '\n').replace(/<\/div>/gi, '');
+  html = html.replace(/<p>/gi,   '\n').replace(/<\/p>/gi,   '');
+  html = html.replace(/<br\s*\/?>/gi, '\n');
+  // Normalise tag aliases browsers may insert
+  html = html.replace(/<strong>/gi, '<b>').replace(/<\/strong>/gi, '</b>');
+  html = html.replace(/<em>/gi,     '<i>').replace(/<\/em>/gi,     '</i>');
+  // Strip anything else (span, style attributes, etc.)
+  html = html.replace(/<(?!\/?(?:b|i|u)\b)[^>]+>/gi, '');
+  // Tidy up extra blank lines Chrome can add at the start
+  html = html.replace(/^\n+/, '').replace(/\n{3,}/g, '\n\n');
+  return html;
+}
+
+// Load a clean string into a contenteditable div
+function setRichContent(el, str) {
+  el.innerHTML = sanitizeHtml(str || '');
 }
 
 function sanitizeHtml(str) {
@@ -777,6 +799,16 @@ function sanitizeHtml(str) {
     .replace(/<(?!\/?(?:b|i|u|strong|em)\b)[^>]*>/gi, '')
     .replace(/\n/g, '<br>');
 }
+
+// Force Enter to insert <br> instead of Chrome's default <div> wrapping
+document.querySelectorAll('[contenteditable]').forEach(el => {
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      document.execCommand('insertLineBreak');
+    }
+  });
+});
 
 // ════════════════════════════════════════════════════════
 //  MESSAGE ASSEMBLY
@@ -1088,7 +1120,7 @@ function adminLoadTemplates() {
     const key  = `${territory}_Standard_${channel}_${industry}`;
     const elId = `adm-${channel.toLowerCase()}`;
     const ta   = document.getElementById(elId);
-    ta.value   = TEMPLATES[key] || '';
+    setRichContent(ta, TEMPLATES[key] || '');
     const chip = document.getElementById(`chip-adm-${channel.toLowerCase()}`);
     chip.style.display = tOverrides[key] !== undefined ? 'inline-block' : 'none';
   }
@@ -1104,7 +1136,7 @@ document.getElementById('adm-save-templates').addEventListener('click', () => {
 
   for (const channel of ['Email', 'LinkedIn']) {
     const key  = `${territory}_Standard_${channel}_${industry}`;
-    const val  = document.getElementById(`adm-${channel.toLowerCase()}`).value;
+    const val  = getRichContent(document.getElementById(`adm-${channel.toLowerCase()}`));
     tOverrides[key] = val;
     TEMPLATES[key]  = val;
     document.getElementById(`chip-adm-${channel.toLowerCase()}`).style.display = 'inline-block';
@@ -1134,7 +1166,7 @@ function adminLoadSnippets() {
   for (const key of Object.keys(SNIPPETS)) {
     const ta = document.getElementById(`snip-${key}`);
     if (ta) {
-      ta.value = SNIPPETS[key] || '';
+      setRichContent(ta, SNIPPETS[key] || '');
       const chip = document.getElementById(`chip-${key}`);
       if (chip) chip.style.display = sOverrides[key] !== undefined ? 'inline-block' : 'none';
     }
@@ -1146,8 +1178,8 @@ document.getElementById('adm-save-snippets').addEventListener('click', () => {
   for (const key of Object.keys(SNIPPETS)) {
     const ta = document.getElementById(`snip-${key}`);
     if (ta) {
-      sOverrides[key] = ta.value;
-      SNIPPETS[key]   = ta.value;
+      sOverrides[key] = getRichContent(ta);
+      SNIPPETS[key]   = getRichContent(ta);
       const chip = document.getElementById(`chip-${key}`);
       if (chip) chip.style.display = 'inline-block';
     }
