@@ -46,30 +46,48 @@ def _parse_total(headers: dict) -> int:
 
 
 def _fetch_send_counts(client_id: str) -> dict:
-    """Return Today / This Week / This Month send counts from contacted_prospects."""
+    """Return Today / This Week / This Month / All Time send counts from contacted_prospects."""
     today     = _date.today()
     week_ago  = (today - timedelta(days=7)).isoformat()
     month_ago = (today - timedelta(days=30)).isoformat()
     today_str = today.isoformat()
 
-    counts = {"today": 0, "week": 0, "month": 0}
+    counts = {"today": 0, "week": 0, "month": 0, "all_time": 0}
     for key, cutoff in (("month", month_ago), ("week", week_ago), ("today", today_str)):
         try:
             r = http_req.get(
                 f"{SUPABASE_URL}/rest/v1/contacted_prospects",
                 headers={**_sb_headers(), "Prefer": "count=exact"},
                 params={
-                    "select":       "id",
-                    "client_id":    f"eq.{client_id}",
-                    "contacted_at": f"gte.{cutoff}",
+                    "select":        "id",
+                    "client_id":     f"eq.{client_id}",
+                    "contacted_at":  f"gte.{cutoff}",
                     "campaign_name": "not.is.null",
-                    "limit":        "1",
+                    "limit":         "1",
                 },
                 timeout=10,
             )
             counts[key] = _parse_total(r.headers)
         except Exception:
             pass
+
+    # All-time: no date filter — source of truth from contacted_prospects
+    try:
+        r = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+            headers={**_sb_headers(), "Prefer": "count=exact"},
+            params={
+                "select":        "id",
+                "client_id":     f"eq.{client_id}",
+                "campaign_name": "not.is.null",
+                "limit":         "1",
+            },
+            timeout=10,
+        )
+        counts["all_time"] = _parse_total(r.headers)
+    except Exception:
+        pass
+
     return counts
 
 

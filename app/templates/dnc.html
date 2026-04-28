@@ -1350,6 +1350,28 @@
   .cdash-stat-unsub      .cdash-stat-num { color: #f87171; }
   .cdash-stat-unsub      .cdash-stat-lbl { color: #f87171; }
 
+  .cdash-ctx-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px; min-height: 22px;
+  }
+  #cdash-ctx-label {
+    font-size: .72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--text-3);
+  }
+  .cdash-ctx-clear {
+    font-size: .72rem; color: var(--accent); background: none; border: none;
+    cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    transition: background .15s;
+  }
+  .cdash-ctx-clear:hover { background: rgba(99,102,241,.12); }
+
+  .camp-card-active { cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+  .camp-card-active:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .camp-card-selected {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px rgba(99,102,241,.35) !important;
+  }
+
   /* Campaign progress bar */
   .camp-progress-wrap {
     display: flex; align-items: center; gap: 10px; margin: 8px 0 4px;
@@ -3627,6 +3649,119 @@
   // Close modal on backdrop click
   document.getElementById('camp-sync-modal').addEventListener('click', function (e) {
     if (e.target === this) closeSyncModal();
+  });
+})();
+
+// ── Campaign detail / restore ────────────────────────────────────────────────
+(function () {
+  let _clientStats    = null;
+  let _detailActive   = false;
+
+  function _el(id) { return document.getElementById(id); }
+  function _set(id, val) { const e = _el(id); if (e) e.textContent = val; }
+
+  function _captureClientStats() {
+    return {
+      today:    _el('cdash-sn-today')    ? _el('cdash-sn-today').textContent    : '0',
+      week:     _el('cdash-sn-week')     ? _el('cdash-sn-week').textContent     : '0',
+      month:    _el('cdash-sn-month')    ? _el('cdash-sn-month').textContent    : '0',
+      alltime:  _el('cdash-sn-alltime')  ? _el('cdash-sn-alltime').textContent  : '0',
+      campNum:  _el('cdash-num-campaigns') ? _el('cdash-num-campaigns').textContent : '0',
+      campSub:  _el('cdash-sub-campaigns') ? _el('cdash-sub-campaigns').textContent : 'active',
+      campSub2: _el('cdash-sub2-campaigns') ? _el('cdash-sub2-campaigns').textContent : '',
+      prospects:_el('cdash-num-prospects') ? _el('cdash-num-prospects').textContent : '0',
+      leads:    _el('cdash-num-leads')    ? _el('cdash-num-leads').textContent    : '0',
+      replies:  _el('cdash-num-replies')  ? _el('cdash-num-replies').textContent  : '0',
+      interested:_el('cdash-num-interested') ? _el('cdash-num-interested').textContent : '0',
+      unsubs:   _el('cdash-num-unsubs')   ? _el('cdash-num-unsubs').textContent   : '0',
+    };
+  }
+
+  window.selectCampaign = function (card, event) {
+    // Don't fire when the click target is a button or anchor inside the card
+    if (event.target.closest('button, a')) return;
+
+    // Save client-level stats once before first drill-down
+    if (!_clientStats) _clientStats = _captureClientStats();
+
+    _detailActive = true;
+    document.querySelectorAll('.camp-card').forEach(c => c.classList.remove('camp-card-selected'));
+    card.classList.add('camp-card-selected');
+
+    const sent       = parseInt(card.dataset.sent       || 0);
+    const total      = parseInt(card.dataset.total      || 0);
+    const leads      = parseInt(card.dataset.leads      || 0);
+    const replies    = parseInt(card.dataset.replies    || 0);
+    const interested = parseInt(card.dataset.interested || 0);
+    const unsubs     = parseInt(card.dataset.unsubs     || 0);
+    const remaining  = Math.max(0, total - sent);
+    const name       = card.dataset.campName || 'Campaign';
+
+    _set('cdash-sn-today',   '—');
+    _set('cdash-sn-week',    '—');
+    _set('cdash-sn-month',   '—');
+    _set('cdash-sn-alltime', sent);
+
+    _set('cdash-num-campaigns',  '1');
+    _set('cdash-sub-campaigns',  'selected');
+    _set('cdash-sub2-campaigns', name);
+
+    _set('cdash-num-prospects', remaining);
+
+    _set('cdash-num-leads',      leads);
+    _set('cdash-num-replies',    replies);
+    _set('cdash-num-interested', interested);
+    _set('cdash-num-unsubs',     unsubs);
+
+    const ctxLabel = _el('cdash-ctx-label');
+    const ctxClear = _el('cdash-ctx-clear');
+    if (ctxLabel) ctxLabel.textContent = name;
+    if (ctxClear) ctxClear.style.display = '';
+  };
+
+  window.restoreClientStats = function (event) {
+    if (event) event.stopPropagation();
+    if (!_clientStats) return;
+    _detailActive = false;
+
+    document.querySelectorAll('.camp-card').forEach(c => c.classList.remove('camp-card-selected'));
+
+    _set('cdash-sn-today',   _clientStats.today);
+    _set('cdash-sn-week',    _clientStats.week);
+    _set('cdash-sn-month',   _clientStats.month);
+    _set('cdash-sn-alltime', _clientStats.alltime);
+
+    _set('cdash-num-campaigns',  _clientStats.campNum);
+    _set('cdash-sub-campaigns',  _clientStats.campSub);
+    _set('cdash-sub2-campaigns', _clientStats.campSub2);
+
+    _set('cdash-num-prospects', _clientStats.prospects);
+
+    _set('cdash-num-leads',      _clientStats.leads);
+    _set('cdash-num-replies',    _clientStats.replies);
+    _set('cdash-num-interested', _clientStats.interested);
+    _set('cdash-num-unsubs',     _clientStats.unsubs);
+
+    const ctxLabel = _el('cdash-ctx-label');
+    const ctxClear = _el('cdash-ctx-clear');
+    if (ctxLabel) ctxLabel.textContent = 'All Campaigns';
+    if (ctxClear) ctxClear.style.display = 'none';
+  };
+
+  // Click anywhere outside a campaign card → restore client stats
+  document.addEventListener('click', function (event) {
+    if (!_detailActive) return;
+    if (event.target.closest('.camp-card')) return;
+    if (event.target.closest('#cdash-ctx-clear')) return;
+    restoreClientStats();
+  });
+
+  // Reset stored stats when HTMX re-renders the panel (Refresh / Sync / Delete)
+  document.addEventListener('htmx:afterSwap', function (event) {
+    if (event.target && event.target.id === 'campaigns-panel-inner') {
+      _clientStats  = null;
+      _detailActive = false;
+    }
   });
 })();
 </script>

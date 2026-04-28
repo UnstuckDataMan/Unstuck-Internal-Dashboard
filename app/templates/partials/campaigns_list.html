@@ -36,7 +36,14 @@
 {% else %}
 
 {# ── Stats dashboard ───────────────────────────────────────────────── #}
-<div class="cdash">
+<div class="cdash" id="cdash-panel">
+
+  {# Context bar #}
+  <div class="cdash-ctx-bar" id="cdash-ctx-bar">
+    <span id="cdash-ctx-label">All Campaigns</span>
+    <button id="cdash-ctx-clear" class="cdash-ctx-clear" style="display:none"
+            onclick="restoreClientStats(event)">← All campaigns</button>
+  </div>
 
   {# Send timeline tiles #}
   <div class="cdash-row">
@@ -44,22 +51,22 @@
       <span class="cdash-tile-label">Sends</span>
       <div class="cdash-send-grid">
         <div class="cdash-send-cell">
-          <span class="cdash-send-num">{{ send_counts.get('today', 0) }}</span>
+          <span class="cdash-send-num" id="cdash-sn-today">{{ send_counts.get('today', 0) }}</span>
           <span class="cdash-send-lbl">Today</span>
         </div>
         <div class="cdash-send-sep"></div>
         <div class="cdash-send-cell">
-          <span class="cdash-send-num">{{ send_counts.get('week', 0) }}</span>
+          <span class="cdash-send-num" id="cdash-sn-week">{{ send_counts.get('week', 0) }}</span>
           <span class="cdash-send-lbl">This Week</span>
         </div>
         <div class="cdash-send-sep"></div>
         <div class="cdash-send-cell">
-          <span class="cdash-send-num">{{ send_counts.get('month', 0) }}</span>
+          <span class="cdash-send-num" id="cdash-sn-month">{{ send_counts.get('month', 0) }}</span>
           <span class="cdash-send-lbl">This Month</span>
         </div>
         <div class="cdash-send-sep"></div>
         <div class="cdash-send-cell">
-          <span class="cdash-send-num">{{ stats.total_sent }}</span>
+          <span class="cdash-send-num" id="cdash-sn-alltime">{{ send_counts.get('all_time', 0) }}</span>
           <span class="cdash-send-lbl">All Time</span>
         </div>
       </div>
@@ -67,15 +74,15 @@
 
     <div class="cdash-tile">
       <span class="cdash-tile-label">Campaigns</span>
-      <span class="cdash-tile-num">{{ stats.active_count }}</span>
-      <span class="cdash-tile-sub">active</span>
-      <span class="cdash-tile-sub2">{{ stats.total_campaigns }} total</span>
+      <span class="cdash-tile-num" id="cdash-num-campaigns">{{ stats.active_count }}</span>
+      <span class="cdash-tile-sub" id="cdash-sub-campaigns">active</span>
+      <span class="cdash-tile-sub2" id="cdash-sub2-campaigns">{{ stats.total_campaigns }} total</span>
     </div>
 
     <div class="cdash-tile">
       <span class="cdash-tile-label">Prospects</span>
-      <span class="cdash-tile-num">{{ stats.prospects_in_pipeline }}</span>
-      <span class="cdash-tile-sub">in pipeline</span>
+      <span class="cdash-tile-num" id="cdash-num-prospects">{{ stats.prospects_in_pipeline }}</span>
+      <span class="cdash-tile-sub" id="cdash-sub-prospects">in pipeline</span>
       <span class="cdash-tile-sub2">{{ stats.total_prospects }} total</span>
     </div>
   </div>
@@ -83,22 +90,22 @@
   {# Status breakdown tiles #}
   <div class="cdash-row cdash-row-status">
     <div class="cdash-stat-tile cdash-stat-lead">
-      <span class="cdash-stat-num">{{ stats.total_leads }}</span>
+      <span class="cdash-stat-num" id="cdash-num-leads">{{ stats.total_leads }}</span>
       <span class="cdash-stat-lbl">Leads Blocked</span>
       <span class="cdash-stat-hint">domain-level</span>
     </div>
     <div class="cdash-stat-tile cdash-stat-reply">
-      <span class="cdash-stat-num">{{ stats.total_replies }}</span>
+      <span class="cdash-stat-num" id="cdash-num-replies">{{ stats.total_replies }}</span>
       <span class="cdash-stat-lbl">Replies</span>
       <span class="cdash-stat-hint">noted</span>
     </div>
     <div class="cdash-stat-tile cdash-stat-interested">
-      <span class="cdash-stat-num">{{ stats.total_interested }}</span>
+      <span class="cdash-stat-num" id="cdash-num-interested">{{ stats.total_interested }}</span>
       <span class="cdash-stat-lbl">Interested</span>
       <span class="cdash-stat-hint">email-level</span>
     </div>
     <div class="cdash-stat-tile cdash-stat-unsub">
-      <span class="cdash-stat-num">{{ stats.total_unsubs }}</span>
+      <span class="cdash-stat-num" id="cdash-num-unsubs">{{ stats.total_unsubs }}</span>
       <span class="cdash-stat-lbl">Unsubscribes</span>
       <span class="cdash-stat-hint">email-level</span>
     </div>
@@ -120,7 +127,16 @@
   {% for c in campaigns %}
   {% if not (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
   {% set remaining = (c.total_prospects - c.sent_count) if c.total_prospects > c.sent_count else 0 %}
-  <div class="camp-card camp-card-active">
+  <div class="camp-card camp-card-active"
+       data-camp-id="{{ c.id }}"
+       data-camp-name="{{ (c.campaign_name or '(unnamed)') | e }}"
+       data-total="{{ c.total_prospects or 0 }}"
+       data-sent="{{ c.sent_count or 0 }}"
+       data-leads="{{ c.lead_count or 0 }}"
+       data-replies="{{ c.reply_count or 0 }}"
+       data-interested="{{ c.interested_count or 0 }}"
+       data-unsubs="{{ c.unsubscribe_count or 0 }}"
+       onclick="selectCampaign(this, event)">
     <div class="camp-card-header">
       <span class="camp-name">{{ c.campaign_name or '(unnamed)' }}</span>
       <span class="camp-badge camp-badge-active">Active</span>
