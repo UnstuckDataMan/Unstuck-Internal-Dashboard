@@ -1372,6 +1372,69 @@
     box-shadow: 0 0 0 2px rgba(99,102,241,.35) !important;
   }
 
+  /* ── A/B breakdown panel ────────────────────────────────────── */
+  .cdash-ab {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 18px; margin-bottom: 20px;
+  }
+  .cdash-ab-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .cdash-ab-title {
+    font-size: .7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--text-3);
+  }
+  .cdash-ab-winner-pill {
+    font-size: .72rem; font-weight: 700; padding: 3px 10px;
+    border-radius: 20px; background: rgba(99,102,241,.15);
+    color: var(--accent); border: 1px solid rgba(99,102,241,.3);
+  }
+  .cdash-ab-winner-pill.ab-tie { background: rgba(251,191,36,.12); color:#fbbf24; border-color:rgba(251,191,36,.3); }
+  .cdash-ab-winner-pill.ab-none { background: transparent; color: var(--text-3); border-color: var(--border); }
+  .cdash-ab-empty {
+    font-size: .82rem; color: var(--text-3); text-align: center; padding: 8px 0;
+  }
+  .cdash-ab-loading {
+    font-size: .82rem; color: var(--text-3); padding: 8px 0;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .cdash-ab-row {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding: 9px 12px; border-radius: 8px; margin-bottom: 6px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    transition: border-color .15s;
+  }
+  .cdash-ab-row:last-child { margin-bottom: 0; }
+  .cdash-ab-row-winner {
+    background: rgba(99,102,241,.07);
+    border-color: rgba(99,102,241,.35);
+  }
+  .cdash-ab-variant-wrap { display: flex; align-items: center; gap: 7px; min-width: 80px; }
+  .cdash-ab-variant {
+    font-size: .82rem; font-weight: 700; color: var(--text);
+    font-family: ui-monospace, 'Cascadia Code', monospace; letter-spacing: .03em;
+  }
+  .cdash-ab-win-badge {
+    font-size: .65rem; font-weight: 700; padding: 2px 7px; border-radius: 20px;
+    background: var(--accent); color: #fff; white-space: nowrap;
+  }
+  .cdash-ab-stats { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; flex: 1; }
+  .cdash-ab-chip {
+    font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 20px;
+    border: 1px solid transparent;
+  }
+  .cdash-ab-chip-lead       { background:rgba(74,222,128,.1); color:#4ade80; border-color:rgba(74,222,128,.25); }
+  .cdash-ab-chip-interested { background:rgba(196,131,255,.1); color:#c483ff; border-color:rgba(196,131,255,.25); }
+  .cdash-ab-chip-reply      { background:rgba(251,191,36,.1); color:#fbbf24; border-color:rgba(251,191,36,.25); }
+  .cdash-ab-chip-unsub      { background:rgba(248,113,113,.1); color:#f87171; border-color:rgba(248,113,113,.25); }
+  .cdash-ab-total  { font-size: .7rem; color: var(--text-3); margin-left: auto; white-space: nowrap; }
+  .cdash-ab-rate   {
+    font-size: .7rem; font-weight: 700; color: var(--accent);
+    background: rgba(99,102,241,.1); padding: 1px 6px; border-radius: 4px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   /* Campaign progress bar */
   .camp-progress-wrap {
     display: flex; align-items: center; gap: 10px; margin: 8px 0 4px;
@@ -3677,6 +3740,80 @@
     };
   }
 
+  // ── A/B panel rendering ───────────────────────────────────────────────
+  function _chip(cls, label) {
+    return `<span class="cdash-ab-chip cdash-ab-chip-${cls}">${label}</span>`;
+  }
+
+  function _renderAB(data) {
+    const panel = _el('cdash-ab-panel');
+    if (!panel) return;
+
+    const variants = (data && data.variants) || [];
+
+    if (data && data.error) {
+      panel.innerHTML = `<div class="cdash-ab"><p class="cdash-ab-empty">Could not load A/B data: ${data.error}</p></div>`;
+      panel.style.display = '';
+      return;
+    }
+
+    if (variants.length === 0) {
+      panel.innerHTML = '<div class="cdash-ab"><p class="cdash-ab-empty">No template variant data found in sheet.</p></div>';
+      panel.style.display = '';
+      return;
+    }
+
+    if (variants.length === 1) {
+      panel.innerHTML = '<div class="cdash-ab"><p class="cdash-ab-empty">Single template — no A/B comparison available.</p></div>';
+      panel.style.display = '';
+      return;
+    }
+
+    const maxPos  = Math.max(...variants.map(v => v.positive));
+    const winners = variants.filter(v => v.positive === maxPos && maxPos > 0);
+    const isTie   = winners.length > 1;
+    const hasWin  = winners.length === 1;
+
+    let pillHtml;
+    if (isTie)       pillHtml = `<span class="cdash-ab-winner-pill ab-tie">Tie — ${winners.map(w => w.variant).join(' &amp; ')}</span>`;
+    else if (hasWin) pillHtml = `<span class="cdash-ab-winner-pill">★ Winner: ${winners[0].variant}</span>`;
+    else             pillHtml = `<span class="cdash-ab-winner-pill ab-none">No responses yet</span>`;
+
+    const rows = variants.map(v => {
+      const isWinner  = v.positive === maxPos && maxPos > 0;
+      const rate      = v.total > 0 ? ((v.positive / v.total) * 100).toFixed(1) : null;
+      const chips     = [
+        v.lead        ? _chip('lead',       `${v.lead} lead${v.lead !== 1 ? 's' : ''}`) : '',
+        v.interested  ? _chip('interested', `${v.interested} interested`)               : '',
+        v.reply       ? _chip('reply',      `${v.reply} repl${v.reply !== 1 ? 'ies' : 'y'}`) : '',
+        v.unsubscribe ? _chip('unsub',      `${v.unsubscribe} unsub${v.unsubscribe !== 1 ? 's' : ''}`) : '',
+      ].filter(Boolean).join('');
+
+      return `
+        <div class="cdash-ab-row${isWinner ? ' cdash-ab-row-winner' : ''}">
+          <div class="cdash-ab-variant-wrap">
+            <span class="cdash-ab-variant">${v.variant}</span>
+            ${isWinner ? '<span class="cdash-ab-win-badge">★ Winner</span>' : ''}
+          </div>
+          <div class="cdash-ab-stats">
+            ${chips || '<span style="color:var(--text-3);font-size:.72rem">No responses</span>'}
+            <span class="cdash-ab-total">${v.total} prospects</span>
+            ${rate !== null && v.positive > 0 ? `<span class="cdash-ab-rate">${rate}%</span>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    panel.innerHTML = `
+      <div class="cdash-ab">
+        <div class="cdash-ab-header">
+          <span class="cdash-ab-title">A/B Performance</span>
+          ${pillHtml}
+        </div>
+        ${rows}
+      </div>`;
+    panel.style.display = '';
+  }
+
   window.selectCampaign = function (card, event) {
     // Don't fire when the click target is a button or anchor inside the card
     if (event.target.closest('button, a')) return;
@@ -3694,6 +3831,7 @@
     const replies    = parseInt(card.dataset.replies    || 0);
     const interested = parseInt(card.dataset.interested || 0);
     const unsubs     = parseInt(card.dataset.unsubs     || 0);
+    const campId     = card.dataset.campId;
     const remaining  = Math.max(0, total - sent);
     const name       = card.dataset.campName || 'Campaign';
 
@@ -3717,6 +3855,17 @@
     const ctxClear = _el('cdash-ctx-clear');
     if (ctxLabel) ctxLabel.textContent = name;
     if (ctxClear) ctxClear.style.display = '';
+
+    // ── Fetch A/B stats ──────────────────────────────────────────────
+    const abPanel = _el('cdash-ab-panel');
+    if (abPanel && campId) {
+      abPanel.style.display = '';
+      abPanel.innerHTML = '<div class="cdash-ab"><p class="cdash-ab-loading"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Loading A/B data…</p></div>';
+      fetch(`/api/campaigns/${campId}/ab-stats`)
+        .then(r => r.json())
+        .then(data => _renderAB(data))
+        .catch(() => _renderAB({ error: 'Network error.' }));
+    }
   };
 
   window.restoreClientStats = function (event) {
@@ -3746,6 +3895,10 @@
     const ctxClear = _el('cdash-ctx-clear');
     if (ctxLabel) ctxLabel.textContent = 'All Campaigns';
     if (ctxClear) ctxClear.style.display = 'none';
+
+    // Hide A/B panel
+    const abPanel = _el('cdash-ab-panel');
+    if (abPanel) { abPanel.style.display = 'none'; abPanel.innerHTML = ''; }
   };
 
   // Click anywhere outside a campaign card → restore client stats

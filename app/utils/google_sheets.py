@@ -500,6 +500,74 @@ def read_sent_emails(sheet_id: str) -> list[str]:
     return emails
 
 
+def read_ab_stats(sheet_id: str) -> list[dict]:
+    """
+    Group sheet rows by 'Template Variant' and count Lead Status outcomes.
+
+    Only rows with a valid email address and a non-empty Template Variant
+    are counted; separator rows are skipped.
+
+    Returns a list of dicts sorted by positive responses (lead + interested)
+    descending, then by reply count:
+
+    [
+      {
+        "variant":    "S2/B2",
+        "total":      45,        # total prospects allocated to this variant
+        "lead":       10,
+        "interested": 2,
+        "reply":      5,
+        "unsubscribe": 0,
+        "positive":   12,        # lead + interested
+      },
+      ...
+    ]
+    """
+    from collections import defaultdict
+
+    gc     = _client()
+    sh     = gc.open_by_key(sheet_id)
+    gsheet = sh.sheet1
+    records = gsheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
+
+    stats: dict = defaultdict(
+        lambda: {"total": 0, "lead": 0, "interested": 0, "reply": 0, "unsubscribe": 0}
+    )
+
+    for r in records:
+        email   = str(r.get("Recipient Email", "")).strip()
+        variant = str(r.get("Template Variant", "")).strip()
+        if not email or "@" not in email or not variant:
+            continue  # separator rows or rows without variant assignment
+
+        status = str(r.get("Lead Status", "")).strip()
+        stats[variant]["total"] += 1
+        if status == "Lead":
+            stats[variant]["lead"] += 1
+        elif status == "Interested":
+            stats[variant]["interested"] += 1
+        elif status == "Reply":
+            stats[variant]["reply"] += 1
+        elif status == "Unsubscribe":
+            stats[variant]["unsubscribe"] += 1
+
+    result = []
+    for variant, s in stats.items():
+        positive = s["lead"] + s["interested"]
+        result.append({
+            "variant":     variant,
+            "total":       s["total"],
+            "lead":        s["lead"],
+            "interested":  s["interested"],
+            "reply":       s["reply"],
+            "unsubscribe": s["unsubscribe"],
+            "positive":    positive,
+        })
+
+    result.sort(key=lambda x: (x["positive"], x["reply"]), reverse=True)
+    return result
+
+
 def read_leads(sheet_id: str) -> list[dict]:
     """
     Return {"email", "status"} pairs where Lead Status is "Lead" or "Unsubscribe".

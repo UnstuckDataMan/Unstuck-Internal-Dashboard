@@ -398,6 +398,48 @@ async def sync_campaign(request: Request, campaign_id: str):
     return HTMLResponse(f'<span class="camp-sync-ok">✓ {summary}</span>')
 
 
+# ── A/B stats for a single campaign ───────────────────────────────────────────
+
+@router.get("/api/campaigns/{campaign_id}/ab-stats")
+async def campaign_ab_stats(campaign_id: str):
+    """
+    Read the linked Google Sheet and return per-variant response counts.
+    Used by the campaign drill-down dashboard to render A/B winner + breakdown.
+    """
+    from app.utils.google_sheets import is_configured, read_ab_stats
+
+    if not _sb_configured():
+        return JSONResponse({"error": "Supabase not configured."}, status_code=503)
+
+    try:
+        r = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            headers=_sb_headers(),
+            params={"id": f"eq.{campaign_id}", "select": "sheet_id"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        rows = r.json()
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+    if not rows:
+        return JSONResponse({"error": "Campaign not found."}, status_code=404)
+
+    sheet_id = rows[0].get("sheet_id", "")
+    if not sheet_id:
+        return JSONResponse({"error": "No sheet linked to this campaign."}, status_code=400)
+    if not is_configured():
+        return JSONResponse({"error": "Google Sheets not configured."}, status_code=503)
+
+    try:
+        variants = read_ab_stats(sheet_id)
+    except Exception as exc:
+        return JSONResponse({"error": f"Sheet read error: {exc}"}, status_code=500)
+
+    return JSONResponse({"variants": variants})
+
+
 # ── Delete a campaign ─────────────────────────────────────────────────────────
 
 @router.delete("/api/campaigns/{campaign_id}")

@@ -113,6 +113,9 @@
 
 </div><!-- /cdash -->
 
+{# A/B panel — populated by JS when a campaign card is clicked #}
+<div id="cdash-ab-panel" style="display:none"></div>
+
 {# ── Active campaigns ────────────────────────────────────────────────── #}
 {% set has_active = namespace(value=false) %}
 {% for c in campaigns %}
