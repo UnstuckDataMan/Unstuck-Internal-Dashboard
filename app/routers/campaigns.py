@@ -119,16 +119,22 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
                               and (c.get("sent_count") or 0) >= c.get("total_prospects", 0))]
             past   = [c for c in campaigns if c not in active]
 
+            prospects_in_pipeline = sum(
+                max(0, (c.get("total_prospects") or 0) - (c.get("sent_count") or 0))
+                for c in active
+            )
+
             stats = {
-                "total_campaigns":  len(campaigns),
-                "active_count":     len(active),
-                "past_count":       len(past),
-                "total_prospects":  _s("total_prospects"),
-                "total_sent":       _s("sent_count"),
-                "total_leads":      _s("lead_count"),
-                "total_replies":    _s("reply_count"),
-                "total_interested": _s("interested_count"),
-                "total_unsubs":     _s("unsubscribe_count"),
+                "total_campaigns":       len(campaigns),
+                "active_count":          len(active),
+                "past_count":            len(past),
+                "prospects_in_pipeline": prospects_in_pipeline,
+                "total_prospects":       _s("total_prospects"),
+                "total_sent":            _s("sent_count"),
+                "total_leads":           _s("lead_count"),
+                "total_replies":         _s("reply_count"),
+                "total_interested":      _s("interested_count"),
+                "total_unsubs":          _s("unsubscribe_count"),
             }
             send_counts = _fetch_send_counts(client_id)
 
