@@ -284,7 +284,16 @@
 <div class="camp-grid">
   {% for c in campaigns %}
   {% if c.total_prospects > 0 and c.sent_count >= c.total_prospects %}
-  <div class="camp-card camp-card-past">
+  <div class="camp-card camp-card-past"
+       data-camp-id="{{ c.id }}"
+       data-camp-name="{{ (c.campaign_name or '(unnamed)') | e }}"
+       data-total="{{ c.total_prospects or 0 }}"
+       data-sent="{{ c.sent_count or 0 }}"
+       data-leads="{{ c.lead_count or 0 }}"
+       data-replies="{{ c.reply_count or 0 }}"
+       data-interested="{{ c.interested_count or 0 }}"
+       data-unsubs="{{ c.unsubscribe_count or 0 }}"
+       onclick="selectCampaign(this, event)">
     <div class="camp-card-header">
       <span class="camp-name">{{ c.campaign_name or '(unnamed)' }}</span>
       <span class="camp-badge camp-badge-past">Complete</span>
