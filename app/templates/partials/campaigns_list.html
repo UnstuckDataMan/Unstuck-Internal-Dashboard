@@ -35,6 +35,76 @@
 
 {% else %}
 
+{# ── Stats dashboard ───────────────────────────────────────────────── #}
+<div class="cdash">
+
+  {# Send timeline tiles #}
+  <div class="cdash-row">
+    <div class="cdash-tile cdash-tile-wide">
+      <span class="cdash-tile-label">Sends</span>
+      <div class="cdash-send-grid">
+        <div class="cdash-send-cell">
+          <span class="cdash-send-num">{{ send_counts.get('today', 0) }}</span>
+          <span class="cdash-send-lbl">Today</span>
+        </div>
+        <div class="cdash-send-sep"></div>
+        <div class="cdash-send-cell">
+          <span class="cdash-send-num">{{ send_counts.get('week', 0) }}</span>
+          <span class="cdash-send-lbl">This Week</span>
+        </div>
+        <div class="cdash-send-sep"></div>
+        <div class="cdash-send-cell">
+          <span class="cdash-send-num">{{ send_counts.get('month', 0) }}</span>
+          <span class="cdash-send-lbl">This Month</span>
+        </div>
+        <div class="cdash-send-sep"></div>
+        <div class="cdash-send-cell">
+          <span class="cdash-send-num">{{ stats.total_sent }}</span>
+          <span class="cdash-send-lbl">All Time</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="cdash-tile">
+      <span class="cdash-tile-label">Campaigns</span>
+      <span class="cdash-tile-num">{{ stats.active_count }}</span>
+      <span class="cdash-tile-sub">active</span>
+      <span class="cdash-tile-sub2">{{ stats.total_campaigns }} total</span>
+    </div>
+
+    <div class="cdash-tile">
+      <span class="cdash-tile-label">Prospects</span>
+      <span class="cdash-tile-num">{{ stats.total_prospects }}</span>
+      <span class="cdash-tile-sub">in pipeline</span>
+    </div>
+  </div>
+
+  {# Status breakdown tiles #}
+  <div class="cdash-row cdash-row-status">
+    <div class="cdash-stat-tile cdash-stat-lead">
+      <span class="cdash-stat-num">{{ stats.total_leads }}</span>
+      <span class="cdash-stat-lbl">Leads Blocked</span>
+      <span class="cdash-stat-hint">domain-level</span>
+    </div>
+    <div class="cdash-stat-tile cdash-stat-reply">
+      <span class="cdash-stat-num">{{ stats.total_replies }}</span>
+      <span class="cdash-stat-lbl">Replies</span>
+      <span class="cdash-stat-hint">noted</span>
+    </div>
+    <div class="cdash-stat-tile cdash-stat-interested">
+      <span class="cdash-stat-num">{{ stats.total_interested }}</span>
+      <span class="cdash-stat-lbl">Interested</span>
+      <span class="cdash-stat-hint">email-level</span>
+    </div>
+    <div class="cdash-stat-tile cdash-stat-unsub">
+      <span class="cdash-stat-num">{{ stats.total_unsubs }}</span>
+      <span class="cdash-stat-lbl">Unsubscribes</span>
+      <span class="cdash-stat-hint">email-level</span>
+    </div>
+  </div>
+
+</div><!-- /cdash -->
+
 {# ── Active campaigns ────────────────────────────────────────────────── #}
 {% set has_active = namespace(value=false) %}
 {% for c in campaigns %}
@@ -44,7 +114,7 @@
 {% endfor %}
 
 {% if has_active.value %}
-<p class="camp-section-label">Active Campaigns</p>
+<p class="camp-section-label" style="margin-top:24px">Active Campaigns</p>
 <div class="camp-grid">
   {% for c in campaigns %}
   {% if not (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
@@ -85,13 +155,45 @@
         {{ c.created_at[:10] if c.created_at else '' }}
       </span>
     </div>
-    <div class="camp-prospects">
-      <span class="camp-prospects-num camp-prospects-active">{{ remaining }}</span>
-      <span class="camp-prospects-lbl"> prospects remaining</span>
-      {% if c.total_prospects %}
-      <span class="camp-prospects-of"> / {{ c.total_prospects }} total</span>
+
+    {# Progress bar #}
+    {% if c.total_prospects %}
+    {% set pct = ((c.sent_count or 0) / c.total_prospects * 100) | int %}
+    <div class="camp-progress-wrap">
+      <div class="camp-progress-bar">
+        <div class="camp-progress-fill" style="width:{{ pct }}%"></div>
+      </div>
+      <span class="camp-progress-label">{{ c.sent_count or 0 }} / {{ c.total_prospects }} sent</span>
+    </div>
+    {% endif %}
+
+    {# Status stats chips #}
+    <div class="camp-stat-chips">
+      {% if c.lead_count %}
+      <span class="camp-chip camp-chip-lead">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        {{ c.lead_count }} lead{{ 's' if c.lead_count != 1 else '' }}
+      </span>
+      {% endif %}
+      {% if c.reply_count %}
+      <span class="camp-chip camp-chip-reply">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+        {{ c.reply_count }} repl{{ 'ies' if c.reply_count != 1 else 'y' }}
+      </span>
+      {% endif %}
+      {% if c.interested_count %}
+      <span class="camp-chip camp-chip-interested">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        {{ c.interested_count }} interested
+      </span>
+      {% endif %}
+      {% if c.unsubscribe_count %}
+      <span class="camp-chip camp-chip-unsub">
+        {{ c.unsubscribe_count }} unsub{{ 's' if c.unsubscribe_count != 1 else '' }}
+      </span>
       {% endif %}
     </div>
+
     <div class="camp-actions">
       {% if c.sheet_url %}
       <a href="{{ c.sheet_url }}" target="_blank" rel="noopener" class="camp-open-btn">
@@ -116,10 +218,7 @@
         Refresh
       </button>
       <button class="camp-sync-btn"
-              hx-post="/api/campaigns/{{ c.id }}/sync"
-              hx-target="#camp-sync-result-{{ c.id }}"
-              hx-swap="innerHTML"
-              hx-indicator="#camp-spinner">
+              onclick="openSyncModal('{{ c.id }}', '{{ client_id }}')">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="17 1 21 5 17 9"/>
@@ -127,7 +226,7 @@
           <polyline points="7 23 3 19 7 15"/>
           <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
         </svg>
-        Sync to DNC
+        Sync
       </button>
       <button class="camp-delete-btn"
               hx-delete="/api/campaigns/{{ c.id }}?client_id={{ client_id }}"
@@ -201,13 +300,15 @@
         {{ c.created_at[:10] if c.created_at else '' }}
       </span>
     </div>
-    <div class="camp-prospects">
-      <span class="camp-prospects-num camp-prospects-past">{{ c.sent_count }}</span>
-      <span class="camp-prospects-lbl"> sent</span>
-      {% if c.total_prospects %}
-      <span class="camp-prospects-of"> / {{ c.total_prospects }} total</span>
-      {% endif %}
+
+    <div class="camp-stat-chips">
+      <span class="camp-chip" style="color:var(--text-2)">{{ c.sent_count }} sent</span>
+      {% if c.lead_count %}<span class="camp-chip camp-chip-lead">{{ c.lead_count }} lead{{ 's' if c.lead_count != 1 else '' }}</span>{% endif %}
+      {% if c.reply_count %}<span class="camp-chip camp-chip-reply">{{ c.reply_count }} repl{{ 'ies' if c.reply_count != 1 else 'y' }}</span>{% endif %}
+      {% if c.interested_count %}<span class="camp-chip camp-chip-interested">{{ c.interested_count }} interested</span>{% endif %}
+      {% if c.unsubscribe_count %}<span class="camp-chip camp-chip-unsub">{{ c.unsubscribe_count }} unsub{{ 's' if c.unsubscribe_count != 1 else '' }}</span>{% endif %}
     </div>
+
     <div class="camp-actions">
       {% if c.sheet_url %}
       <a href="{{ c.sheet_url }}" target="_blank" rel="noopener" class="camp-open-btn">

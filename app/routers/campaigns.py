@@ -4,7 +4,7 @@ Campaigns router — tracks mail-merge campaigns linked to Google Sheets.
 from __future__ import annotations
 
 import os
-from datetime import date as _date
+from datetime import date as _date, timedelta
 
 import requests as http_req
 from fastapi import APIRouter, Query, Request
@@ -35,33 +35,74 @@ def _sb_configured() -> bool:
     return bool(SUPABASE_URL and SUPABASE_ANON_KEY)
 
 
-# ── List campaigns ─────────────────────────────────────────────────────────────
+def _parse_total(headers: dict) -> int:
+    cr = headers.get("Content-Range", "")
+    if "/" in cr:
+        try:
+            return int(cr.split("/")[1])
+        except ValueError:
+            pass
+    return 0
+
+
+def _fetch_send_counts(client_id: str) -> dict:
+    """Return Today / This Week / This Month send counts from contacted_prospects."""
+    today     = _date.today()
+    week_ago  = (today - timedelta(days=7)).isoformat()
+    month_ago = (today - timedelta(days=30)).isoformat()
+    today_str = today.isoformat()
+
+    counts = {"today": 0, "week": 0, "month": 0}
+    for key, cutoff in (("month", month_ago), ("week", week_ago), ("today", today_str)):
+        try:
+            r = http_req.get(
+                f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                headers={**_sb_headers(), "Prefer": "count=exact"},
+                params={
+                    "select":       "id",
+                    "client_id":    f"eq.{client_id}",
+                    "contacted_at": f"gte.{cutoff}",
+                    "campaign_name": "not.is.null",
+                    "limit":        "1",
+                },
+                timeout=10,
+            )
+            counts[key] = _parse_total(r.headers)
+        except Exception:
+            pass
+    return counts
+
+
+# ── List campaigns + dashboard stats ──────────────────────────────────────────
 
 @router.get("/api/campaigns")
 async def list_campaigns(request: Request, client_id: str = Query("")):
-    """Return the campaigns partial HTML."""
-    # Require a client to be selected
+    """Return the campaigns partial HTML (with stats dashboard when client selected)."""
     if not client_id:
         return templates.TemplateResponse(
             "partials/campaigns_list.html",
             {"request": request, "campaigns": [], "error": "", "client_id": "",
-             "no_client": True},
+             "no_client": True, "stats": {}, "send_counts": {}},
         )
 
     campaigns: list[dict] = []
     error: str = ""
+    stats:  dict = {}
+    send_counts: dict = {}
 
     if _sb_configured():
-        params: dict = {
-            "select": "id,created_at,campaign_name,sender_profile_name,client_id,client_name,sheet_id,sheet_url,total_prospects,sent_count",
-            "order":     "created_at.desc",
-            "client_id": f"eq.{client_id}",
-        }
         try:
             r = http_req.get(
                 f"{SUPABASE_URL}/rest/v1/campaigns",
                 headers=_sb_headers(),
-                params=params,
+                params={
+                    "select":    "id,created_at,campaign_name,sender_profile_name,"
+                                 "client_id,client_name,sheet_id,sheet_url,"
+                                 "total_prospects,sent_count,"
+                                 "lead_count,reply_count,interested_count,unsubscribe_count",
+                    "order":     "created_at.desc",
+                    "client_id": f"eq.{client_id}",
+                },
                 timeout=10,
             )
             r.raise_for_status()
@@ -69,23 +110,46 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
         except Exception as exc:
             error = str(exc)
 
+        if campaigns and not error:
+            def _s(key: str) -> int:
+                return sum(c.get(key) or 0 for c in campaigns)
+
+            active = [c for c in campaigns
+                      if not (c.get("total_prospects", 0) > 0
+                              and (c.get("sent_count") or 0) >= c.get("total_prospects", 0))]
+            past   = [c for c in campaigns if c not in active]
+
+            stats = {
+                "total_campaigns":  len(campaigns),
+                "active_count":     len(active),
+                "past_count":       len(past),
+                "total_prospects":  _s("total_prospects"),
+                "total_sent":       _s("sent_count"),
+                "total_leads":      _s("lead_count"),
+                "total_replies":    _s("reply_count"),
+                "total_interested": _s("interested_count"),
+                "total_unsubs":     _s("unsubscribe_count"),
+            }
+            send_counts = _fetch_send_counts(client_id)
+
     return templates.TemplateResponse(
         "partials/campaigns_list.html",
         {
-            "request":   request,
-            "campaigns": campaigns,
-            "error":     error,
-            "client_id": client_id,
-            "no_client": False,
+            "request":     request,
+            "campaigns":   campaigns,
+            "error":       error,
+            "client_id":   client_id,
+            "no_client":   False,
+            "stats":       stats,
+            "send_counts": send_counts,
         },
     )
 
 
-# ── Refresh a campaign's sent count from Google Sheet ─────────────────────────
+# ── Refresh sent count ─────────────────────────────────────────────────────────
 
 @router.post("/api/campaigns/{campaign_id}/refresh")
 async def refresh_campaign(request: Request, campaign_id: str):
-    """Re-read the Google Sheet and update sent_count in Supabase."""
     from app.utils.google_sheets import is_configured, read_sheet_status
 
     if not _sb_configured():
@@ -112,14 +176,14 @@ async def refresh_campaign(request: Request, campaign_id: str):
     client_id = campaign.get("client_id", "")
 
     if not sheet_id:
-        return JSONResponse({"error": "No Google Sheet linked to this campaign."}, status_code=400)
+        return JSONResponse({"error": "No sheet linked."}, status_code=400)
     if not is_configured():
         return JSONResponse({"error": "Google Sheets not configured."}, status_code=503)
 
     try:
         status = read_sheet_status(sheet_id)
     except Exception as exc:
-        return JSONResponse({"error": f"Could not read sheet: {exc}"}, status_code=500)
+        return JSONResponse({"error": f"Sheet read error: {exc}"}, status_code=500)
 
     try:
         http_req.patch(
@@ -135,17 +199,19 @@ async def refresh_campaign(request: Request, campaign_id: str):
     return await list_campaigns(request, client_id=client_id)
 
 
-# ── Sync a campaign from its Google Sheet ─────────────────────────────────────
+# ── Sync from Google Sheet ─────────────────────────────────────────────────────
 
 @router.post("/api/campaigns/{campaign_id}/sync")
 async def sync_campaign(request: Request, campaign_id: str):
     """
-    Read the linked Google Sheet and:
-      • Send Status = TRUE/Sent → add email to contacted_prospects (campaign-tagged)
-      • Lead Status = "Lead"    → add DOMAIN to dnc_entries (reason: lead)
-      • Lead Status = "Unsubscribe" → add EMAIL to dnc_entries (reason: opt_out)
+    Read the linked Google Sheet and sync statuses:
+      Send Status = TRUE/Sent  → add to contacted_prospects (campaign-tagged)
+      Lead Status = Lead        → block DOMAIN in DNC (reason: lead)
+      Lead Status = Interested  → block EMAIL in DNC  (reason: interested)
+      Lead Status = Unsubscribe → block EMAIL in DNC  (reason: opt_out)
+      Lead Status = Reply       → count only, no block
 
-    Returns an HTML snippet rendered into the campaign card's result div.
+    Returns an HTML snippet for the campaign card's result div.
     """
     from app.utils.google_sheets import is_configured, read_leads, read_sent_emails
 
@@ -154,7 +220,7 @@ async def sync_campaign(request: Request, campaign_id: str):
     if not is_configured():
         return HTMLResponse('<span class="camp-sync-err">Google Sheets not configured.</span>')
 
-    # ── Fetch campaign record ─────────────────────────────────────────────
+    # ── Fetch campaign ────────────────────────────────────────────────────
     try:
         r = http_req.get(
             f"{SUPABASE_URL}/rest/v1/campaigns",
@@ -192,31 +258,39 @@ async def sync_campaign(request: Request, campaign_id: str):
     except Exception:
         sent_emails = []
 
-    leads_added = unsubscribes_added = contacted_added = 0
+    leads_added = unsubscribes_added = interested_added = reply_count = 0
 
-    # ── DNC: Lead → domain block, Unsubscribe → email block ──────────────
+    # ── Build DNC rows ────────────────────────────────────────────────────
     if leads:
         dnc_rows: list[dict] = []
         for entry in leads:
             email  = entry["email"]
             status = entry["status"]
+
             if status == "Lead" and "@" in email:
                 domain = email.split("@")[1]
                 dnc_rows.append({
-                    "client_id": client_id,
-                    "email":     domain,
-                    "reason":    "lead",
-                    "added_by":  "google_sheets_sync",
+                    "client_id": client_id, "email": domain,
+                    "reason": "lead", "added_by": "google_sheets_sync",
                 })
                 leads_added += 1
+
+            elif status == "Interested":
+                dnc_rows.append({
+                    "client_id": client_id, "email": email,
+                    "reason": "interested", "added_by": "google_sheets_sync",
+                })
+                interested_added += 1
+
             elif status == "Unsubscribe":
                 dnc_rows.append({
-                    "client_id": client_id,
-                    "email":     email,
-                    "reason":    "opt_out",
-                    "added_by":  "google_sheets_sync",
+                    "client_id": client_id, "email": email,
+                    "reason": "opt_out", "added_by": "google_sheets_sync",
                 })
                 unsubscribes_added += 1
+
+            elif status == "Reply":
+                reply_count += 1
 
         for i in range(0, len(dnc_rows), CHUNK_SIZE):
             chunk = dnc_rows[i : i + CHUNK_SIZE]
@@ -227,7 +301,6 @@ async def sync_campaign(request: Request, campaign_id: str):
                     json=chunk,
                     timeout=30,
                 )
-                # 409 = entries already exist in DNC — treat as success
                 if r.status_code not in (200, 201, 204, 409):
                     r.raise_for_status()
             except Exception as exc:
@@ -235,7 +308,8 @@ async def sync_campaign(request: Request, campaign_id: str):
                     f'<span class="camp-sync-err">DNC write error: {exc}</span>'
                 )
 
-    # ── Contacted: Sent rows → contacted_prospects ────────────────────────
+    # ── Add sent rows to contacted_prospects ──────────────────────────────
+    contacted_added = 0
     if sent_emails:
         today = _date.today().isoformat()
         for i in range(0, len(sent_emails), CHUNK_SIZE):
@@ -251,35 +325,46 @@ async def sync_campaign(request: Request, campaign_id: str):
                 for e in chunk
             ]
             try:
-                http_req.post(
+                r = http_req.post(
                     f"{SUPABASE_URL}/rest/v1/contacted_prospects",
                     headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
                     json=rows_to_insert,
                     timeout=30,
-                ).raise_for_status()
+                )
+                if r.status_code not in (200, 201, 204, 409):
+                    r.raise_for_status()
                 contacted_added += len(chunk)
             except Exception:
-                pass   # non-fatal
+                pass
 
-    # ── Update sent_count on campaign record ──────────────────────────────
-    if sent_emails:
-        try:
-            http_req.patch(
-                f"{SUPABASE_URL}/rest/v1/campaigns",
-                headers=_sb_headers("return=minimal"),
-                params={"id": f"eq.{campaign_id}"},
-                json={"sent_count": len(sent_emails)},
-                timeout=10,
-            )
-        except Exception:
-            pass
+    # ── Update campaign counters ──────────────────────────────────────────
+    try:
+        http_req.patch(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            headers=_sb_headers("return=minimal"),
+            params={"id": f"eq.{campaign_id}"},
+            json={
+                "sent_count":       len(sent_emails),
+                "lead_count":       leads_added,
+                "reply_count":      reply_count,
+                "interested_count": interested_added,
+                "unsubscribe_count": unsubscribes_added,
+            },
+            timeout=10,
+        )
+    except Exception:
+        pass
 
-    # ── Return result snippet ─────────────────────────────────────────────
+    # ── Result snippet ────────────────────────────────────────────────────
     parts: list[str] = []
     if leads_added:
         parts.append(f"<strong>{leads_added}</strong> domain(s) blocked (Lead)")
+    if interested_added:
+        parts.append(f"<strong>{interested_added}</strong> email(s) blocked (Interested)")
     if unsubscribes_added:
         parts.append(f"<strong>{unsubscribes_added}</strong> email(s) blocked (Unsub)")
+    if reply_count:
+        parts.append(f"<strong>{reply_count}</strong> repl{'y' if reply_count == 1 else 'ies'} noted")
     if contacted_added:
         parts.append(f"<strong>{contacted_added}</strong> added to Contacted")
     if not parts:
@@ -297,7 +382,6 @@ async def delete_campaign(
     campaign_id: str,
     client_id:   str = Query(""),
 ):
-    """Delete a campaign record and re-render the campaigns list."""
     if _sb_configured():
         try:
             http_req.delete(
@@ -308,5 +392,4 @@ async def delete_campaign(
             ).raise_for_status()
         except Exception:
             pass
-
     return await list_campaigns(request, client_id=client_id)

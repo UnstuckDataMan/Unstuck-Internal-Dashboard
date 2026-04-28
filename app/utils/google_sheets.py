@@ -302,6 +302,7 @@ def _apply_sheet_formatting(
                     "values": [
                         {"userEnteredValue": "Lead"},
                         {"userEnteredValue": "Reply"},
+                        {"userEnteredValue": "Interested"},
                         {"userEnteredValue": "Unsubscribe"},
                     ],
                 },
@@ -322,6 +323,7 @@ def _apply_sheet_formatting(
         for value, hex_color in [
             ("Lead",        "D4EDD6"),
             ("Reply",       "FFD9B3"),
+            ("Interested",  "E1BEE7"),
             ("Unsubscribe", "FFCDD2"),
         ]:
             requests.append({"addConditionalFormatRule": {
@@ -512,7 +514,7 @@ def read_leads(sheet_id: str) -> list[dict]:
     for record in records:
         status = str(record.get("Lead Status", "")).strip()
         email  = str(record.get("Recipient Email", "")).strip().lower()
-        if status in ("Lead", "Unsubscribe") and email and "@" in email:
+        if status in ("Lead", "Unsubscribe", "Interested", "Reply") and email and "@" in email:
             results.append({"email": email, "status": status})
     return results
 
