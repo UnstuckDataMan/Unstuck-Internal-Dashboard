@@ -779,10 +779,7 @@ function setRichContent(el, str) {
 function sanitizeHtml(str) {
   return str
     .replace(/<(?!\/?(?:b|i|u|strong|em)\b)[^>]*>/gi, '') // strip unsafe tags
-    .replace(/\n/g, '<br>')
-    // Close any open formatting at every paragraph break so snippets never
-    // inherit surrounding bold/italic/underline from the template around them
-    .replace(/<br><br>/g, '</u></i></b><br><br>');
+    .replace(/\n/g, '<br>');
 }
 
 // Force Enter to insert <br> instead of Chrome's default <div> wrapping
@@ -850,7 +847,10 @@ function assemble() {
     const link = sender === 'Leo' ? SNIPPETS.leoLink : SNIPPETS.otherLink;
     if (link) {
       if (msg.includes('For context,')) {
-        msg = msg.replace('For context,', link + '\n\nFor context,');
+        // Regex captures any opening formatting tags (<b>/<i>/<u>) sitting directly
+        // before 'For context,' so the snippet is inserted OUTSIDE those tags,
+        // not inside them — preventing the snippet inheriting that formatting.
+        msg = msg.replace(/((?:<(?:b|i|u)>)*)For context,/, (_, tags) => link + '\n\n' + tags + 'For context,');
       } else {
         msg = msg.replace(/(Mon or Tue\.\n\n)/, `$1${link}\n\n`);
       }
