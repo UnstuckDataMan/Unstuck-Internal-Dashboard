@@ -779,7 +779,10 @@ function setRichContent(el, str) {
 function sanitizeHtml(str) {
   return str
     .replace(/<(?!\/?(?:b|i|u|strong|em)\b)[^>]*>/gi, '') // strip unsafe tags
-    .replace(/\n/g, '<br>');
+    .replace(/\n/g, '<br>')
+    // Close any open formatting at every paragraph break so snippets never
+    // inherit surrounding bold/italic/underline from the template around them
+    .replace(/<br><br>/g, '</u></i></b><br><br>');
 }
 
 // Force Enter to insert <br> instead of Chrome's default <div> wrapping
