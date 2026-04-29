@@ -495,14 +495,15 @@
   <div class="admin-header">
     <button class="admin-back-btn" id="admin-back-btn">&#8592; Back</button>
     <span class="admin-title">Template Admin</span>
-    <span class="admin-subtitle">Saves publish to all users instantly</span>
+    <span class="save-status" id="save-status"></span>
+    <button class="admin-save-btn" id="adm-save">Save &amp; Publish</button>
   </div>
 
   <div class="admin-selectors">
-    <select id="adm-territory">
-      <option value="US">US</option>
-      <option value="UK">UK</option>
-    </select>
+    <div class="toggle-group" style="flex-shrink:0;width:120px">
+      <button class="toggle-btn active" data-adm-territory="US">US</button>
+      <button class="toggle-btn" data-adm-territory="UK">UK</button>
+    </div>
     <select id="adm-industry">
       <option value="PR">PR</option>
       <option value="Marketing">Marketing</option>
@@ -524,10 +525,6 @@
       <div class="admin-subcard-title">Body Variations</div>
       <div id="adm-email-variations"></div>
       <button class="adm-add-btn" id="adm-add-email-variation">+ Add email variation</button>
-      <div class="admin-save-row">
-        <span class="save-status" id="save-status"></span>
-        <button class="admin-save-btn" id="adm-save">Save &amp; Publish</button>
-      </div>
     </div>
 
     <div class="admin-card">
@@ -935,15 +932,23 @@ function adminHide() {
   render();
 }
 document.getElementById('admin-back-btn').addEventListener('click', adminHide);
-['adm-territory','adm-industry'].forEach(function(id) {
-  document.getElementById(id).addEventListener('change', adminRender);
+
+document.querySelectorAll('[data-adm-territory]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('[data-adm-territory]').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    adminRender();
+  });
 });
+document.getElementById('adm-industry').addEventListener('change', adminRender);
 
 // ════════════════════════════════════════════════════════
 //  ADMIN HELPERS
 // ════════════════════════════════════════════════════════
 function getAdmKey() {
-  return document.getElementById('adm-territory').value + '_' + document.getElementById('adm-industry').value;
+  const terBtn = document.querySelector('[data-adm-territory].active');
+  const terr   = terBtn ? terBtn.dataset.admTerritory : 'US';
+  return terr + '_' + document.getElementById('adm-industry').value;
 }
 
 function getAdmData() {
