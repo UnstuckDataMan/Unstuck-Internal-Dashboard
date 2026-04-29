@@ -29,10 +29,9 @@
       background: var(--bg);
       background-image: radial-gradient(ellipse at 20% 60%, #1a0f2e 0%, transparent 60%),
                         radial-gradient(ellipse at 80% 20%, #0f1030 0%, transparent 55%);
-      height: 100vh;
+      min-height: 100vh;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
       color: var(--text);
     }
 
@@ -45,7 +44,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-shrink: 0;
+      position: sticky; top: 0; z-index: 50;
     }
     .home-link {
       display: flex; align-items: center; gap: 10px;
@@ -77,7 +76,7 @@
       background: var(--bg-panel);
       border-bottom: 1px solid var(--border);
       height: 48px;
-      flex-shrink: 0;
+      position: sticky; top: 56px; z-index: 49;
     }
     .tabs { display: flex; gap: 4px; }
     .tab {
@@ -93,14 +92,16 @@
     .tab:hover:not(.active) { background: var(--bg-card); color: var(--text); }
 
     /* ── Layout ── */
-    .main { display: flex; flex: 1; overflow: hidden; }
+    .main { display: flex; flex: 1; align-items: flex-start; }
 
     /* ── Left panel ── */
     .left-panel {
       width: 270px; flex-shrink: 0;
       background: var(--bg-panel);
       border-right: 1px solid var(--border);
-      display: flex; flex-direction: column; overflow-y: auto;
+      display: flex; flex-direction: column;
+      position: sticky; top: 104px;
+      height: calc(100vh - 104px); overflow-y: auto;
     }
     .panel-section { padding: 16px; }
     .panel-section + .panel-section { border-top: 1px solid var(--border); }
@@ -145,11 +146,10 @@
 
     /* ── Right panel ── */
     .right-panel {
-      flex: 1; display: flex; flex-direction: column;
-      overflow: hidden; background: transparent;
+      flex: 1; background: transparent;
     }
     .rp-scroll {
-      flex: 1; min-height: 0; overflow-y: auto; padding: 20px;
+      padding: 20px;
       display: flex; flex-direction: column; gap: 16px;
     }
 
