@@ -938,7 +938,7 @@ function enterProfile(profile) {
   });
 
   document.getElementById('adm-flyout-card').style.display = profile.type==='bizdev' ? '' : 'none';
-  document.getElementById('mail-merge-btn').style.display  = (profile.type==='client' || profile.type==='bizdev') ? '' : 'none';
+  document.getElementById('mail-merge-btn').style.display  = profile.type==='client' ? '' : 'none';
   document.getElementById('header-title').textContent = profile.name;
   document.getElementById('profile-screen').classList.remove('visible');
   document.getElementById('main-header').style.display = 'flex';
