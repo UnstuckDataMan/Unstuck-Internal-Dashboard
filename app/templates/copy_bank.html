@@ -620,7 +620,20 @@ async function loadProfiles() {
     );
     const rows = await res.json();
     if (rows && rows.length && Array.isArray(rows[0].content)) {
-      profiles = rows[0].content;
+      // Deduplicate by name: if bizdev and client share a name, keep only bizdev
+      const seen = {};
+      profiles = rows[0].content.filter(function(p) {
+        const name = p.name || '';
+        if (!seen[name]) { seen[name] = p.type; return true; }
+        // Replace client entry if we now see bizdev with same name
+        if (p.type === 'bizdev' && seen[name] !== 'bizdev') {
+          seen[name] = 'bizdev';
+          const idx = profiles.findIndex(function(x){ return x.name === name; });
+          if (idx !== -1) profiles.splice(idx, 1);
+          return true;
+        }
+        return false;
+      });
     } else {
       profiles = [BIZDEV_PROFILE];
       await saveProfiles();

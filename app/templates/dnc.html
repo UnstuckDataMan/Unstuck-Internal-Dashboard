@@ -1842,7 +1842,7 @@
 
       <!-- ── Load from Copy Bank ── -->
       <div id="mm-cb-loader" class="mm-cb-section">
-        <button type="button" class="mm-cb-toggle" onclick="mmToggleCbLoader()">
+        <button type="button" class="mm-cb-toggle">
           📋 Load from Copy Bank
           <span style="font-weight:400;color:var(--text-3);font-size:.75rem;margin-left:4px">(optional)</span>
           <span class="mm-cb-chevron">▼</span>
@@ -1851,7 +1851,7 @@
           <div class="mm-cb-grid">
             <div>
               <label>Client</label>
-              <select id="mm-cb-client" onchange="mmOnCbClientChange()">
+              <select id="mm-cb-client">
                 <option value="">— Loading… —</option>
               </select>
             </div>
@@ -1869,8 +1869,7 @@
             </div>
           </div>
           <div class="mm-cb-actions">
-            <button type="button" class="btn btn-download" id="mm-cb-load-btn"
-                    onclick="mmLoadCopyBankTemplates()" disabled>Load Templates</button>
+            <button type="button" class="btn btn-download" id="mm-cb-load-btn" disabled>Load Templates</button>
             <span id="mm-cb-feedback" class="mm-cb-feedback"></span>
           </div>
         </div>
@@ -3677,8 +3676,16 @@
     // Load saved profiles
     renderSavedProfiles();
 
-    // Copy Bank loader
+    // Copy Bank loader — wire listeners here so functions stay inside this scope
     mmInitCopyBankLoader();
+    const cbSection = $('mm-cb-loader');
+    if (cbSection) {
+      cbSection.querySelector('.mm-cb-toggle').addEventListener('click', () => {
+        cbSection.classList.toggle('open');
+      });
+      $('mm-cb-client').addEventListener('change', mmOnCbClientChange);
+      $('mm-cb-load-btn').addEventListener('click', mmLoadCopyBankTemplates);
+    }
   }
 
   // ── Copy Bank loader ─────────────────────────────────────
@@ -3778,10 +3785,6 @@
     const selector = type === 'subject' ? '.mm-subject-input' : '.mm-body-input';
     const els = document.querySelectorAll(selector);
     if (els.length) els[els.length - 1].value = value;
-  }
-
-  function mmToggleCbLoader() {
-    document.getElementById('mm-cb-loader').classList.toggle('open');
   }
 
   // ── Load from Scrub handoff ───────────────────────────────
