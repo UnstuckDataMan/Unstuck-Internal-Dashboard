@@ -297,16 +297,16 @@
     </div>
   </div>
   <div class="ps-actions">
-    <button class="ps-add-btn" id="ps-add-btn">+ Add Profile</button>
+    <button class="ps-add-btn" id="ps-add-btn">+ New Client</button>
     <button class="ps-manage-btn" id="profiles-admin-btn">&#9881; Manage Profiles</button>
   </div>
   <!-- Inline add form -->
   <div id="ps-add-form">
     <div class="ps-form-card">
-      <div class="ps-form-title">Add Client Profile</div>
+      <div class="ps-form-title">New Client</div>
       <div class="ps-form-row">
-        <div class="ps-form-label">Client</div>
-        <div id="ps-client-field"></div>
+        <div class="ps-form-label">Client Name</div>
+        <input type="text" id="ps-client-name" class="ps-form-input" placeholder="e.g. Acme Corp">
       </div>
       <div class="ps-form-row">
         <div class="ps-form-label">Territories — press Enter or comma to add</div>
@@ -331,7 +331,7 @@
       </div>
       <div class="ps-form-btns">
         <button class="ps-form-cancel" id="ps-form-cancel">Cancel</button>
-        <button class="ps-form-submit" id="ps-form-submit">Add Profile</button>
+        <button class="ps-form-submit" id="ps-form-submit">Create Client</button>
       </div>
     </div>
   </div>
@@ -672,32 +672,6 @@ function renderProfileScreen() {
     card.addEventListener('click', function(){ enterProfile(p); });
     grid.appendChild(card);
   });
-  buildAddFormClientField();
-}
-
-// ════════════════════════════════════════════════════════
-//  ADD PROFILE FORM (inline on profile screen)
-// ════════════════════════════════════════════════════════
-function buildAddFormClientField() {
-  const fieldEl = document.getElementById('ps-client-field');
-  fieldEl.innerHTML = '';
-  const existingIds = profiles.map(function(p){ return p.client_id; });
-  const available   = allClients.filter(function(c){ return !existingIds.includes(c.id); });
-
-  if (allClients.length > 0 && available.length > 0) {
-    const sel = document.createElement('select');
-    sel.id = 'ps-client-select'; sel.className = 'ps-form-input';
-    sel.innerHTML = '<option value="">— Select client —</option>' +
-      available.map(function(c){ return '<option value="'+escHtml(c.id)+'">'+escHtml(c.name)+'</option>'; }).join('');
-    fieldEl.appendChild(sel);
-  } else if (allClients.length > 0 && available.length === 0) {
-    fieldEl.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">All clients have been added already.</div>';
-  } else {
-    const inp = document.createElement('input');
-    inp.id = 'ps-client-name'; inp.className = 'ps-form-input';
-    inp.placeholder = 'Client name'; inp.type = 'text';
-    fieldEl.appendChild(inp);
-  }
 }
 
 document.getElementById('ps-add-btn').addEventListener('click', function(){
@@ -785,38 +759,42 @@ document.querySelectorAll('[data-ps-rm-ind]').forEach(function(btn){
 });
 
 document.getElementById('ps-form-submit').addEventListener('click', async function(){
-  const selEl  = document.getElementById('ps-client-select');
-  const nameEl = document.getElementById('ps-client-name');
-
-  let clientId, clientName;
-  if (selEl) {
-    clientId = selEl.value;
-    if (!clientId) { alert('Please select a client.'); return; }
-    const match = allClients.find(function(c){ return c.id===clientId; });
-    clientName = match ? match.name : clientId;
-  } else if (nameEl) {
-    clientName = nameEl.value.trim();
-    if (!clientName) { alert('Please enter a client name.'); return; }
-    clientId = clientName.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'') + '_' + Date.now();
-  } else {
-    alert('No client available to add.'); return;
-  }
-
+  const nameEl    = document.getElementById('ps-client-name');
+  const clientName = nameEl.value.trim();
+  if (!clientName) { alert('Please enter a client name.'); return; }
   if (!psFormTerritories.length) { alert('Please add at least one territory.'); return; }
   if (!psFormIndustries.length)  { alert('Please add at least one industry.'); return; }
 
-  profiles.push({ client_id: clientId, name: clientName, type: 'client', territories: psFormTerritories.slice(), industries: psFormIndustries.slice() });
   const btn = document.getElementById('ps-form-submit');
-  btn.textContent = 'Saving…'; btn.disabled = true;
+  btn.textContent = 'Creating…'; btn.disabled = true;
   try {
+    // 1. Create the client in Supabase (shared clients table)
+    const res = await fetch(SUPABASE_URL + '/rest/v1/clients', {
+      method: 'POST',
+      headers: sbHeaders('return=representation'),
+      body: JSON.stringify({ name: clientName }),
+    });
+    if (!res.ok) { const t = await res.text(); throw new Error('Could not create client: ' + t); }
+    const rows = await res.json();
+    const newClient = Array.isArray(rows) ? rows[0] : rows;
+    const clientId  = newClient.id;
+
+    // 2. Update local cache
+    allClients.push({ id: clientId, name: clientName });
+
+    // 3. Create the Copy Bank profile
+    profiles.push({ client_id: clientId, name: clientName, type: 'client',
+      territories: psFormTerritories.slice(), industries: psFormIndustries.slice() });
     await saveProfiles();
-    // Reset form
+
+    // 4. Reset form and refresh grid
+    nameEl.value = '';
     psFormTerritories = ['US','UK']; psFormIndustries = ['PR','Marketing','Media','SaaS','AI','Accounting','Management_Consulting'];
     refreshTerTags(); refreshIndTags();
     document.getElementById('ps-add-form').style.display = 'none';
     renderProfileScreen();
-  } catch(e) { alert('Error saving: '+e.message); }
-  btn.textContent = 'Add Profile'; btn.disabled = false;
+  } catch(e) { alert('Error: ' + e.message); }
+  btn.textContent = 'Create Client'; btn.disabled = false;
 });
 
 document.getElementById('gear-btn').addEventListener('click', adminShow);
