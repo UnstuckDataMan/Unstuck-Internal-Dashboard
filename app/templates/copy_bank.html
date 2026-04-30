@@ -179,6 +179,15 @@
       z-index: 100; flex-direction: column; align-items: center;
       padding: 48px 20px 32px; overflow-y: auto;
     }
+    .ps-home-btn {
+      position: absolute; top: 16px; left: 20px;
+      padding: 7px 14px; border-radius: 8px;
+      border: 1px solid var(--border-hi); background: transparent;
+      color: var(--text-muted); font-size: 13px; font-weight: 500;
+      cursor: pointer; text-decoration: none; display: inline-flex;
+      align-items: center; gap: 6px; transition: border-color .15s, color .15s;
+    }
+    .ps-home-btn:hover { border-color: var(--accent-from); color: #a78bfa; }
     #profile-screen.visible { display: flex; }
     .ps-logo { width: 52px; height: 52px; border-radius: 16px; margin-bottom: 16px; background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%); display: flex; align-items: center; justify-content: center; }
     .ps-logo svg { width: 26px; height: 26px; fill: white; }
@@ -292,6 +301,7 @@
 
 <!-- PROFILE SELECTION SCREEN -->
 <div id="profile-screen" class="visible">
+  <a href="/" class="ps-home-btn">&#8592; Dashboard</a>
   <div class="ps-logo">
     <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 2.5L2 9h2v8.5h5v-5h2v5h5V9h2L10 2.5z"/></svg>
   </div>
