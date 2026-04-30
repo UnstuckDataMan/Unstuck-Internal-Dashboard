@@ -11,6 +11,6 @@ router = APIRouter()
 async def copy_bank(request: Request):
     return templates.TemplateResponse("copy_bank.html", {
         "request":           request,
-        "supabase_url":      os.environ["SUPABASE_URL"],
-        "supabase_anon_key": os.environ["SUPABASE_ANON_KEY"],
+        "supabase_url":      os.environ.get("SUPABASE_URL", ""),
+        "supabase_anon_key": os.environ.get("SUPABASE_ANON_KEY", ""),
     })
