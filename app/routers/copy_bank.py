@@ -1,3 +1,4 @@
+import json
 import os
 
 import requests as http_req
@@ -42,21 +43,38 @@ def copy_bank_profiles():
             "industries":  p.get("industries", []),
         }
         for p in rows[0]["content"]
-        if p.get("type") != "bizdev"
     ]
 
 
 @router.get("/api/copy-bank/templates/{client_id}/{territory}/{industry}")
 def copy_bank_template(client_id: str, territory: str, industry: str):
-    url    = os.environ.get("SUPABASE_URL", "")
-    cb_key = f"__c__{client_id}__{territory}_{industry}"
-    resp   = http_req.get(
+    url = os.environ.get("SUPABASE_URL", "")
+
+    # Bizdev content uses simple territory_industry keys; clients use __c__ prefix
+    if client_id == "bizdev":
+        cb_key = f"{territory}_{industry}"
+    else:
+        cb_key = f"__c__{client_id}__{territory}_{industry}"
+
+    resp = http_req.get(
         f"{url}/rest/v1/copy_bank_templates",
         params={"key": f"eq.{cb_key}", "select": "content"},
         headers=_sb_headers(),
         timeout=10,
     )
     rows = resp.json()
+
+    # Fallback: if no client key found, try bizdev key format (covers migrated profiles)
+    if not rows and client_id != "bizdev":
+        cb_key = f"{territory}_{industry}"
+        resp = http_req.get(
+            f"{url}/rest/v1/copy_bank_templates",
+            params={"key": f"eq.{cb_key}", "select": "content"},
+            headers=_sb_headers(),
+            timeout=10,
+        )
+        rows = resp.json()
+
     if not rows:
         return {"subjects": [], "bodies": []}
     c        = rows[0].get("content") or {}
@@ -64,3 +82,65 @@ def copy_bank_template(client_id: str, territory: str, industry: str):
     subjects = [s for s in (email.get("subjects") or []) if s and s.strip()]
     bodies   = [v["body"] for v in (email.get("variations") or []) if v.get("body", "").strip()]
     return {"subjects": subjects, "bodies": bodies}
+
+
+@router.post("/api/admin/merge-unstuck-profiles")
+def merge_unstuck_profiles():
+    url = os.environ.get("SUPABASE_URL", "")
+    write_headers = {
+        **_sb_headers(),
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+
+    resp = http_req.get(
+        f"{url}/rest/v1/copy_bank_templates",
+        params={"key": "eq.__cb_profiles__", "select": "content"},
+        headers=_sb_headers(),
+        timeout=10,
+    )
+    rows = resp.json()
+    if not rows or not isinstance(rows[0].get("content"), list):
+        return {"error": "No profiles found"}
+
+    content = rows[0]["content"]
+
+    bizdev = next((p for p in content if p.get("type") == "bizdev" and p.get("name") == "Unstuck Agency"), None)
+    client = next((p for p in content if p.get("type") == "client" and p.get("name") == "Unstuck Agency"), None)
+
+    if not bizdev or not client:
+        return {
+            "message":      "Nothing to merge",
+            "bizdev_found": bool(bizdev),
+            "client_found": bool(client),
+        }
+
+    # Union territories and industries — client order first, then any bizdev extras
+    merged_territories = list(dict.fromkeys(
+        (client.get("territories") or []) + (bizdev.get("territories") or [])
+    ))
+    merged_industries = list(dict.fromkeys(
+        (client.get("industries") or []) + (bizdev.get("industries") or [])
+    ))
+    client["territories"] = merged_territories
+    client["industries"]  = merged_industries
+
+    # Remove bizdev entry, keep everything else (client entry already updated in-place)
+    new_content = [p for p in content
+                   if not (p.get("type") == "bizdev" and p.get("name") == "Unstuck Agency")]
+
+    patch_resp = http_req.patch(
+        f"{url}/rest/v1/copy_bank_templates",
+        params={"key": "eq.__cb_profiles__"},
+        data=json.dumps({"content": new_content}),
+        headers=write_headers,
+        timeout=10,
+    )
+
+    return {
+        "merged":      True,
+        "client_id":   client["client_id"],
+        "territories": merged_territories,
+        "industries":  merged_industries,
+        "status":      patch_resp.status_code,
+    }

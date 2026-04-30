@@ -870,6 +870,42 @@
   .mm-alert li { margin-bottom: 2px; }
   .mm-hidden { display: none !important; }
 
+  /* Copy Bank loader section */
+  .mm-cb-section {
+    margin-bottom: 20px;
+    border: 1px solid rgba(139,92,246,.2);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .mm-cb-toggle {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 12px 16px;
+    background: rgba(139,92,246,.06); border: none;
+    cursor: pointer; font-family: var(--font);
+    font-size: .82rem; font-weight: 700;
+    color: var(--purple); letter-spacing: -.01em;
+    text-align: left; user-select: none;
+    transition: background .18s var(--ease);
+  }
+  .mm-cb-toggle:hover { background: rgba(139,92,246,.1); }
+  .mm-cb-chevron {
+    margin-left: auto; font-size: .7rem; color: var(--text-3);
+    transition: transform .2s var(--ease);
+  }
+  .mm-cb-section.open .mm-cb-chevron { transform: rotate(180deg); }
+  .mm-cb-panel {
+    display: none; padding: 16px;
+    background: rgba(139,92,246,.03);
+    border-top: 1px solid rgba(139,92,246,.15);
+  }
+  .mm-cb-section.open .mm-cb-panel { display: block; }
+  .mm-cb-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px; margin-bottom: 14px;
+  }
+  .mm-cb-actions { display: flex; align-items: center; gap: 12px; }
+  .mm-cb-feedback { font-size: .78rem; color: var(--text-2); }
+
   /* Download row */
   .mm-download-row {
     display: flex;
@@ -1805,39 +1841,40 @@
     <div style="padding:26px 28px 24px">
 
       <!-- ── Load from Copy Bank ── -->
-      <details id="mm-cb-loader" style="margin-bottom:20px">
-        <summary style="cursor:pointer;font-size:.85rem;font-weight:700;color:var(--purple);padding:4px 0;user-select:none;letter-spacing:-.01em">
-          📋 Load from Copy Bank <span style="font-weight:400;color:var(--text-3);font-size:.78rem">(optional)</span>
-        </summary>
-        <div style="margin-top:12px;padding:14px 16px;background:rgba(139,92,246,.05);border:1.5px solid rgba(139,92,246,.18);border-radius:10px">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+      <div id="mm-cb-loader" class="mm-cb-section">
+        <button type="button" class="mm-cb-toggle" onclick="mmToggleCbLoader()">
+          📋 Load from Copy Bank
+          <span style="font-weight:400;color:var(--text-3);font-size:.75rem;margin-left:4px">(optional)</span>
+          <span class="mm-cb-chevron">▼</span>
+        </button>
+        <div class="mm-cb-panel">
+          <div class="mm-cb-grid">
             <div>
-              <label style="font-size:11px;margin-bottom:4px">Client</label>
-              <select id="mm-cb-client" onchange="mmOnCbClientChange()" style="width:100%">
+              <label>Client</label>
+              <select id="mm-cb-client" onchange="mmOnCbClientChange()">
                 <option value="">— Loading… —</option>
               </select>
             </div>
             <div>
-              <label style="font-size:11px;margin-bottom:4px">Territory</label>
-              <select id="mm-cb-territory" style="width:100%">
+              <label>Territory</label>
+              <select id="mm-cb-territory">
                 <option value="">— Select client first —</option>
               </select>
             </div>
             <div>
-              <label style="font-size:11px;margin-bottom:4px">Industry / Niche</label>
-              <select id="mm-cb-industry" style="width:100%">
+              <label>Industry / Niche</label>
+              <select id="mm-cb-industry">
                 <option value="">— Select client first —</option>
               </select>
             </div>
           </div>
-          <div style="display:flex;align-items:center;gap:12px">
+          <div class="mm-cb-actions">
             <button type="button" class="btn btn-download" id="mm-cb-load-btn"
-                    onclick="mmLoadCopyBankTemplates()" disabled
-                    style="padding:7px 16px;font-size:12px;white-space:nowrap">Load Templates</button>
-            <span id="mm-cb-feedback" style="font-size:.78rem"></span>
+                    onclick="mmLoadCopyBankTemplates()" disabled>Load Templates</button>
+            <span id="mm-cb-feedback" class="mm-cb-feedback"></span>
           </div>
         </div>
-      </details>
+      </div>
 
       <!-- Placeholder insertion bar (shown after upload) -->
       <div id="mm-ph-bar-wrap" class="mm-hidden">
@@ -3743,6 +3780,10 @@
     if (els.length) els[els.length - 1].value = value;
   }
 
+  function mmToggleCbLoader() {
+    document.getElementById('mm-cb-loader').classList.toggle('open');
+  }
+
   // ── Load from Scrub handoff ───────────────────────────────
   async function loadFromScrub(token, filename) {
     init();
@@ -3820,9 +3861,9 @@
       if (terSel) terSel.value = territory;
       if (indSel) indSel.value = industry;
 
-      // Open the details panel and load
+      // Open the panel and load
       const details = document.getElementById('mm-cb-loader');
-      if (details) details.open = true;
+      if (details) details.classList.add('open');
       mmLoadCopyBankTemplates();
 
       // Clean URL so a page refresh doesn't re-trigger
