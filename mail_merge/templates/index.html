@@ -1654,6 +1654,20 @@ async function initCopyBankLoader() {
     const sel = document.getElementById('cb-client');
     sel.innerHTML = '<option value="">— Select client —</option>' +
       _cbProfiles.map(p => `<option value="${escHtml(p.client_id)}">${escHtml(p.name)}</option>`).join('');
+
+    // Auto-load if arriving from Copy Bank via URL params
+    const params     = new URLSearchParams(window.location.search);
+    const autoClient = params.get('client_id');
+    const autoTer    = params.get('territory');
+    const autoInd    = params.get('industry');
+    if (autoClient && autoTer && autoInd) {
+      sel.value = autoClient;
+      onCbClientChange();
+      document.getElementById('cb-territory').value = autoTer;
+      document.getElementById('cb-industry').value  = autoInd;
+      document.getElementById('cb-loader').open = true;
+      await loadCopyBankTemplates();
+    }
   } catch(e) {
     document.getElementById('cb-client').innerHTML = '<option value="">⚠ Could not load clients</option>';
   }

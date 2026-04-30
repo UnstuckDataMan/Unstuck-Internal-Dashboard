@@ -123,6 +123,14 @@
     }
     .copy-all-btn:hover { opacity: .85; }
     .copy-all-btn.success { background: linear-gradient(135deg, var(--success-from) 0%, var(--success-to) 100%); }
+    .tab-bar-right { display: flex; align-items: center; gap: 8px; }
+    .mail-merge-btn {
+      padding: 7px 16px; border-radius: 8px;
+      border: 1px solid var(--border-hi); background: transparent;
+      color: var(--text-muted); font-size: 13px; font-weight: 500; cursor: pointer;
+      transition: border-color .15s, color .15s; white-space: nowrap;
+    }
+    .mail-merge-btn:hover { border-color: var(--accent-from); color: #a78bfa; }
 
     /* ── States ── */
     .rp-state {
@@ -375,7 +383,10 @@
 <!-- TAB BAR -->
 <div class="tab-bar" id="tab-bar" style="display:none">
   <div class="tabs" id="tabs-container"></div>
-  <button class="copy-all-btn" id="copy-all-btn">Copy All</button>
+  <div class="tab-bar-right">
+    <button class="mail-merge-btn" id="mail-merge-btn" style="display:none" onclick="pushToMailMerge()">Mail Merge &#8594;</button>
+    <button class="copy-all-btn" id="copy-all-btn">Copy All</button>
+  </div>
 </div>
 
 <!-- MAIN VIEW -->
@@ -914,12 +925,21 @@ function enterProfile(profile) {
   });
 
   document.getElementById('adm-flyout-card').style.display = profile.type==='bizdev' ? '' : 'none';
+  document.getElementById('mail-merge-btn').style.display  = profile.type==='client'  ? '' : 'none';
   document.getElementById('header-title').textContent = profile.name;
   document.getElementById('profile-screen').classList.remove('visible');
   document.getElementById('main-header').style.display = 'flex';
   renderTabs();
   document.getElementById('main-view').style.display = 'flex';
   render();
+}
+
+function pushToMailMerge() {
+  const ind = document.getElementById('industry').value;
+  const url = '/mail-merge/?client_id=' + encodeURIComponent(activeProfile.client_id) +
+              '&territory=' + encodeURIComponent(territory) +
+              '&industry='  + encodeURIComponent(ind);
+  window.location.href = url;
 }
 
 // ════════════════════════════════════════════════════════
