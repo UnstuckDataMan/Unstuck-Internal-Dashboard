@@ -45,20 +45,13 @@
       align-items: center;
       justify-content: space-between;
       position: sticky; top: 0; z-index: 50;
+      gap: 12px;
     }
-    .home-link {
-      display: flex; align-items: center; gap: 10px;
-      text-decoration: none; flex-shrink: 0;
-    }
-    .home-icon {
-      width: 36px; height: 36px; border-radius: 10px;
-      background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .home-icon svg { width: 18px; height: 18px; fill: white; }
     header h1 {
       position: absolute; left: 50%; transform: translateX(-50%);
       font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: -.2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 50%;
     }
     .gear-btn {
       width: 32px; height: 32px; border-radius: 8px;
@@ -145,9 +138,7 @@
     .toggle-btn:hover:not(.active) { background: var(--bg-card); color: var(--text); }
 
     /* ── Right panel ── */
-    .right-panel {
-      flex: 1; background: transparent;
-    }
+    .right-panel { flex: 1; background: transparent; }
     .rp-scroll {
       padding: 20px;
       display: flex; flex-direction: column; gap: 16px;
@@ -246,7 +237,7 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
 
-    /* PASSWORD MODAL */
+    /* ── PASSWORD MODAL ── */
     .pw-overlay {
       display: none; position: fixed; inset: 0;
       background: rgba(0,0,0,.75); backdrop-filter: blur(4px);
@@ -284,7 +275,127 @@
     }
     .pw-submit-btn:hover { opacity: .85; }
 
-    /* ADMIN PANEL */
+    /* ── PROFILE SCREEN ── */
+    #profile-screen {
+      display: none; position: fixed; inset: 0;
+      background: var(--bg);
+      background-image: radial-gradient(ellipse at 20% 60%, #1a0f2e 0%, transparent 60%),
+                        radial-gradient(ellipse at 80% 20%, #0f1030 0%, transparent 55%);
+      z-index: 100;
+      flex-direction: column; align-items: center; justify-content: center;
+      padding: 40px 20px;
+    }
+    #profile-screen.visible { display: flex; }
+    .ps-logo {
+      width: 52px; height: 52px; border-radius: 16px; margin-bottom: 16px;
+      background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .ps-logo svg { width: 26px; height: 26px; fill: white; }
+    .ps-title { font-size: 24px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+    .ps-subtitle { font-size: 14px; color: var(--text-muted); margin-bottom: 36px; }
+    .profile-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 14px; max-width: 840px; width: 100%; margin-bottom: 28px;
+    }
+    .profile-card {
+      background: var(--bg-card); border: 1px solid var(--border-hi);
+      border-radius: 16px; padding: 22px 18px;
+      cursor: pointer; transition: border-color .15s, transform .1s, box-shadow .15s;
+      display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+    }
+    .profile-card:hover {
+      border-color: var(--accent-from); transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(124,58,237,.2);
+    }
+    .profile-card-icon {
+      width: 48px; height: 48px; border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+      display: flex; align-items: center; justify-content: center; font-size: 20px;
+    }
+    .profile-card-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; }
+    .profile-card-badge {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--text-muted); background: var(--bg-input); border-radius: 20px; padding: 3px 10px;
+    }
+    .ps-manage-btn {
+      padding: 8px 20px; border-radius: 8px;
+      border: 1px solid var(--border-hi); background: transparent;
+      color: var(--text-muted); font-size: 13px; cursor: pointer; transition: all .15s;
+    }
+    .ps-manage-btn:hover { border-color: var(--accent-from); color: #a78bfa; }
+
+    /* ── PROFILES ADMIN PANEL ── */
+    #profiles-admin-panel {
+      display: none; position: fixed; inset: 0;
+      background: var(--bg); z-index: 150;
+      flex-direction: column;
+    }
+    #profiles-admin-panel.visible { display: flex; }
+    .pa-list { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+    .pa-profile-card {
+      background: var(--bg-card); border: 1px solid var(--border-hi);
+      border-radius: 12px; padding: 20px;
+    }
+    .pa-profile-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .pa-profile-name { font-size: 14px; font-weight: 700; color: var(--text); flex: 1; }
+    .pa-delete-btn {
+      padding: 4px 12px; border: 1px solid var(--border-hi); border-radius: 6px;
+      background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; transition: all .15s;
+    }
+    .pa-delete-btn:hover { border-color: #f87171; color: #f87171; }
+    .pa-field { margin-bottom: 12px; }
+    .pa-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--text-muted); margin-bottom: 6px;
+    }
+    .pa-input {
+      width: 100%; padding: 8px 10px;
+      border: 1px solid var(--border-hi); border-radius: 8px;
+      font-size: 13px; color: var(--text); background: var(--bg-input);
+      outline: none; transition: border-color .15s; font-family: inherit;
+    }
+    .pa-input:focus { border-color: var(--accent-from); }
+    .pa-input option { background: #1a1a30; }
+    /* Tag editor */
+    .tag-editor {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      background: var(--bg-input); border: 1px solid var(--border-hi);
+      border-radius: 8px; padding: 6px 8px; min-height: 38px; cursor: text;
+    }
+    .tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: rgba(124,58,237,.2); border: 1px solid rgba(124,58,237,.4);
+      border-radius: 20px; padding: 3px 10px;
+      font-size: 12px; font-weight: 600; color: #a78bfa; white-space: nowrap;
+    }
+    .tag-x {
+      background: none; border: none; color: var(--text-muted);
+      cursor: pointer; font-size: 14px; line-height: 1; padding: 0; margin-left: 2px;
+    }
+    .tag-x:hover { color: #f87171; }
+    .tag-input {
+      border: none; background: transparent; outline: none;
+      font-size: 13px; color: var(--text); font-family: inherit;
+      min-width: 120px; flex: 1; padding: 2px 0;
+    }
+    .tag-input::placeholder { color: var(--text-muted); }
+    /* Add profile form */
+    .pa-add-form {
+      background: var(--bg-card); border: 1px dashed var(--border-hi);
+      border-radius: 12px; padding: 20px;
+    }
+    .pa-add-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 16px; }
+    .pa-save-btn {
+      padding: 8px 20px; border-radius: 8px; border: none;
+      background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+      color: white; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s; margin-top: 4px;
+    }
+    .pa-save-btn:hover { opacity: .85; }
+    .pa-bizdev-note { font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+    /* ── ADMIN PANEL ── */
     .admin-panel {
       display: none; flex: 1; flex-direction: column;
       overflow: hidden; background: var(--bg);
@@ -299,11 +410,10 @@
       padding: 6px 14px; border: 1px solid var(--border-hi);
       background: transparent; border-radius: 7px;
       font-size: 13px; font-weight: 500; color: var(--text-dim);
-      cursor: pointer; transition: border-color .15s, color .15s;
+      cursor: pointer; transition: border-color .15s, color .15s; flex-shrink: 0;
     }
     .admin-back-btn:hover { border-color: var(--accent-from); color: #a78bfa; }
     .admin-title { font-size: 14px; font-weight: 700; color: var(--text); }
-    .admin-subtitle { font-size: 12px; color: var(--text-muted); margin-left: auto; }
     .admin-selectors {
       display: flex; gap: 10px; padding: 14px 24px;
       background: var(--bg-panel); border-bottom: 1px solid var(--border);
@@ -373,12 +483,8 @@
       font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s;
     }
     .adm-add-btn:hover { border-color: var(--accent-from); color: #a78bfa; background: rgba(124,58,237,.08); }
-    .admin-save-row {
-      display: flex; align-items: center;
-      justify-content: flex-end; gap: 10px; margin-top: 16px;
-    }
     .admin-save-btn {
-      padding: 8px 24px;
+      padding: 8px 24px; margin-left: auto;
       background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
       color: white; border: none; border-radius: 8px;
       font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s;
@@ -386,7 +492,7 @@
     .admin-save-btn:hover { opacity: .85; }
     .admin-save-btn.success { background: linear-gradient(135deg, var(--success-from) 0%, var(--success-to) 100%); }
     .admin-save-btn:disabled { opacity: .5; cursor: not-allowed; }
-    .save-status { font-size: 12px; color: var(--text-muted); margin-right: auto; }
+    .save-status { font-size: 12px; color: var(--text-muted); }
     .save-status.ok  { color: #4ade80; }
     .save-status.err { color: #f87171; }
     .admin-action-row { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -405,7 +511,7 @@
 <!-- PASSWORD MODAL -->
 <div class="pw-overlay" id="pw-overlay">
   <div class="pw-box">
-    <div class="pw-title">Admin Access</div>
+    <div class="pw-title" id="pw-title">Admin Access</div>
     <input type="password" id="pw-input" class="pw-input" placeholder="Password" autocomplete="current-password">
     <div class="pw-error" id="pw-error"></div>
     <div class="pw-row">
@@ -415,32 +521,50 @@
   </div>
 </div>
 
-<header>
-  <a href="/" class="home-link">
-    <div class="home-icon">
-      <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-        <path d="M10 2.5L2 9h2v8.5h5v-5h2v5h5V9h2L10 2.5z"/>
-      </svg>
+<!-- PROFILE SELECTION SCREEN -->
+<div id="profile-screen" class="visible">
+  <div class="ps-logo">
+    <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 2.5L2 9h2v8.5h5v-5h2v5h5V9h2L10 2.5z"/></svg>
+  </div>
+  <div class="ps-title">Copy Bank</div>
+  <div class="ps-subtitle">Select a profile to continue</div>
+  <div class="profile-grid" id="profile-grid">
+    <div class="rp-state" style="grid-column:1/-1;padding:40px 0">
+      <div class="spinner"></div>
+      <span>Loading profiles&hellip;</span>
     </div>
-  </a>
-  <h1>Copy Bank</h1>
+  </div>
+  <button class="ps-manage-btn" id="profiles-admin-btn">&#9881; Manage Profiles</button>
+</div>
+
+<!-- PROFILES ADMIN PANEL -->
+<div id="profiles-admin-panel">
+  <div class="admin-header">
+    <button class="admin-back-btn" id="profiles-admin-back">&#8592; Back</button>
+    <span class="admin-title">Manage Profiles</span>
+    <span class="save-status" id="pa-save-status"></span>
+    <button class="admin-save-btn" id="pa-save-profiles">Save Changes</button>
+  </div>
+  <div class="pa-list" id="pa-list"></div>
+</div>
+
+<!-- MAIN HEADER (hidden until profile selected) -->
+<header id="main-header" style="display:none">
+  <button class="admin-back-btn" id="back-to-profiles-btn">&#8592; Profiles</button>
+  <h1 id="header-title">Copy Bank</h1>
   <button class="gear-btn" id="gear-btn" title="Admin">&#9881;</button>
 </header>
 
-<!-- TAB BAR -->
-<div class="tab-bar" id="tab-bar">
-  <div class="tabs">
-    <button class="tab active" data-tab="email">Email</button>
-    <button class="tab" data-tab="flyout">Fly-out</button>
-    <button class="tab" data-tab="linkedin">LinkedIn</button>
-  </div>
+<!-- TAB BAR (hidden until profile selected) -->
+<div class="tab-bar" id="tab-bar" style="display:none">
+  <div class="tabs" id="tabs-container"></div>
   <button class="copy-all-btn" id="copy-all-btn">Copy All</button>
 </div>
 
-<div class="main">
+<!-- MAIN VIEW (hidden until profile selected) -->
+<div class="main" id="main-view" style="display:none">
   <!-- LEFT PANEL -->
   <div class="left-panel">
-
     <div class="panel-section">
       <div class="section-label">Sending Account</div>
       <div class="field">
@@ -453,38 +577,24 @@
         </select>
       </div>
     </div>
-
     <div class="panel-section">
       <div class="section-label">Territory</div>
-      <div class="toggle-group">
-        <button class="toggle-btn active" data-territory="US">US</button>
-        <button class="toggle-btn" data-territory="UK">UK</button>
-      </div>
+      <div class="toggle-group" id="territory-toggle"></div>
     </div>
-
     <div class="panel-section">
-      <div class="section-label">Industry</div>
+      <div class="section-label">Industry / Niche</div>
       <div class="field">
-        <select id="industry">
-          <option value="PR">PR</option>
-          <option value="Marketing">Marketing</option>
-          <option value="Media">Media</option>
-          <option value="SaaS">SaaS</option>
-          <option value="AI">AI</option>
-          <option value="Accounting">Accounting</option>
-          <option value="Management_Consulting">Management Consulting</option>
-        </select>
+        <select id="industry"></select>
       </div>
     </div>
-
   </div>
 
   <!-- RIGHT PANEL -->
-  <div class="right-panel" id="right-panel">
+  <div class="right-panel">
     <div class="rp-scroll" id="rp-scroll">
-      <div class="rp-state" id="rp-loading">
+      <div class="rp-state">
         <div class="spinner"></div>
-        <span>Loading from Supabase&hellip;</span>
+        <span>Loading&hellip;</span>
       </div>
     </div>
   </div>
@@ -500,19 +610,8 @@
   </div>
 
   <div class="admin-selectors">
-    <div class="toggle-group" style="flex-shrink:0;width:120px">
-      <button class="toggle-btn active" data-adm-territory="US">US</button>
-      <button class="toggle-btn" data-adm-territory="UK">UK</button>
-    </div>
-    <select id="adm-industry">
-      <option value="PR">PR</option>
-      <option value="Marketing">Marketing</option>
-      <option value="Media">Media</option>
-      <option value="SaaS">SaaS</option>
-      <option value="AI">AI</option>
-      <option value="Accounting">Accounting</option>
-      <option value="Management_Consulting">Management Consulting</option>
-    </select>
+    <div class="toggle-group" id="adm-territory-toggle" style="flex-shrink:0;min-width:100px"></div>
+    <select id="adm-industry"></select>
   </div>
 
   <div class="admin-body">
@@ -527,7 +626,7 @@
       <button class="adm-add-btn" id="adm-add-email-variation">+ Add email variation</button>
     </div>
 
-    <div class="admin-card">
+    <div class="admin-card" id="adm-flyout-card">
       <div class="admin-card-title">Fly-out</div>
       <div class="admin-subcard-title">Subject Lines</div>
       <div id="adm-flyout-subjects"></div>
@@ -555,11 +654,14 @@
 
 <script>
 // ════════════════════════════════════════════════════════
-//  SUPABASE CONFIG  (injected server-side)
+//  CONFIG
 // ════════════════════════════════════════════════════════
 const SUPABASE_URL      = "{{ supabase_url }}";
 const SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
 const SB_TABLE          = "copy_bank_templates";
+const SB_CLIENTS_TABLE  = "clients";
+const PROFILES_KEY      = "__cb_profiles__";
+const MASTER_PASSWORD   = "unstuck2025";
 
 function sbHeaders(prefer) {
   const h = {
@@ -574,17 +676,27 @@ function sbHeaders(prefer) {
 // ════════════════════════════════════════════════════════
 //  STATE
 // ════════════════════════════════════════════════════════
-const TEMPLATES    = {};
+const TEMPLATES     = {};
 let   activeChannel = 'email';
 let   territory     = 'US';
 let   dataReady     = false;
+let   activeProfile = null;
+let   profiles      = [];
+let   allClients    = [];
 
-const ADMIN_PASSWORD = 'unstuck2025';
+const BIZDEV_PROFILE = {
+  client_id:   'bizdev',
+  name:        'Unstuck - Business Development',
+  password:    MASTER_PASSWORD,
+  type:        'bizdev',
+  territories: ['US', 'UK'],
+  industries:  ['PR','Marketing','Media','SaaS','AI','Accounting','Management_Consulting'],
+};
 
-const ALL_KEYS = [
-  'US_PR','US_Marketing','US_Media','US_SaaS','US_AI','US_Accounting','US_Management_Consulting',
-  'UK_PR','UK_Marketing','UK_Media','UK_SaaS','UK_AI','UK_Accounting','UK_Management_Consulting',
-];
+const INDUSTRY_LABELS = {
+  PR: 'PR', Marketing: 'Marketing', Media: 'Media', SaaS: 'SaaS',
+  AI: 'AI', Accounting: 'Accounting', Management_Consulting: 'Management Consulting',
+};
 
 function defaultContent() {
   return {
@@ -619,6 +731,23 @@ function migrateContent(c) {
 }
 
 // ════════════════════════════════════════════════════════
+//  KEY HELPERS
+// ════════════════════════════════════════════════════════
+function currentKey() {
+  const ind = document.getElementById('industry').value;
+  if (!activeProfile || activeProfile.type === 'bizdev') return territory + '_' + ind;
+  return '__c__' + activeProfile.client_id + '__' + territory + '_' + ind;
+}
+
+function admKey() {
+  const terBtn = document.querySelector('[data-adm-territory].active');
+  const terr   = terBtn ? terBtn.dataset.admTerritory : (activeProfile ? activeProfile.territories[0] : 'US');
+  const ind    = document.getElementById('adm-industry').value;
+  if (!activeProfile || activeProfile.type === 'bizdev') return terr + '_' + ind;
+  return '__c__' + activeProfile.client_id + '__' + terr + '_' + ind;
+}
+
+// ════════════════════════════════════════════════════════
 //  HELPERS
 // ════════════════════════════════════════════════════════
 function escHtml(str) {
@@ -646,7 +775,7 @@ function getChData(key, ch) {
 }
 
 // ════════════════════════════════════════════════════════
-//  SUPABASE — load all templates
+//  SUPABASE — load / save
 // ════════════════════════════════════════════════════════
 async function loadFromSupabase() {
   try {
@@ -656,27 +785,24 @@ async function loadFromSupabase() {
     );
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const rows = await res.json();
-
-    ALL_KEYS.forEach(function(k) { TEMPLATES[k] = defaultContent(); });
     rows.forEach(function(row) {
-      if (row.key && row.content) TEMPLATES[row.key] = migrateContent(row.content);
+      if (row.key && row.content && row.key !== PROFILES_KEY) {
+        TEMPLATES[row.key] = migrateContent(row.content);
+      }
     });
-
     dataReady = true;
-    render();
+    await loadProfiles();
+    renderProfileScreen();
   } catch(e) {
-    const scroll = document.getElementById('rp-scroll');
-    scroll.innerHTML = '';
-    const err = document.createElement('div');
-    err.className = 'rp-state error';
-    err.textContent = 'Failed to load: ' + e.message;
-    scroll.appendChild(err);
+    document.getElementById('profile-screen').classList.remove('visible');
+    document.getElementById('main-header').style.display = 'flex';
+    document.getElementById('tab-bar').style.display = 'flex';
+    document.getElementById('main-view').style.display = 'flex';
+    document.getElementById('rp-scroll').innerHTML =
+      '<div class="rp-state error">Failed to load: ' + escHtml(e.message) + '</div>';
   }
 }
 
-// ════════════════════════════════════════════════════════
-//  SUPABASE — upsert one key
-// ════════════════════════════════════════════════════════
 async function saveToSupabase(key, content) {
   const res = await fetch(
     SUPABASE_URL + '/rest/v1/' + SB_TABLE + '?on_conflict=key',
@@ -693,20 +819,258 @@ async function saveToSupabase(key, content) {
 }
 
 // ════════════════════════════════════════════════════════
+//  PROFILES — load / save
+// ════════════════════════════════════════════════════════
+async function loadProfiles() {
+  try {
+    const res = await fetch(
+      SUPABASE_URL + '/rest/v1/' + SB_TABLE +
+      '?key=eq.' + encodeURIComponent(PROFILES_KEY) + '&select=content',
+      { headers: sbHeaders() }
+    );
+    const rows = await res.json();
+    if (rows && rows.length && Array.isArray(rows[0].content)) {
+      profiles = rows[0].content;
+    } else {
+      profiles = [BIZDEV_PROFILE];
+      await saveProfiles();
+    }
+    if (!profiles.find(function(p) { return p.client_id === 'bizdev'; })) {
+      profiles.unshift(BIZDEV_PROFILE);
+      await saveProfiles();
+    }
+  } catch(e) {
+    profiles = [BIZDEV_PROFILE];
+  }
+}
+
+async function saveProfiles() {
+  await saveToSupabase(PROFILES_KEY, profiles);
+}
+
+async function loadAllClients() {
+  try {
+    const res = await fetch(
+      SUPABASE_URL + '/rest/v1/' + SB_CLIENTS_TABLE + '?select=id,name&order=name.asc',
+      { headers: sbHeaders() }
+    );
+    if (res.ok) allClients = await res.json();
+  } catch(e) { allClients = []; }
+}
+
+// ════════════════════════════════════════════════════════
+//  PROFILE SCREEN
+// ════════════════════════════════════════════════════════
+function showProfileScreen() {
+  activeProfile = null;
+  document.getElementById('profile-screen').classList.add('visible');
+  document.getElementById('main-header').style.display = 'none';
+  document.getElementById('tab-bar').style.display = 'none';
+  document.getElementById('main-view').style.display = 'none';
+  document.getElementById('admin-panel').classList.remove('visible');
+  document.getElementById('profiles-admin-panel').classList.remove('visible');
+  renderProfileScreen();
+}
+
+function renderProfileScreen() {
+  const grid = document.getElementById('profile-grid');
+  grid.innerHTML = '';
+  profiles.forEach(function(p) {
+    const isBizdev = p.type === 'bizdev';
+    const card = document.createElement('div');
+    card.className = 'profile-card';
+    card.innerHTML =
+      '<div class="profile-card-icon">' + (isBizdev ? '🏢' : '👤') + '</div>' +
+      '<div class="profile-card-name">' + escHtml(p.name) + '</div>' +
+      '<div class="profile-card-badge">' + (isBizdev ? 'Biz Dev' : 'Client') + '</div>';
+    card.addEventListener('click', function() { promptProfilePassword(p); });
+    grid.appendChild(card);
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  PASSWORD MODAL
+// ════════════════════════════════════════════════════════
+let _pwContext = null;
+let _pwProfile = null;
+
+function showPwModal(context, profile) {
+  _pwContext = context;
+  _pwProfile = profile || null;
+  const title = document.getElementById('pw-title');
+  if (context === 'profile')         title.textContent = 'Enter password for ' + (profile ? profile.name : '');
+  else if (context === 'profiles-admin') title.textContent = 'Manage Profiles — Enter master password';
+  else                               title.textContent = 'Template Admin';
+  document.getElementById('pw-overlay').classList.add('visible');
+  document.getElementById('pw-input').value = '';
+  document.getElementById('pw-error').textContent = '';
+  setTimeout(function() { document.getElementById('pw-input').focus(); }, 50);
+}
+
+function hidePwModal() {
+  document.getElementById('pw-overlay').classList.remove('visible');
+}
+
+function tryPassword() {
+  const val = document.getElementById('pw-input').value;
+  let correct = false;
+  if (_pwContext === 'profile') {
+    correct = (val === _pwProfile.password);
+  } else if (_pwContext === 'profiles-admin') {
+    correct = (val === MASTER_PASSWORD);
+  } else {
+    correct = (activeProfile && val === activeProfile.password);
+  }
+
+  if (correct) {
+    hidePwModal();
+    if (_pwContext === 'profile')         enterProfile(_pwProfile);
+    else if (_pwContext === 'profiles-admin') openProfilesAdmin();
+    else                                  adminShow();
+  } else {
+    document.getElementById('pw-error').textContent = 'Incorrect password';
+    document.getElementById('pw-input').value = '';
+    document.getElementById('pw-input').focus();
+  }
+}
+
+function promptProfilePassword(profile) { showPwModal('profile', profile); }
+
+document.getElementById('pw-cancel').addEventListener('click', hidePwModal);
+document.getElementById('pw-submit').addEventListener('click', tryPassword);
+document.getElementById('pw-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter')  tryPassword();
+  if (e.key === 'Escape') hidePwModal();
+});
+document.getElementById('pw-overlay').addEventListener('click', function(e) {
+  if (e.target === this) hidePwModal();
+});
+document.getElementById('profiles-admin-btn').addEventListener('click', function() {
+  showPwModal('profiles-admin');
+});
+document.getElementById('gear-btn').addEventListener('click', function() {
+  showPwModal('admin');
+});
+document.getElementById('back-to-profiles-btn').addEventListener('click', showProfileScreen);
+
+// ════════════════════════════════════════════════════════
+//  ENTER PROFILE
+// ════════════════════════════════════════════════════════
+function enterProfile(profile) {
+  activeProfile  = profile;
+  territory      = profile.territories[0] || 'US';
+  activeChannel  = 'email';
+
+  // Rebuild territory toggles (user view)
+  const tg = document.getElementById('territory-toggle');
+  tg.innerHTML = '';
+  profile.territories.forEach(function(ter, i) {
+    const btn = document.createElement('button');
+    btn.className = 'toggle-btn' + (i === 0 ? ' active' : '');
+    btn.dataset.territory = ter;
+    btn.textContent = ter;
+    if (i > 0) btn.style.borderLeft = '1px solid var(--border-hi)';
+    btn.addEventListener('click', function() {
+      territory = ter;
+      tg.querySelectorAll('.toggle-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      render();
+    });
+    tg.appendChild(btn);
+  });
+
+  // Rebuild industry dropdown (user view)
+  const indSel = document.getElementById('industry');
+  indSel.innerHTML = '';
+  profile.industries.forEach(function(v) {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = INDUSTRY_LABELS[v] || v.replace(/_/g, ' ');
+    indSel.appendChild(opt);
+  });
+
+  // Rebuild admin territory toggles
+  const admTg = document.getElementById('adm-territory-toggle');
+  admTg.innerHTML = '';
+  profile.territories.forEach(function(ter, i) {
+    const btn = document.createElement('button');
+    btn.className = 'toggle-btn' + (i === 0 ? ' active' : '');
+    btn.dataset.admTerritory = ter;
+    btn.textContent = ter;
+    if (i > 0) btn.style.borderLeft = '1px solid var(--border-hi)';
+    btn.addEventListener('click', function() {
+      admTg.querySelectorAll('.toggle-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      adminRender();
+    });
+    admTg.appendChild(btn);
+  });
+
+  // Rebuild admin industry dropdown
+  const admInd = document.getElementById('adm-industry');
+  admInd.innerHTML = '';
+  profile.industries.forEach(function(v) {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = INDUSTRY_LABELS[v] || v.replace(/_/g, ' ');
+    admInd.appendChild(opt);
+  });
+
+  // Show/hide fly-out admin card
+  document.getElementById('adm-flyout-card').style.display =
+    profile.type === 'bizdev' ? '' : 'none';
+
+  // Update header title
+  document.getElementById('header-title').textContent = profile.name;
+
+  // Show copy bank
+  document.getElementById('profile-screen').classList.remove('visible');
+  document.getElementById('main-header').style.display = 'flex';
+  renderTabs();
+  document.getElementById('main-view').style.display = 'flex';
+  render();
+}
+
+// ════════════════════════════════════════════════════════
+//  TABS
+// ════════════════════════════════════════════════════════
+function renderTabs() {
+  const isBizdev = activeProfile && activeProfile.type === 'bizdev';
+  const tabDefs  = isBizdev
+    ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']]
+    : [['email','Email'],['linkedin','LinkedIn']];
+
+  if (!tabDefs.find(function(t) { return t[0] === activeChannel; })) activeChannel = 'email';
+
+  const container = document.getElementById('tabs-container');
+  container.innerHTML = '';
+  tabDefs.forEach(function(def) {
+    const btn = document.createElement('button');
+    btn.className = 'tab' + (def[0] === activeChannel ? ' active' : '');
+    btn.dataset.tab = def[0];
+    btn.textContent = def[1];
+    btn.addEventListener('click', function() {
+      activeChannel = def[0];
+      container.querySelectorAll('.tab').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      render();
+    });
+    container.appendChild(btn);
+  });
+
+  document.getElementById('tab-bar').style.display = 'flex';
+}
+
+// ════════════════════════════════════════════════════════
 //  RENDER
 // ════════════════════════════════════════════════════════
 function render() {
   const container = document.getElementById('rp-scroll');
   if (!dataReady) return;
-
-  const sender   = document.getElementById('sender').value;
-  const industry = document.getElementById('industry').value;
-  const key      = territory + '_' + industry;
+  const sender = document.getElementById('sender').value;
+  const key    = currentKey();
   container.innerHTML = '';
 
   if (activeChannel === 'linkedin') {
-    const d = getChData(key, 'linkedin');
-    renderStepsSection(container, d.steps, sender);
+    renderStepsSection(container, getChData(key, 'linkedin').steps, sender);
   } else {
     const d = getChData(key, activeChannel);
     renderSubjectsSection(container, d.subjects);
@@ -744,8 +1108,7 @@ function renderVariationsSection(container, ch, variations, sender) {
   const hasAny = assembled.some(function(a) { return a.body; });
   copyAllBtn.addEventListener('click', async function() {
     if (!hasAny) return;
-    const text = assembled.filter(function(a) { return a.body; }).map(function(a) { return a.body; }).join('\n\n');
-    await copyText(text, copyAllBtn, 'Copy all Variations');
+    await copyText(assembled.filter(function(a) { return a.body; }).map(function(a) { return a.body; }).join('\n\n'), copyAllBtn, 'Copy all Variations');
   });
   if (!hasAny) {
     section.appendChild(emptyEl('No variations set for this combination yet.'));
@@ -768,8 +1131,7 @@ function renderStepsSection(container, steps, sender) {
   const hasAny = assembled.some(function(a) { return a.body; });
   copyAllBtn.addEventListener('click', async function() {
     if (!hasAny) return;
-    const text = assembled.filter(function(a) { return a.body; }).map(function(a) { return a.body; }).join('\n\n');
-    await copyText(text, copyAllBtn, 'Copy all Steps');
+    await copyText(assembled.filter(function(a) { return a.body; }).map(function(a) { return a.body; }).join('\n\n'), copyAllBtn, 'Copy all Steps');
   });
   if (!hasAny) {
     section.appendChild(emptyEl('No LinkedIn sequence set for this combination yet.'));
@@ -817,9 +1179,7 @@ function makeCard(label, displayText, copyPayload) {
   const copyBtn = document.createElement('button');
   copyBtn.className = 'copy-var-btn';
   copyBtn.textContent = 'Copy';
-  copyBtn.addEventListener('click', async function() {
-    await copyText(copyPayload, copyBtn, 'Copy');
-  });
+  copyBtn.addEventListener('click', async function() { await copyText(copyPayload, copyBtn, 'Copy'); });
   top.appendChild(labelEl);
   top.appendChild(copyBtn);
   card.appendChild(top);
@@ -831,19 +1191,16 @@ function makeCard(label, displayText, copyPayload) {
 }
 
 // ════════════════════════════════════════════════════════
-//  COPY ALL (current tab)
+//  COPY ALL
 // ════════════════════════════════════════════════════════
 document.getElementById('copy-all-btn').addEventListener('click', async function() {
   if (!dataReady) return;
-  const sender   = document.getElementById('sender').value;
-  const industry = document.getElementById('industry').value;
-  const key      = territory + '_' + industry;
-  const parts    = [];
-  const btn      = document.getElementById('copy-all-btn');
-
+  const sender = document.getElementById('sender').value;
+  const key    = currentKey();
+  const parts  = [];
+  const btn    = document.getElementById('copy-all-btn');
   if (activeChannel === 'linkedin') {
-    const d = getChData(key, 'linkedin');
-    d.steps.forEach(function(s) {
+    getChData(key, 'linkedin').steps.forEach(function(s) {
       const body = (s.body || '').trim();
       if (body) parts.push(body + '\n\n' + sender);
     });
@@ -856,103 +1213,35 @@ document.getElementById('copy-all-btn').addEventListener('click', async function
       if (body) parts.push(body + '\n\n' + sender);
     });
   }
-  if (parts.length === 0) return;
-  await copyText(parts.join('\n\n'), btn, 'Copy All');
-});
-
-// ════════════════════════════════════════════════════════
-//  EVENT LISTENERS
-// ════════════════════════════════════════════════════════
-document.querySelectorAll('[data-tab]').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    activeChannel = btn.dataset.tab;
-    document.querySelectorAll('[data-tab]').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
-    render();
-  });
+  if (parts.length) await copyText(parts.join('\n\n'), btn, 'Copy All');
 });
 
 document.getElementById('sender').addEventListener('change', render);
 document.getElementById('industry').addEventListener('change', render);
 
-document.querySelectorAll('[data-territory]').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    territory = btn.dataset.territory;
-    document.querySelectorAll('[data-territory]').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
-    render();
-  });
-});
-
 // ════════════════════════════════════════════════════════
-//  PASSWORD MODAL
-// ════════════════════════════════════════════════════════
-function showPwModal() {
-  document.getElementById('pw-overlay').classList.add('visible');
-  document.getElementById('pw-input').value = '';
-  document.getElementById('pw-error').textContent = '';
-  setTimeout(function() { document.getElementById('pw-input').focus(); }, 50);
-}
-function hidePwModal() {
-  document.getElementById('pw-overlay').classList.remove('visible');
-}
-function tryPassword() {
-  if (document.getElementById('pw-input').value === ADMIN_PASSWORD) {
-    hidePwModal(); adminShow();
-  } else {
-    document.getElementById('pw-error').textContent = 'Incorrect password';
-    document.getElementById('pw-input').value = '';
-    document.getElementById('pw-input').focus();
-  }
-}
-document.getElementById('gear-btn').addEventListener('click', showPwModal);
-document.getElementById('pw-cancel').addEventListener('click', hidePwModal);
-document.getElementById('pw-submit').addEventListener('click', tryPassword);
-document.getElementById('pw-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') tryPassword();
-  if (e.key === 'Escape') hidePwModal();
-});
-document.getElementById('pw-overlay').addEventListener('click', function(e) {
-  if (e.target === this) hidePwModal();
-});
-
-// ════════════════════════════════════════════════════════
-//  ADMIN SHOW/HIDE
+//  ADMIN SHOW / HIDE
 // ════════════════════════════════════════════════════════
 function adminShow() {
-  document.querySelector('.main').style.display = 'none';
-  document.getElementById('tab-bar').style.display = 'none';
+  document.getElementById('main-view').style.display = 'none';
+  document.getElementById('tab-bar').style.display   = 'none';
   document.getElementById('admin-panel').classList.add('visible');
   adminRender();
 }
 function adminHide() {
   document.getElementById('admin-panel').classList.remove('visible');
-  document.querySelector('.main').style.display = 'flex';
-  document.getElementById('tab-bar').style.display = 'flex';
+  renderTabs();
+  document.getElementById('main-view').style.display = 'flex';
   render();
 }
 document.getElementById('admin-back-btn').addEventListener('click', adminHide);
-
-document.querySelectorAll('[data-adm-territory]').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    document.querySelectorAll('[data-adm-territory]').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
-    adminRender();
-  });
-});
 document.getElementById('adm-industry').addEventListener('change', adminRender);
 
 // ════════════════════════════════════════════════════════
 //  ADMIN HELPERS
 // ════════════════════════════════════════════════════════
-function getAdmKey() {
-  const terBtn = document.querySelector('[data-adm-territory].active');
-  const terr   = terBtn ? terBtn.dataset.admTerritory : 'US';
-  return terr + '_' + document.getElementById('adm-industry').value;
-}
-
 function getAdmData() {
-  const t = TEMPLATES[getAdmKey()] || {};
+  const t = TEMPLATES[admKey()] || {};
   return {
     email: {
       subjects:   ((t.email && t.email.subjects)   || []).slice(),
@@ -976,8 +1265,7 @@ function buildSubjectRow(ch, subject, idx, total) {
   div.innerHTML =
     '<div class="adm-var-header"><span class="adm-var-label">Subject ' + (idx + 1) + '</span>' +
     (total > 1 ? '<button class="adm-remove-btn" data-remove="' + ch + '-subject" data-idx="' + idx + '">&times; Remove</button>' : '') +
-    '</div>' +
-    '<textarea class="admin-textarea subject-ta" data-field="subject">' + escHtml(subject) + '</textarea>';
+    '</div><textarea class="admin-textarea subject-ta" data-field="subject">' + escHtml(subject) + '</textarea>';
   return div;
 }
 
@@ -990,13 +1278,13 @@ function buildVarRow(ch, item, idx, total) {
   div.innerHTML =
     '<div class="adm-var-header"><span class="adm-var-label">' + lbl + ' ' + (idx + 1) + '</span>' +
     (total > 1 ? '<button class="adm-remove-btn" data-remove="' + ch + '-variation" data-idx="' + idx + '">&times; Remove</button>' : '') +
-    '</div>' +
-    '<textarea class="admin-textarea body-ta" data-field="body">' + escHtml(item.body) + '</textarea>';
+    '</div><textarea class="admin-textarea body-ta" data-field="body">' + escHtml(item.body) + '</textarea>';
   return div;
 }
 
 function adminRender() {
   const d = getAdmData();
+  const isBizdev = activeProfile && activeProfile.type === 'bizdev';
 
   const eSubEl = document.getElementById('adm-email-subjects');
   eSubEl.innerHTML = '';
@@ -1007,14 +1295,16 @@ function adminRender() {
   eVarEl.innerHTML = '';
   d.email.variations.forEach(function(v, i) { eVarEl.appendChild(buildVarRow('email', v, i, d.email.variations.length)); });
 
-  const fSubEl = document.getElementById('adm-flyout-subjects');
-  fSubEl.innerHTML = '';
-  const fSubs = d.flyout.subjects.length ? d.flyout.subjects : [''];
-  fSubs.forEach(function(s, i) { fSubEl.appendChild(buildSubjectRow('flyout', s, i, fSubs.length)); });
+  if (isBizdev) {
+    const fSubEl = document.getElementById('adm-flyout-subjects');
+    fSubEl.innerHTML = '';
+    const fSubs = d.flyout.subjects.length ? d.flyout.subjects : [''];
+    fSubs.forEach(function(s, i) { fSubEl.appendChild(buildSubjectRow('flyout', s, i, fSubs.length)); });
 
-  const fVarEl = document.getElementById('adm-flyout-variations');
-  fVarEl.innerHTML = '';
-  d.flyout.variations.forEach(function(v, i) { fVarEl.appendChild(buildVarRow('flyout', v, i, d.flyout.variations.length)); });
+    const fVarEl = document.getElementById('adm-flyout-variations');
+    fVarEl.innerHTML = '';
+    d.flyout.variations.forEach(function(v, i) { fVarEl.appendChild(buildVarRow('flyout', v, i, d.flyout.variations.length)); });
+  }
 
   const liEl = document.getElementById('adm-linkedin-rows');
   liEl.innerHTML = '';
@@ -1025,12 +1315,12 @@ function adminRender() {
       const rt  = btn.dataset.remove;
       const idx = parseInt(btn.dataset.idx);
       const d2  = collectAdmData();
-      if      (rt === 'email-subject')    { d2.email.subjects.splice(idx, 1);    if (!d2.email.subjects.length) d2.email.subjects = ['']; }
-      else if (rt === 'email-variation')  { d2.email.variations.splice(idx, 1);  if (!d2.email.variations.length) d2.email.variations = [{ body: '' }]; }
-      else if (rt === 'flyout-subject')   { d2.flyout.subjects.splice(idx, 1);   if (!d2.flyout.subjects.length) d2.flyout.subjects = ['']; }
-      else if (rt === 'flyout-variation') { d2.flyout.variations.splice(idx, 1); if (!d2.flyout.variations.length) d2.flyout.variations = [{ body: '' }]; }
-      else if (rt === 'linkedin-variation') { d2.linkedin.steps.splice(idx, 1);  if (!d2.linkedin.steps.length) d2.linkedin.steps = [{ body: '' }]; }
-      TEMPLATES[getAdmKey()] = d2;
+      if      (rt === 'email-subject')      { d2.email.subjects.splice(idx, 1);    if (!d2.email.subjects.length) d2.email.subjects = ['']; }
+      else if (rt === 'email-variation')    { d2.email.variations.splice(idx, 1);  if (!d2.email.variations.length) d2.email.variations = [{ body: '' }]; }
+      else if (rt === 'flyout-subject')     { d2.flyout.subjects.splice(idx, 1);   if (!d2.flyout.subjects.length) d2.flyout.subjects = ['']; }
+      else if (rt === 'flyout-variation')   { d2.flyout.variations.splice(idx, 1); if (!d2.flyout.variations.length) d2.flyout.variations = [{ body: '' }]; }
+      else if (rt === 'linkedin-variation') { d2.linkedin.steps.splice(idx, 1);    if (!d2.linkedin.steps.length) d2.linkedin.steps = [{ body: '' }]; }
+      TEMPLATES[admKey()] = d2;
       adminRender();
     });
   });
@@ -1056,78 +1346,261 @@ function collectAdmData() {
   return d;
 }
 
-// Add buttons
 document.getElementById('adm-add-email-subject').addEventListener('click', function() {
-  const d = collectAdmData(); d.email.subjects.push(''); TEMPLATES[getAdmKey()] = d; adminRender();
+  const d = collectAdmData(); d.email.subjects.push(''); TEMPLATES[admKey()] = d; adminRender();
   document.getElementById('adm-email-subjects').lastElementChild.scrollIntoView({ behavior: 'smooth' });
 });
 document.getElementById('adm-add-email-variation').addEventListener('click', function() {
-  const d = collectAdmData(); d.email.variations.push({ body: '' }); TEMPLATES[getAdmKey()] = d; adminRender();
+  const d = collectAdmData(); d.email.variations.push({ body: '' }); TEMPLATES[admKey()] = d; adminRender();
   document.getElementById('adm-email-variations').lastElementChild.scrollIntoView({ behavior: 'smooth' });
 });
 document.getElementById('adm-add-flyout-subject').addEventListener('click', function() {
-  const d = collectAdmData(); d.flyout.subjects.push(''); TEMPLATES[getAdmKey()] = d; adminRender();
+  const d = collectAdmData(); d.flyout.subjects.push(''); TEMPLATES[admKey()] = d; adminRender();
   document.getElementById('adm-flyout-subjects').lastElementChild.scrollIntoView({ behavior: 'smooth' });
 });
 document.getElementById('adm-add-flyout-variation').addEventListener('click', function() {
-  const d = collectAdmData(); d.flyout.variations.push({ body: '' }); TEMPLATES[getAdmKey()] = d; adminRender();
+  const d = collectAdmData(); d.flyout.variations.push({ body: '' }); TEMPLATES[admKey()] = d; adminRender();
   document.getElementById('adm-flyout-variations').lastElementChild.scrollIntoView({ behavior: 'smooth' });
 });
 document.getElementById('adm-add-linkedin').addEventListener('click', function() {
-  const d = collectAdmData(); d.linkedin.steps.push({ body: '' }); TEMPLATES[getAdmKey()] = d; adminRender();
+  const d = collectAdmData(); d.linkedin.steps.push({ body: '' }); TEMPLATES[admKey()] = d; adminRender();
   document.getElementById('adm-linkedin-rows').lastElementChild.scrollIntoView({ behavior: 'smooth' });
 });
 
 // ════════════════════════════════════════════════════════
-//  SAVE & PUBLISH — upsert to Supabase
+//  SAVE & PUBLISH
 // ════════════════════════════════════════════════════════
 document.getElementById('adm-save').addEventListener('click', async function() {
-  const key  = getAdmKey();
+  const key  = admKey();
   const data = collectAdmData();
   TEMPLATES[key] = data;
-
   const btn      = document.getElementById('adm-save');
   const statusEl = document.getElementById('save-status');
-  btn.disabled   = true;
-  btn.textContent = 'Saving…';
-  statusEl.textContent = '';
-  statusEl.className   = 'save-status';
-
+  btn.disabled   = true; btn.textContent = 'Saving…';
+  statusEl.textContent = ''; statusEl.className = 'save-status';
   try {
     await saveToSupabase(key, data);
-    btn.textContent = '✓ Published!';
-    btn.classList.add('success');
-    statusEl.textContent = 'All users will see this on next refresh';
-    statusEl.className   = 'save-status ok';
+    btn.textContent = '✓ Published!'; btn.classList.add('success');
+    statusEl.textContent = 'All users will see this on next refresh'; statusEl.className = 'save-status ok';
   } catch(e) {
-    btn.textContent = 'Error';
-    statusEl.textContent = e.message;
-    statusEl.className   = 'save-status err';
+    btn.textContent = 'Error'; statusEl.textContent = e.message; statusEl.className = 'save-status err';
   }
-
   btn.disabled = false;
   setTimeout(function() {
-    btn.textContent = 'Save & Publish';
-    btn.classList.remove('success');
-    statusEl.textContent = '';
-    statusEl.className   = 'save-status';
+    btn.textContent = 'Save & Publish'; btn.classList.remove('success');
+    statusEl.textContent = ''; statusEl.className = 'save-status';
   }, 4000);
 });
 
-// Clear this combination
 document.getElementById('adm-clear').addEventListener('click', async function() {
-  const key = getAdmKey();
+  const key = admKey();
   if (!confirm('Clear all copy for ' + key + '? This cannot be undone.')) return;
   const empty = defaultContent();
   TEMPLATES[key] = empty;
   try {
     await saveToSupabase(key, empty);
-    adminRender();
-    alert('Cleared.');
-  } catch(e) {
-    alert('Error: ' + e.message);
-  }
+    adminRender(); alert('Cleared.');
+  } catch(e) { alert('Error: ' + e.message); }
 });
+
+// ════════════════════════════════════════════════════════
+//  PROFILES ADMIN
+// ════════════════════════════════════════════════════════
+async function openProfilesAdmin() {
+  await loadAllClients();
+  document.getElementById('profile-screen').classList.remove('visible');
+  document.getElementById('profiles-admin-panel').classList.add('visible');
+  renderProfilesAdmin();
+}
+
+function renderProfilesAdmin() {
+  const list = document.getElementById('pa-list');
+  list.innerHTML = '';
+
+  profiles.forEach(function(p, idx) {
+    const isBizdev = p.type === 'bizdev';
+    const card = document.createElement('div');
+    card.className = 'pa-profile-card';
+
+    let html = '<div class="pa-profile-head">' +
+      '<div class="pa-profile-name">' + escHtml(p.name) + '</div>' +
+      (isBizdev
+        ? '<span class="pa-bizdev-note">Cannot be removed</span>'
+        : '<button class="pa-delete-btn" data-del-idx="' + idx + '">&times; Remove</button>') +
+      '</div>';
+
+    if (!isBizdev) {
+      html += '<div class="pa-field"><div class="pa-label">Password</div>' +
+        '<input class="pa-input" type="password" data-pa-pw="' + idx + '" value="' + escHtml(p.password) + '" placeholder="Password"></div>';
+
+      html += '<div class="pa-field"><div class="pa-label">Territories — press Enter or comma to add</div>' +
+        '<div class="tag-editor" id="pa-ter-' + idx + '">' +
+        p.territories.map(function(t) {
+          return '<span class="tag">' + escHtml(t) +
+            '<button type="button" class="tag-x" data-rm-ter="' + idx + '" data-val="' + escHtml(t) + '">&times;</button></span>';
+        }).join('') +
+        '<input class="tag-input" placeholder="e.g. AU" data-add-ter="' + idx + '"></div></div>';
+
+      html += '<div class="pa-field"><div class="pa-label">Industries / Niches — press Enter or comma to add</div>' +
+        '<div class="tag-editor" id="pa-ind-' + idx + '">' +
+        p.industries.map(function(v) {
+          return '<span class="tag">' + escHtml(INDUSTRY_LABELS[v] || v.replace(/_/g,' ')) +
+            '<button type="button" class="tag-x" data-rm-ind="' + idx + '" data-val="' + escHtml(v) + '">&times;</button></span>';
+        }).join('') +
+        '<input class="tag-input" placeholder="e.g. FinTech" data-add-ind="' + idx + '"></div></div>';
+    } else {
+      html += '<div style="font-size:12px;color:var(--text-muted)">Full feature access — Email, Fly-out &amp; LinkedIn. Uses master password.</div>';
+    }
+
+    card.innerHTML = html;
+    list.appendChild(card);
+  });
+
+  // Add new client section
+  const addForm = document.createElement('div');
+  addForm.className = 'pa-add-form';
+  const existingIds = profiles.map(function(p) { return p.client_id; });
+  const available   = allClients.filter(function(c) { return !existingIds.includes(c.id); });
+
+  if (available.length === 0 && allClients.length === 0) {
+    addForm.innerHTML = '<div class="pa-add-title">+ Add Client Profile</div>' +
+      '<div style="color:var(--text-muted);font-size:13px">No clients found in DNC &amp; Merger. Create clients there first.</div>';
+  } else if (available.length === 0) {
+    addForm.innerHTML = '<div class="pa-add-title">+ Add Client Profile</div>' +
+      '<div style="color:var(--text-muted);font-size:13px">All DNC &amp; Merger clients have already been added.</div>';
+  } else {
+    const opts = available.map(function(c) {
+      return '<option value="' + escHtml(c.id) + '">' + escHtml(c.name) + '</option>';
+    }).join('');
+    addForm.innerHTML = '<div class="pa-add-title">+ Add Client Profile</div>' +
+      '<div class="pa-field"><div class="pa-label">Client (from DNC &amp; Merger)</div>' +
+      '<select class="pa-input" id="pa-new-client"><option value="">— Select client —</option>' + opts + '</select></div>' +
+      '<div class="pa-field"><div class="pa-label">Password</div>' +
+      '<input class="pa-input" type="password" id="pa-new-pw" placeholder="Set a password for this client"></div>' +
+      '<div class="pa-field"><div class="pa-label">Territories (comma-separated)</div>' +
+      '<input class="pa-input" id="pa-new-ter" value="US, UK" placeholder="e.g. US, UK, AU"></div>' +
+      '<div class="pa-field"><div class="pa-label">Industries / Niches (comma-separated)</div>' +
+      '<input class="pa-input" id="pa-new-ind" value="PR, Marketing, Media, SaaS, AI, Accounting, Management_Consulting" placeholder="e.g. PR, SaaS"></div>' +
+      '<button class="pa-save-btn" id="pa-add-btn">Add Client</button>';
+  }
+  list.appendChild(addForm);
+
+  attachPaEvents();
+}
+
+function attachPaEvents() {
+  document.querySelectorAll('[data-del-idx]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const idx = parseInt(btn.dataset.delIdx);
+      if (!confirm('Remove ' + profiles[idx].name + '?')) return;
+      profiles.splice(idx, 1);
+      renderProfilesAdmin();
+    });
+  });
+
+  document.querySelectorAll('[data-pa-pw]').forEach(function(inp) {
+    inp.addEventListener('input', function() {
+      profiles[parseInt(inp.dataset.paPw)].password = inp.value;
+    });
+  });
+
+  document.querySelectorAll('[data-rm-ter]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const idx = parseInt(btn.dataset.rmTer), val = btn.dataset.val;
+      profiles[idx].territories = profiles[idx].territories.filter(function(t) { return t !== val; });
+      renderProfilesAdmin();
+    });
+  });
+
+  document.querySelectorAll('[data-add-ter]').forEach(function(inp) {
+    inp.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter' && e.key !== ',') return;
+      e.preventDefault();
+      const val = inp.value.trim().toUpperCase();
+      if (!val) return;
+      const idx = parseInt(inp.dataset.addTer);
+      if (!profiles[idx].territories.includes(val)) profiles[idx].territories.push(val);
+      renderProfilesAdmin();
+    });
+  });
+
+  document.querySelectorAll('[data-rm-ind]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const idx = parseInt(btn.dataset.rmInd), val = btn.dataset.val;
+      profiles[idx].industries = profiles[idx].industries.filter(function(v) { return v !== val; });
+      renderProfilesAdmin();
+    });
+  });
+
+  document.querySelectorAll('[data-add-ind]').forEach(function(inp) {
+    inp.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter' && e.key !== ',') return;
+      e.preventDefault();
+      const raw = inp.value.trim();
+      if (!raw) return;
+      const key = raw.replace(/\s+/g, '_');
+      const idx = parseInt(inp.dataset.addInd);
+      if (!profiles[idx].industries.includes(key)) {
+        profiles[idx].industries.push(key);
+        if (!INDUSTRY_LABELS[key]) INDUSTRY_LABELS[key] = raw;
+      }
+      renderProfilesAdmin();
+    });
+  });
+
+  const addBtn = document.getElementById('pa-add-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', function() {
+      const clientId = document.getElementById('pa-new-client').value;
+      const password = document.getElementById('pa-new-pw').value;
+      const territories = document.getElementById('pa-new-ter').value
+        .split(',').map(function(t) { return t.trim().toUpperCase(); }).filter(Boolean);
+      const indsRaw = document.getElementById('pa-new-ind').value
+        .split(',').map(function(v) { return v.trim(); }).filter(Boolean);
+      const industries = indsRaw.map(function(v) { return v.replace(/\s+/g, '_'); });
+
+      if (!clientId)         { alert('Please select a client.'); return; }
+      if (!password)         { alert('Please set a password.'); return; }
+      if (!territories.length) { alert('Please add at least one territory.'); return; }
+      if (!industries.length)  { alert('Please add at least one industry.'); return; }
+
+      indsRaw.forEach(function(raw, i) {
+        if (!INDUSTRY_LABELS[industries[i]]) INDUSTRY_LABELS[industries[i]] = raw;
+      });
+
+      const client = allClients.find(function(c) { return c.id === clientId; });
+      profiles.push({
+        client_id:   clientId,
+        name:        client ? client.name : clientId,
+        password:    password,
+        type:        'client',
+        territories: territories,
+        industries:  industries,
+      });
+      renderProfilesAdmin();
+    });
+  }
+}
+
+document.getElementById('pa-save-profiles').addEventListener('click', async function() {
+  const btn      = document.getElementById('pa-save-profiles');
+  const statusEl = document.getElementById('pa-save-status');
+  btn.disabled   = true; btn.textContent = 'Saving…';
+  try {
+    await saveProfiles();
+    btn.textContent = '✓ Saved!'; btn.classList.add('success');
+    statusEl.textContent = 'Changes saved'; statusEl.className = 'save-status ok';
+  } catch(e) {
+    btn.textContent = 'Error'; statusEl.textContent = e.message; statusEl.className = 'save-status err';
+  }
+  btn.disabled = false;
+  setTimeout(function() {
+    btn.textContent = 'Save Changes'; btn.classList.remove('success');
+    statusEl.textContent = ''; statusEl.className = 'save-status';
+  }, 4000);
+});
+
+document.getElementById('profiles-admin-back').addEventListener('click', showProfileScreen);
 
 // ════════════════════════════════════════════════════════
 //  INIT
