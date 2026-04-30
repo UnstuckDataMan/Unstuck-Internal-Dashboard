@@ -500,7 +500,7 @@ function migrateContent(c) {
   if (Array.isArray(c.email)) {
     c.email = { subjects: c.email.map(function(i){return i.subject||'';}).filter(Boolean), variations: c.email.map(function(i){return{body:i.body||''};}) };
   }
-  if (Array.isArray(c.flyout)) c.flyout = { subjects:[], variations: c.flyout.map(function(i){return{body:i.body||'';};}) };
+  if (Array.isArray(c.flyout)) c.flyout = { subjects:[], variations: c.flyout.map(function(i){return{body:i.body||''};}) };
   if (Array.isArray(c.linkedin)) c.linkedin = { steps: c.linkedin.map(function(i){return{body:i.body||''};}) };
   if (!c.email)             c.email    = { subjects:[], variations:[{body:''}] };
   if (!c.email.subjects)    c.email.subjects   = [];
