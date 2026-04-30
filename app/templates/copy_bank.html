@@ -936,7 +936,7 @@ function enterProfile(profile) {
 
 function pushToMailMerge() {
   const ind = document.getElementById('industry').value;
-  const url = '/mail-merge/?client_id=' + encodeURIComponent(activeProfile.client_id) +
+  const url = '/dnc-removal?client_id=' + encodeURIComponent(activeProfile.client_id) +
               '&territory=' + encodeURIComponent(territory) +
               '&industry='  + encodeURIComponent(ind);
   window.location.href = url;

@@ -1804,6 +1804,41 @@
   <div class="form-card mm-section">
     <div style="padding:26px 28px 24px">
 
+      <!-- ── Load from Copy Bank ── -->
+      <details id="mm-cb-loader" style="margin-bottom:20px">
+        <summary style="cursor:pointer;font-size:.85rem;font-weight:700;color:var(--purple);padding:4px 0;user-select:none;letter-spacing:-.01em">
+          📋 Load from Copy Bank <span style="font-weight:400;color:var(--text-3);font-size:.78rem">(optional)</span>
+        </summary>
+        <div style="margin-top:12px;padding:14px 16px;background:rgba(139,92,246,.05);border:1.5px solid rgba(139,92,246,.18);border-radius:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+            <div>
+              <label style="font-size:11px;margin-bottom:4px">Client</label>
+              <select id="mm-cb-client" onchange="mmOnCbClientChange()" style="width:100%">
+                <option value="">— Loading… —</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;margin-bottom:4px">Territory</label>
+              <select id="mm-cb-territory" style="width:100%">
+                <option value="">— Select client first —</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;margin-bottom:4px">Industry / Niche</label>
+              <select id="mm-cb-industry" style="width:100%">
+                <option value="">— Select client first —</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <button type="button" class="btn btn-download" id="mm-cb-load-btn"
+                    onclick="mmLoadCopyBankTemplates()" disabled
+                    style="padding:7px 16px;font-size:12px;white-space:nowrap">Load Templates</button>
+            <span id="mm-cb-feedback" style="font-size:.78rem"></span>
+          </div>
+        </div>
+      </details>
+
       <!-- Placeholder insertion bar (shown after upload) -->
       <div id="mm-ph-bar-wrap" class="mm-hidden">
         <div class="mm-ph-bar" id="mm-ph-bar">
@@ -3604,6 +3639,108 @@
 
     // Load saved profiles
     renderSavedProfiles();
+
+    // Copy Bank loader
+    mmInitCopyBankLoader();
+  }
+
+  // ── Copy Bank loader ─────────────────────────────────────
+  let _mmCbProfiles = [];
+
+  async function mmInitCopyBankLoader() {
+    try {
+      const resp = await fetch('/api/copy-bank/profiles');
+      _mmCbProfiles = await resp.json();
+      const sel = $('mm-cb-client');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">— Select client —</option>' +
+        _mmCbProfiles.map(p =>
+          `<option value="${escHtml(p.client_id)}">${escHtml(p.name)}</option>`
+        ).join('');
+    } catch(e) {
+      const sel = $('mm-cb-client');
+      if (sel) sel.innerHTML = '<option value="">⚠ Could not load clients</option>';
+    }
+  }
+
+  function mmOnCbClientChange() {
+    const clientId = $('mm-cb-client').value;
+    const profile  = _mmCbProfiles.find(p => p.client_id === clientId);
+    const terSel   = $('mm-cb-territory');
+    const indSel   = $('mm-cb-industry');
+    const loadBtn  = $('mm-cb-load-btn');
+
+    if (!profile) {
+      terSel.innerHTML = '<option value="">— Select client first —</option>';
+      indSel.innerHTML = '<option value="">— Select client first —</option>';
+      loadBtn.disabled = true;
+      return;
+    }
+
+    terSel.innerHTML = profile.territories.map(t =>
+      `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
+    indSel.innerHTML = profile.industries.map(i =>
+      `<option value="${escHtml(i)}">${escHtml(i.replace(/_/g,' '))}</option>`).join('');
+    loadBtn.disabled = false;
+  }
+
+  async function mmLoadCopyBankTemplates() {
+    const clientId  = $('mm-cb-client').value;
+    const territory = $('mm-cb-territory').value;
+    const industry  = $('mm-cb-industry').value;
+    const feedback  = $('mm-cb-feedback');
+    const loadBtn   = $('mm-cb-load-btn');
+
+    if (!clientId || !territory || !industry) return;
+
+    loadBtn.disabled = true;
+    feedback.textContent = 'Loading…';
+    feedback.style.color = '';
+
+    try {
+      const resp = await fetch(
+        `/api/copy-bank/templates/${encodeURIComponent(clientId)}/${encodeURIComponent(territory)}/${encodeURIComponent(industry)}`
+      );
+      const data = await resp.json();
+
+      if (!data.subjects.length && !data.bodies.length) {
+        feedback.textContent = '⚠ No copy found for this combination.';
+        feedback.style.color = 'var(--amber, #f59e0b)';
+        loadBtn.disabled = false;
+        return;
+      }
+
+      // Clear and reload subjects
+      $('mm-subjects-container').innerHTML = '';
+      mm.subjectCount = 0;
+      if (data.subjects.length) {
+        data.subjects.forEach(s => { addTemplate('subject'); mmSetLastTemplateValue('subject', s); });
+      } else {
+        addTemplate('subject');
+      }
+
+      // Clear and reload bodies
+      $('mm-bodies-container').innerHTML = '';
+      mm.bodyCount = 0;
+      if (data.bodies.length) {
+        data.bodies.forEach(b => { addTemplate('body'); mmSetLastTemplateValue('body', b); });
+      } else {
+        addTemplate('body');
+      }
+
+      feedback.textContent = `✅ Loaded ${data.subjects.length} subject(s), ${data.bodies.length} body variation(s)`;
+      feedback.style.color = 'var(--green, #10b981)';
+    } catch(e) {
+      feedback.textContent = '❌ Error loading copy.';
+      feedback.style.color = 'var(--red, #ef4444)';
+    }
+    loadBtn.disabled = false;
+  }
+
+  function mmSetLastTemplateValue(type, value) {
+    const selector = type === 'subject' ? '.mm-subject-input' : '.mm-body-input';
+    const els = document.querySelectorAll(selector);
+    if (els.length) els[els.length - 1].value = value;
   }
 
   // ── Load from Scrub handoff ───────────────────────────────
@@ -3654,6 +3791,45 @@
       if (btn.dataset.tab === 'tab-merge') init();
     });
   });
+
+  // ── Auto-load from Copy Bank via URL params ───────────────
+  (function checkCopyBankParams() {
+    const params   = new URLSearchParams(window.location.search);
+    const clientId = params.get('client_id');
+    const territory= params.get('territory');
+    const industry = params.get('industry');
+    if (!clientId || !territory || !industry) return;
+
+    // Switch to merge tab
+    const mergeBtn = document.querySelector('[data-tab="tab-merge"]');
+    if (mergeBtn) mergeBtn.click();
+    else init();
+
+    // Wait for profiles to load then set selects and trigger load
+    const attempt = (tries) => {
+      const sel = document.getElementById('mm-cb-client');
+      if (!sel || !_mmCbProfiles.length) {
+        if (tries > 0) setTimeout(() => attempt(tries - 1), 300);
+        return;
+      }
+      sel.value = clientId;
+      mmOnCbClientChange();
+
+      const terSel = document.getElementById('mm-cb-territory');
+      const indSel = document.getElementById('mm-cb-industry');
+      if (terSel) terSel.value = territory;
+      if (indSel) indSel.value = industry;
+
+      // Open the details panel and load
+      const details = document.getElementById('mm-cb-loader');
+      if (details) details.open = true;
+      mmLoadCopyBankTemplates();
+
+      // Clean URL so a page refresh doesn't re-trigger
+      history.replaceState(null, '', window.location.pathname);
+    };
+    setTimeout(() => attempt(10), 400);
+  })();
 })();
 </script>
 {% endraw %}
