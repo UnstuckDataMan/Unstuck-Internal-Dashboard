@@ -872,6 +872,39 @@ td .truncate {
       </div>
       <div class="card-body">
 
+        <!-- ── Load from Copy Bank ── -->
+        <details id="cb-loader" style="margin-bottom:20px">
+          <summary style="cursor:pointer;font-family:var(--font-display);font-size:.9rem;font-weight:700;color:var(--purple);padding:4px 0;user-select:none;letter-spacing:-.01em">
+            📋 Load from Copy Bank <span style="font-weight:400;color:var(--text-3);font-size:.8rem;font-family:var(--font)">(optional)</span>
+          </summary>
+          <div style="margin-top:14px;padding:16px;background:rgba(124,58,237,.04);border:1.5px solid rgba(124,58,237,.15);border-radius:var(--radius-sm)">
+            <div class="grid-3" style="margin-bottom:12px">
+              <div>
+                <label for="cb-client">Client</label>
+                <select id="cb-client" onchange="onCbClientChange()">
+                  <option value="">— Loading… —</option>
+                </select>
+              </div>
+              <div>
+                <label for="cb-territory">Territory</label>
+                <select id="cb-territory">
+                  <option value="">— Select client first —</option>
+                </select>
+              </div>
+              <div>
+                <label for="cb-industry">Industry / Niche</label>
+                <select id="cb-industry">
+                  <option value="">— Select client first —</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <button class="btn btn-secondary" id="cb-load-btn" onclick="loadCopyBankTemplates()" disabled>Load Templates</button>
+              <span id="cb-feedback" style="font-size:.8rem"></span>
+            </div>
+          </div>
+        </details>
+
         <div id="placeholder-bar-wrap" class="hidden">
           <div class="placeholder-bar" id="placeholder-bar">
             <span class="ph-label">Insert:</span>
@@ -1610,10 +1643,96 @@ function escHtml(s) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Copy Bank loader
+// ─────────────────────────────────────────────────────────────────────────────
+let _cbProfiles = [];
+
+async function initCopyBankLoader() {
+  try {
+    const resp = await fetch('/api/copy-bank/profiles');
+    _cbProfiles = await resp.json();
+    const sel = document.getElementById('cb-client');
+    sel.innerHTML = '<option value="">— Select client —</option>' +
+      _cbProfiles.map(p => `<option value="${escHtml(p.client_id)}">${escHtml(p.name)}</option>`).join('');
+  } catch(e) {
+    document.getElementById('cb-client').innerHTML = '<option value="">⚠ Could not load clients</option>';
+  }
+}
+
+function onCbClientChange() {
+  const clientId = document.getElementById('cb-client').value;
+  const profile  = _cbProfiles.find(p => p.client_id === clientId);
+  const terSel   = document.getElementById('cb-territory');
+  const indSel   = document.getElementById('cb-industry');
+  const loadBtn  = document.getElementById('cb-load-btn');
+  if (!profile) {
+    terSel.innerHTML = '<option value="">— Select client first —</option>';
+    indSel.innerHTML = '<option value="">— Select client first —</option>';
+    loadBtn.disabled = true;
+    return;
+  }
+  terSel.innerHTML = profile.territories.map(t =>
+    `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
+  indSel.innerHTML = profile.industries.map(i =>
+    `<option value="${escHtml(i)}">${escHtml(i.replace(/_/g,' '))}</option>`).join('');
+  loadBtn.disabled = false;
+}
+
+async function loadCopyBankTemplates() {
+  const clientId  = document.getElementById('cb-client').value;
+  const territory = document.getElementById('cb-territory').value;
+  const industry  = document.getElementById('cb-industry').value;
+  const feedback  = document.getElementById('cb-feedback');
+  const loadBtn   = document.getElementById('cb-load-btn');
+  if (!clientId || !territory || !industry) return;
+
+  loadBtn.disabled = true;
+  feedback.style.color = 'var(--text-3)';
+  feedback.textContent = 'Loading…';
+
+  try {
+    const resp = await fetch(`/api/copy-bank/templates/${encodeURIComponent(clientId)}/${encodeURIComponent(territory)}/${encodeURIComponent(industry)}`);
+    const data = await resp.json();
+
+    if (!data.subjects.length && !data.bodies.length) {
+      feedback.textContent = '⚠ No copy found for this combination.';
+      feedback.style.color = 'var(--amber)';
+      loadBtn.disabled = false;
+      return;
+    }
+
+    // Clear and reload subjects
+    document.getElementById('subjects-container').innerHTML = '';
+    state.subjectCount = 0;
+    data.subjects.forEach(s => { addTemplate('subject'); setLastTemplateValue('subject', s); });
+    if (!data.subjects.length) addTemplate('subject');
+
+    // Clear and reload bodies
+    document.getElementById('bodies-container').innerHTML = '';
+    state.bodyCount = 0;
+    data.bodies.forEach(b => { addTemplate('body'); setLastTemplateValue('body', b); });
+    if (!data.bodies.length) addTemplate('body');
+
+    feedback.textContent = `✅ Loaded ${data.subjects.length} subject(s), ${data.bodies.length} body variation(s)`;
+    feedback.style.color = 'var(--green)';
+  } catch(e) {
+    feedback.textContent = '❌ Error loading copy.';
+    feedback.style.color = 'var(--red)';
+  }
+  loadBtn.disabled = false;
+}
+
+function setLastTemplateValue(type, value) {
+  const els = document.querySelectorAll(type === 'subject' ? '.subject-input' : '.body-input');
+  if (els.length) els[els.length - 1].value = value;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Init
 // ─────────────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   renderSavedProfiles();
+  initCopyBankLoader();
 });
 </script>
 </body>
