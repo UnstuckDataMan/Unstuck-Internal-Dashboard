@@ -1867,6 +1867,13 @@
                 <option value="">— Select client first —</option>
               </select>
             </div>
+            <div id="mm-cb-channel-wrap" style="display:none">
+              <label>Channel</label>
+              <select id="mm-cb-channel">
+                <option value="email">Email</option>
+                <option value="flyout">Fly-out</option>
+              </select>
+            </div>
           </div>
           <div class="mm-cb-actions">
             <button type="button" class="btn btn-download" id="mm-cb-load-btn" disabled>Load Templates</button>
@@ -3708,15 +3715,17 @@
   }
 
   function mmOnCbClientChange() {
-    const clientId = $('mm-cb-client').value;
-    const profile  = _mmCbProfiles.find(p => p.client_id === clientId);
-    const terSel   = $('mm-cb-territory');
-    const indSel   = $('mm-cb-industry');
-    const loadBtn  = $('mm-cb-load-btn');
+    const clientId   = $('mm-cb-client').value;
+    const profile    = _mmCbProfiles.find(p => p.client_id === clientId);
+    const terSel     = $('mm-cb-territory');
+    const indSel     = $('mm-cb-industry');
+    const loadBtn    = $('mm-cb-load-btn');
+    const chanWrap   = $('mm-cb-channel-wrap');
 
     if (!profile) {
       terSel.innerHTML = '<option value="">— Select client first —</option>';
       indSel.innerHTML = '<option value="">— Select client first —</option>';
+      if (chanWrap) chanWrap.style.display = 'none';
       loadBtn.disabled = true;
       return;
     }
@@ -3725,6 +3734,10 @@
       `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
     indSel.innerHTML = profile.industries.map(i =>
       `<option value="${escHtml(i)}">${escHtml(i.replace(/_/g,' '))}</option>`).join('');
+
+    // Show channel dropdown only for Biz Dev profile
+    if (chanWrap) chanWrap.style.display = profile.type === 'bizdev' ? '' : 'none';
+
     loadBtn.disabled = false;
   }
 
@@ -3734,6 +3747,9 @@
     const industry  = $('mm-cb-industry').value;
     const feedback  = $('mm-cb-feedback');
     const loadBtn   = $('mm-cb-load-btn');
+    const chanWrap  = $('mm-cb-channel-wrap');
+    const chanEl    = $('mm-cb-channel');
+    const channel   = (chanWrap && chanWrap.style.display !== 'none' && chanEl) ? chanEl.value : 'email';
 
     if (!clientId || !territory || !industry) return;
 
@@ -3743,7 +3759,7 @@
 
     try {
       const resp = await fetch(
-        `/api/copy-bank/templates/${encodeURIComponent(clientId)}/${encodeURIComponent(territory)}/${encodeURIComponent(industry)}`
+        `/api/copy-bank/templates/${encodeURIComponent(clientId)}/${encodeURIComponent(territory)}/${encodeURIComponent(industry)}?channel=${encodeURIComponent(channel)}`
       );
       const data = await resp.json();
 

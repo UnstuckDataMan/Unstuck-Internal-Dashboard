@@ -39,6 +39,7 @@ def copy_bank_profiles():
         {
             "client_id":   p["client_id"],
             "name":        p["name"],
+            "type":        p.get("type", "client"),
             "territories": p.get("territories", []),
             "industries":  p.get("industries", []),
         }
@@ -47,7 +48,7 @@ def copy_bank_profiles():
 
 
 @router.get("/api/copy-bank/templates/{client_id}/{territory}/{industry}")
-def copy_bank_template(client_id: str, territory: str, industry: str):
+def copy_bank_template(client_id: str, territory: str, industry: str, channel: str = "email"):
     url = os.environ.get("SUPABASE_URL", "")
 
     # Bizdev content uses simple territory_industry keys; clients use __c__ prefix
@@ -77,10 +78,15 @@ def copy_bank_template(client_id: str, territory: str, industry: str):
 
     if not rows:
         return {"subjects": [], "bodies": []}
-    c        = rows[0].get("content") or {}
-    email    = c.get("email") or {}
-    subjects = [s for s in (email.get("subjects") or []) if s and s.strip()]
-    bodies   = [v["body"] for v in (email.get("variations") or []) if v.get("body", "").strip()]
+
+    c = rows[0].get("content") or {}
+
+    # Select channel data — flyout only available for Biz Dev
+    ch_key = "flyout" if channel == "flyout" else "email"
+    ch     = c.get(ch_key) or {}
+
+    subjects = [s for s in (ch.get("subjects") or []) if s and s.strip()]
+    bodies   = [v["body"] for v in (ch.get("variations") or []) if v.get("body", "").strip()]
     return {"subjects": subjects, "bodies": bodies}
 
 
