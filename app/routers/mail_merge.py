@@ -11,11 +11,10 @@ import re
 import sys
 import uuid
 from pathlib import Path
-from typing import Optional
 
 import requests as http_req
-from fastapi import APIRouter, File, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, File, Request, UploadFile
+from fastapi.responses import JSONResponse
 
 # ── Ensure mail_merge/utils is importable ─────────────────────────────────────
 _MM_DIR = Path(__file__).resolve().parents[2] / "mail_merge"
@@ -426,31 +425,3 @@ async def cleanup_drive():
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-# ── 8. Download Generated File ───────────────────────────────────────────────
-
-@router.get("/api/merge/download/{filename}")
-async def download_file(filename: str, name: Optional[str] = Query(None)):
-    # Basic path-traversal guard
-    if (
-        not filename.endswith(".xlsx")
-        or "/" in filename
-        or "\\" in filename
-        or ".." in filename
-    ):
-        return JSONResponse({"error": "Invalid filename"}, status_code=400)
-
-    filepath = OUTPUT_DIR / filename
-    if not filepath.exists():
-        return JSONResponse({"error": "File not found"}, status_code=404)
-
-    download_name = filename
-    if name and name.strip():
-        download_name = _secure_name(name.strip())
-        if not download_name.lower().endswith(".xlsx"):
-            download_name += ".xlsx"
-
-    return FileResponse(
-        path=str(filepath),
-        filename=download_name,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )

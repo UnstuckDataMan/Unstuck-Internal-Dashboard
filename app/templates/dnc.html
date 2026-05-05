@@ -906,21 +906,6 @@
   .mm-cb-actions { display: flex; align-items: center; gap: 12px; }
   .mm-cb-feedback { font-size: .78rem; color: var(--text-2); }
 
-  /* Download row */
-  .mm-download-row {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    background: rgba(74,222,128,.06);
-    border: 1px solid rgba(74,222,128,.2);
-    border-radius: 12px;
-    padding: 14px 18px;
-    margin-top: 16px;
-    animation: resultIn .3s var(--ease-out) both;
-  }
-  .mm-download-info { flex: 1; }
-  .mm-download-info strong { color: #6ee7b7; font-size: .9rem; }
-  .mm-download-info p { font-size: .78rem; color: var(--text-3); margin-top: 2px; }
 
   /* Merge stat cards */
   .mm-stats-row {
@@ -1146,36 +1131,6 @@
   .mm-sync-btn:hover:not(:disabled) { border-color: #4ade80; color: #4ade80; }
   .mm-sync-btn:disabled { opacity: .55; cursor: not-allowed; }
 
-  /* ── Output format toggle (Excel / Sheets) ──────────────────── */
-  .mm-output-toggle {
-    display: inline-flex;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-    background: var(--surface);
-  }
-  .mm-output-opt {
-    padding: 8px 18px;
-    font-size: .82rem;
-    font-weight: 600;
-    font-family: var(--font);
-    color: var(--text-2);
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    transition: background .15s, color .15s;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .mm-output-opt.active {
-    background: var(--gradient-vivid);
-    color: white;
-  }
-  .mm-output-opt:not(.active):hover {
-    background: var(--surface-hover);
-    color: var(--text);
-  }
 
   /* ── Campaigns tab ───────────────────────────────────────────── */
   .camp-header {
@@ -2035,33 +1990,6 @@
   <div class="form-card mm-section">
     <div style="padding:26px 28px 24px">
 
-      <!-- Output format toggle -->
-      <div style="margin-bottom:16px">
-        <label style="display:block;margin-bottom:8px;font-size:.82rem;font-weight:600;color:var(--text-2)">
-          Output format
-        </label>
-        <div class="mm-output-toggle" id="mm-output-toggle">
-          <button type="button" class="mm-output-opt active" data-format="excel" id="mm-fmt-excel">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-            </svg>
-            Excel
-          </button>
-          <button type="button" class="mm-output-opt" data-format="sheets" id="mm-fmt-sheets">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
-            </svg>
-            Google Sheets
-          </button>
-        </div>
-        <p class="mm-hint" id="mm-fmt-hint" style="margin-top:6px">
-          Download as an Excel file.
-        </p>
-      </div>
-
       <div style="display:flex;gap:12px;flex-wrap:wrap">
         <button type="button" class="btn btn-download" id="mm-validate-btn">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -2121,31 +2049,6 @@
             <span class="stat-num" id="mm-stat-scheduled" style="color:#818cf8">0</span>
             <span class="stat-lbl">Scheduled</span>
           </div>
-        </div>
-      </div>
-
-      <!-- Download row -->
-      <div id="mm-download-section" class="mm-hidden">
-        <div class="mm-download-row">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6ee7b7"
-               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
-          <div class="mm-download-info">
-            <strong>Outreach sheet generated!</strong>
-            <p id="mm-row-count-text"></p>
-          </div>
-          <input type="text" id="mm-output-filename" placeholder="File name…"
-                 style="width:180px">
-          <button type="button" class="btn btn-primary" id="mm-download-btn">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            Download
-          </button>
         </div>
       </div>
 
@@ -3455,7 +3358,6 @@
 
     const btn = $('mm-generate-btn');
     btn.disabled = true;
-    $('mm-download-section').classList.add('mm-hidden');
     $('mm-preview-section').classList.add('mm-hidden');
     $('mm-stats-section').classList.add('mm-hidden');
 
@@ -3503,17 +3405,6 @@
       $('mm-stat-scheduled').textContent = sched;
       $('mm-stats-section').classList.remove('mm-hidden');
 
-      // Download row (always generate xlsx, only show download in Excel mode)
-      let countTxt = sched + ' rows';
-      countTxt += ' · ' + senders.length + ' sender(s)';
-      countTxt += ' · ' + subjects.length + ' subject variant(s)';
-      countTxt += ' · ' + bodies.length + ' body variant(s)';
-      $('mm-row-count-text').textContent  = countTxt;
-      $('mm-output-filename').value       = 'Outreach Merge';
-      if (mm.outputFormat === 'excel') {
-        $('mm-download-section').classList.remove('mm-hidden');
-      }
-
       // Reveal Google Sheets upload section; reset previous result
       mm.sheetsId  = null;
       mm.sheetsUrl = null;
@@ -3548,15 +3439,6 @@
       tbody.appendChild(tr);
     });
     $('mm-preview-section').classList.remove('mm-hidden');
-  }
-
-  // ── Download ─────────────────────────────────────────────────
-  function downloadFile() {
-    if (!mm.downloadId) return;
-    const name = $('mm-output-filename').value.trim();
-    const url  = '/api/merge/download/' + mm.downloadId +
-      (name ? '?name=' + encodeURIComponent(name) : '');
-    window.location.href = url;
   }
 
   // ── Upload to Google Sheets ──────────────────────────────────
@@ -3652,33 +3534,9 @@
     $('mm-save-profile-btn').addEventListener('click', saveProfile);
     $('mm-delete-profile-btn').addEventListener('click', deleteSelectedProfile);
 
-    // Output format toggle
-    const outputToggle = $('mm-output-toggle');
-    if (outputToggle) {
-      outputToggle.addEventListener('click', e => {
-        const btn = e.target.closest('.mm-output-opt');
-        if (!btn) return;
-        mm.outputFormat = btn.dataset.format;
-        outputToggle.querySelectorAll('.mm-output-opt').forEach(b =>
-          b.classList.toggle('active', b === btn));
-        const hint = $('mm-fmt-hint');
-        if (hint) {
-          hint.textContent = mm.outputFormat === 'sheets'
-            ? 'After generating, the sheet is automatically uploaded to Google Sheets for team access.'
-            : 'Download as an Excel file.';
-        }
-        // Show/hide download section based on current result + format
-        if (mm.downloadId) {
-          const dl = $('mm-download-section');
-          if (dl) dl.classList.toggle('mm-hidden', mm.outputFormat !== 'excel');
-        }
-      });
-    }
-
     // Action buttons
     $('mm-validate-btn').addEventListener('click', validateTemplates);
     $('mm-generate-btn').addEventListener('click', generateMerge);
-    $('mm-download-btn').addEventListener('click', downloadFile);
     const uploadSheetsBtn = $('mm-upload-sheets-btn');
     if (uploadSheetsBtn) uploadSheetsBtn.addEventListener('click', uploadToSheets);
 
