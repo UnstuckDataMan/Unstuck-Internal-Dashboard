@@ -3383,9 +3383,38 @@
       const data = await resp.json();
 
       if (data.error) {
-        let msg = data.error;
-        if (data.details) msg += '<ul>' + data.details.map(e => '<li>' + escHtml(e) + '</li>').join('') + '</ul>';
-        showAlert(fb, 'error', msg);
+        if (data.missing_rows && data.missing_rows.length) {
+          // Missing-variable error — show full prospect-level breakdown
+          const rows = data.missing_rows;
+          const cap  = 50; // max rows to list before truncating
+          let html = '<strong>⚠ Missing data — merge blocked</strong>'
+            + '<p style="margin:6px 0 8px;opacity:.85">'
+            + escHtml(data.error) + '</p>'
+            + '<div style="max-height:260px;overflow-y:auto;border:1px solid rgba(248,113,113,.25);border-radius:6px;padding:4px 0">'
+            + '<table style="width:100%;border-collapse:collapse;font-size:.78rem">'
+            + '<thead><tr style="position:sticky;top:0;background:rgba(30,20,40,.95)">'
+            + '<th style="padding:5px 10px;text-align:left;font-weight:600;opacity:.7">#</th>'
+            + '<th style="padding:5px 10px;text-align:left;font-weight:600;opacity:.7">Prospect email</th>'
+            + '<th style="padding:5px 10px;text-align:left;font-weight:600;opacity:.7">Field(s) with missing value</th>'
+            + '</tr></thead><tbody>';
+          rows.slice(0, cap).forEach(r => {
+            html += '<tr style="border-top:1px solid rgba(255,255,255,.06)">'
+              + '<td style="padding:4px 10px;opacity:.6">' + r.row + '</td>'
+              + '<td style="padding:4px 10px;font-family:ui-monospace,monospace">' + escHtml(r.email) + '</td>'
+              + '<td style="padding:4px 10px">' + r.fields.map(f => '<span style="background:rgba(248,113,113,.2);border-radius:4px;padding:1px 6px;margin-right:4px;font-size:.75rem">' + escHtml(f) + '</span>').join('') + '</td>'
+              + '</tr>';
+          });
+          if (rows.length > cap) {
+            html += '<tr><td colspan="3" style="padding:6px 10px;opacity:.6">… and ' + (rows.length - cap) + ' more rows</td></tr>';
+          }
+          html += '</tbody></table></div>'
+            + '<p style="margin:8px 0 0;font-size:.8rem;opacity:.7">Fix the spreadsheet — fill in the missing values — then re-upload and regenerate.</p>';
+          showAlert(fb, 'error', html);
+        } else {
+          let msg = data.error;
+          if (data.details) msg += '<ul>' + data.details.map(e => '<li>' + escHtml(e) + '</li>').join('') + '</ul>';
+          showAlert(fb, 'error', msg);
+        }
         return;
       }
 

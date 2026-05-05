@@ -223,8 +223,45 @@ async def generate_merge(request: Request):
             merged_rows, subject_templates, body_templates, headers, missing_value
         )
 
-        # Write Excel output
+        # ── Missing-value guard ───────────────────────────────────────────
+        # Reject the merge if any prospect still contains the missing sentinel
+        # after all substitutions — this means a {{placeholder}} referenced a
+        # column that had no value for that row.
         has_chaser = bool(chaser_body)
+        fields_to_check = [
+            ("__subject_line__", "Subject Line"),
+            ("__email_body__",   "Email Body"),
+        ]
+        if has_chaser:
+            fields_to_check.append(("__chaser_body__", "Chaser Body"))
+
+        missing_rows = []
+        for idx, row in enumerate(merged_rows, 1):
+            bad_fields = [
+                label
+                for key, label in fields_to_check
+                if missing_value in (row.get(key) or "")
+            ]
+            if bad_fields:
+                missing_rows.append({
+                    "row":    idx,
+                    "email":  row.get("__recipient_email__", f"Row {idx}"),
+                    "fields": bad_fields,
+                })
+
+        if missing_rows:
+            return JSONResponse(
+                {
+                    "error": (
+                        f"{len(missing_rows)} prospect(s) have missing data — "
+                        "fix the spreadsheet and regenerate."
+                    ),
+                    "missing_rows": missing_rows,
+                },
+                status_code=422,
+            )
+
+        # Write Excel output
         output_filename = f"outreach_merge_{uuid.uuid4().hex[:8]}.xlsx"
         output_path = str(OUTPUT_DIR / output_filename)
         write_merge_output(
