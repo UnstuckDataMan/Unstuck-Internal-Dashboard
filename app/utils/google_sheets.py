@@ -536,7 +536,7 @@ def read_ab_stats(sheet_id: str) -> list[dict]:
 
     for r in records:
         email   = str(r.get("Recipient Email", "")).strip()
-        variant = str(r.get("Template Variant", "")).strip()
+        variant = str(r.get("A/B Variant", "")).strip()
         if not email or "@" not in email or not variant:
             continue  # separator rows or rows without variant assignment
 
