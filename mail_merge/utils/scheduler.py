@@ -13,6 +13,7 @@ Rules enforced:
     redistributes who sends more/fewer each day within the allowed band
 """
 import hashlib
+import math
 from datetime import date, datetime, time, timedelta
 from typing import Dict, List, Optional
 
@@ -175,7 +176,43 @@ def generate_schedule(
                         surplus    += add
             per_sender_counts = [max_per_sender_per_day + off for off in offsets]
         else:
-            # Partial last day: distribute evenly across active senders
+            # Partial / last day ─────────────────────────────────────────────
+            # Goal: use the *fewest* senders that keeps each sender's count
+            # within the variance band [lo, hi], rather than spreading the
+            # remaining prospects thinly across all accounts.
+            # Only fall below the floor (lo) when unavoidable.
+            if v > 0:
+                lo = max(1, max_per_sender_per_day - v)
+                hi = max_per_sender_per_day + v
+
+                if remaining_prospects < lo:
+                    # So few prospects that even one sender falls below lo.
+                    # Unavoidable — consolidate onto a single sender.
+                    senders_today = 1
+                else:
+                    # Minimum senders so no sender exceeds hi
+                    n_min = math.ceil(remaining_prospects / hi)
+                    # Maximum senders where each still reaches lo
+                    n_max = remaining_prospects // lo
+
+                    if n_min <= n_max:
+                        # Clean fit: fewest senders, each sending at/near hi
+                        optimal = n_min
+                    else:
+                        # Gap — no integer n keeps all senders in [lo, hi].
+                        # Pick whichever endpoint puts the per-sender average
+                        # closest to nominal (minimise deviation either side).
+                        avg_nmax = remaining_prospects / max(n_max, 1)
+                        avg_nmin = remaining_prospects / n_min
+                        optimal = (
+                            n_max
+                            if abs(avg_nmax - max_per_sender_per_day)
+                               <= abs(avg_nmin - max_per_sender_per_day)
+                            else n_min
+                        )
+
+                    senders_today = max(1, min(optimal, len(sender_emails)))
+
             base = day_target // senders_today
             rem  = day_target % senders_today
             per_sender_counts = [
