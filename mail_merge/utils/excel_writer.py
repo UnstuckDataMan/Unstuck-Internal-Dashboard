@@ -165,7 +165,7 @@ def write_merge_output(
         _hdr_cell(cell, color_map.get(header, C['hdr_prospect']))
         ws.column_dimensions[get_column_letter(ci)].width = col_widths.get(header, 20)
 
-    ws.row_dimensions[1].height = 32
+    ws.row_dimensions[1].height = 20
 
     # ── Data validation ────────────────────────────────────────────────────
     col_map = {h: i + 1 for i, h in enumerate(all_cols)}
@@ -231,7 +231,7 @@ def write_merge_output(
                 cell = ws.cell(row=ri, column=ci, value=row_values.get(header, ''))
                 _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
 
-            ws.row_dimensions[ri].height = 18
+            ws.row_dimensions[ri].height = 15
             ri += 1
 
         # ── End-of-day separator ───────────────────────────────────────────
@@ -241,7 +241,7 @@ def write_merge_output(
         sep_cell.fill = PatternFill('solid', fgColor='FFF3E0')
         sep_cell.alignment = Alignment(horizontal='center', vertical='center')
         sep_cell.border = _thin_border()
-        ws.row_dimensions[ri].height = 14
+        ws.row_dimensions[ri].height = 15
         prev_sender = None  # reset so first row of next day gets yellow stripe
         ri += 1
 
@@ -359,7 +359,7 @@ def write_schedule_output(
         cell = ws.cell(row=1, column=ci, value=h)
         _hdr_cell(cell, C['hdr_schedule'])
         ws.column_dimensions[get_column_letter(ci)].width = col_widths.get(h, 15)
-    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[1].height = 20
 
     # Data validation – Status column (col 7)
     total_rows = len(schedule)
@@ -391,7 +391,7 @@ def write_schedule_output(
         for ci, h in enumerate(sch_cols, 1):
             cell = ws.cell(row=ri, column=ci, value=vals.get(h, ''))
             _data_cell(cell, fill_hex)
-        ws.row_dimensions[ri].height = 16
+        ws.row_dimensions[ri].height = 15
 
     # Conditional formatting on Status column
     status_range = f"G2:G{total_rows + 1}"
