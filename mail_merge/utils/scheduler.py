@@ -248,10 +248,15 @@ def generate_schedule(
                 continue
             sender_start = sender_starts[s_idx]
 
+            # Effective window end — asymmetric shift so sends can breathe
+            # past the nominal boundary rather than being compressed into it.
+            # Rarely shorter (-5 min), frequently slightly longer (+45 min).
             end_shift = _dvariance(
-                f"{campaign_seed}-{work_day.isoformat()}-wend-s{s_idx}", -20, 0)
+                f"{campaign_seed}-{work_day.isoformat()}-wend-s{s_idx}", -5, 45)
             effective_end = day_win_end + timedelta(minutes=end_shift)
-            effective_end = max(effective_end, sender_start + timedelta(minutes=1))
+            # Always guarantee enough room for every send (4 min per slot min)
+            effective_end = max(effective_end,
+                                sender_start + timedelta(minutes=n_sends * 4))
 
             avail_secs = (effective_end - sender_start).total_seconds()
 
@@ -259,15 +264,36 @@ def generate_schedule(
                 slots = [sender_start]
             else:
                 interval_secs = avail_secs / (n_sends - 1)
-                slots = [
-                    sender_start + timedelta(seconds=i * interval_secs)
-                    for i in range(n_sends)
-                ]
 
-            _tolerance = timedelta(seconds=1)
+                # Add deterministic per-slot jitter so the send rhythm looks
+                # organic rather than clockwork-regular.
+                # Cap at ±25 % of the interval (max ±12 min) so jitter never
+                # reorders adjacent slots or balloons the tail beyond the
+                # effective_end that was already sized to accommodate it.
+                jitter_cap = max(30, min(int(interval_secs * 0.25), 12 * 60))
+                raw: List[datetime] = []
+                for i in range(n_sends):
+                    base = sender_start + timedelta(seconds=i * interval_secs)
+                    j = _dvariance(
+                        f"{campaign_seed}-{work_day.isoformat()}"
+                        f"-jitter-s{s_idx}-i{i}",
+                        -jitter_cap, jitter_cap,
+                    )
+                    raw.append(base + timedelta(seconds=j))
+                raw.sort()
+
+                # Enforce a 3-minute minimum gap between consecutive sends
+                # from the same sender (prevents tight clusters after jitter).
+                slots = [raw[0]]
+                for t in raw[1:]:
+                    if (t - slots[-1]).total_seconds() < 180:
+                        t = slots[-1] + timedelta(minutes=3)
+                    slots.append(t)
+
+            # No hard end-of-window filter — effective_end already encodes
+            # the desired overshoot, and all generated slots are valid.
             for slot_dt in slots:
-                if slot_dt <= day_win_end + _tolerance:
-                    adjusted.append((slot_dt, sender_emails[s_idx], s_idx + 1))
+                adjusted.append((slot_dt, sender_emails[s_idx], s_idx + 1))
 
         adjusted.sort(key=lambda x: x[0])
 
