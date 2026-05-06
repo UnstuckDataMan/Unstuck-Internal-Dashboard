@@ -222,7 +222,12 @@ def generate_schedule(
         day_win_end = datetime.combine(work_day, time(win_end_h, win_end_m))
 
         # ── Compute each sender's deterministic start time ───────────────── #
-        max_last_start_mins   = win_end_mins - 45
+        # Reserve enough window for the last sender to spread their sends
+        # across a human-looking interval (~10 min per send, 90 min minimum).
+        # Without this, senders staggered 60 min apart crowd the last account
+        # into a tiny end-of-day window and produce bunched send times.
+        min_last_sender_window = max(max_per_sender_per_day * 10, 90)
+        max_last_start_mins   = win_end_mins - min_last_sender_window
         available_for_stagger = max(0, max_last_start_mins - s1_start_mins)
         offset_mins = (
             min(SENDER_OFFSET_MINS, max(5, available_for_stagger // (senders_today - 1)))
