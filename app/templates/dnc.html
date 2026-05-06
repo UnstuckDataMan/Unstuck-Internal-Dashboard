@@ -4025,14 +4025,6 @@
     if (abPanel) { abPanel.style.display = 'none'; abPanel.innerHTML = ''; }
   };
 
-  // Click anywhere outside a campaign card → restore client stats
-  document.addEventListener('click', function (event) {
-    if (!_detailActive) return;
-    if (event.target.closest('.camp-card')) return;
-    if (event.target.closest('#cdash-ctx-clear')) return;
-    restoreClientStats();
-  });
-
   // Reset stored stats when HTMX re-renders the panel (Refresh / Sync / Delete)
   document.addEventListener('htmx:afterSwap', function (event) {
     if (event.target && event.target.id === 'campaigns-panel-inner') {
