@@ -1876,13 +1876,12 @@
   <p class="mm-step-label"><span class="mm-step-num">3</span> Sender Accounts</p>
   <div class="form-card mm-section">
     <div style="padding:26px 28px 24px">
-      <div class="form-row">
-        <div class="form-group" style="margin-bottom:0;flex:1">
+      <div class="form-row" style="align-items:stretch">
+        <div class="form-group" style="margin-bottom:0;flex:1;display:flex;flex-direction:column">
           <label>Sender email addresses <span class="opt">one per line</span></label>
           <textarea id="mm-sender-emails"
                     placeholder="sender1@company.com&#10;sender2@company.com&#10;sender3@company.com"
-                    rows="5"
-                    style="font-family:ui-monospace,'SF Mono',monospace;font-size:.82rem;resize:none"></textarea>
+                    style="font-family:ui-monospace,'SF Mono',monospace;font-size:.82rem;resize:none;flex:1;min-height:0"></textarea>
           <p class="mm-hint">Prospects are assigned to senders in round-robin rotation.</p>
         </div>
         <div class="form-group" style="margin-bottom:0;flex:1">
