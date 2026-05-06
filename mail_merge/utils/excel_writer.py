@@ -123,11 +123,11 @@ def write_merge_output(
     sec_routing = ['Sender Account', 'First Name', 'Recipient Email']
     # Section 4: generated copy
     sec_template = ['Subject Line', 'Email Body']
-    if has_chaser:
-        sec_template += ['Chaser Body']
     sec_template += ['A/B Variant']
     if has_schedule:
         sec_template += ['Chaser Send Time']
+    if has_chaser:
+        sec_template += ['Chaser Body']
     # Section 5: tracking
     sec_tracking = ['Lead Status', 'Notes']
 
