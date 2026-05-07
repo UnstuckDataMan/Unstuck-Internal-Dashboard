@@ -105,6 +105,27 @@ def _sb_write_headers(prefer: str = "return=minimal"):
     }
 
 
+def _send_slack_approval_notification(client_name: str, territory: str, industry: str, approved_by: str) -> dict:
+    """Fire a Slack message confirming copy has been approved and published."""
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+    if not webhook_url:
+        return {"ok": False, "error": "SLACK_WEBHOOK_URL not set"}
+    payload = {
+        "text": (
+            f"✅ *Copy Approved & Published*\n"
+            f"*Client:* {client_name}  |  *Territory:* {territory}  |  *Industry:* {industry}\n"
+            f"Approved by *{approved_by}* — copy is now live."
+        )
+    }
+    try:
+        r = http_req.post(webhook_url, json=payload, timeout=8)
+        r.raise_for_status()
+        return {"ok": True}
+    except Exception as exc:
+        log.error("Slack approval notification failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
 def _send_slack_notification(client_name: str, territory: str, industry: str) -> dict:
     """Fire a Slack incoming-webhook message tagging the three reviewers.
     Returns {"ok": True} on success or {"ok": False, "error": "..."} on failure."""
@@ -282,6 +303,11 @@ def approve_copy(body: ApproveBody):
         ).raise_for_status()
     except Exception as exc:
         log.error("Failed to update pending status: %s", exc)
+
+    # 5. Notify Slack that copy is live
+    _send_slack_approval_notification(
+        pending["client_name"], pending["territory"], pending["industry"], body.approved_by
+    )
 
     return JSONResponse({"ok": True})
 
