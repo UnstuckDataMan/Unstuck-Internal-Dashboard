@@ -2225,21 +2225,6 @@ document.getElementById('adm-add-flyout-subject').addEventListener('click', func
 document.getElementById('adm-add-flyout-variation').addEventListener('click', function(){ const d=collectAdmData(); d.flyout.variations.push({body:''}); TEMPLATES[admKey()]=d; adminRender(); document.getElementById('adm-flyout-variations').lastElementChild.scrollIntoView({behavior:'smooth'}); });
 document.getElementById('adm-add-linkedin').addEventListener('click', function(){ const d=collectAdmData(); d.linkedin.steps.push({body:''}); TEMPLATES[admKey()]=d; adminRender(); document.getElementById('adm-linkedin-rows').lastElementChild.scrollIntoView({behavior:'smooth'}); });
 
-// ════════════════════════════════════════════════════════
-//  SAVE & PUBLISH
-// ════════════════════════════════════════════════════════
-document.getElementById('adm-save').addEventListener('click', async function(){
-  const key=admKey(), data=collectAdmData(); TEMPLATES[key]=data;
-  const btn=document.getElementById('adm-save'), statusEl=document.getElementById('save-status');
-  btn.disabled=true; btn.textContent='Saving…'; statusEl.textContent=''; statusEl.className='save-status';
-  try {
-    await saveToSupabase(key,data);
-    btn.textContent='✓ Published!'; btn.classList.add('success');
-    statusEl.textContent='All users will see this on next refresh'; statusEl.className='save-status ok';
-  } catch(e) { btn.textContent='Error'; statusEl.textContent=e.message; statusEl.className='save-status err'; }
-  btn.disabled=false;
-  setTimeout(function(){ btn.textContent='Save & Publish'; btn.classList.remove('success'); statusEl.textContent=''; statusEl.className='save-status'; }, 4000);
-});
 
 document.getElementById('adm-clear').addEventListener('click', async function(){
   const key=admKey();
