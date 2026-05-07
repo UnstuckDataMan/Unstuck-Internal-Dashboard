@@ -105,12 +105,14 @@ def _sb_write_headers(prefer: str = "return=minimal"):
     }
 
 
-def _send_slack_notification(client_name: str, territory: str, industry: str) -> None:
-    """Fire a Slack incoming-webhook message tagging the three reviewers."""
+def _send_slack_notification(client_name: str, territory: str, industry: str) -> dict:
+    """Fire a Slack incoming-webhook message tagging the three reviewers.
+    Returns {"ok": True} on success or {"ok": False, "error": "..."} on failure."""
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
     if not webhook_url:
-        log.warning("SLACK_WEBHOOK_URL not set — skipping Slack notification")
-        return
+        msg = "SLACK_WEBHOOK_URL not set"
+        log.warning("%s — skipping Slack notification", msg)
+        return {"ok": False, "error": msg}
 
     ollie = os.environ.get("SLACK_OLLIE_ID", "Ollie")
     chris = os.environ.get("SLACK_CHRIS_ID", "Chris")
@@ -129,9 +131,29 @@ def _send_slack_notification(client_name: str, territory: str, industry: str) ->
         )
     }
     try:
-        http_req.post(webhook_url, json=payload, timeout=8).raise_for_status()
+        r = http_req.post(webhook_url, json=payload, timeout=8)
+        r.raise_for_status()
+        return {"ok": True}
     except Exception as exc:
         log.error("Slack notification failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+@router.get("/api/copy-bank/test-slack")
+def test_slack():
+    """Diagnostic endpoint — fires a test Slack notification and returns the result."""
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+    ollie = os.environ.get("SLACK_OLLIE_ID", "")
+    chris = os.environ.get("SLACK_CHRIS_ID", "")
+    leo   = os.environ.get("SLACK_LEO_ID", "")
+    env_status = {
+        "SLACK_WEBHOOK_URL": f"{'set (' + webhook_url[:40] + '…)' if webhook_url else 'NOT SET'}",
+        "SLACK_OLLIE_ID":    ollie or "NOT SET",
+        "SLACK_CHRIS_ID":    chris or "NOT SET",
+        "SLACK_LEO_ID":      leo   or "NOT SET",
+    }
+    slack_result = _send_slack_notification("Test Client", "US", "PR")
+    return JSONResponse({"env": env_status, "slack": slack_result})
 
 
 # ── Pydantic request bodies ────────────────────────────────────────────────────
@@ -176,8 +198,8 @@ def request_approval(body: ApprovalRequestBody):
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
-    _send_slack_notification(body.client_name, body.territory, body.industry)
-    return JSONResponse({"ok": True})
+    slack = _send_slack_notification(body.client_name, body.territory, body.industry)
+    return JSONResponse({"ok": True, "slack": slack})
 
 
 @router.get("/api/copy-bank/pending/{key:path}")
