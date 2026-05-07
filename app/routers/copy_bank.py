@@ -1,10 +1,15 @@
 import json
+import logging
 import os
 
 import requests as http_req
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from app.deps import templates
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -89,6 +94,203 @@ def copy_bank_template(client_id: str, territory: str, industry: str, channel: s
     bodies   = [v["body"] for v in (ch.get("variations") or []) if v.get("body", "").strip()]
     return {"subjects": subjects, "bodies": bodies}
 
+
+# ── Approval workflow helpers ──────────────────────────────────────────────────
+
+def _sb_write_headers(prefer: str = "return=minimal"):
+    return {
+        **_sb_headers(),
+        "Content-Type": "application/json",
+        "Prefer": prefer,
+    }
+
+
+def _send_slack_notification(client_name: str, territory: str, industry: str) -> None:
+    """Fire a Slack incoming-webhook message tagging the three reviewers."""
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+    if not webhook_url:
+        log.warning("SLACK_WEBHOOK_URL not set — skipping Slack notification")
+        return
+
+    ollie = os.environ.get("SLACK_OLLIE_ID", "Ollie")
+    chris = os.environ.get("SLACK_CHRIS_ID", "Chris")
+    leo   = os.environ.get("SLACK_LEO_ID", "Leo")
+
+    # Format mentions: if the value looks like a Slack member ID use <@ID>, else plain name
+    def mention(val: str) -> str:
+        return f"<@{val}>" if val.startswith("U") and len(val) >= 9 else val
+
+    payload = {
+        "text": (
+            f"📋 *Copy Approval Request*\n"
+            f"*Client:* {client_name}  |  *Territory:* {territory}  |  *Industry:* {industry}\n"
+            f"{mention(ollie)} {mention(chris)} {mention(leo)} — "
+            f"please review in the Copy Bank admin panel."
+        )
+    }
+    try:
+        http_req.post(webhook_url, json=payload, timeout=8).raise_for_status()
+    except Exception as exc:
+        log.error("Slack notification failed: %s", exc)
+
+
+# ── Pydantic request bodies ────────────────────────────────────────────────────
+
+class ApprovalRequestBody(BaseModel):
+    key:         str
+    client_name: str
+    territory:   str
+    industry:    str
+    content:     dict
+
+
+class ApproveBody(BaseModel):
+    key:         str
+    approved_by: str   # 'Ollie' | 'Chris' | 'Leo'
+    content:     dict  # final published content (reviewer may have edited before approving)
+
+
+# ── Approval endpoints ─────────────────────────────────────────────────────────
+
+@router.post("/api/copy-bank/request-approval")
+def request_approval(body: ApprovalRequestBody):
+    """Save a pending draft and fire a Slack notification to the reviewers."""
+    url = os.environ.get("SUPABASE_URL", "")
+
+    # Upsert into copy_bank_pending (on conflict for the key, replace the row)
+    resp = http_req.post(
+        f"{url}/rest/v1/copy_bank_pending",
+        headers={**_sb_write_headers("resolution=merge-duplicates,return=minimal")},
+        json={
+            "key":         body.key,
+            "client_name": body.client_name,
+            "territory":   body.territory,
+            "industry":    body.industry,
+            "content":     body.content,
+            "status":      "pending",
+        },
+        timeout=10,
+    )
+    try:
+        resp.raise_for_status()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+    _send_slack_notification(body.client_name, body.territory, body.industry)
+    return JSONResponse({"ok": True})
+
+
+@router.get("/api/copy-bank/pending/{key:path}")
+def get_pending(key: str):
+    """Return the current pending draft for a given key, or null if none."""
+    url = os.environ.get("SUPABASE_URL", "")
+    resp = http_req.get(
+        f"{url}/rest/v1/copy_bank_pending",
+        params={"key": f"eq.{key}", "status": "eq.pending", "select": "*"},
+        headers=_sb_headers(),
+        timeout=10,
+    )
+    rows = resp.json() if resp.ok else []
+    return JSONResponse({"pending": rows[0] if rows else None})
+
+
+@router.post("/api/copy-bank/approve")
+def approve_copy(body: ApproveBody):
+    """
+    Approve a pending draft:
+      1. Fetch the pending row
+      2. Publish its content to copy_bank_templates
+      3. Write an entry to copy_approval_logs
+      4. Mark the pending row as approved
+    """
+    url = os.environ.get("SUPABASE_URL", "")
+
+    # 1. Fetch pending row
+    resp = http_req.get(
+        f"{url}/rest/v1/copy_bank_pending",
+        params={"key": f"eq.{body.key}", "status": "eq.pending", "select": "*"},
+        headers=_sb_headers(),
+        timeout=10,
+    )
+    rows = resp.json() if resp.ok else []
+    if not rows:
+        return JSONResponse({"ok": False, "error": "No pending draft found"}, status_code=404)
+
+    pending = rows[0]
+
+    # 2. Publish to copy_bank_templates — use reviewer's final content (may differ from original)
+    pub = http_req.post(
+        f"{url}/rest/v1/copy_bank_templates",
+        headers=_sb_write_headers("resolution=merge-duplicates,return=minimal"),
+        json={"key": body.key, "content": body.content},
+        timeout=10,
+    )
+    try:
+        pub.raise_for_status()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"Publish failed: {exc}"}, status_code=500)
+
+    # 3. Write approval log
+    try:
+        http_req.post(
+            f"{url}/rest/v1/copy_approval_logs",
+            headers=_sb_write_headers(),
+            json={
+                "key":              body.key,
+                "client_name":      pending["client_name"],
+                "territory":        pending["territory"],
+                "industry":         pending["industry"],
+                "content_snapshot": body.content,
+                "approved_by":      body.approved_by,
+                "requested_at":     pending["created_at"],
+            },
+            timeout=10,
+        ).raise_for_status()
+    except Exception as exc:
+        log.error("Failed to write approval log: %s", exc)
+
+    # 4. Mark pending row as approved
+    try:
+        http_req.patch(
+            f"{url}/rest/v1/copy_bank_pending",
+            params={"key": f"eq.{body.key}"},
+            headers=_sb_write_headers(),
+            json={"status": "approved"},
+            timeout=10,
+        ).raise_for_status()
+    except Exception as exc:
+        log.error("Failed to update pending status: %s", exc)
+
+    return JSONResponse({"ok": True})
+
+
+@router.get("/api/copy-bank/approval-logs")
+def approval_logs():
+    """Return pending requests and approval history for the logs panel."""
+    url = os.environ.get("SUPABASE_URL", "")
+
+    logs_resp = http_req.get(
+        f"{url}/rest/v1/copy_approval_logs",
+        params={"select": "id,key,client_name,territory,industry,approved_by,requested_at,approved_at",
+                "order": "approved_at.desc", "limit": "100"},
+        headers=_sb_headers(),
+        timeout=10,
+    )
+    pending_resp = http_req.get(
+        f"{url}/rest/v1/copy_bank_pending",
+        params={"select": "id,key,client_name,territory,industry,created_at",
+                "status": "eq.pending", "order": "created_at.desc", "limit": "100"},
+        headers=_sb_headers(),
+        timeout=10,
+    )
+
+    return JSONResponse({
+        "logs":    logs_resp.json()    if logs_resp.ok    else [],
+        "pending": pending_resp.json() if pending_resp.ok else [],
+    })
+
+
+# ── Admin: merge Unstuck profiles ─────────────────────────────────────────────
 
 @router.post("/api/admin/merge-unstuck-profiles")
 def merge_unstuck_profiles():

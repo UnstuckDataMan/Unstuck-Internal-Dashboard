@@ -1097,6 +1097,244 @@
     }
     .admin-action-btn:hover { border-color: rgba(255,255,255,.25); color: var(--text); }
     .admin-action-btn.danger:hover { border-color: var(--red-bdr); color: var(--red); }
+
+    /* ════════════════════════════════════════════════════════
+       APPROVAL WORKFLOW
+    ════════════════════════════════════════════════════════ */
+
+    /* Pending draft banner inside admin panel */
+    .admin-pending-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      background: rgba(245,158,11,.12);
+      border-bottom: 1px solid rgba(245,158,11,.3);
+      font-size: 13px;
+      color: #fbbf24;
+      font-weight: 500;
+      flex-shrink: 0;
+    }
+    .admin-pending-banner strong { font-weight: 700; }
+
+    /* Green approve button */
+    .admin-approve-btn {
+      padding: 8px 22px;
+      background: var(--gradient-success);
+      color: white;
+      border: none;
+      border-radius: 9px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: var(--font);
+      cursor: pointer;
+      transition: transform .18s var(--ease), box-shadow .18s var(--ease), opacity .15s;
+      box-shadow: 0 2px 10px rgba(22,163,74,.3);
+      flex-shrink: 0;
+    }
+    .admin-approve-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(22,163,74,.5); }
+    .admin-approve-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    /* Request Approval button — same style as admin-save-btn */
+    .admin-request-btn {
+      padding: 8px 22px;
+      background: var(--gradient-vivid);
+      color: white;
+      border: none;
+      border-radius: 9px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: var(--font);
+      cursor: pointer;
+      transition: transform .18s var(--ease), box-shadow .18s var(--ease), opacity .15s;
+      box-shadow: 0 2px 10px rgba(124,58,237,.3);
+      flex-shrink: 0;
+    }
+    .admin-request-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(124,58,237,.5); }
+    .admin-request-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    /* Approver selection dialog */
+    #approver-dialog {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0;
+      box-shadow: var(--sh-md);
+      color: var(--text);
+      max-width: 360px;
+      width: 90vw;
+      overflow: hidden;
+    }
+    #approver-dialog::backdrop {
+      background: rgba(0,0,0,.6);
+      backdrop-filter: blur(4px);
+    }
+    .approver-dialog-inner { padding: 28px; }
+    .approver-dialog-title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .approver-dialog-sub {
+      font-size: 13px;
+      color: var(--text-2);
+      margin-bottom: 24px;
+      font-weight: 300;
+    }
+    .approver-btns {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .approver-btn {
+      flex: 1;
+      padding: 10px 8px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 600;
+      font-family: var(--font);
+      cursor: pointer;
+      transition: border-color .18s var(--ease), background .18s var(--ease), transform .18s var(--ease-spring), box-shadow .18s var(--ease);
+    }
+    .approver-btn:hover {
+      border-color: rgba(22,163,74,.5);
+      background: rgba(22,163,74,.1);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 14px rgba(22,163,74,.25);
+    }
+    .approver-cancel {
+      width: 100%;
+      padding: 9px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-2);
+      font-size: 13px;
+      font-weight: 500;
+      font-family: var(--font);
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+    }
+    .approver-cancel:hover { border-color: rgba(255,255,255,.25); color: var(--text); }
+
+    /* Toast notification */
+    .approval-toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(22,163,74,.15);
+      border: 1px solid rgba(22,163,74,.4);
+      color: #4ade80;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: var(--font);
+      padding: 10px 22px;
+      border-radius: 12px;
+      z-index: 9999;
+      backdrop-filter: blur(12px);
+      box-shadow: var(--sh-md);
+      animation: pageIn .25s var(--ease-out) both;
+      pointer-events: none;
+    }
+    .approval-toast.approval-toast-error {
+      background: var(--red-bg);
+      border-color: var(--red-bdr);
+      color: var(--red);
+    }
+
+    /* ── Approval Logs Panel ── */
+    #approval-logs-panel {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(16,16,31,.97);
+      z-index: 150;
+      flex-direction: column;
+    }
+    #approval-logs-panel.visible { display: flex; }
+
+    .logs-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      position: relative;
+      z-index: 1;
+    }
+    .logs-section {
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: var(--sh-sm);
+    }
+    .logs-section::before {
+      content: '';
+      display: block;
+      height: 3px;
+      background: var(--gradient-vivid);
+      opacity: .6;
+    }
+    .logs-section-title {
+      padding: 14px 18px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--text-2);
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,.03);
+    }
+    .logs-empty {
+      padding: 28px 18px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-3);
+      font-style: italic;
+    }
+    .logs-table-wrap { overflow-x: auto; }
+    .logs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .logs-table thead { background: rgba(255,255,255,.04); border-bottom: 1px solid var(--border); }
+    .logs-table th {
+      padding: 10px 16px;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      text-align: left;
+      white-space: nowrap;
+    }
+    .logs-table td {
+      padding: 11px 16px;
+      color: var(--text-2);
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      white-space: nowrap;
+    }
+    .logs-table tr:last-child td { border-bottom: none; }
+    .logs-table tbody tr { transition: background .12s var(--ease); }
+    .logs-table tbody tr:hover { background: rgba(139,92,246,.07); }
+    .logs-table tbody tr:hover td { color: var(--text); }
+    .logs-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .logs-badge-pending { background: rgba(245,158,11,.15); color: #fbbf24; border: 1px solid rgba(245,158,11,.3); }
+    .logs-badge-approved { background: rgba(22,163,74,.12); color: #4ade80; border: 1px solid rgba(22,163,74,.3); }
   </style>
 </head>
 <body>
@@ -1144,6 +1382,7 @@
     <div class="ps-actions">
       <button class="ps-add-btn" id="ps-add-btn">+ New Client</button>
       <button class="ps-manage-btn" id="profiles-admin-btn">&#9881; Manage Profiles</button>
+      <button class="ps-manage-btn" id="approval-logs-btn">&#128203; Approval Logs</button>
     </div>
 
     <!-- Inline add-client form -->
@@ -1266,7 +1505,12 @@
     <button class="admin-back-btn" id="admin-back-btn">&#8592; Back</button>
     <span class="admin-title">Template Admin</span>
     <span class="save-status" id="save-status"></span>
-    <button class="admin-save-btn" id="adm-save">Save &amp; Publish</button>
+    <button class="admin-request-btn" id="adm-request-approval">Request Approval</button>
+    <button class="admin-approve-btn" id="adm-approve" style="display:none">Approve &amp; Publish</button>
+  </div>
+  <!-- Amber banner shown when a pending draft exists for the current key -->
+  <div class="admin-pending-banner" id="admin-pending-banner" style="display:none">
+    &#9203; <strong>Pending approval</strong> &mdash; draft submitted <span id="admin-pending-date"></span>. Review the copy below, edit if needed, then approve.
   </div>
   <div class="admin-selectors">
     <div class="toggle-group" id="adm-territory-toggle" style="flex-shrink:0;min-width:100px"></div>
@@ -1302,6 +1546,38 @@
         <button class="admin-action-btn danger" id="adm-clear">Clear this combination</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     APPROVER SELECTION DIALOG
+══════════════════════════════════════════════════════════ -->
+<dialog id="approver-dialog">
+  <div class="approver-dialog-inner">
+    <div class="approver-dialog-title">Who is approving?</div>
+    <div class="approver-dialog-sub">This will be logged alongside the published copy.</div>
+    <div class="approver-btns">
+      <button class="approver-btn" onclick="approveCopy('Ollie')">Ollie</button>
+      <button class="approver-btn" onclick="approveCopy('Chris')">Chris</button>
+      <button class="approver-btn" onclick="approveCopy('Leo')">Leo</button>
+    </div>
+    <button class="approver-cancel" onclick="document.getElementById('approver-dialog').close()">Cancel</button>
+  </div>
+</dialog>
+
+<!-- Toast notification -->
+<div id="approval-toast" class="approval-toast" style="display:none"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     APPROVAL LOGS PANEL
+══════════════════════════════════════════════════════════ -->
+<div id="approval-logs-panel">
+  <div class="admin-header">
+    <button class="admin-back-btn" id="approval-logs-back">&#8592; Back</button>
+    <span class="admin-title">Approval Logs</span>
+  </div>
+  <div class="logs-body" id="logs-body">
+    <div class="rp-state"><div class="spinner"></div><span>Loading&hellip;</span></div>
   </div>
 </div>
 
@@ -1706,7 +1982,7 @@ function enterProfile(profile) {
     btn.dataset.admTerritory = ter; btn.textContent = ter;
     btn.addEventListener('click', function(){
       admTg.querySelectorAll('.toggle-btn').forEach(function(b){ b.classList.remove('active'); });
-      btn.classList.add('active'); adminRender();
+      btn.classList.add('active'); checkPendingForAdmin();
     });
     admTg.appendChild(btn);
   });
@@ -1867,7 +2143,8 @@ function adminShow() {
   document.getElementById('main-view').style.display = 'none';
   document.getElementById('tab-bar').style.display   = 'none';
   document.getElementById('admin-panel').classList.add('visible');
-  adminRender();
+  // Check for a pending draft first; checkPendingForAdmin() calls adminRender() internally
+  checkPendingForAdmin();
 }
 function adminHide() {
   document.getElementById('admin-panel').classList.remove('visible');
@@ -1876,7 +2153,8 @@ function adminHide() {
   render();
 }
 document.getElementById('admin-back-btn').addEventListener('click', adminHide);
-document.getElementById('adm-industry').addEventListener('change', adminRender);
+// adm-industry change re-checks pending (which calls adminRender internally)
+document.getElementById('adm-industry').addEventListener('change', checkPendingForAdmin);
 
 // ════════════════════════════════════════════════════════
 //  ADMIN HELPERS
@@ -2056,6 +2334,222 @@ document.getElementById('pa-save-profiles').addEventListener('click', async func
 });
 
 document.getElementById('profiles-admin-back').addEventListener('click', showProfileScreen);
+
+// ════════════════════════════════════════════════════════
+//  APPROVAL WORKFLOW
+// ════════════════════════════════════════════════════════
+let currentPending = null; // holds pending row if one exists for the current admKey()
+
+// ── Pending state detection ──────────────────────────────
+async function checkPendingForAdmin() {
+  const key = admKey();
+  currentPending = null;
+  // Reset to normal state while loading
+  document.getElementById('admin-pending-banner').style.display = 'none';
+  document.getElementById('adm-request-approval').style.display = '';
+  document.getElementById('adm-approve').style.display = 'none';
+  document.getElementById('save-status').textContent = '';
+
+  try {
+    const res = await fetch('/api/copy-bank/pending/' + encodeURIComponent(key));
+    if (res.ok) {
+      const data = await res.json();
+      if (data.pending) {
+        currentPending = data.pending;
+        // Load the pending draft content into the local TEMPLATES cache so adminRender() uses it
+        TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(currentPending.content)));
+        setAdminStatePending(currentPending.created_at);
+      }
+    }
+  } catch(e) {
+    // Non-fatal — fall through to normal render
+  }
+  adminRender(); // Always render after state is determined
+}
+
+function setAdminStatePending(createdAt) {
+  const dateStr = new Date(createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  document.getElementById('admin-pending-date').textContent = dateStr;
+  document.getElementById('admin-pending-banner').style.display = 'flex';
+  document.getElementById('adm-request-approval').style.display = 'none';
+  document.getElementById('adm-approve').style.display = '';
+}
+
+function setAdminStateNormal() {
+  currentPending = null;
+  document.getElementById('admin-pending-banner').style.display = 'none';
+  document.getElementById('adm-request-approval').style.display = '';
+  document.getElementById('adm-approve').style.display = 'none';
+}
+
+// ── Toast helper ─────────────────────────────────────────
+let _toastTimer = null;
+function showToast(msg, isError) {
+  const toast = document.getElementById('approval-toast');
+  toast.textContent = msg;
+  toast.className = 'approval-toast' + (isError ? ' approval-toast-error' : '');
+  toast.style.display = 'block';
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function(){ toast.style.display = 'none'; }, 4000);
+}
+
+// ── Request Approval ─────────────────────────────────────
+document.getElementById('adm-request-approval').addEventListener('click', async function() {
+  if (!activeProfile) return;
+  const content  = collectAdmData();
+  const key      = admKey();
+  const terBtn   = document.querySelector('[data-adm-territory].active');
+  const territory = terBtn ? terBtn.dataset.admTerritory : (activeProfile.territories[0] || 'US');
+  const industry  = industryLabel(document.getElementById('adm-industry').value);
+
+  const btn = document.getElementById('adm-request-approval');
+  btn.textContent = 'Sending…'; btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/copy-bank/request-approval', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, client_name: activeProfile.name, territory, industry, content }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✓ Approval request sent to Slack');
+      // Immediately reflect pending state in UI
+      currentPending = { created_at: new Date().toISOString(), content };
+      TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(content)));
+      setAdminStatePending(currentPending.created_at);
+      adminRender();
+    } else {
+      showToast('Error: ' + (data.error || 'Unknown error'), true);
+    }
+  } catch(e) {
+    showToast('Error: ' + e.message, true);
+  }
+  btn.textContent = 'Request Approval'; btn.disabled = false;
+});
+
+// ── Approve & Publish ────────────────────────────────────
+document.getElementById('adm-approve').addEventListener('click', function() {
+  document.getElementById('approver-dialog').showModal();
+});
+
+async function approveCopy(approvedBy) {
+  document.getElementById('approver-dialog').close();
+  const content = collectAdmData();
+  const key     = admKey();
+  const btn     = document.getElementById('adm-approve');
+  btn.textContent = 'Publishing…'; btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/copy-bank/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, approved_by: approvedBy, content }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      // Update local TEMPLATES cache with published content
+      TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(content)));
+      showToast('✓ Published — approved by ' + approvedBy);
+      setAdminStateNormal();
+      document.getElementById('save-status').textContent = '';
+      adminRender();
+    } else {
+      showToast('Error: ' + (data.error || 'Unknown error'), true);
+    }
+  } catch(e) {
+    showToast('Error: ' + e.message, true);
+  }
+  btn.textContent = 'Approve & Publish'; btn.disabled = false;
+}
+
+// ── Approval Logs Panel ──────────────────────────────────
+document.getElementById('approval-logs-btn').addEventListener('click', openApprovalLogs);
+document.getElementById('approval-logs-back').addEventListener('click', function() {
+  document.getElementById('approval-logs-panel').classList.remove('visible');
+  document.getElementById('profile-screen').classList.add('visible');
+});
+
+async function openApprovalLogs() {
+  document.getElementById('profile-screen').classList.remove('visible');
+  document.getElementById('approval-logs-panel').classList.add('visible');
+  const body = document.getElementById('logs-body');
+  body.innerHTML = '<div class="rp-state"><div class="spinner"></div><span>Loading&hellip;</span></div>';
+  try {
+    const res  = await fetch('/api/copy-bank/approval-logs');
+    const data = await res.json();
+    renderLogsPanel(data.pending || [], data.logs || []);
+  } catch(e) {
+    body.innerHTML = '<div class="rp-state error">Failed to load logs: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function renderLogsPanel(pending, logs) {
+  const body = document.getElementById('logs-body');
+  body.innerHTML = '';
+
+  // Pending requests section
+  const pendingSection = document.createElement('div');
+  pendingSection.className = 'logs-section';
+  const pendingTitle = document.createElement('div');
+  pendingTitle.className = 'logs-section-title';
+  pendingTitle.textContent = '⏳ Pending Requests';
+  pendingSection.appendChild(pendingTitle);
+  if (!pending.length) {
+    const empty = document.createElement('div');
+    empty.className = 'logs-empty';
+    empty.textContent = 'No pending approval requests';
+    pendingSection.appendChild(empty);
+  } else {
+    pendingSection.appendChild(buildLogsTable(
+      ['Client', 'Territory', 'Industry', 'Requested'],
+      pending.map(function(r){ return [r.client_name, r.territory, r.industry, formatLogDate(r.created_at)]; })
+    ));
+  }
+  body.appendChild(pendingSection);
+
+  // Approval history section
+  const histSection = document.createElement('div');
+  histSection.className = 'logs-section';
+  const histTitle = document.createElement('div');
+  histTitle.className = 'logs-section-title';
+  histTitle.textContent = '✅ Approval History';
+  histSection.appendChild(histTitle);
+  if (!logs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'logs-empty';
+    empty.textContent = 'No approvals yet';
+    histSection.appendChild(empty);
+  } else {
+    histSection.appendChild(buildLogsTable(
+      ['Client', 'Territory', 'Industry', 'Approved By', 'Requested', 'Approved'],
+      logs.map(function(r){ return [r.client_name, r.territory, r.industry, r.approved_by, formatLogDate(r.requested_at), formatLogDate(r.approved_at)]; })
+    ));
+  }
+  body.appendChild(histSection);
+}
+
+function buildLogsTable(headers, rows) {
+  const wrap  = document.createElement('div'); wrap.className = 'logs-table-wrap';
+  const table = document.createElement('table'); table.className = 'logs-table';
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr>' + headers.map(function(h){ return '<th>' + escHtml(h) + '</th>'; }).join('') + '</tr>';
+  const tbody = document.createElement('tbody');
+  rows.forEach(function(row){
+    const tr = document.createElement('tr');
+    tr.innerHTML = row.map(function(cell){ return '<td>' + escHtml(cell || '—') + '</td>'; }).join('');
+    tbody.appendChild(tr);
+  });
+  table.appendChild(thead); table.appendChild(tbody); wrap.appendChild(table);
+  return wrap;
+}
+
+function formatLogDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+// (adm-industry change listener is set above near adminHide — no duplicate needed)
 
 // ════════════════════════════════════════════════════════
 //  INIT
