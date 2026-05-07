@@ -2469,6 +2469,41 @@ async function openApprovalLogs() {
   }
 }
 
+function navigateToApproval(row) {
+  // Close logs panel
+  document.getElementById('approval-logs-panel').classList.remove('visible');
+
+  // Find matching profile (check loaded profiles + bizdev fallback)
+  const profile = profiles.find(function(p){ return p.name === row.client_name; })
+                  || (row.client_name === BIZDEV_PROFILE.name ? BIZDEV_PROFILE : null);
+
+  if (!profile) {
+    // Profile not found — just return to profile screen
+    document.getElementById('profile-screen').classList.add('visible');
+    return;
+  }
+
+  // Enter the profile (sets up territory/industry toggles, shows main view)
+  enterProfile(profile);
+
+  // Override territory toggle to match the pending row
+  const admTg = document.getElementById('adm-territory-toggle');
+  admTg.querySelectorAll('[data-adm-territory]').forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.admTerritory === row.territory);
+  });
+
+  // Override industry select to match the pending row (match by label or raw value)
+  const admInd = document.getElementById('adm-industry');
+  Array.from(admInd.options).forEach(function(opt){
+    if (industryLabel(opt.value) === row.industry || opt.value === row.industry) {
+      admInd.value = opt.value;
+    }
+  });
+
+  // Open admin panel — checkPendingForAdmin() will load the draft automatically
+  adminShow();
+}
+
 function renderLogsPanel(pending, logs) {
   const body = document.getElementById('logs-body');
   body.innerHTML = '';
@@ -2488,7 +2523,8 @@ function renderLogsPanel(pending, logs) {
   } else {
     pendingSection.appendChild(buildLogsTable(
       ['Client', 'Territory', 'Industry', 'Requested'],
-      pending.map(function(r){ return [r.client_name, r.territory, r.industry, formatLogDate(r.created_at)]; })
+      pending.map(function(r){ return [r.client_name, r.territory, r.industry, formatLogDate(r.created_at)]; }),
+      pending  // pass raw rows so click handler can navigate
     ));
   }
   body.appendChild(pendingSection);
@@ -2514,15 +2550,22 @@ function renderLogsPanel(pending, logs) {
   body.appendChild(histSection);
 }
 
-function buildLogsTable(headers, rows) {
+function buildLogsTable(headers, rows, rawRows) {
   const wrap  = document.createElement('div'); wrap.className = 'logs-table-wrap';
   const table = document.createElement('table'); table.className = 'logs-table';
   const thead = document.createElement('thead');
   thead.innerHTML = '<tr>' + headers.map(function(h){ return '<th>' + escHtml(h) + '</th>'; }).join('') + '</tr>';
   const tbody = document.createElement('tbody');
-  rows.forEach(function(row){
+  rows.forEach(function(row, i){
     const tr = document.createElement('tr');
     tr.innerHTML = row.map(function(cell){ return '<td>' + escHtml(cell || '—') + '</td>'; }).join('');
+    if (rawRows) {
+      tr.style.cursor = 'pointer';
+      tr.title = 'Open in admin panel';
+      tr.addEventListener('click', function(){ navigateToApproval(rawRows[i]); });
+      tr.addEventListener('mouseenter', function(){ tr.style.background = 'rgba(139,92,246,0.12)'; });
+      tr.addEventListener('mouseleave', function(){ tr.style.background = ''; });
+    }
     tbody.appendChild(tr);
   });
   table.appendChild(thead); table.appendChild(tbody); wrap.appendChild(table);
