@@ -3808,29 +3808,76 @@
 
 <script>
 (function () {
-  let _pendingCampaignId = null;
+  let _pendingCampaignId  = null;   // single campaign sync
+  let _pendingCampaignIds = null;   // sync-all mode (array)
 
-  window.openSyncModal = function (campaignId) {
-    _pendingCampaignId = campaignId;
+  // campaignId = single ID (string) for per-card Sync
+  // allIds     = array of IDs for Sync All button
+  window.openSyncModal = function (campaignId, allIds) {
+    if (allIds && Array.isArray(allIds) && allIds.length) {
+      _pendingCampaignIds = allIds;
+      _pendingCampaignId  = null;
+    } else {
+      _pendingCampaignId  = campaignId;
+      _pendingCampaignIds = null;
+    }
     document.getElementById('camp-sync-modal').style.display = 'flex';
   };
 
   window.closeSyncModal = function () {
     document.getElementById('camp-sync-modal').style.display = 'none';
-    _pendingCampaignId = null;
+    _pendingCampaignId  = null;
+    _pendingCampaignIds = null;
   };
 
-  window.confirmCampSync = function () {
-    const id = _pendingCampaignId;
+  window.confirmCampSync = async function () {
+    const singleId = _pendingCampaignId;
+    const allIds   = _pendingCampaignIds;
     closeSyncModal();
-    if (!id) return;
-    const resultEl = document.getElementById(`camp-sync-result-${id}`);
-    if (resultEl) resultEl.innerHTML = '<span style="color:var(--text-3);font-size:.78rem">Syncing…</span>';
-    htmx.ajax('POST', `/api/campaigns/${id}/sync`, {
-      target:    `#camp-sync-result-${id}`,
-      swap:      'innerHTML',
-      indicator: '#camp-spinner',
-    });
+
+    if (singleId) {
+      // ── Single campaign sync (existing behaviour) ────────────────── //
+      const resultEl = document.getElementById(`camp-sync-result-${singleId}`);
+      if (resultEl) resultEl.innerHTML = '<span style="color:var(--text-3);font-size:.78rem">Syncing…</span>';
+      htmx.ajax('POST', `/api/campaigns/${singleId}/sync`, {
+        target:    `#camp-sync-result-${singleId}`,
+        swap:      'innerHTML',
+        indicator: '#camp-spinner',
+      });
+      return;
+    }
+
+    if (!allIds || !allIds.length) return;
+
+    // ── Sync All — run campaigns sequentially ────────────────────────── //
+    const allResultEl = document.getElementById('camp-sync-all-result');
+    if (allResultEl) allResultEl.innerHTML =
+      '<span style="color:var(--text-3)">Syncing ' + allIds.length + ' campaign(s)…</span>';
+
+    let succeeded = 0, failed = 0;
+    for (const id of allIds) {
+      const resultEl = document.getElementById(`camp-sync-result-${id}`);
+      if (resultEl) resultEl.innerHTML = '<span style="color:var(--text-3);font-size:.78rem">Syncing…</span>';
+      try {
+        const resp = await fetch(`/api/campaigns/${id}/sync`, { method: 'POST' });
+        const html = await resp.text();
+        if (resultEl) resultEl.innerHTML = html;
+        if (resp.ok) succeeded++; else failed++;
+      } catch (e) {
+        if (resultEl) resultEl.innerHTML = '<span style="color:#fca5a5;font-size:.78rem">Network error</span>';
+        failed++;
+      }
+    }
+
+    if (allResultEl) {
+      if (failed === 0) {
+        allResultEl.innerHTML =
+          '<span style="color:#6ee7b7">✓ All ' + succeeded + ' campaign(s) synced successfully.</span>';
+      } else {
+        allResultEl.innerHTML =
+          '<span style="color:#fcd34d">⚠ ' + succeeded + ' synced, ' + failed + ' failed — check individual campaigns above.</span>';
+      }
+    }
   };
 
   // Close modal on backdrop click

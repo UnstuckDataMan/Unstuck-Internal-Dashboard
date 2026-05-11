@@ -125,7 +125,27 @@
 {% endfor %}
 
 {% if has_active.value %}
-<p class="camp-section-label" style="margin-top:24px">Active Campaigns</p>
+{% set active_ids = [] %}
+{% for c in campaigns %}
+  {% if not (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
+    {% set _ = active_ids.append(c.id) %}
+  {% endif %}
+{% endfor %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-top:24px;margin-bottom:6px">
+  <p class="camp-section-label" style="margin:0">Active Campaigns</p>
+  <button class="camp-sync-btn"
+          onclick="openSyncModal(null, {{ active_ids | tojson }})">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="17 1 21 5 17 9"/>
+      <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+      <polyline points="7 23 3 19 7 15"/>
+      <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+    </svg>
+    Sync All
+  </button>
+</div>
+<div id="camp-sync-all-result" style="font-size:.78rem;margin-bottom:8px"></div>
 <div class="camp-grid">
   {% for c in campaigns %}
   {% if not (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
