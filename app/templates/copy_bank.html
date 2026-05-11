@@ -957,6 +957,45 @@
     .admin-selectors select:focus { border-color: var(--border-focus); box-shadow: var(--sh-glow); }
     .admin-selectors select option { background: #1a1a2e; }
 
+    /* Spell-check language toggle */
+    .spell-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: auto;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 3px;
+      flex-shrink: 0;
+    }
+    .spell-toggle-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-3);
+      padding: 0 6px 0 4px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .spell-btn {
+      padding: 4px 10px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--font);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--text-2);
+      transition: background .15s var(--ease), color .15s var(--ease);
+      white-space: nowrap;
+    }
+    .spell-btn.active {
+      background: rgba(139,92,246,.25);
+      color: var(--accent);
+    }
+    .spell-btn:hover:not(.active) { background: rgba(255,255,255,.07); color: var(--text); }
+
     .admin-body {
       flex: 1;
       overflow-y: auto;
@@ -1520,6 +1559,11 @@
   <div class="admin-selectors">
     <div class="toggle-group" id="adm-territory-toggle" style="flex-shrink:0;min-width:100px"></div>
     <select id="adm-industry"></select>
+    <div class="spell-toggle" title="Spell-check language">
+      <span class="spell-toggle-label">Spell</span>
+      <button class="spell-btn" id="spell-uk">🇬🇧 UK</button>
+      <button class="spell-btn" id="spell-us">🇺🇸 US</button>
+    </div>
   </div>
   <div class="admin-body">
     <div class="admin-card">
@@ -1613,6 +1657,7 @@ let   dataReady     = false;
 let   activeProfile = null;
 let   profiles      = [];
 let   allClients    = [];
+let   spellLang     = localStorage.getItem('cb-spell-lang') || 'en-GB';
 
 // Territories / industries currently staged in the add-profile form
 let   psFormTerritories = ['US', 'UK'];
@@ -2176,13 +2221,13 @@ function getAdmData() {
 
 function buildSubjectRow(ch, subject, idx, total) {
   const div = document.createElement('div'); div.className='adm-var-row'; div.dataset.type=ch+'-subject'; div.dataset.idx=idx;
-  div.innerHTML='<div class="adm-var-header"><span class="adm-var-label">Subject '+(idx+1)+'</span>'+(total>1?'<button class="adm-remove-btn" data-remove="'+ch+'-subject" data-idx="'+idx+'">&times; Remove</button>':'')+'</div><textarea class="admin-textarea subject-ta" data-field="subject">'+escHtml(subject)+'</textarea>';
+  div.innerHTML='<div class="adm-var-header"><span class="adm-var-label">Subject '+(idx+1)+'</span>'+(total>1?'<button class="adm-remove-btn" data-remove="'+ch+'-subject" data-idx="'+idx+'">&times; Remove</button>':'')+'</div><textarea class="admin-textarea subject-ta" data-field="subject" spellcheck="true" lang="'+spellLang+'">'+escHtml(subject)+'</textarea>';
   return div;
 }
 function buildVarRow(ch, item, idx, total) {
   const div = document.createElement('div'); div.className='adm-var-row'; div.dataset.type=ch+'-variation'; div.dataset.idx=idx;
   const lbl = ch==='linkedin'?'Step':'Variation';
-  div.innerHTML='<div class="adm-var-header"><span class="adm-var-label">'+lbl+' '+(idx+1)+'</span>'+(total>1?'<button class="adm-remove-btn" data-remove="'+ch+'-variation" data-idx="'+idx+'">&times; Remove</button>':'')+'</div><textarea class="admin-textarea body-ta" data-field="body">'+escHtml(item.body)+'</textarea>';
+  div.innerHTML='<div class="adm-var-header"><span class="adm-var-label">'+lbl+' '+(idx+1)+'</span>'+(total>1?'<button class="adm-remove-btn" data-remove="'+ch+'-variation" data-idx="'+idx+'">&times; Remove</button>':'')+'</div><textarea class="admin-textarea body-ta" data-field="body" spellcheck="true" lang="'+spellLang+'">'+escHtml(item.body)+'</textarea>';
   return div;
 }
 
@@ -2252,6 +2297,33 @@ document.getElementById('adm-strip').addEventListener('click', function(){
   tas.forEach(function(ta){ ta.value = stripFormatting(ta.value); });
   showToast('✓ Formatting removed from all fields');
 });
+
+// ════════════════════════════════════════════════════════
+//  SPELL-CHECK LANGUAGE TOGGLE
+// ════════════════════════════════════════════════════════
+function applySpellLang() {
+  // Update any textareas already in the DOM
+  document.querySelectorAll('#admin-panel .admin-textarea').forEach(function(ta){
+    ta.lang = spellLang;
+  });
+  // Sync button active states
+  document.getElementById('spell-uk').classList.toggle('active', spellLang === 'en-GB');
+  document.getElementById('spell-us').classList.toggle('active', spellLang === 'en-US');
+}
+
+document.getElementById('spell-uk').addEventListener('click', function(){
+  spellLang = 'en-GB';
+  localStorage.setItem('cb-spell-lang', spellLang);
+  applySpellLang();
+});
+document.getElementById('spell-us').addEventListener('click', function(){
+  spellLang = 'en-US';
+  localStorage.setItem('cb-spell-lang', spellLang);
+  applySpellLang();
+});
+
+// Set initial active state on page load
+applySpellLang();
 
 document.getElementById('adm-clear').addEventListener('click', async function(){
   const key=admKey();
