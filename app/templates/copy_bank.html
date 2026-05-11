@@ -301,6 +301,7 @@
       position: sticky;
       top: 110px;
       height: calc(100vh - 110px);
+      /* overridden to static on mobile via @media */
       overflow-y: auto;
     }
     .panel-section { padding: 16px; }
@@ -1379,6 +1380,180 @@
     }
     .logs-badge-pending { background: rgba(245,158,11,.15); color: #fbbf24; border: 1px solid rgba(245,158,11,.3); }
     .logs-badge-approved { background: rgba(22,163,74,.12); color: #4ade80; border: 1px solid rgba(22,163,74,.3); }
+
+    /* ════════════════════════════════════════════════════════
+       RESPONSIVE — TABLET  ≤ 900px
+    ════════════════════════════════════════════════════════ */
+    @media (max-width: 900px) {
+      .left-panel { width: 210px; }
+    }
+
+    /* ════════════════════════════════════════════════════════
+       RESPONSIVE — MOBILE  ≤ 768px
+    ════════════════════════════════════════════════════════ */
+    @media (max-width: 768px) {
+
+      /* ── Topbars ────────────────────────────────────────── */
+      .topbar        { padding: 0 12px; gap: 8px; height: 52px; }
+      .ps-topbar     { padding: 0 12px; height: 52px; }
+      .home-label    { display: none; }
+      .topbar-center { font-size: 15px; }
+      .topbar-right  { min-width: unset; }
+      .topbar-back-btn { padding: 5px 10px; font-size: 12px; }
+      .ps-topbar-spacer { min-width: 60px; }
+
+      /* ── Tab bar ────────────────────────────────────────── */
+      .tab-bar  { padding: 0 10px; height: 46px; top: 52px; gap: 6px; } /* tab-bar sticky follows 52px topbar */
+      .tabs     { padding: 3px; gap: 2px; }
+      .tab      { padding: 5px 10px; font-size: 12px; }
+      .copy-all-btn   { padding: 6px 12px; font-size: 12px; }
+      .mail-merge-btn { padding: 6px 10px; font-size: 12px; }
+
+      /* ── Main view: stack panel above content ───────────── */
+      .main { flex-direction: column; }
+
+      .left-panel {
+        width: 100%;
+        height: auto;
+        position: static;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: visible;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        /* remove sticky height calc */
+        top: unset;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .left-panel::-webkit-scrollbar { display: none; }
+
+      .panel-section {
+        padding: 10px 14px;
+        flex-shrink: 0;
+        min-width: max-content;
+      }
+      .panel-section + .panel-section {
+        border-top: none;
+        border-left: 1px solid var(--border);
+      }
+      .section-label  { margin-bottom: 6px; }
+      .field          { margin-bottom: 0; }
+      .field select   { min-width: 140px; }
+
+      /* ── Right panel ────────────────────────────────────── */
+      .rp-scroll { padding: 12px; gap: 12px; }
+
+      /* ── Profile screen ─────────────────────────────────── */
+      .ps-body { padding: 20px 12px; }
+      .profile-grid {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 10px;
+      }
+      .profile-card { padding: 18px 12px; border-radius: 14px; }
+      .ps-actions   { gap: 8px; }
+      .ps-add-btn   { padding: 8px 16px; font-size: 13px; }
+      .ps-manage-btn { padding: 7px 14px; font-size: 12px; }
+
+      /* ── Admin header ───────────────────────────────────── */
+      .admin-header {
+        height: auto;
+        min-height: 52px;
+        padding: 8px 12px;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      /* Title full-width, centered, sits on its own line */
+      .admin-title {
+        order: -1;
+        flex: 0 0 100%;
+        font-size: 14px;
+        text-align: center;
+        padding: 2px 0;
+      }
+      .save-status { display: none; }        /* reclaimed on small screens */
+      .admin-back-btn { padding: 5px 10px; font-size: 12px; }
+      .admin-request-btn,
+      .admin-approve-btn {
+        padding: 7px 14px;
+        font-size: 12px;
+        flex: 1;
+        text-align: center;
+      }
+      /* Profiles admin save button */
+      .admin-save-btn { padding: 7px 14px; font-size: 12px; flex: 1; }
+
+      /* Pending approval banner */
+      .admin-pending-banner { padding: 8px 14px; font-size: 12px; }
+
+      /* ── Admin selectors (territory + industry + spell) ── */
+      .admin-selectors { padding: 10px 12px; gap: 8px; }
+      .spell-toggle    { margin-left: 0; }
+      /* Let everything wrap naturally — already flex-wrap:wrap */
+
+      /* ── Admin body / cards ─────────────────────────────── */
+      .admin-body { padding: 12px; gap: 12px; }
+      .admin-card { padding: 16px; }
+      .admin-card-title { margin-bottom: 14px; }
+
+      /* ── Action buttons: stack full-width ───────────────── */
+      .admin-action-row { flex-direction: column; gap: 8px; }
+      .admin-action-btn { width: 100%; text-align: center; justify-content: center; }
+
+      /* ── Logs / profiles admin ──────────────────────────── */
+      .logs-body { padding: 12px; gap: 12px; }
+      .pa-list   { padding: 12px; gap: 10px; }
+      .pa-profile-card { padding: 16px; }
+
+      /* ── Approver dialog ────────────────────────────────── */
+      .approver-btns { gap: 8px; }
+      .approver-btn  { padding: 10px 6px; font-size: 13px; }
+
+      /* ── Toast stays above mobile nav bar ───────────────── */
+      .approval-toast { bottom: 20px; width: calc(100% - 32px); text-align: center; }
+    }
+
+    /* ════════════════════════════════════════════════════════
+       RESPONSIVE — SMALL MOBILE  ≤ 480px
+    ════════════════════════════════════════════════════════ */
+    @media (max-width: 480px) {
+
+      /* Profile grid: strict 2-column */
+      .profile-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      .profile-card     { padding: 14px 10px; border-radius: 12px; gap: 8px; }
+      .profile-card-icon { width: 42px; height: 42px; font-size: 18px; border-radius: 11px; }
+      .profile-card-name { font-size: 12px; }
+      .profile-card-badge { font-size: 9px; padding: 2px 8px; }
+
+      /* PS actions: wrap and centre */
+      .ps-actions { justify-content: center; }
+      .ps-add-btn, .ps-manage-btn { flex: 1; text-align: center; min-width: 120px; }
+
+      /* Tabs: pill takes full width */
+      .tabs { flex: 1; }
+      .tab  { flex: 1; padding: 5px 6px; font-size: 11px; text-align: center; }
+
+      /* Spell toggle: hide label, compress buttons */
+      .spell-toggle-label { display: none; }
+      .spell-btn { padding: 4px 8px; font-size: 11px; }
+
+      /* Admin */
+      .admin-body { padding: 10px; gap: 10px; }
+      .admin-card { padding: 12px; border-radius: 12px; }
+      .adm-var-row { padding: 10px; }
+      .admin-textarea.body-ta { min-height: 130px; }
+
+      /* Dialog: stack approver buttons */
+      .approver-btns { flex-direction: column; }
+      .approver-btn  { padding: 12px; }
+
+      /* Logs table: allow horizontal scroll, allow wrapping on client/territory/industry cols */
+      .logs-table td { white-space: normal; min-width: 80px; }
+      .logs-table th { white-space: nowrap; }
+    }
   </style>
 </head>
 <body>
