@@ -1101,6 +1101,7 @@
     }
     .admin-action-btn:hover { border-color: rgba(255,255,255,.25); color: var(--text); }
     .admin-action-btn.danger:hover { border-color: var(--red-bdr); color: var(--red); }
+    .admin-action-btn.strip:hover  { border-color: rgba(251,191,36,.5); color: #fbbf24; }
 
     /* ════════════════════════════════════════════════════════
        APPROVAL WORKFLOW
@@ -1547,6 +1548,7 @@
     <div class="admin-card">
       <div class="admin-card-title">Actions</div>
       <div class="admin-action-row">
+        <button class="admin-action-btn strip" id="adm-strip">⊘ Remove Formatting</button>
         <button class="admin-action-btn danger" id="adm-clear">Clear this combination</button>
       </div>
     </div>
@@ -2229,6 +2231,27 @@ document.getElementById('adm-add-flyout-subject').addEventListener('click', func
 document.getElementById('adm-add-flyout-variation').addEventListener('click', function(){ const d=collectAdmData(); d.flyout.variations.push({body:''}); TEMPLATES[admKey()]=d; adminRender(); document.getElementById('adm-flyout-variations').lastElementChild.scrollIntoView({behavior:'smooth'}); });
 document.getElementById('adm-add-linkedin').addEventListener('click', function(){ const d=collectAdmData(); d.linkedin.steps.push({body:''}); TEMPLATES[admKey()]=d; adminRender(); document.getElementById('adm-linkedin-rows').lastElementChild.scrollIntoView({behavior:'smooth'}); });
 
+
+// ════════════════════════════════════════════════════════
+//  REMOVE FORMATTING
+// ════════════════════════════════════════════════════════
+function stripFormatting(text) {
+  return text
+    .replace(/\r\n/g, '\n')          // Windows → Unix line endings
+    .replace(/\r/g, '\n')            // old Mac → Unix
+    .replace(/[​‌‍﻿]/g, '')  // zero-width & BOM chars
+    .replace(/ /g, ' ')         // non-breaking space → regular space
+    .replace(/[ \t]+$/gm, '')        // trailing whitespace per line
+    .replace(/\n{3,}/g, '\n\n')      // collapse 3+ blank lines to one
+    .trim();
+}
+
+document.getElementById('adm-strip').addEventListener('click', function(){
+  const tas = document.querySelectorAll('#admin-panel .admin-textarea');
+  if (!tas.length) return;
+  tas.forEach(function(ta){ ta.value = stripFormatting(ta.value); });
+  showToast('✓ Formatting removed from all fields');
+});
 
 document.getElementById('adm-clear').addEventListener('click', async function(){
   const key=admKey();
