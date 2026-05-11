@@ -884,12 +884,13 @@
     ════════════════════════════════════════════════════════ */
     .admin-panel {
       display: none;
-      flex: 1;
+      position: fixed;
+      inset: 0;
+      top: 58px; /* sits below the main topbar */
+      z-index: 50;
       flex-direction: column;
       overflow: hidden;
       background: rgba(16,16,31,.97);
-      position: relative;
-      z-index: 50;
     }
     .admin-panel.visible { display: flex; }
 
@@ -1454,6 +1455,9 @@
       .ps-actions   { gap: 8px; }
       .ps-add-btn   { padding: 8px 16px; font-size: 13px; }
       .ps-manage-btn { padding: 7px 14px; font-size: 12px; }
+
+      /* ── Admin panel: adjust fixed top for smaller topbar ── */
+      .admin-panel { top: 52px; }
 
       /* ── Admin header ───────────────────────────────────── */
       .admin-header {
