@@ -125,16 +125,17 @@
 {% endfor %}
 
 {% if has_active.value %}
-{% set active_ids = [] %}
+{% set ns = namespace(ids=[]) %}
 {% for c in campaigns %}
   {% if not (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
-    {% set _ = active_ids.append(c.id) %}
+    {% set ns.ids = ns.ids + [c.id | string] %}
   {% endif %}
 {% endfor %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-top:24px;margin-bottom:6px">
   <p class="camp-section-label" style="margin:0">Active Campaigns</p>
-  <button class="camp-sync-btn"
-          onclick="openSyncModal(null, {{ active_ids | tojson }})">
+  <button class="camp-sync-btn" id="camp-sync-all-btn"
+          data-campaign-ids="{{ ns.ids | join(',') }}"
+          onclick="openSyncAllModal(this)">
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <polyline points="17 1 21 5 17 9"/>
