@@ -498,6 +498,29 @@
     .var-body { font-size: 13.5px; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; font-family: var(--font); }
     .channel-empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--text-3); font-style: italic; }
 
+    /* ── View-level pending banner ───────────────────────── */
+    .view-pending-banner {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 20px;
+      background: rgba(245,158,11,.12);
+      border-bottom: 1px solid rgba(245,158,11,.3);
+      font-size: 13px; color: #fbbf24; font-weight: 500;
+      flex-shrink: 0;
+    }
+    .view-pending-banner strong { font-weight: 700; }
+
+    /* ── Add-template button ─────────────────────────────── */
+    .add-template-btn {
+      width: 100%; padding: 11px;
+      border: 1.5px dashed rgba(255,255,255,.14);
+      border-radius: 10px; background: transparent;
+      color: var(--text-3); font-size: 13px; font-weight: 500;
+      font-family: var(--font); cursor: pointer;
+      transition: border-color .18s var(--ease), color .18s var(--ease), background .18s var(--ease);
+      margin: 4px 0 2px;
+    }
+    .add-template-btn:hover { border-color: rgba(139,92,246,.5); color: #a78bfa; background: rgba(139,92,246,.06); }
+
     /* ── Inline copy editing ──────────────────────────────── */
     .copy-edit-btn {
       display: inline-block; margin-top: 10px;
@@ -1753,9 +1776,7 @@
   <div class="topbar-sep"></div>
   <button class="topbar-back-btn" id="back-to-profiles-btn">&#8592; Profiles</button>
   <h1 class="topbar-center" id="header-title">Copy Bank</h1>
-  <div class="topbar-right">
-    <button class="gear-btn" id="gear-btn" title="Admin">&#9881;</button>
-  </div>
+  <div class="topbar-right"></div>
 </header>
 
 <!-- TAB BAR -->
@@ -1763,6 +1784,8 @@
   <div class="tabs" id="tabs-container"></div>
   <div class="tab-bar-right">
     <button class="mail-merge-btn" id="mail-merge-btn" style="display:none" onclick="pushToMailMerge()">Mail Merge &#8594;</button>
+    <button class="admin-request-btn" id="request-approval-btn" style="display:none">Request Approval</button>
+    <button class="admin-approve-btn" id="approve-btn" style="display:none">Approve &amp; Publish</button>
     <button class="copy-all-btn" id="copy-all-btn">Copy All</button>
   </div>
 </div>
@@ -1792,66 +1815,11 @@
     </div>
   </div>
   <div class="right-panel">
+    <div class="view-pending-banner" id="view-pending-banner" style="display:none">
+      &#9203; <strong>Pending approval</strong> &mdash; draft submitted <span id="view-pending-date"></span>. Edit if needed, then approve.
+    </div>
     <div class="rp-scroll" id="rp-scroll">
       <div class="rp-state"><div class="spinner"></div><span>Loading&hellip;</span></div>
-    </div>
-  </div>
-</div>
-
-<!-- ══════════════════════════════════════════════════════════
-     TEMPLATE ADMIN PANEL
-══════════════════════════════════════════════════════════ -->
-<div class="admin-panel" id="admin-panel">
-  <div class="admin-header">
-    <button class="admin-back-btn" id="admin-back-btn">&#8592; Back</button>
-    <span class="admin-title">Template Admin</span>
-    <span class="save-status" id="save-status"></span>
-    <button class="admin-request-btn" id="adm-request-approval">Request Approval</button>
-    <button class="admin-approve-btn" id="adm-approve" style="display:none">Approve &amp; Publish</button>
-  </div>
-  <!-- Amber banner shown when a pending draft exists for the current key -->
-  <div class="admin-pending-banner" id="admin-pending-banner" style="display:none">
-    &#9203; <strong>Pending approval</strong> &mdash; draft submitted <span id="admin-pending-date"></span>. Review the copy below, edit if needed, then approve.
-  </div>
-  <div class="admin-selectors">
-    <div class="toggle-group" id="adm-territory-toggle" style="flex-shrink:0;min-width:100px"></div>
-    <select id="adm-industry"></select>
-    <div class="spell-toggle" title="Spell-check language">
-      <span class="spell-toggle-label">Spell</span>
-      <button class="spell-btn" id="spell-uk">🇬🇧 UK</button>
-      <button class="spell-btn" id="spell-us">🇺🇸 US</button>
-    </div>
-  </div>
-  <div class="admin-body">
-    <div class="admin-card">
-      <div class="admin-card-title">Email</div>
-      <div class="admin-subcard-title">Subject Lines</div>
-      <div id="adm-email-subjects"></div>
-      <button class="adm-add-btn" id="adm-add-email-subject">+ Add subject line</button>
-      <div class="admin-subcard-title">Body Variations</div>
-      <div id="adm-email-variations"></div>
-      <button class="adm-add-btn" id="adm-add-email-variation">+ Add email variation</button>
-    </div>
-    <div class="admin-card" id="adm-flyout-card">
-      <div class="admin-card-title">Fly-out</div>
-      <div class="admin-subcard-title">Subject Lines</div>
-      <div id="adm-flyout-subjects"></div>
-      <button class="adm-add-btn" id="adm-add-flyout-subject">+ Add subject line</button>
-      <div class="admin-subcard-title">Body Variations</div>
-      <div id="adm-flyout-variations"></div>
-      <button class="adm-add-btn" id="adm-add-flyout-variation">+ Add fly-out variation</button>
-    </div>
-    <div class="admin-card">
-      <div class="admin-card-title">LinkedIn Sequence</div>
-      <div id="adm-linkedin-rows"></div>
-      <button class="adm-add-btn" id="adm-add-linkedin">+ Add LinkedIn step</button>
-    </div>
-    <div class="admin-card">
-      <div class="admin-card-title">Actions</div>
-      <div class="admin-action-row">
-        <button class="admin-action-btn strip" id="adm-strip">⊘ Remove Formatting</button>
-        <button class="admin-action-btn danger" id="adm-clear">Clear this combination</button>
-      </div>
     </div>
   </div>
 </div>
@@ -1966,14 +1934,6 @@ function currentKey() {
   const ind = document.getElementById('industry').value;
   if (!activeProfile || activeProfile.type === 'bizdev') return territory + '_' + ind;
   return '__c__' + activeProfile.client_id + '__' + territory + '_' + ind;
-}
-
-function admKey() {
-  const terBtn = document.querySelector('[data-adm-territory].active');
-  const terr   = terBtn ? terBtn.dataset.admTerritory : (activeProfile ? activeProfile.territories[0] : 'US');
-  const ind    = document.getElementById('adm-industry').value;
-  if (!activeProfile || activeProfile.type === 'bizdev') return terr + '_' + ind;
-  return '__c__' + activeProfile.client_id + '__' + terr + '_' + ind;
 }
 
 // ════════════════════════════════════════════════════════
@@ -2250,7 +2210,6 @@ document.getElementById('ps-form-submit').addEventListener('click', async functi
   btn.textContent = 'Create Client'; btn.disabled = false;
 });
 
-document.getElementById('gear-btn').addEventListener('click', adminShow);
 document.getElementById('profiles-admin-btn').addEventListener('click', openProfilesAdmin);
 document.getElementById('back-to-profiles-btn').addEventListener('click', function(){
   if (dirtyContent) {
@@ -2281,7 +2240,7 @@ function enterProfile(profile) {
     btn.addEventListener('click', function(){
       territory = ter;
       tg.querySelectorAll('.toggle-btn').forEach(function(b){ b.classList.remove('active'); });
-      btn.classList.add('active'); render();
+      btn.classList.add('active'); render(); checkPendingForView();
     });
     tg.appendChild(btn);
   });
@@ -2294,36 +2253,15 @@ function enterProfile(profile) {
     opt.value = v; opt.textContent = industryLabel(v); indSel.appendChild(opt);
   });
 
-  // Rebuild admin territory toggles
-  const admTg = document.getElementById('adm-territory-toggle');
-  admTg.innerHTML = '';
-  profile.territories.forEach(function(ter, i){
-    const btn = document.createElement('button');
-    btn.className = 'toggle-btn'+(i===0?' active':'');
-    btn.dataset.admTerritory = ter; btn.textContent = ter;
-    btn.addEventListener('click', function(){
-      admTg.querySelectorAll('.toggle-btn').forEach(function(b){ b.classList.remove('active'); });
-      btn.classList.add('active'); checkPendingForAdmin();
-    });
-    admTg.appendChild(btn);
-  });
-
-  // Rebuild admin industry dropdown
-  const admInd = document.getElementById('adm-industry');
-  admInd.innerHTML = '';
-  profile.industries.forEach(function(v){
-    const opt = document.createElement('option');
-    opt.value = v; opt.textContent = industryLabel(v); admInd.appendChild(opt);
-  });
-
-  document.getElementById('adm-flyout-card').style.display = profile.type==='bizdev' ? '' : 'none';
   document.getElementById('mail-merge-btn').style.display  = profile.type==='client' ? '' : 'none';
   document.getElementById('header-title').textContent = profile.name;
   document.getElementById('profile-screen').classList.remove('visible');
   document.getElementById('main-header').style.display = 'flex';
   renderTabs();
   document.getElementById('main-view').style.display = 'flex';
+  setNormalApprovalState();
   render();
+  checkPendingForView();
 }
 
 function pushToMailMerge() {
@@ -2383,13 +2321,17 @@ function renderSubjectsSection(container, subjects) {
     const text = subjects.filter(function(s){ return s.trim(); }).join('\n');
     if (text) await copyText(text, btn, 'Copy all Subjects');
   });
-  if (!hasAny) section.appendChild(emptyEl('No subject lines set for this combination yet.'));
+  if (!hasAny) section.appendChild(emptyEl('No subject lines yet — add one below.'));
   else subjects.forEach(function(s,i){
     if(s.trim()) section.appendChild(makeCard(
       'Subject '+(i+1), s, s,
       { key: currentKey(), channel: activeChannel, type: 'subject', idx: i, rawValue: s }
     ));
   });
+  const addBtn = document.createElement('button'); addBtn.className = 'add-template-btn';
+  addBtn.textContent = '+ Add Subject Line';
+  addBtn.addEventListener('click', function(){ addNewEntry('subject'); });
+  section.appendChild(addBtn);
   container.appendChild(section);
 }
 
@@ -2406,13 +2348,17 @@ function renderVariationsSection(container, ch, variations, sender) {
     if (!hasAny) return;
     await copyText(assembled.filter(function(a){ return a.body; }).map(function(a){ return a.body; }).join('\n\n'), btn, 'Copy all Variations');
   });
-  if (!hasAny) section.appendChild(emptyEl('No variations set for this combination yet.'));
+  if (!hasAny) section.appendChild(emptyEl('No variations yet — add one below.'));
   else assembled.forEach(function(a){
     if(a.body) section.appendChild(makeCard(
       a.label, a.body, a.body,
       { key: currentKey(), channel: ch, type: 'variation', idx: a.idx, rawValue: a.raw }
     ));
   });
+  const addBtn = document.createElement('button'); addBtn.className = 'add-template-btn';
+  addBtn.textContent = '+ Add Variation';
+  addBtn.addEventListener('click', function(){ addNewEntry('variation'); });
+  section.appendChild(addBtn);
   container.appendChild(section);
 }
 
@@ -2428,13 +2374,17 @@ function renderStepsSection(container, steps, sender) {
     if (!hasAny) return;
     await copyText(assembled.filter(function(a){ return a.body; }).map(function(a){ return a.body; }).join('\n\n'), btn, 'Copy all Steps');
   });
-  if (!hasAny) section.appendChild(emptyEl('No LinkedIn sequence set for this combination yet.'));
+  if (!hasAny) section.appendChild(emptyEl('No LinkedIn steps yet — add one below.'));
   else assembled.forEach(function(a){
     if(a.body) section.appendChild(makeCard(
       a.label, a.body, a.body,
       { key: currentKey(), channel: 'linkedin', type: 'step', idx: a.idx, rawValue: a.raw }
     ));
   });
+  const addBtn = document.createElement('button'); addBtn.className = 'add-template-btn';
+  addBtn.textContent = '+ Add Step';
+  addBtn.addEventListener('click', function(){ addNewEntry('step'); });
+  section.appendChild(addBtn);
   container.appendChild(section);
 }
 
@@ -2482,100 +2432,48 @@ document.getElementById('copy-all-btn').addEventListener('click', async function
 });
 
 document.getElementById('sender').addEventListener('change', render);
-document.getElementById('industry').addEventListener('change', render);
+document.getElementById('industry').addEventListener('change', function(){ render(); checkPendingForView(); });
 
 // ════════════════════════════════════════════════════════
-//  ADMIN SHOW / HIDE
+//  ADD NEW ENTRY (subject / variation / step)
 // ════════════════════════════════════════════════════════
-function adminShow() {
-  document.getElementById('main-view').style.display = 'none';
-  document.getElementById('tab-bar').style.display   = 'none';
-  document.getElementById('admin-panel').classList.add('visible');
-  // Check for a pending draft first; checkPendingForAdmin() calls adminRender() internally
-  checkPendingForAdmin();
-}
-function adminHide() {
-  document.getElementById('admin-panel').classList.remove('visible');
-  renderTabs();
-  document.getElementById('main-view').style.display = 'flex';
-  render();
-}
-document.getElementById('admin-back-btn').addEventListener('click', adminHide);
-// adm-industry change re-checks pending (which calls adminRender internally)
-document.getElementById('adm-industry').addEventListener('change', checkPendingForAdmin);
-
-// ════════════════════════════════════════════════════════
-//  ADMIN HELPERS
-// ════════════════════════════════════════════════════════
-function getAdmData() {
-  const t = TEMPLATES[admKey()] || {};
-  return {
-    email:    { subjects: ((t.email&&t.email.subjects)||[]).slice(), variations: ((t.email&&t.email.variations)||[{body:''}]).map(function(v){ return{body:v.body||''}; }) },
-    flyout:   { subjects: ((t.flyout&&t.flyout.subjects)||[]).slice(), variations: ((t.flyout&&t.flyout.variations)||[{body:''}]).map(function(v){ return{body:v.body||''}; }) },
-    linkedin: { steps: ((t.linkedin&&t.linkedin.steps)||[{body:''}]).map(function(s){ return{body:s.body||''}; }) },
-  };
-}
-
-function buildSubjectRow(ch, subject, idx, total) {
-  const div = document.createElement('div'); div.className='adm-var-row'; div.dataset.type=ch+'-subject'; div.dataset.idx=idx;
-  div.innerHTML='<div class="adm-var-header"><span class="adm-var-label">Subject '+(idx+1)+'</span>'+(total>1?'<button class="adm-remove-btn" data-remove="'+ch+'-subject" data-idx="'+idx+'">&times; Remove</button>':'')+'</div><textarea class="admin-textarea subject-ta" data-field="subject" spellcheck="true" lang="'+spellLang+'">'+escHtml(subject)+'</textarea>';
-  return div;
-}
-function buildVarRow(ch, item, idx, total) {
-  const div = document.createElement('div'); div.className='adm-var-row'; div.dataset.type=ch+'-variation'; div.dataset.idx=idx;
-  const lbl = ch==='linkedin'?'Step':'Variation';
-  div.innerHTML='<div class="adm-var-header"><span class="adm-var-label">'+lbl+' '+(idx+1)+'</span>'+(total>1?'<button class="adm-remove-btn" data-remove="'+ch+'-variation" data-idx="'+idx+'">&times; Remove</button>':'')+'</div><textarea class="admin-textarea body-ta" data-field="body" spellcheck="true" lang="'+spellLang+'">'+escHtml(item.body)+'</textarea>';
-  return div;
-}
-
-function adminRender() {
-  const d = getAdmData(); const isBizdev = activeProfile && activeProfile.type==='bizdev';
-  const eSubEl=document.getElementById('adm-email-subjects'); eSubEl.innerHTML='';
-  const eSubs=d.email.subjects.length?d.email.subjects:[''];
-  eSubs.forEach(function(s,i){ eSubEl.appendChild(buildSubjectRow('email',s,i,eSubs.length)); });
-  const eVarEl=document.getElementById('adm-email-variations'); eVarEl.innerHTML='';
-  d.email.variations.forEach(function(v,i){ eVarEl.appendChild(buildVarRow('email',v,i,d.email.variations.length)); });
-  if (isBizdev) {
-    const fSubEl=document.getElementById('adm-flyout-subjects'); fSubEl.innerHTML='';
-    const fSubs=d.flyout.subjects.length?d.flyout.subjects:[''];
-    fSubs.forEach(function(s,i){ fSubEl.appendChild(buildSubjectRow('flyout',s,i,fSubs.length)); });
-    const fVarEl=document.getElementById('adm-flyout-variations'); fVarEl.innerHTML='';
-    d.flyout.variations.forEach(function(v,i){ fVarEl.appendChild(buildVarRow('flyout',v,i,d.flyout.variations.length)); });
+function addNewEntry(type) {
+  const key = currentKey();
+  if (!TEMPLATES[key]) TEMPLATES[key] = defaultContent();
+  const d = TEMPLATES[key];
+  const ch = activeChannel;
+  if (type === 'subject') {
+    d[ch].subjects.push('');
+  } else if (type === 'variation') {
+    d[ch].variations.push({ body: '' });
+  } else if (type === 'step') {
+    d.linkedin.steps.push({ body: '' });
   }
-  const liEl=document.getElementById('adm-linkedin-rows'); liEl.innerHTML='';
-  d.linkedin.steps.forEach(function(s,i){ liEl.appendChild(buildVarRow('linkedin',s,i,d.linkedin.steps.length)); });
-  document.querySelectorAll('[data-remove]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const rt=btn.dataset.remove, idx=parseInt(btn.dataset.idx), d2=collectAdmData();
-      if      (rt==='email-subject')      { d2.email.subjects.splice(idx,1);    if(!d2.email.subjects.length)    d2.email.subjects=['']; }
-      else if (rt==='email-variation')    { d2.email.variations.splice(idx,1);  if(!d2.email.variations.length)  d2.email.variations=[{body:''}]; }
-      else if (rt==='flyout-subject')     { d2.flyout.subjects.splice(idx,1);   if(!d2.flyout.subjects.length)   d2.flyout.subjects=['']; }
-      else if (rt==='flyout-variation')   { d2.flyout.variations.splice(idx,1); if(!d2.flyout.variations.length) d2.flyout.variations=[{body:''}]; }
-      else if (rt==='linkedin-variation') { d2.linkedin.steps.splice(idx,1);    if(!d2.linkedin.steps.length)    d2.linkedin.steps=[{body:''}]; }
-      TEMPLATES[admKey()]=d2; adminRender();
+  // Re-render then open the newly added card in edit mode
+  render();
+  setTimeout(function(){
+    const sections = document.querySelectorAll('#rp-scroll .channel-section');
+    let sectionCards = null;
+    sections.forEach(function(sec){
+      const title = sec.querySelector('.channel-title');
+      if (!title) return;
+      const t = title.textContent;
+      if (type === 'subject' && t === 'Subject Lines') sectionCards = sec.querySelectorAll('.variation-card');
+      else if (type === 'variation' && (t === 'Email Variations' || t === 'Fly-out Variations')) sectionCards = sec.querySelectorAll('.variation-card');
+      else if (type === 'step' && t === 'LinkedIn Sequence') sectionCards = sec.querySelectorAll('.variation-card');
     });
-  });
+    if (sectionCards && sectionCards.length) {
+      const lastCard = sectionCards[sectionCards.length - 1];
+      lastCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const editBtn = lastCard.querySelector('.copy-edit-btn');
+      if (editBtn) editBtn.click();
+    }
+  }, 60);
 }
-
-function collectAdmData() {
-  const d={email:{subjects:[],variations:[]},flyout:{subjects:[],variations:[]},linkedin:{steps:[]}};
-  document.querySelectorAll('#adm-email-subjects .adm-var-row').forEach(function(r){ d.email.subjects.push(r.querySelector('[data-field="subject"]').value); });
-  document.querySelectorAll('#adm-email-variations .adm-var-row').forEach(function(r){ d.email.variations.push({body:r.querySelector('[data-field="body"]').value}); });
-  document.querySelectorAll('#adm-flyout-subjects .adm-var-row').forEach(function(r){ d.flyout.subjects.push(r.querySelector('[data-field="subject"]').value); });
-  document.querySelectorAll('#adm-flyout-variations .adm-var-row').forEach(function(r){ d.flyout.variations.push({body:r.querySelector('[data-field="body"]').value}); });
-  document.querySelectorAll('#adm-linkedin-rows .adm-var-row').forEach(function(r){ d.linkedin.steps.push({body:r.querySelector('[data-field="body"]').value}); });
-  return d;
-}
-
-document.getElementById('adm-add-email-subject').addEventListener('click', function(){ const d=collectAdmData(); d.email.subjects.push(''); TEMPLATES[admKey()]=d; adminRender(); document.getElementById('adm-email-subjects').lastElementChild.scrollIntoView({behavior:'smooth'}); });
-document.getElementById('adm-add-email-variation').addEventListener('click', function(){ const d=collectAdmData(); d.email.variations.push({body:''}); TEMPLATES[admKey()]=d; adminRender(); document.getElementById('adm-email-variations').lastElementChild.scrollIntoView({behavior:'smooth'}); });
-document.getElementById('adm-add-flyout-subject').addEventListener('click', function(){ const d=collectAdmData(); d.flyout.subjects.push(''); TEMPLATES[admKey()]=d; adminRender(); document.getElementById('adm-flyout-subjects').lastElementChild.scrollIntoView({behavior:'smooth'}); });
-document.getElementById('adm-add-flyout-variation').addEventListener('click', function(){ const d=collectAdmData(); d.flyout.variations.push({body:''}); TEMPLATES[admKey()]=d; adminRender(); document.getElementById('adm-flyout-variations').lastElementChild.scrollIntoView({behavior:'smooth'}); });
-document.getElementById('adm-add-linkedin').addEventListener('click', function(){ const d=collectAdmData(); d.linkedin.steps.push({body:''}); TEMPLATES[admKey()]=d; adminRender(); document.getElementById('adm-linkedin-rows').lastElementChild.scrollIntoView({behavior:'smooth'}); });
 
 
 // ════════════════════════════════════════════════════════
-//  REMOVE FORMATTING
+//  PROFILES ADMIN — begin (remove formatting kept inline)
 // ════════════════════════════════════════════════════════
 function stripFormatting(text) {
   return text
@@ -2587,48 +2485,6 @@ function stripFormatting(text) {
     .replace(/\n{3,}/g, '\n\n')      // collapse 3+ blank lines to one
     .trim();
 }
-
-document.getElementById('adm-strip').addEventListener('click', function(){
-  const tas = document.querySelectorAll('#admin-panel .admin-textarea');
-  if (!tas.length) return;
-  tas.forEach(function(ta){ ta.value = stripFormatting(ta.value); });
-  showToast('✓ Formatting removed from all fields');
-});
-
-// ════════════════════════════════════════════════════════
-//  SPELL-CHECK LANGUAGE TOGGLE
-// ════════════════════════════════════════════════════════
-function applySpellLang() {
-  // Update any textareas already in the DOM
-  document.querySelectorAll('#admin-panel .admin-textarea').forEach(function(ta){
-    ta.lang = spellLang;
-  });
-  // Sync button active states
-  document.getElementById('spell-uk').classList.toggle('active', spellLang === 'en-GB');
-  document.getElementById('spell-us').classList.toggle('active', spellLang === 'en-US');
-}
-
-document.getElementById('spell-uk').addEventListener('click', function(){
-  spellLang = 'en-GB';
-  localStorage.setItem('cb-spell-lang', spellLang);
-  applySpellLang();
-});
-document.getElementById('spell-us').addEventListener('click', function(){
-  spellLang = 'en-US';
-  localStorage.setItem('cb-spell-lang', spellLang);
-  applySpellLang();
-});
-
-// Set initial active state on page load
-applySpellLang();
-
-document.getElementById('adm-clear').addEventListener('click', async function(){
-  const key=admKey();
-  if (!confirm('Clear all copy for '+key+'? This cannot be undone.')) return;
-  const empty=defaultContent(); TEMPLATES[key]=empty;
-  try { await saveToSupabase(key,empty); adminRender(); alert('Cleared.'); }
-  catch(e) { alert('Error: '+e.message); }
-});
 
 // ════════════════════════════════════════════════════════
 //  PROFILES ADMIN (edit/delete existing profiles)
@@ -2718,48 +2574,40 @@ document.getElementById('profiles-admin-back').addEventListener('click', showPro
 // ════════════════════════════════════════════════════════
 //  APPROVAL WORKFLOW
 // ════════════════════════════════════════════════════════
-let currentPending = null; // holds pending row if one exists for the current admKey()
+let currentPending = null;
 
-// ── Pending state detection ──────────────────────────────
-async function checkPendingForAdmin() {
-  const key = admKey();
+async function checkPendingForView() {
+  if (!activeProfile) return;
+  const key = currentKey();
   currentPending = null;
-  // Reset to normal state while loading
-  document.getElementById('admin-pending-banner').style.display = 'none';
-  document.getElementById('adm-request-approval').style.display = '';
-  document.getElementById('adm-approve').style.display = 'none';
-  document.getElementById('save-status').textContent = '';
-
+  setNormalApprovalState();
   try {
     const res = await fetch('/api/copy-bank/pending/' + encodeURIComponent(key));
     if (res.ok) {
       const data = await res.json();
       if (data.pending) {
         currentPending = data.pending;
-        // Load the pending draft content into the local TEMPLATES cache so adminRender() uses it
         TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(currentPending.content)));
-        setAdminStatePending(currentPending.created_at);
+        render();
+        setPendingApprovalState(currentPending.created_at);
       }
     }
-  } catch(e) {
-    // Non-fatal — fall through to normal render
-  }
-  adminRender(); // Always render after state is determined
+  } catch(e) { /* non-fatal */ }
 }
 
-function setAdminStatePending(createdAt) {
+function setPendingApprovalState(createdAt) {
   const dateStr = new Date(createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  document.getElementById('admin-pending-date').textContent = dateStr;
-  document.getElementById('admin-pending-banner').style.display = 'flex';
-  document.getElementById('adm-request-approval').style.display = 'none';
-  document.getElementById('adm-approve').style.display = '';
+  document.getElementById('view-pending-date').textContent = dateStr;
+  document.getElementById('view-pending-banner').style.display = 'flex';
+  document.getElementById('request-approval-btn').style.display = 'none';
+  document.getElementById('approve-btn').style.display = '';
 }
 
-function setAdminStateNormal() {
+function setNormalApprovalState() {
   currentPending = null;
-  document.getElementById('admin-pending-banner').style.display = 'none';
-  document.getElementById('adm-request-approval').style.display = '';
-  document.getElementById('adm-approve').style.display = 'none';
+  document.getElementById('view-pending-banner').style.display = 'none';
+  document.getElementById('request-approval-btn').style.display = '';
+  document.getElementById('approve-btn').style.display = 'none';
 }
 
 // ── Toast helper ─────────────────────────────────────────
@@ -2773,51 +2621,21 @@ function showToast(msg, isError) {
   _toastTimer = setTimeout(function(){ toast.style.display = 'none'; }, 4000);
 }
 
-// ── Request Approval ─────────────────────────────────────
-document.getElementById('adm-request-approval').addEventListener('click', async function() {
-  if (!activeProfile) return;
-  const content  = collectAdmData();
-  const key      = admKey();
-  const terBtn   = document.querySelector('[data-adm-territory].active');
-  const territory = terBtn ? terBtn.dataset.admTerritory : (activeProfile.territories[0] || 'US');
-  const industry  = industryLabel(document.getElementById('adm-industry').value);
-
-  const btn = document.getElementById('adm-request-approval');
-  btn.textContent = 'Sending…'; btn.disabled = true;
-
-  try {
-    const res = await fetch('/api/copy-bank/request-approval', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, client_name: activeProfile.name, territory, industry, content }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast('✓ Approval request sent to Slack');
-      // Immediately reflect pending state in UI
-      currentPending = { created_at: new Date().toISOString(), content };
-      TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(content)));
-      setAdminStatePending(currentPending.created_at);
-      adminRender();
-    } else {
-      showToast('Error: ' + (data.error || 'Unknown error'), true);
-    }
-  } catch(e) {
-    showToast('Error: ' + e.message, true);
-  }
-  btn.textContent = 'Request Approval'; btn.disabled = false;
+// ── Request Approval button ───────────────────────────────
+document.getElementById('request-approval-btn').addEventListener('click', async function() {
+  submitInlineApprovalRequest(null);
 });
 
-// ── Approve & Publish ────────────────────────────────────
-document.getElementById('adm-approve').addEventListener('click', function() {
+// ── Approve & Publish button ──────────────────────────────
+document.getElementById('approve-btn').addEventListener('click', function() {
   document.getElementById('approver-dialog').showModal();
 });
 
 async function approveCopy(approvedBy) {
   document.getElementById('approver-dialog').close();
-  const content = collectAdmData();
-  const key     = admKey();
-  const btn     = document.getElementById('adm-approve');
+  const key     = currentKey();
+  const content = TEMPLATES[key] || defaultContent();
+  const btn     = document.getElementById('approve-btn');
   btn.textContent = 'Publishing…'; btn.disabled = true;
 
   try {
@@ -2828,14 +2646,12 @@ async function approveCopy(approvedBy) {
     });
     const data = await res.json();
     if (data.ok) {
-      // Update local TEMPLATES cache with published content
       TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(content)));
       ORIG_TEMPLATES[key] = JSON.parse(JSON.stringify(TEMPLATES[key]));
       dirtyContent = false;
       showToast('✓ Published — approved by ' + approvedBy);
-      setAdminStateNormal();
-      document.getElementById('save-status').textContent = '';
-      adminRender();
+      setNormalApprovalState();
+      render();
     } else {
       showToast('Error: ' + (data.error || 'Unknown error'), true);
     }
@@ -2884,21 +2700,23 @@ function navigateToApproval(row) {
   enterProfile(profile);
 
   // Override territory toggle to match the pending row
-  const admTg = document.getElementById('adm-territory-toggle');
-  admTg.querySelectorAll('[data-adm-territory]').forEach(function(btn){
-    btn.classList.toggle('active', btn.dataset.admTerritory === row.territory);
+  const tg = document.getElementById('territory-toggle');
+  tg.querySelectorAll('[data-territory]').forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.territory === row.territory);
   });
+  territory = row.territory;
 
   // Override industry select to match the pending row (match by label or raw value)
-  const admInd = document.getElementById('adm-industry');
-  Array.from(admInd.options).forEach(function(opt){
+  const indSel = document.getElementById('industry');
+  Array.from(indSel.options).forEach(function(opt){
     if (industryLabel(opt.value) === row.industry || opt.value === row.industry) {
-      admInd.value = opt.value;
+      indSel.value = opt.value;
     }
   });
 
-  // Open admin panel — checkPendingForAdmin() will load the draft automatically
-  adminShow();
+  // Re-render with correct territory/industry, then check pending
+  render();
+  checkPendingForView();
 }
 
 function renderLogsPanel(pending, logs) {
@@ -2973,8 +2791,6 @@ function formatLogDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
-
-// (adm-industry change listener is set above near adminHide — no duplicate needed)
 
 // ════════════════════════════════════════════════════════
 //  INLINE COPY EDITING
@@ -3134,9 +2950,12 @@ async function submitInlineApprovalRequest(afterCallback) {
     });
     const data = await res.json();
     if (data.ok) {
-      ORIG_TEMPLATES[key] = JSON.parse(JSON.stringify(content));
+      currentPending = { created_at: new Date().toISOString(), content };
+      TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(content)));
+      ORIG_TEMPLATES[key] = JSON.parse(JSON.stringify(TEMPLATES[key]));
       dirtyContent = false;
       showToast('✓ Approval request sent to Slack');
+      setPendingApprovalState(currentPending.created_at);
       if (afterCallback) afterCallback();
     } else {
       showToast('Error: ' + (data.error || 'Unknown error'), true);
