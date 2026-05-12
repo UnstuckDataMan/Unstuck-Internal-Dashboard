@@ -985,55 +985,6 @@
     .tag-input::placeholder { color: var(--text-3); }
 
     /* ════════════════════════════════════════════════════════
-       PROFILES ADMIN PANEL
-    ════════════════════════════════════════════════════════ */
-    #profiles-admin-panel {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(16,16,31,.97);
-      z-index: 150;
-      flex-direction: column;
-    }
-    #profiles-admin-panel.visible { display: flex; }
-    .pa-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      position: relative;
-      z-index: 1;
-    }
-    .pa-profile-card {
-      background: var(--surface);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 20px;
-      box-shadow: var(--sh-sm);
-    }
-    .pa-profile-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-    .pa-profile-name { font-size: 14px; font-weight: 700; color: var(--text); flex: 1; font-family: var(--font-display); }
-    .pa-delete-btn {
-      padding: 4px 12px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: transparent;
-      color: var(--text-2);
-      font-size: 12px;
-      font-family: var(--font);
-      cursor: pointer;
-      transition: border-color .15s, color .15s;
-    }
-    .pa-delete-btn:hover { border-color: var(--red-bdr); color: var(--red); }
-    .pa-field { margin-bottom: 12px; }
-    .pa-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-3); margin-bottom: 6px; }
-    .pa-bizdev-note { font-size: 12px; color: var(--text-3); font-style: italic; }
-
-    /* ════════════════════════════════════════════════════════
        TEMPLATE ADMIN PANEL
     ════════════════════════════════════════════════════════ */
     .admin-panel {
@@ -1662,8 +1613,6 @@
 
       /* ── Logs / profiles admin ──────────────────────────── */
       .logs-body { padding: 12px; gap: 12px; }
-      .pa-list   { padding: 12px; gap: 10px; }
-      .pa-profile-card { padding: 16px; }
 
       /* ── Approver dialog ────────────────────────────────── */
       .approver-btns { gap: 8px; }
@@ -1760,7 +1709,6 @@
 
     <div class="ps-actions">
       <button class="ps-add-btn" id="ps-add-btn">+ New Client</button>
-      <button class="ps-manage-btn" id="profiles-admin-btn">&#9881; Manage Profiles</button>
       <button class="ps-manage-btn" id="approval-logs-btn">&#128203; Approval Logs</button>
     </div>
 
@@ -1800,19 +1748,6 @@
       </div>
     </div>
   </div>
-</div>
-
-<!-- ══════════════════════════════════════════════════════════
-     PROFILES ADMIN PANEL
-══════════════════════════════════════════════════════════ -->
-<div id="profiles-admin-panel">
-  <div class="admin-header">
-    <button class="admin-back-btn" id="profiles-admin-back">&#8592; Back</button>
-    <span class="admin-title">Manage Profiles</span>
-    <span class="save-status" id="pa-save-status"></span>
-    <button class="admin-save-btn" id="pa-save-profiles">Save Changes</button>
-  </div>
-  <div class="pa-list" id="pa-list"></div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
@@ -2146,7 +2081,6 @@ function showProfileScreen() {
   document.getElementById('tab-bar').style.display       = 'none';
   document.getElementById('main-view').style.display     = 'none';
   document.getElementById('admin-panel').classList.remove('visible');
-  document.getElementById('profiles-admin-panel').classList.remove('visible');
   document.getElementById('ps-add-form').style.display   = 'none';
   renderProfileScreen();
 }
@@ -2298,7 +2232,6 @@ document.getElementById('ps-form-submit').addEventListener('click', async functi
   btn.textContent = 'Create Client'; btn.disabled = false;
 });
 
-document.getElementById('profiles-admin-btn').addEventListener('click', openProfilesAdmin);
 document.getElementById('back-to-profiles-btn').addEventListener('click', function(){
   if (dirtyContent) {
     showUnsavedModal(
@@ -2573,91 +2506,6 @@ function stripFormatting(text) {
     .replace(/\n{3,}/g, '\n\n')      // collapse 3+ blank lines to one
     .trim();
 }
-
-// ════════════════════════════════════════════════════════
-//  PROFILES ADMIN (edit/delete existing profiles)
-// ════════════════════════════════════════════════════════
-function openProfilesAdmin() {
-  document.getElementById('profile-screen').classList.remove('visible');
-  document.getElementById('profiles-admin-panel').classList.add('visible');
-  renderProfilesAdmin();
-}
-
-function renderProfilesAdmin() {
-  const list = document.getElementById('pa-list');
-  list.innerHTML = '';
-  profiles.forEach(function(p, idx){
-    const isBizdev = p.type === 'bizdev';
-    const card = document.createElement('div'); card.className = 'pa-profile-card';
-    let html = '<div class="pa-profile-head"><div class="pa-profile-name">'+escHtml(p.name)+'</div>'+
-      (isBizdev ? '<span class="pa-bizdev-note">Cannot be removed</span>' : '<button class="pa-delete-btn" data-del-idx="'+idx+'">&times; Remove</button>')+'</div>';
-    html += '<div class="pa-field"><div class="pa-label">Territories</div><div class="tag-editor" id="pat-'+idx+'">'+
-      p.territories.map(function(t){ return '<span class="tag">'+escHtml(t)+'<button type="button" class="tag-x" data-rm-ter="'+idx+'" data-val="'+escHtml(t)+'">&times;</button></span>'; }).join('')+
-      '<input class="tag-input" placeholder="Add territory" data-add-ter="'+idx+'"></div></div>';
-    html += '<div class="pa-field"><div class="pa-label">Industries / Niches</div><div class="tag-editor" id="pai-'+idx+'">'+
-      p.industries.map(function(v){ return '<span class="tag">'+escHtml(industryLabel(v))+'<button type="button" class="tag-x" data-rm-ind="'+idx+'" data-val="'+escHtml(v)+'">&times;</button></span>'; }).join('')+
-      '<input class="tag-input" placeholder="Add industry" data-add-ind="'+idx+'"></div></div>';
-    if (isBizdev) {
-      html += '<div style="font-size:12px;color:var(--text-3);margin-top:6px">Full access — Email, Fly-out &amp; LinkedIn.</div>';
-    }
-    card.innerHTML = html; list.appendChild(card);
-  });
-  attachPaEvents();
-}
-
-function attachPaEvents() {
-  document.querySelectorAll('[data-del-idx]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const idx=parseInt(btn.dataset.delIdx);
-      if (!confirm('Remove '+profiles[idx].name+'?')) return;
-      profiles.splice(idx,1); renderProfilesAdmin();
-    });
-  });
-  document.querySelectorAll('[data-rm-ter]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const idx=parseInt(btn.dataset.rmTer), val=btn.dataset.val;
-      profiles[idx].territories=profiles[idx].territories.filter(function(t){ return t!==val; }); renderProfilesAdmin();
-    });
-  });
-  document.querySelectorAll('[data-add-ter]').forEach(function(inp){
-    inp.addEventListener('keydown', function(e){
-      if (e.key!=='Enter'&&e.key!==',') return; e.preventDefault();
-      const val=inp.value.trim().toUpperCase(); if (!val) return;
-      const idx=parseInt(inp.dataset.addTer);
-      if (!profiles[idx].territories.includes(val)) profiles[idx].territories.push(val);
-      renderProfilesAdmin();
-    });
-  });
-  document.querySelectorAll('[data-rm-ind]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const idx=parseInt(btn.dataset.rmInd), val=btn.dataset.val;
-      profiles[idx].industries=profiles[idx].industries.filter(function(v){ return v!==val; }); renderProfilesAdmin();
-    });
-  });
-  document.querySelectorAll('[data-add-ind]').forEach(function(inp){
-    inp.addEventListener('keydown', function(e){
-      if (e.key!=='Enter'&&e.key!==',') return; e.preventDefault();
-      const raw=inp.value.trim(); if (!raw) return;
-      const key=raw.replace(/\s+/g,'_'); const idx=parseInt(inp.dataset.addInd);
-      if (!profiles[idx].industries.includes(key)) { profiles[idx].industries.push(key); if (!INDUSTRY_LABELS[key]) INDUSTRY_LABELS[key]=raw; }
-      renderProfilesAdmin();
-    });
-  });
-}
-
-document.getElementById('pa-save-profiles').addEventListener('click', async function(){
-  const btn=document.getElementById('pa-save-profiles'), statusEl=document.getElementById('pa-save-status');
-  btn.disabled=true; btn.textContent='Saving…';
-  try {
-    await saveProfiles();
-    btn.textContent='✓ Saved!'; btn.classList.add('success');
-    statusEl.textContent='Saved'; statusEl.className='save-status ok';
-  } catch(e) { btn.textContent='Error'; statusEl.textContent=e.message; statusEl.className='save-status err'; }
-  btn.disabled=false;
-  setTimeout(function(){ btn.textContent='Save Changes'; btn.classList.remove('success'); statusEl.textContent=''; statusEl.className='save-status'; }, 4000);
-});
-
-document.getElementById('profiles-admin-back').addEventListener('click', showProfileScreen);
 
 // ════════════════════════════════════════════════════════
 //  PROFILE CARD EDIT MODAL (territories / industries)
