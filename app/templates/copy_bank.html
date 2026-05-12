@@ -498,6 +498,82 @@
     .var-body { font-size: 13.5px; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; font-family: var(--font); }
     .channel-empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--text-3); font-style: italic; }
 
+    /* ── Inline copy editing ──────────────────────────────── */
+    .copy-edit-btn {
+      display: inline-block; margin-top: 10px;
+      padding: 5px 14px; border-radius: 8px;
+      background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+      color: #fff; border: none; font-size: 12px; font-weight: 600;
+      font-family: var(--font); cursor: pointer;
+      transition: transform .18s var(--ease), box-shadow .18s var(--ease);
+      box-shadow: 0 2px 8px rgba(22,163,74,.25);
+    }
+    .copy-edit-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(22,163,74,.4); }
+    .copy-edit-textarea {
+      width: 100%; min-height: 80px;
+      background: rgba(255,255,255,.04); color: var(--text);
+      border: 1px solid var(--border-focus); border-radius: 10px;
+      padding: 10px 12px; font-size: 13.5px; line-height: 1.7;
+      font-family: var(--font); resize: vertical; box-sizing: border-box;
+      margin-top: 8px; outline: none;
+    }
+    .copy-edit-textarea:focus { box-shadow: var(--sh-glow); }
+    .copy-card-edit-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .copy-revert-btn {
+      padding: 5px 14px; border-radius: 8px;
+      background: transparent; color: var(--text-2);
+      border: 1px solid var(--border); font-size: 12px; font-weight: 600;
+      font-family: var(--font); cursor: pointer;
+      transition: border-color .18s var(--ease), color .18s var(--ease);
+    }
+    .copy-revert-btn:hover { border-color: rgba(255,255,255,.28); color: var(--text); }
+    .copy-edit-done-btn {
+      padding: 5px 14px; border-radius: 8px;
+      background: var(--gradient-vivid); color: #fff; border: none;
+      font-size: 12px; font-weight: 600; font-family: var(--font); cursor: pointer;
+      transition: transform .18s var(--ease), box-shadow .18s var(--ease);
+      box-shadow: 0 2px 8px rgba(124,58,237,.25);
+    }
+    .copy-edit-done-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(124,58,237,.4); }
+    .variation-card.edit-mode { border-color: rgba(139,92,246,.45); background: rgba(139,92,246,.04); }
+
+    /* ── Unsaved-changes modal ────────────────────────────── */
+    #unsaved-modal { display: none; }
+    .unsaved-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,.6);
+      z-index: 900; backdrop-filter: blur(4px);
+    }
+    .unsaved-dialog {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      background: #1a1a30; border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px 32px; z-index: 901;
+      min-width: 320px; max-width: 90vw; text-align: center;
+      box-shadow: var(--sh-md);
+    }
+    .unsaved-title { font-size: 17px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+    .unsaved-body  { font-size: 13.5px; color: var(--text-2); margin-bottom: 22px; line-height: 1.5; }
+    .unsaved-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    #unsaved-discard {
+      padding: 8px 18px; border-radius: 9px; border: none; cursor: pointer;
+      background: rgba(248,113,113,.15); color: #f87171;
+      border: 1px solid rgba(248,113,113,.3); font-size: 13px; font-weight: 600; font-family: var(--font);
+      transition: background .18s;
+    }
+    #unsaved-discard:hover { background: rgba(248,113,113,.25); }
+    #unsaved-request-approval {
+      padding: 8px 18px; border-radius: 9px; border: none; cursor: pointer;
+      background: var(--gradient-vivid); color: #fff;
+      font-size: 13px; font-weight: 600; font-family: var(--font);
+      box-shadow: 0 2px 8px rgba(124,58,237,.3);
+    }
+    #unsaved-cancel {
+      padding: 8px 18px; border-radius: 9px; cursor: pointer;
+      background: transparent; color: var(--text-2);
+      border: 1px solid var(--border); font-size: 13px; font-weight: 600; font-family: var(--font);
+      transition: border-color .18s, color .18s;
+    }
+    #unsaved-cancel:hover { border-color: rgba(255,255,255,.28); color: var(--text); }
+
     /* ── Scrollbar ──────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -1665,7 +1741,7 @@
      MAIN HEADER (shown after profile selected)
 ══════════════════════════════════════════════════════════ -->
 <header id="main-header" class="topbar" style="display:none">
-  <a href="/" class="home-link">
+  <a href="/" class="home-link" id="main-header-home">
     <div class="home-mark">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
            stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1831,7 +1907,9 @@ function sbHeaders(prefer) {
 // ════════════════════════════════════════════════════════
 //  STATE
 // ════════════════════════════════════════════════════════
-const TEMPLATES    = {};
+const TEMPLATES     = {};
+const ORIG_TEMPLATES = {};   // snapshot of last-saved state; used for per-card revert
+let   dirtyContent   = false; // true when copy text has been edited but not yet approved
 let   activeChannel = 'email';
 let   territory     = 'US';
 let   dataReady     = false;
@@ -1934,6 +2012,8 @@ async function loadFromSupabase() {
     rows.forEach(function(row){
       if (row.key && row.content && row.key !== PROFILES_KEY) TEMPLATES[row.key] = migrateContent(row.content);
     });
+    // Snapshot for per-card revert
+    Object.keys(TEMPLATES).forEach(function(k){ ORIG_TEMPLATES[k] = JSON.parse(JSON.stringify(TEMPLATES[k])); });
     dataReady = true;
 
     await Promise.all([loadProfiles(), loadAllClients()]);
@@ -2172,7 +2252,16 @@ document.getElementById('ps-form-submit').addEventListener('click', async functi
 
 document.getElementById('gear-btn').addEventListener('click', adminShow);
 document.getElementById('profiles-admin-btn').addEventListener('click', openProfilesAdmin);
-document.getElementById('back-to-profiles-btn').addEventListener('click', showProfileScreen);
+document.getElementById('back-to-profiles-btn').addEventListener('click', function(){
+  if (dirtyContent) {
+    showUnsavedModal(
+      function(){ dirtyContent = false; showProfileScreen(); },
+      function(){ submitInlineApprovalRequest(function(){ dirtyContent = false; showProfileScreen(); }); }
+    );
+  } else {
+    showProfileScreen();
+  }
+});
 
 // ════════════════════════════════════════════════════════
 //  ENTER PROFILE (no password — direct entry)
@@ -2295,7 +2384,12 @@ function renderSubjectsSection(container, subjects) {
     if (text) await copyText(text, btn, 'Copy all Subjects');
   });
   if (!hasAny) section.appendChild(emptyEl('No subject lines set for this combination yet.'));
-  else subjects.forEach(function(s,i){ if(s.trim()) section.appendChild(makeCard('Subject '+(i+1),s,s)); });
+  else subjects.forEach(function(s,i){
+    if(s.trim()) section.appendChild(makeCard(
+      'Subject '+(i+1), s, s,
+      { key: currentKey(), channel: activeChannel, type: 'subject', idx: i, rawValue: s }
+    ));
+  });
   container.appendChild(section);
 }
 
@@ -2303,28 +2397,44 @@ function renderVariationsSection(container, ch, variations, sender) {
   const label = ch==='email'?'Email Variations':'Fly-out Variations';
   const section = buildSection(label,'Copy all Variations');
   const btn = section.querySelector('.copy-channel-btn');
-  const assembled = variations.map(function(v,i){ const raw=(v.body||'').trim(); return {label:'Variation '+(i+1),body:raw?raw+'\n\n'+sender:''}; });
+  const assembled = variations.map(function(v,i){
+    const raw=(v.body||'').trim();
+    return { label:'Variation '+(i+1), body:raw?raw+'\n\n'+sender:'', raw:raw, idx:i };
+  });
   const hasAny = assembled.some(function(a){ return a.body; });
   btn.addEventListener('click', async function(){
     if (!hasAny) return;
     await copyText(assembled.filter(function(a){ return a.body; }).map(function(a){ return a.body; }).join('\n\n'), btn, 'Copy all Variations');
   });
   if (!hasAny) section.appendChild(emptyEl('No variations set for this combination yet.'));
-  else assembled.forEach(function(a){ if(a.body) section.appendChild(makeCard(a.label,a.body,a.body)); });
+  else assembled.forEach(function(a){
+    if(a.body) section.appendChild(makeCard(
+      a.label, a.body, a.body,
+      { key: currentKey(), channel: ch, type: 'variation', idx: a.idx, rawValue: a.raw }
+    ));
+  });
   container.appendChild(section);
 }
 
 function renderStepsSection(container, steps, sender) {
   const section = buildSection('LinkedIn Sequence','Copy all Steps');
   const btn = section.querySelector('.copy-channel-btn');
-  const assembled = steps.map(function(s,i){ const raw=(s.body||'').trim(); return {label:'Step '+(i+1),body:raw?raw+'\n\n'+sender:''}; });
+  const assembled = steps.map(function(s,i){
+    const raw=(s.body||'').trim();
+    return { label:'Step '+(i+1), body:raw?raw+'\n\n'+sender:'', raw:raw, idx:i };
+  });
   const hasAny = assembled.some(function(a){ return a.body; });
   btn.addEventListener('click', async function(){
     if (!hasAny) return;
     await copyText(assembled.filter(function(a){ return a.body; }).map(function(a){ return a.body; }).join('\n\n'), btn, 'Copy all Steps');
   });
   if (!hasAny) section.appendChild(emptyEl('No LinkedIn sequence set for this combination yet.'));
-  else assembled.forEach(function(a){ if(a.body) section.appendChild(makeCard(a.label,a.body,a.body)); });
+  else assembled.forEach(function(a){
+    if(a.body) section.appendChild(makeCard(
+      a.label, a.body, a.body,
+      { key: currentKey(), channel: 'linkedin', type: 'step', idx: a.idx, rawValue: a.raw }
+    ));
+  });
   container.appendChild(section);
 }
 
@@ -2337,7 +2447,7 @@ function buildSection(title, copyLabel) {
   return section;
 }
 function emptyEl(msg) { const el=document.createElement('div'); el.className='channel-empty'; el.textContent=msg; return el; }
-function makeCard(label, displayText, copyPayload) {
+function makeCard(label, displayText, copyPayload, editInfo) {
   const card=document.createElement('div'); card.className='variation-card';
   const top=document.createElement('div'); top.className='var-card-top';
   const labelEl=document.createElement('span'); labelEl.className='var-card-label'; labelEl.textContent=label;
@@ -2345,7 +2455,13 @@ function makeCard(label, displayText, copyPayload) {
   btn.addEventListener('click', async function(){ await copyText(copyPayload,btn,'Copy'); });
   top.appendChild(labelEl); top.appendChild(btn); card.appendChild(top);
   const bodyEl=document.createElement('div'); bodyEl.className='var-body'; bodyEl.textContent=displayText;
-  card.appendChild(bodyEl); return card;
+  card.appendChild(bodyEl);
+  if (editInfo) {
+    const editBtn=document.createElement('button'); editBtn.className='copy-edit-btn'; editBtn.textContent='✏ Edit';
+    editBtn.addEventListener('click', function(){ enterCardEditMode(card, editInfo); });
+    card.appendChild(editBtn);
+  }
+  return card;
 }
 
 // ════════════════════════════════════════════════════════
@@ -2714,6 +2830,8 @@ async function approveCopy(approvedBy) {
     if (data.ok) {
       // Update local TEMPLATES cache with published content
       TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(content)));
+      ORIG_TEMPLATES[key] = JSON.parse(JSON.stringify(TEMPLATES[key]));
+      dirtyContent = false;
       showToast('✓ Published — approved by ' + approvedBy);
       setAdminStateNormal();
       document.getElementById('save-status').textContent = '';
@@ -2859,9 +2977,214 @@ function formatLogDate(iso) {
 // (adm-industry change listener is set above near adminHide — no duplicate needed)
 
 // ════════════════════════════════════════════════════════
+//  INLINE COPY EDITING
+// ════════════════════════════════════════════════════════
+
+function enterCardEditMode(card, editInfo) {
+  if (card.classList.contains('edit-mode')) return;
+  card.classList.add('edit-mode');
+
+  // Swap body div → textarea
+  const bodyEl = card.querySelector('.var-body');
+  const ta = document.createElement('textarea');
+  ta.className = 'copy-edit-textarea';
+  ta.value = editInfo.rawValue;
+  ta.setAttribute('spellcheck', 'true');
+  ta.setAttribute('lang', spellLang);
+  bodyEl.replaceWith(ta);
+
+  // Auto-resize textarea
+  function resize() { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+  ta.addEventListener('input', resize);
+  setTimeout(resize, 0);
+  ta.focus();
+
+  // Hide Edit button
+  const editBtn = card.querySelector('.copy-edit-btn');
+  if (editBtn) editBtn.style.display = 'none';
+
+  // Add Revert + Done buttons
+  const actionsDiv = document.createElement('div');
+  actionsDiv.className = 'copy-card-edit-actions';
+
+  const revertBtn = document.createElement('button');
+  revertBtn.className = 'copy-revert-btn';
+  revertBtn.textContent = '↩ Revert';
+  revertBtn.addEventListener('click', function(){ revertCard(card, editInfo); });
+
+  const doneBtn = document.createElement('button');
+  doneBtn.className = 'copy-edit-done-btn';
+  doneBtn.textContent = '✓ Done';
+  doneBtn.addEventListener('click', function(){
+    commitCardEdit(card, editInfo, ta.value);
+    exitCardEditMode(card, editInfo);
+  });
+
+  actionsDiv.appendChild(revertBtn);
+  actionsDiv.appendChild(doneBtn);
+  card.appendChild(actionsDiv);
+}
+
+function commitCardEdit(card, editInfo, val) {
+  if (!TEMPLATES[editInfo.key]) TEMPLATES[editInfo.key] = defaultContent();
+  const d = TEMPLATES[editInfo.key];
+  if (editInfo.type === 'subject') {
+    if (d[editInfo.channel] && d[editInfo.channel].subjects) d[editInfo.channel].subjects[editInfo.idx] = val;
+  } else if (editInfo.type === 'variation') {
+    if (d[editInfo.channel] && d[editInfo.channel].variations) d[editInfo.channel].variations[editInfo.idx] = { body: val };
+  } else if (editInfo.type === 'step') {
+    if (d.linkedin && d.linkedin.steps) d.linkedin.steps[editInfo.idx] = { body: val };
+  }
+  editInfo.rawValue = val; // keep editInfo in sync for future reverts
+  dirtyContent = true;
+}
+
+function exitCardEditMode(card, editInfo) {
+  card.classList.remove('edit-mode');
+
+  // Swap textarea → body div showing current value
+  const ta = card.querySelector('.copy-edit-textarea');
+  if (ta) {
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'var-body';
+    bodyEl.textContent = editInfo ? editInfo.rawValue : ta.value;
+    ta.replaceWith(bodyEl);
+  }
+
+  // Show Edit button again
+  const editBtn = card.querySelector('.copy-edit-btn');
+  if (editBtn) editBtn.style.display = '';
+
+  // Remove Revert + Done row
+  const actionsDiv = card.querySelector('.copy-card-edit-actions');
+  if (actionsDiv) actionsDiv.remove();
+}
+
+function revertCard(card, editInfo) {
+  const orig = ORIG_TEMPLATES[editInfo.key];
+  let origVal = '';
+  if (orig) {
+    if (editInfo.type === 'subject') {
+      origVal = ((orig[editInfo.channel] && orig[editInfo.channel].subjects) || [])[editInfo.idx] || '';
+    } else if (editInfo.type === 'variation') {
+      const v = ((orig[editInfo.channel] && orig[editInfo.channel].variations) || [])[editInfo.idx];
+      origVal = (v && v.body) || '';
+    } else if (editInfo.type === 'step') {
+      const s = (orig.linkedin && orig.linkedin.steps || [])[editInfo.idx];
+      origVal = (s && s.body) || '';
+    }
+  }
+  // Update textarea value so exitCardEditMode shows the reverted text
+  const ta = card.querySelector('.copy-edit-textarea');
+  if (ta) ta.value = origVal;
+
+  commitCardEdit(card, editInfo, origVal);
+  exitCardEditMode(card, editInfo);
+  recalcDirty();
+}
+
+function recalcDirty() {
+  for (const key in TEMPLATES) {
+    const orig = ORIG_TEMPLATES[key];
+    if (!orig) { dirtyContent = true; return; }
+    if (JSON.stringify(TEMPLATES[key]) !== JSON.stringify(orig)) { dirtyContent = true; return; }
+  }
+  dirtyContent = false;
+}
+
+// ════════════════════════════════════════════════════════
+//  UNSAVED-CHANGES MODAL
+// ════════════════════════════════════════════════════════
+
+function showUnsavedModal(onDiscard, onApproval) {
+  const modal = document.getElementById('unsaved-modal');
+  modal.style.display = '';
+
+  function cleanup() { modal.style.display = 'none'; }
+
+  document.getElementById('unsaved-discard').onclick = function() {
+    cleanup();
+    // Restore TEMPLATES from last-saved snapshot
+    Object.keys(ORIG_TEMPLATES).forEach(function(k){ TEMPLATES[k] = JSON.parse(JSON.stringify(ORIG_TEMPLATES[k])); });
+    dirtyContent = false;
+    if (onDiscard) onDiscard();
+  };
+
+  document.getElementById('unsaved-request-approval').onclick = function() {
+    cleanup();
+    if (onApproval) onApproval();
+  };
+
+  document.getElementById('unsaved-cancel').onclick = cleanup;
+  document.querySelector('.unsaved-backdrop').onclick = cleanup;
+}
+
+async function submitInlineApprovalRequest(afterCallback) {
+  if (!activeProfile) { if (afterCallback) afterCallback(); return; }
+  const key      = currentKey();
+  const content  = TEMPLATES[key] || defaultContent();
+  const ind      = document.getElementById('industry') ? document.getElementById('industry').value : '';
+  const indLabel = industryLabel(ind);
+
+  try {
+    const res = await fetch('/api/copy-bank/request-approval', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, client_name: activeProfile.name, territory, industry: indLabel, content }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      ORIG_TEMPLATES[key] = JSON.parse(JSON.stringify(content));
+      dirtyContent = false;
+      showToast('✓ Approval request sent to Slack');
+      if (afterCallback) afterCallback();
+    } else {
+      showToast('Error: ' + (data.error || 'Unknown error'), true);
+    }
+  } catch(e) {
+    showToast('Error: ' + e.message, true);
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  NAVIGATION GUARDS
+// ════════════════════════════════════════════════════════
+
+// Dashboard home link (in main-header only — profile screen link navigates away freely)
+document.getElementById('main-header-home').addEventListener('click', function(e){
+  if (dirtyContent) {
+    e.preventDefault();
+    showUnsavedModal(
+      function(){ dirtyContent = false; window.location.href = '/'; },
+      function(){ submitInlineApprovalRequest(function(){ dirtyContent = false; window.location.href = '/'; }); }
+    );
+  }
+});
+
+// Browser tab / navigation away
+window.addEventListener('beforeunload', function(e){
+  if (dirtyContent) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════
 loadFromSupabase();
 </script>
+
+<!-- Unsaved-changes modal -->
+<div id="unsaved-modal">
+  <div class="unsaved-backdrop"></div>
+  <div class="unsaved-dialog">
+    <div class="unsaved-title">Unsaved Changes</div>
+    <div class="unsaved-body" id="unsaved-body">You have unsaved edits. What would you like to do?</div>
+    <div class="unsaved-actions">
+      <button id="unsaved-discard">Discard Changes</button>
+      <button id="unsaved-request-approval">Request Approval</button>
+      <button id="unsaved-cancel">Keep Editing</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
