@@ -2253,7 +2253,7 @@ function enterProfile(profile) {
     opt.value = v; opt.textContent = industryLabel(v); indSel.appendChild(opt);
   });
 
-  document.getElementById('mail-merge-btn').style.display  = profile.type==='client' ? '' : 'none';
+  document.getElementById('mail-merge-btn').style.display  = '';
   document.getElementById('header-title').textContent = profile.name;
   document.getElementById('profile-screen').classList.remove('visible');
   document.getElementById('main-header').style.display = 'flex';
