@@ -1904,6 +1904,28 @@
   </div>
 </div>
 
+<!-- Profile edit modal (territory / industry) -->
+<div id="profile-edit-modal" style="display:none;position:fixed;inset:0;z-index:800;align-items:center;justify-content:center;">
+  <div id="pe-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.55);"></div>
+  <div class="pe-dialog">
+    <div class="pe-header">
+      <div class="pe-title" id="pe-title">Edit Profile</div>
+    </div>
+    <div class="pe-field">
+      <div class="pe-label">Territories</div>
+      <div class="tag-editor" id="pe-ter-editor"></div>
+    </div>
+    <div class="pe-field">
+      <div class="pe-label">Industries / Niches</div>
+      <div class="tag-editor" id="pe-ind-editor"></div>
+    </div>
+    <div class="pe-actions">
+      <button id="pe-cancel">Cancel</button>
+      <button id="pe-save">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ════════════════════════════════════════════════════════
 //  CONFIG
@@ -3132,28 +3154,6 @@ window.addEventListener('beforeunload', function(e){
 // ════════════════════════════════════════════════════════
 loadFromSupabase();
 </script>
-
-<!-- Profile edit modal (territory / industry) -->
-<div id="profile-edit-modal" style="display:none;position:fixed;inset:0;z-index:800;align-items:center;justify-content:center;">
-  <div id="pe-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.55);"></div>
-  <div class="pe-dialog">
-    <div class="pe-header">
-      <div class="pe-title" id="pe-title">Edit Profile</div>
-    </div>
-    <div class="pe-field">
-      <div class="pe-label">Territories</div>
-      <div class="tag-editor" id="pe-ter-editor"></div>
-    </div>
-    <div class="pe-field">
-      <div class="pe-label">Industries / Niches</div>
-      <div class="tag-editor" id="pe-ind-editor"></div>
-    </div>
-    <div class="pe-actions">
-      <button id="pe-cancel">Cancel</button>
-      <button id="pe-save">Save Changes</button>
-    </div>
-  </div>
-</div>
 
 <!-- Unsaved-changes modal -->
 <div id="unsaved-modal">
