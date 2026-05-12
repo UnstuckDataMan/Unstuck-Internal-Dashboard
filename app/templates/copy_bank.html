@@ -748,6 +748,54 @@
       padding: 3px 10px;
     }
 
+    /* Profile card edit tab — full-width footer strip */
+    .profile-edit-tab {
+      width: calc(100% + 36px);
+      margin: 10px -18px -24px;
+      padding: 7px 0;
+      background: rgba(139,92,246,.10);
+      border: none;
+      border-top: 1px solid rgba(139,92,246,.18);
+      color: #a78bfa;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--font);
+      letter-spacing: .5px;
+      cursor: pointer;
+      transition: background .18s;
+    }
+    .profile-edit-tab:hover { background: rgba(139,92,246,.22); color: #c4b5fd; }
+
+    /* Profile edit modal */
+    .pe-dialog {
+      position: relative;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 28px 28px 24px;
+      min-width: 340px;
+      max-width: 480px;
+      width: 90vw;
+      z-index: 1;
+      box-shadow: var(--sh-md);
+    }
+    .pe-header { margin-bottom: 20px; }
+    .pe-title  { font-size: 17px; font-weight: 700; }
+    .pe-field  { margin-bottom: 16px; }
+    .pe-label  { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; }
+    .pe-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+    #pe-cancel {
+      background: transparent; border: 1px solid var(--border); border-radius: 9px;
+      padding: 8px 18px; color: var(--text-2); font-family: var(--font); font-size: 13px; cursor: pointer;
+    }
+    #pe-cancel:hover { border-color: rgba(139,92,246,.5); color: #a78bfa; }
+    #pe-save {
+      background: var(--gradient-vivid); border: none; border-radius: 9px;
+      padding: 8px 20px; color: #fff; font-family: var(--font); font-size: 13px;
+      font-weight: 600; cursor: pointer;
+    }
+    #pe-save:disabled { opacity: .6; cursor: not-allowed; }
+
     .ps-actions {
       display: flex;
       gap: 12px;
@@ -2074,7 +2122,7 @@ function showProfileScreen() {
 function renderProfileScreen() {
   const grid = document.getElementById('profile-grid');
   grid.innerHTML = '';
-  profiles.forEach(function(p){
+  profiles.forEach(function(p, idx){
     const isBizdev = p.type === 'bizdev';
     const card = document.createElement('div');
     card.className = 'profile-card';
@@ -2083,6 +2131,14 @@ function renderProfileScreen() {
       '<div class="profile-card-name">'+escHtml(p.name)+'</div>'+
       '<div class="profile-card-badge">'+(isBizdev?'Biz Dev':'Client')+'</div>';
     card.addEventListener('click', function(){ enterProfile(p); });
+    const editTab = document.createElement('button');
+    editTab.className = 'profile-edit-tab';
+    editTab.textContent = '⚙ Edit';
+    editTab.addEventListener('click', function(e){
+      e.stopPropagation();
+      openProfileEditModal(idx);
+    });
+    card.appendChild(editTab);
     grid.appendChild(card);
   });
 }
@@ -2572,6 +2628,92 @@ document.getElementById('pa-save-profiles').addEventListener('click', async func
 document.getElementById('profiles-admin-back').addEventListener('click', showProfileScreen);
 
 // ════════════════════════════════════════════════════════
+//  PROFILE CARD EDIT MODAL (territories / industries)
+// ════════════════════════════════════════════════════════
+let peEditIdx = -1;
+
+function openProfileEditModal(idx) {
+  peEditIdx = idx;
+  const p = profiles[idx];
+  document.getElementById('pe-title').textContent = 'Edit ' + p.name;
+  renderPeModalTags();
+  document.getElementById('profile-edit-modal').style.display = 'flex';
+}
+
+function renderPeModalTags() {
+  const p = profiles[peEditIdx];
+  const terEditor = document.getElementById('pe-ter-editor');
+  terEditor.innerHTML = p.territories.map(function(t){
+    return '<span class="tag">'+escHtml(t)+
+      '<button type="button" class="tag-x" data-pe-rm-ter="'+escHtml(t)+'">&times;</button></span>';
+  }).join('') + '<input class="tag-input" id="pe-ter-input" placeholder="Add territory">';
+  const indEditor = document.getElementById('pe-ind-editor');
+  indEditor.innerHTML = p.industries.map(function(v){
+    return '<span class="tag">'+escHtml(industryLabel(v))+
+      '<button type="button" class="tag-x" data-pe-rm-ind="'+escHtml(v)+'">&times;</button></span>';
+  }).join('') + '<input class="tag-input" id="pe-ind-input" placeholder="Add industry">';
+  attachPeModalEvents();
+}
+
+function attachPeModalEvents() {
+  document.querySelectorAll('[data-pe-rm-ter]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const val = btn.dataset.peRmTer;
+      profiles[peEditIdx].territories = profiles[peEditIdx].territories.filter(function(t){ return t !== val; });
+      renderPeModalTags();
+    });
+  });
+  document.querySelectorAll('[data-pe-rm-ind]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const val = btn.dataset.peRmInd;
+      profiles[peEditIdx].industries = profiles[peEditIdx].industries.filter(function(v){ return v !== val; });
+      renderPeModalTags();
+    });
+  });
+  const terInput = document.getElementById('pe-ter-input');
+  if (terInput) terInput.addEventListener('keydown', function(e){
+    if (e.key !== 'Enter' && e.key !== ',') return; e.preventDefault();
+    const val = this.value.trim().toUpperCase(); if (!val) return;
+    if (!profiles[peEditIdx].territories.includes(val)) profiles[peEditIdx].territories.push(val);
+    renderPeModalTags();
+  });
+  const indInput = document.getElementById('pe-ind-input');
+  if (indInput) indInput.addEventListener('keydown', function(e){
+    if (e.key !== 'Enter' && e.key !== ',') return; e.preventDefault();
+    const raw = this.value.trim(); if (!raw) return;
+    const key = raw.replace(/\s+/g, '_');
+    if (!profiles[peEditIdx].industries.includes(key)) {
+      profiles[peEditIdx].industries.push(key);
+      if (!INDUSTRY_LABELS[key]) INDUSTRY_LABELS[key] = raw;
+    }
+    renderPeModalTags();
+  });
+}
+
+document.getElementById('pe-save').addEventListener('click', async function(){
+  const btn = this;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    await saveProfiles();
+    document.getElementById('profile-edit-modal').style.display = 'none';
+    showToast('Profile saved');
+  } catch(e) {
+    btn.textContent = 'Error — retry';
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false; btn.textContent = 'Save Changes';
+});
+
+document.getElementById('pe-cancel').addEventListener('click', function(){
+  document.getElementById('profile-edit-modal').style.display = 'none';
+});
+
+document.getElementById('pe-backdrop').addEventListener('click', function(){
+  document.getElementById('profile-edit-modal').style.display = 'none';
+});
+
+// ════════════════════════════════════════════════════════
 //  APPROVAL WORKFLOW
 // ════════════════════════════════════════════════════════
 let currentPending = null;
@@ -2990,6 +3132,28 @@ window.addEventListener('beforeunload', function(e){
 // ════════════════════════════════════════════════════════
 loadFromSupabase();
 </script>
+
+<!-- Profile edit modal (territory / industry) -->
+<div id="profile-edit-modal" style="display:none;position:fixed;inset:0;z-index:800;align-items:center;justify-content:center;">
+  <div id="pe-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.55);"></div>
+  <div class="pe-dialog">
+    <div class="pe-header">
+      <div class="pe-title" id="pe-title">Edit Profile</div>
+    </div>
+    <div class="pe-field">
+      <div class="pe-label">Territories</div>
+      <div class="tag-editor" id="pe-ter-editor"></div>
+    </div>
+    <div class="pe-field">
+      <div class="pe-label">Industries / Niches</div>
+      <div class="tag-editor" id="pe-ind-editor"></div>
+    </div>
+    <div class="pe-actions">
+      <button id="pe-cancel">Cancel</button>
+      <button id="pe-save">Save Changes</button>
+    </div>
+  </div>
+</div>
 
 <!-- Unsaved-changes modal -->
 <div id="unsaved-modal">
