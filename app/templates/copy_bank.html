@@ -2531,15 +2531,14 @@ function renderProfilesAdmin() {
     const card = document.createElement('div'); card.className = 'pa-profile-card';
     let html = '<div class="pa-profile-head"><div class="pa-profile-name">'+escHtml(p.name)+'</div>'+
       (isBizdev ? '<span class="pa-bizdev-note">Cannot be removed</span>' : '<button class="pa-delete-btn" data-del-idx="'+idx+'">&times; Remove</button>')+'</div>';
-    if (!isBizdev) {
-      html += '<div class="pa-field"><div class="pa-label">Territories</div><div class="tag-editor" id="pat-'+idx+'">'+
-        p.territories.map(function(t){ return '<span class="tag">'+escHtml(t)+'<button type="button" class="tag-x" data-rm-ter="'+idx+'" data-val="'+escHtml(t)+'">&times;</button></span>'; }).join('')+
-        '<input class="tag-input" placeholder="Add territory" data-add-ter="'+idx+'"></div></div>';
-      html += '<div class="pa-field"><div class="pa-label">Industries / Niches</div><div class="tag-editor" id="pai-'+idx+'">'+
-        p.industries.map(function(v){ return '<span class="tag">'+escHtml(industryLabel(v))+'<button type="button" class="tag-x" data-rm-ind="'+idx+'" data-val="'+escHtml(v)+'">&times;</button></span>'; }).join('')+
-        '<input class="tag-input" placeholder="Add industry" data-add-ind="'+idx+'"></div></div>';
-    } else {
-      html += '<div style="font-size:12px;color:var(--text-3)">Full access — Email, Fly-out &amp; LinkedIn.</div>';
+    html += '<div class="pa-field"><div class="pa-label">Territories</div><div class="tag-editor" id="pat-'+idx+'">'+
+      p.territories.map(function(t){ return '<span class="tag">'+escHtml(t)+'<button type="button" class="tag-x" data-rm-ter="'+idx+'" data-val="'+escHtml(t)+'">&times;</button></span>'; }).join('')+
+      '<input class="tag-input" placeholder="Add territory" data-add-ter="'+idx+'"></div></div>';
+    html += '<div class="pa-field"><div class="pa-label">Industries / Niches</div><div class="tag-editor" id="pai-'+idx+'">'+
+      p.industries.map(function(v){ return '<span class="tag">'+escHtml(industryLabel(v))+'<button type="button" class="tag-x" data-rm-ind="'+idx+'" data-val="'+escHtml(v)+'">&times;</button></span>'; }).join('')+
+      '<input class="tag-input" placeholder="Add industry" data-add-ind="'+idx+'"></div></div>';
+    if (isBizdev) {
+      html += '<div style="font-size:12px;color:var(--text-3);margin-top:6px">Full access — Email, Fly-out &amp; LinkedIn.</div>';
     }
     card.innerHTML = html; list.appendChild(card);
   });
