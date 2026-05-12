@@ -764,7 +764,7 @@
       cursor: pointer;
       transition: background .18s;
     }
-    .profile-edit-tab:hover { background: rgba(139,92,246,.22); color: #c4b5fd; }
+    .profile-edit-tab:hover { background: rgba(139,92,246,.32); color: #ddd6fe; border-top-color: rgba(139,92,246,.45); }
 
     /* Profile edit modal */
     .pe-dialog {
@@ -783,7 +783,14 @@
     .pe-title  { font-size: 17px; font-weight: 700; }
     .pe-field  { margin-bottom: 16px; }
     .pe-label  { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; }
-    .pe-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+    .pe-actions { display: flex; gap: 10px; justify-content: space-between; align-items: center; margin-top: 20px; }
+    .pe-actions-right { display: flex; gap: 10px; }
+    #pe-remove {
+      background: transparent; border: 1px solid rgba(248,113,113,.35); border-radius: 9px;
+      padding: 8px 16px; color: #f87171; font-family: var(--font); font-size: 13px; cursor: pointer;
+      transition: background .18s, border-color .18s;
+    }
+    #pe-remove:hover { background: rgba(248,113,113,.12); border-color: rgba(248,113,113,.6); }
     #pe-cancel {
       background: transparent; border: 1px solid var(--border); border-radius: 9px;
       padding: 8px 18px; color: var(--text-2); font-family: var(--font); font-size: 13px; cursor: pointer;
@@ -1920,8 +1927,11 @@
       <div class="tag-editor" id="pe-ind-editor"></div>
     </div>
     <div class="pe-actions">
-      <button id="pe-cancel">Cancel</button>
-      <button id="pe-save">Save Changes</button>
+      <button id="pe-remove" style="display:none">&times; Remove Client</button>
+      <div class="pe-actions-right">
+        <button id="pe-cancel">Cancel</button>
+        <button id="pe-save">Save Changes</button>
+      </div>
     </div>
   </div>
 </div>
@@ -2658,6 +2668,7 @@ function openProfileEditModal(idx) {
   peEditIdx = idx;
   const p = profiles[idx];
   document.getElementById('pe-title').textContent = 'Edit ' + p.name;
+  document.getElementById('pe-remove').style.display = (p.type === 'bizdev') ? 'none' : '';
   renderPeModalTags();
   document.getElementById('profile-edit-modal').style.display = 'flex';
 }
@@ -2729,6 +2740,18 @@ document.getElementById('pe-save').addEventListener('click', async function(){
 
 document.getElementById('pe-cancel').addEventListener('click', function(){
   document.getElementById('profile-edit-modal').style.display = 'none';
+});
+
+document.getElementById('pe-remove').addEventListener('click', async function(){
+  const p = profiles[peEditIdx];
+  if (!confirm('Remove ' + p.name + '? This cannot be undone.')) return;
+  profiles.splice(peEditIdx, 1);
+  document.getElementById('profile-edit-modal').style.display = 'none';
+  try {
+    await saveProfiles();
+    showToast(p.name + ' removed');
+  } catch(e) { showToast('Error saving — please retry'); }
+  renderProfileScreen();
 });
 
 document.getElementById('pe-backdrop').addEventListener('click', function(){
