@@ -119,7 +119,7 @@
 {# ── Active campaigns ────────────────────────────────────────────────── #}
 {% set has_active = namespace(value=false) %}
 {% for c in campaigns %}
-  {% if not (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
+  {% if not (c.completed or (c.total_prospects > 0 and c.sent_count >= c.total_prospects)) %}
     {% set has_active.value = true %}
   {% endif %}
 {% endfor %}
@@ -127,7 +127,7 @@
 {% if has_active.value %}
 {% set ns = namespace(ids=[]) %}
 {% for c in campaigns %}
-  {% if not (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
+  {% if not (c.completed or (c.total_prospects > 0 and c.sent_count >= c.total_prospects)) %}
     {% set ns.ids = ns.ids + [c.id | string] %}
   {% endif %}
 {% endfor %}
@@ -149,7 +149,7 @@
 <div id="camp-sync-all-result" style="font-size:.78rem;margin-bottom:8px"></div>
 <div class="camp-grid">
   {% for c in campaigns %}
-  {% if not (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
+  {% if not (c.completed or (c.total_prospects > 0 and c.sent_count >= c.total_prospects)) %}
   {% set remaining = (c.total_prospects - c.sent_count) if c.total_prospects > c.sent_count else 0 %}
   <div class="camp-card camp-card-active"
        data-camp-id="{{ c.id }}"
@@ -269,6 +269,18 @@
         </svg>
         Sync
       </button>
+      <button class="camp-complete-btn"
+              hx-post="/api/campaigns/{{ c.id }}/complete?client_id={{ client_id }}"
+              hx-target="#campaigns-panel-inner"
+              hx-swap="innerHTML"
+              hx-confirm="Mark '{{ c.campaign_name or 'this campaign' }}' as completed? It will move to Past Campaigns."
+              hx-indicator="#camp-spinner">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        Mark Complete
+      </button>
       <button class="camp-delete-btn"
               hx-delete="/api/campaigns/{{ c.id }}?client_id={{ client_id }}"
               hx-target="#campaigns-panel-inner"
@@ -295,7 +307,7 @@
 {# ── Past campaigns ──────────────────────────────────────────────────── #}
 {% set has_past = namespace(value=false) %}
 {% for c in campaigns %}
-  {% if c.total_prospects > 0 and c.sent_count >= c.total_prospects %}
+  {% if c.completed or (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
     {% set has_past.value = true %}
   {% endif %}
 {% endfor %}
@@ -304,7 +316,7 @@
 <p class="camp-section-label" style="margin-top:28px">Past Campaigns</p>
 <div class="camp-grid">
   {% for c in campaigns %}
-  {% if c.total_prospects > 0 and c.sent_count >= c.total_prospects %}
+  {% if c.completed or (c.total_prospects > 0 and c.sent_count >= c.total_prospects) %}
   <div class="camp-card camp-card-past"
        data-camp-id="{{ c.id }}"
        data-camp-name="{{ (c.campaign_name or '(unnamed)') | e }}"
@@ -352,7 +364,11 @@
     </div>
 
     <div class="camp-stat-chips">
-      <span class="camp-chip" style="color:var(--text-2)">{{ c.sent_count }} sent</span>
+      {% if c.total_prospects %}
+      <span class="camp-chip" style="color:var(--text-2)">{{ c.sent_count or 0 }}/{{ c.total_prospects }} sent</span>
+      {% else %}
+      <span class="camp-chip" style="color:var(--text-2)">{{ c.sent_count or 0 }} sent</span>
+      {% endif %}
       {% if c.lead_count %}<span class="camp-chip camp-chip-lead">{{ c.lead_count }} lead{{ 's' if c.lead_count != 1 else '' }}</span>{% endif %}
       {% if c.reply_count %}<span class="camp-chip camp-chip-reply">{{ c.reply_count }} repl{{ 'ies' if c.reply_count != 1 else 'y' }}</span>{% endif %}
       {% if c.interested_count %}<span class="camp-chip camp-chip-interested">{{ c.interested_count }} interested</span>{% endif %}

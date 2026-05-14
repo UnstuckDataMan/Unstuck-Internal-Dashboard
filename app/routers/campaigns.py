@@ -116,7 +116,7 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
                 params={
                     "select":    "id,created_at,campaign_name,sender_profile_name,"
                                  "client_id,client_name,sheet_id,sheet_url,"
-                                 "total_prospects,sent_count,"
+                                 "total_prospects,sent_count,completed,"
                                  "lead_count,reply_count,interested_count,unsubscribe_count",
                     "order":     "created_at.desc",
                     "client_id": f"eq.{client_id}",
@@ -132,10 +132,14 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
             def _s(key: str) -> int:
                 return sum(c.get(key) or 0 for c in campaigns)
 
-            active = [c for c in campaigns
-                      if not (c.get("total_prospects", 0) > 0
-                              and (c.get("sent_count") or 0) >= c.get("total_prospects", 0))]
-            past   = [c for c in campaigns if c not in active]
+            def _is_past(c: dict) -> bool:
+                return bool(c.get("completed")) or (
+                    (c.get("total_prospects") or 0) > 0
+                    and (c.get("sent_count") or 0) >= (c.get("total_prospects") or 0)
+                )
+
+            active = [c for c in campaigns if not _is_past(c)]
+            past   = [c for c in campaigns if _is_past(c)]
 
             prospects_in_pipeline = sum(
                 max(0, (c.get("total_prospects") or 0) - (c.get("sent_count") or 0))
@@ -458,4 +462,27 @@ async def delete_campaign(
             ).raise_for_status()
         except Exception:
             pass
+    return await list_campaigns(request, client_id=client_id)
+
+
+# ── Mark campaign as completed ─────────────────────────────────────────────────
+
+@router.post("/api/campaigns/{campaign_id}/complete")
+async def complete_campaign(
+    request:     Request,
+    campaign_id: str,
+    client_id:   str = Query(""),
+):
+    if not _sb_configured():
+        return JSONResponse({"error": "Supabase not configured."}, status_code=503)
+    try:
+        http_req.patch(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            headers=_sb_headers("return=minimal"),
+            params={"id": f"eq.{campaign_id}"},
+            json={"completed": True},
+            timeout=10,
+        ).raise_for_status()
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
     return await list_campaigns(request, client_id=client_id)
