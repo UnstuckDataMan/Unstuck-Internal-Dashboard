@@ -20,16 +20,33 @@
             hx-swap="innerHTML">← Campaigns</button>
     <span class="contacted-view-label">{{ campaign_label }}</span>
   </div>
-  <a href="/api/dnc/contacted/export?client_id={{ client_id }}&campaign={{ campaign | urlencode }}"
-     class="btn btn-download">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-      <polyline points="7 10 12 15 17 10"/>
-      <line x1="12" y1="15" x2="12" y2="3"/>
-    </svg>
-    Download CSV
-  </a>
+  <div style="display:flex;align-items:center;gap:8px">
+    {% if campaign and campaign != "__all__" %}
+    <button class="btn btn-delete-campaign"
+            hx-delete="/api/dnc/contacted/campaign?client_id={{ client_id }}&campaign={{ campaign | urlencode }}"
+            hx-target="#contacted-table"
+            hx-swap="innerHTML"
+            hx-confirm="Remove all {{ total }} contacted prospect{{ 's' if total != 1 else '' }} from '{{ campaign_label }}'? This cannot be undone.">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-1px;margin-right:4px">
+        <polyline points="3 6 5 6 21 6"/>
+        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+        <path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+      </svg>
+      Remove all from this campaign
+    </button>
+    {% endif %}
+    <a href="/api/dnc/contacted/export?client_id={{ client_id }}&campaign={{ campaign | urlencode }}"
+       class="btn btn-download">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Download CSV
+    </a>
+  </div>
 </div>
 
 <!-- ── Hidden state for hx-include ── -->

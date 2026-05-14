@@ -953,6 +953,36 @@ async def bulk_delete_contacted(
                                campaign=campaign)
 
 
+@router.delete("/api/dnc/contacted/campaign")
+async def delete_campaign_contacted(
+    request:   Request,
+    client_id: str = Query(...),
+    campaign:  str = Query(...),   # exact campaign name or "__none__"
+):
+    """Delete ALL contacted prospects for a specific campaign (or null-campaign rows)."""
+    if not _sb_configured():
+        return await get_contacted_campaigns(request, client_id=client_id)
+
+    params: dict = {"client_id": f"eq.{client_id}"}
+    if campaign == "__none__":
+        params["campaign_name"] = "is.null"
+    else:
+        params["campaign_name"] = f"eq.{campaign}"
+
+    try:
+        http_req.delete(
+            f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+            headers=_sb_headers(),
+            params=params,
+            timeout=30,
+        ).raise_for_status()
+    except Exception:
+        pass
+
+    # Return to the campaign list view
+    return await get_contacted_campaigns(request, client_id=client_id)
+
+
 # ── Google Sheets → DNC sync ──────────────────────────────────────────────────
 
 @router.post("/api/dnc/sync-from-sheet")
