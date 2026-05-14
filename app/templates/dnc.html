@@ -4113,4 +4113,50 @@
 })();
 </script>
 
+<script>
+// ── Auto-refresh: keep live panels up-to-date every 60 s ──────────────────────
+// Tracks the last URL fetched into each panel, then re-fires it silently
+// while the panel is visible and the user isn't actively using it.
+(function () {
+  const PANELS      = ['campaigns-panel-inner', 'entries-table', 'contacted-table'];
+  const INTERVAL_MS = 60_000;
+  const _lastUrl    = {};   // panelId → last successful GET URL (path + query)
+
+  // Record every successful HTMX GET that targets one of our panels
+  document.addEventListener('htmx:afterRequest', function (e) {
+    if (!e.detail.successful) return;
+    const id  = e.detail.target?.id;
+    const xhr = e.detail.xhr;
+    if (!id || !PANELS.includes(id) || !xhr) return;
+    // Strip origin so we get a path-only string (works on any host)
+    try {
+      const path = new URL(xhr.responseURL).pathname + new URL(xhr.responseURL).search;
+      _lastUrl[id] = path;
+    } catch (_) {}
+  });
+
+  function _isVisible(el) {
+    // True when the element is in the DOM and not inside a hidden tab
+    return !!(el && el.offsetParent !== null);
+  }
+
+  function _userBusy(el) {
+    // Don't interrupt if focus is inside the panel or checkboxes are checked
+    if (el.contains(document.activeElement)) return true;
+    if (el.querySelectorAll('input[type=checkbox]:checked').length > 0) return true;
+    return false;
+  }
+
+  setInterval(function () {
+    PANELS.forEach(function (id) {
+      const url = _lastUrl[id];
+      if (!url) return;
+      const el = document.getElementById(id);
+      if (!el || !_isVisible(el) || _userBusy(el)) return;
+      htmx.ajax('GET', url, { target: '#' + id, swap: 'innerHTML' });
+    });
+  }, INTERVAL_MS);
+})();
+</script>
+
 {% endblock %}
