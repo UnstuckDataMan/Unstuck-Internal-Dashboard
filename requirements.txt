@@ -14,3 +14,5 @@ requests==2.32.3
 # ── Google Sheets integration ─────────────────────────────────────────────────
 gspread>=6.0.0
 google-auth>=2.35.0
+# ── Scheduled jobs ────────────────────────────────────────────────────────────
+apscheduler>=3.10.0

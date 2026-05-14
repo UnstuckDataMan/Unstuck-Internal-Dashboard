@@ -241,7 +241,8 @@ async def sync_campaign(request: Request, campaign_id: str):
 
     Returns an HTML snippet for the campaign card's result div.
     """
-    from app.utils.google_sheets import is_configured, read_leads, read_sent_emails
+    from app.utils.google_sheets import is_configured
+    from app.utils.auto_sync import sync_campaign_core
 
     if not _sb_configured():
         return HTMLResponse('<span class="camp-sync-err">Supabase not configured.</span>')
@@ -275,113 +276,17 @@ async def sync_campaign(request: Request, campaign_id: str):
     if not client_id:
         return HTMLResponse('<span class="camp-sync-err">Campaign has no client ID.</span>')
 
-    # ── Read sheet ────────────────────────────────────────────────────────
-    try:
-        leads = read_leads(sheet_id)
-    except Exception as exc:
-        return HTMLResponse(f'<span class="camp-sync-err">Sheet read error: {exc}</span>')
+    # ── Delegate to shared core ───────────────────────────────────────────
+    result = sync_campaign_core(campaign_id, sheet_id, client_id, campaign_name)
 
-    try:
-        sent_emails = read_sent_emails(sheet_id)
-    except Exception:
-        sent_emails = []
+    if result["error"]:
+        return HTMLResponse(f'<span class="camp-sync-err">{result["error"]}</span>')
 
-    leads_added = unsubscribes_added = interested_added = reply_count = 0
-
-    # ── Build DNC rows ────────────────────────────────────────────────────
-    if leads:
-        dnc_rows: list[dict] = []
-        for entry in leads:
-            email  = entry["email"]
-            status = entry["status"]
-
-            if status == "Lead" and "@" in email:
-                domain = email.split("@")[1]
-                dnc_rows.append({
-                    "client_id": client_id, "email": domain,
-                    "reason": "lead", "added_by": "google_sheets_sync",
-                })
-                leads_added += 1
-
-            elif status == "Interested":
-                dnc_rows.append({
-                    "client_id": client_id, "email": email,
-                    "reason": "interested", "added_by": "google_sheets_sync",
-                })
-                interested_added += 1
-
-            elif status == "Unsubscribe":
-                dnc_rows.append({
-                    "client_id": client_id, "email": email,
-                    "reason": "opt_out", "added_by": "google_sheets_sync",
-                })
-                unsubscribes_added += 1
-
-            elif status == "Reply":
-                reply_count += 1
-
-        for i in range(0, len(dnc_rows), CHUNK_SIZE):
-            chunk = dnc_rows[i : i + CHUNK_SIZE]
-            try:
-                r = http_req.post(
-                    f"{SUPABASE_URL}/rest/v1/dnc_entries",
-                    headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
-                    json=chunk,
-                    timeout=30,
-                )
-                if r.status_code not in (200, 201, 204, 409):
-                    r.raise_for_status()
-            except Exception as exc:
-                return HTMLResponse(
-                    f'<span class="camp-sync-err">DNC write error: {exc}</span>'
-                )
-
-    # ── Add sent rows to contacted_prospects ──────────────────────────────
-    contacted_added = 0
-    if sent_emails:
-        today = _date.today().isoformat()
-        for i in range(0, len(sent_emails), CHUNK_SIZE):
-            chunk = sent_emails[i : i + CHUNK_SIZE]
-            rows_to_insert = [
-                {
-                    "client_id":    client_id,
-                    "email":        e,
-                    "contacted_at": today,
-                    "source":       "google_sheets_sync",
-                    **({"campaign_name": campaign_name} if campaign_name else {}),
-                }
-                for e in chunk
-            ]
-            try:
-                r = http_req.post(
-                    f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                    headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
-                    json=rows_to_insert,
-                    timeout=30,
-                )
-                if r.status_code not in (200, 201, 204, 409):
-                    r.raise_for_status()
-                contacted_added += len(chunk)
-            except Exception:
-                pass
-
-    # ── Update campaign counters ──────────────────────────────────────────
-    try:
-        http_req.patch(
-            f"{SUPABASE_URL}/rest/v1/campaigns",
-            headers=_sb_headers("return=minimal"),
-            params={"id": f"eq.{campaign_id}"},
-            json={
-                "sent_count":       len(sent_emails),
-                "lead_count":       leads_added,
-                "reply_count":      reply_count,
-                "interested_count": interested_added,
-                "unsubscribe_count": unsubscribes_added,
-            },
-            timeout=10,
-        )
-    except Exception:
-        pass
+    leads_added       = result["leads_added"]
+    interested_added  = result["interested_added"]
+    unsubscribes_added = result["unsubscribes_added"]
+    reply_count       = result["reply_count"]
+    contacted_added   = result["contacted_added"]
 
     # ── Result snippet ────────────────────────────────────────────────────
     parts: list[str] = []
