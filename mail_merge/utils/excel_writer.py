@@ -130,8 +130,13 @@ def write_merge_output(
         sec_template += ['Chaser Body']
     # Section 5: tracking
     sec_tracking = ['Lead Status', 'Notes']
+    # Section 6: grey divider + all original prospect columns from the uploaded file
+    _DIV = '__divider__'
+    sec_divider  = [_DIV]
+    sec_prospect = list(prospect_headers) if prospect_headers else []
 
-    all_cols = sec_status + sec_schedule + sec_routing + sec_template + sec_tracking
+    all_cols = (sec_status + sec_schedule + sec_routing + sec_template
+                + sec_tracking + sec_divider + sec_prospect)
 
     # Map header → colour token
     color_map: Dict[str, str] = {}
@@ -147,6 +152,8 @@ def write_merge_output(
         color_map[h] = C['hdr_chaser']
     for h in sec_tracking:
         color_map[h] = C['hdr_tracking']
+    for h in sec_prospect:
+        color_map[h] = C['hdr_prospect']
 
     # Column widths
     col_widths = {
@@ -157,13 +164,20 @@ def write_merge_output(
         'A/B Variant': 12,    'Chaser Send Time': 14,
         'Lead Status': 18,    'Send Time': 12,
         'Notes': 32,
+        _DIV: 3,
     }
 
     # ── Write header row ───────────────────────────────────────────────────
     for ci, header in enumerate(all_cols, 1):
-        cell = ws.cell(row=1, column=ci, value=header)
-        _hdr_cell(cell, color_map.get(header, C['hdr_prospect']))
-        ws.column_dimensions[get_column_letter(ci)].width = col_widths.get(header, 20)
+        if header == _DIV:
+            cell = ws.cell(row=1, column=ci, value='')
+            cell.fill   = PatternFill('solid', fgColor='BDBDBD')
+            cell.border = _thin_border()
+            ws.column_dimensions[get_column_letter(ci)].width = col_widths[_DIV]
+        else:
+            cell = ws.cell(row=1, column=ci, value=header)
+            _hdr_cell(cell, color_map.get(header, C['hdr_prospect']))
+            ws.column_dimensions[get_column_letter(ci)].width = col_widths.get(header, 20)
 
     ws.row_dimensions[1].height = 20
 
@@ -191,7 +205,7 @@ def write_merge_output(
             col_let('Lead Status'), last_row)
 
     # ── Write data rows with end-of-day separators ─────────────────────────
-    n_cols = len(all_cols)
+    n_cols    = len(all_cols)
     wrap_cols = {'Email Body', 'Chaser Body', 'Notes'}
     ri = 2
     prev_sender = None
@@ -228,8 +242,15 @@ def write_merge_output(
             }
 
             for ci, header in enumerate(all_cols, 1):
-                cell = ws.cell(row=ri, column=ci, value=row_values.get(header, ''))
-                _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
+                if header == _DIV:
+                    cell = ws.cell(row=ri, column=ci, value='')
+                    cell.fill   = PatternFill('solid', fgColor='EEEEEE')
+                    cell.border = _thin_border()
+                else:
+                    # For original prospect columns fall back to raw row_data
+                    value = row_values.get(header, row_data.get(header, ''))
+                    cell  = ws.cell(row=ri, column=ci, value=value)
+                    _data_cell(cell, fill_hex, wrap=(header in wrap_cols))
 
             ws.row_dimensions[ri].height = 15
             ri += 1
