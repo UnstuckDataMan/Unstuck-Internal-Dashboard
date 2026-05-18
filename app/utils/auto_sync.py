@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date as _date
+from datetime import date as _date, datetime as _datetime, timezone as _tz
 
 import requests as http_req
 
@@ -38,15 +38,19 @@ def _sb_configured() -> bool:
 # ── Core per-campaign sync (shared with the manual endpoint) ──────────────────
 
 def sync_campaign_core(
-    campaign_id:   str,
-    sheet_id:      str,
-    client_id:     str,
-    campaign_name: str,
+    campaign_id:     str,
+    sheet_id:        str,
+    client_id:       str,
+    campaign_name:   str,
+    total_prospects: int = 0,
+    completed_at:    str | None = None,
 ) -> dict:
     """
     Sync one campaign's Google Sheet into Supabase.
     Returns a summary dict: {leads_added, interested_added, unsubscribes_added,
                               reply_count, contacted_added, error}.
+    Pass total_prospects + completed_at so the function can auto-stamp
+    completed_at the first time sent_count reaches total_prospects.
     Does NOT raise — errors are returned in the dict so callers can log/continue.
     """
     from app.utils.google_sheets import read_leads, read_sent_emails
@@ -145,18 +149,25 @@ def sync_campaign_core(
                 pass
 
     # ── Update campaign counters ──────────────────────────────────────
+    new_sent = len(sent_emails)
+    patch_body: dict = {
+        "sent_count":        new_sent,
+        "lead_count":        result["leads_added"],
+        "reply_count":       result["reply_count"],
+        "interested_count":  result["interested_added"],
+        "unsubscribe_count": result["unsubscribes_added"],
+    }
+
+    # Auto-stamp completed_at the first time this campaign hits 100 %
+    if total_prospects and new_sent >= total_prospects and not completed_at:
+        patch_body["completed_at"] = _datetime.now(_tz.utc).isoformat()
+
     try:
         http_req.patch(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers("return=minimal"),
             params={"id": f"eq.{campaign_id}"},
-            json={
-                "sent_count":        len(sent_emails),
-                "lead_count":        result["leads_added"],
-                "reply_count":       result["reply_count"],
-                "interested_count":  result["interested_added"],
-                "unsubscribe_count": result["unsubscribes_added"],
-            },
+            json=patch_body,
             timeout=10,
         )
     except Exception:
@@ -187,7 +198,7 @@ def run_auto_sync() -> None:
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers(),
             params={
-                "select":   "id,sheet_id,client_id,campaign_name",
+                "select":   "id,sheet_id,client_id,campaign_name,total_prospects,completed_at",
                 "sheet_id": "not.is.null",
             },
             timeout=15,
@@ -214,6 +225,8 @@ def run_auto_sync() -> None:
                 sheet_id=c["sheet_id"],
                 client_id=c.get("client_id", ""),
                 campaign_name=name,
+                total_prospects=c.get("total_prospects") or 0,
+                completed_at=c.get("completed_at"),
             )
             if summary["error"]:
                 logger.warning("Auto-sync: campaign %s (%s) error — %s", cid, name, summary["error"])

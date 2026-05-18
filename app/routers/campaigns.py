@@ -4,7 +4,7 @@ Campaigns router — tracks mail-merge campaigns linked to Google Sheets.
 from __future__ import annotations
 
 import os
-from datetime import date as _date, timedelta
+from datetime import date as _date, datetime as _datetime, timedelta, timezone as _tz
 
 import requests as http_req
 from fastapi import APIRouter, Query, Request
@@ -116,7 +116,7 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
                 params={
                     "select":    "id,created_at,campaign_name,sender_profile_name,"
                                  "client_id,client_name,sheet_id,sheet_url,"
-                                 "total_prospects,sent_count,completed,tags,"
+                                 "total_prospects,sent_count,completed,completed_at,tags,"
                                  "lead_count,reply_count,interested_count,unsubscribe_count",
                     "order":     "created_at.desc",
                     "client_id": f"eq.{client_id}",
@@ -255,7 +255,7 @@ async def sync_campaign(request: Request, campaign_id: str):
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers(),
             params={"id": f"eq.{campaign_id}",
-                    "select": "id,sheet_id,client_id,campaign_name"},
+                    "select": "id,sheet_id,client_id,campaign_name,total_prospects,completed_at"},
             timeout=10,
         )
         r.raise_for_status()
@@ -266,10 +266,12 @@ async def sync_campaign(request: Request, campaign_id: str):
     if not rows:
         return HTMLResponse('<span class="camp-sync-err">Campaign not found.</span>')
 
-    campaign      = rows[0]
-    sheet_id      = campaign.get("sheet_id", "")
-    client_id     = campaign.get("client_id", "")
-    campaign_name = campaign.get("campaign_name", "")
+    campaign         = rows[0]
+    sheet_id         = campaign.get("sheet_id", "")
+    client_id        = campaign.get("client_id", "")
+    campaign_name    = campaign.get("campaign_name", "")
+    total_prospects  = campaign.get("total_prospects") or 0
+    completed_at     = campaign.get("completed_at")
 
     if not sheet_id:
         return HTMLResponse('<span class="camp-sync-err">No sheet linked.</span>')
@@ -277,7 +279,11 @@ async def sync_campaign(request: Request, campaign_id: str):
         return HTMLResponse('<span class="camp-sync-err">Campaign has no client ID.</span>')
 
     # ── Delegate to shared core ───────────────────────────────────────────
-    result = sync_campaign_core(campaign_id, sheet_id, client_id, campaign_name)
+    result = sync_campaign_core(
+        campaign_id, sheet_id, client_id, campaign_name,
+        total_prospects=total_prospects,
+        completed_at=completed_at,
+    )
 
     if result["error"]:
         return HTMLResponse(f'<span class="camp-sync-err">{result["error"]}</span>')
@@ -385,7 +391,10 @@ async def complete_campaign(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers("return=minimal"),
             params={"id": f"eq.{campaign_id}"},
-            json={"completed": True},
+            json={
+                "completed":    True,
+                "completed_at": _datetime.now(_tz.utc).isoformat(),
+            },
             timeout=10,
         ).raise_for_status()
     except Exception as exc:

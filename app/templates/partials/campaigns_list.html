@@ -370,6 +370,11 @@
       <span class="camp-name">{{ c.campaign_name or '(unnamed)' }}</span>
       <span class="camp-badge camp-badge-past">Complete</span>
     </div>
+    {% if c.completed_at %}
+    <div class="camp-completed-on">
+      Completed on: {{ c.completed_at[:10] }}
+    </div>
+    {% endif %}
     <div class="camp-meta">
       {% if c.client_name %}
       <span class="camp-meta-item">
