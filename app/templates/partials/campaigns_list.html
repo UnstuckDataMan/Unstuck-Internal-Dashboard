@@ -124,6 +124,26 @@
   {% endif %}
 {% endfor %}
 
+{# ── Collect all unique tags across all campaigns ───────────────────── #}
+{% set all_tags = namespace(tags=[]) %}
+{% for c in campaigns %}
+  {% for tag in (c.tags or []) %}
+    {% if tag and tag not in all_tags.tags %}
+      {% set all_tags.tags = all_tags.tags + [tag] %}
+    {% endif %}
+  {% endfor %}
+{% endfor %}
+
+{% if all_tags.tags %}
+<div class="camp-tag-filter" id="camp-tag-filter">
+  <span class="camp-tag-filter-label">Filter:</span>
+  <button class="camp-tag-pill camp-tag-pill-active" data-tag="">All</button>
+  {% for tag in all_tags.tags | sort %}
+  <button class="camp-tag-pill" data-tag="{{ tag | e }}">{{ tag }}</button>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if has_active.value %}
 {% set ns = namespace(ids=[]) %}
 {% for c in campaigns %}
@@ -231,6 +251,27 @@
         {{ c.unsubscribe_count }} unsub{{ 's' if c.unsubscribe_count != 1 else '' }}
       </span>
       {% endif %}
+    </div>
+
+    {# ── Tags ── #}
+    <div class="camp-tags" id="camp-tags-{{ c.id }}"
+         data-campaign-id="{{ c.id }}"
+         data-client-id="{{ client_id }}"
+         data-tags="{{ (c.tags or []) | tojson | e }}">
+      {% for tag in (c.tags or []) %}
+      <span class="camp-tag">
+        {{ tag }}
+        <button class="camp-tag-remove" aria-label="Remove tag" onclick="removeCampaignTag('{{ c.id }}','{{ client_id }}','{{ tag | e }}',event)">×</button>
+      </span>
+      {% endfor %}
+      <button class="camp-tag-add" onclick="openTagInput('{{ c.id }}',event)" aria-label="Add tag">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <span class="camp-tag-input-wrap" id="camp-tag-input-{{ c.id }}" style="display:none">
+        <input class="camp-tag-input" type="text" placeholder="tag name…" maxlength="40"
+               onkeydown="handleTagKey(event,'{{ c.id }}','{{ client_id }}')"
+               onblur="closeTagInput('{{ c.id }}')">
+      </span>
     </div>
 
     <div class="camp-actions">
@@ -371,6 +412,27 @@
       {% if c.reply_count %}<span class="camp-chip camp-chip-reply">{{ c.reply_count }} repl{{ 'ies' if c.reply_count != 1 else 'y' }}</span>{% endif %}
       {% if c.interested_count %}<span class="camp-chip camp-chip-interested">{{ c.interested_count }} interested</span>{% endif %}
       {% if c.unsubscribe_count %}<span class="camp-chip camp-chip-unsub">{{ c.unsubscribe_count }} unsub{{ 's' if c.unsubscribe_count != 1 else '' }}</span>{% endif %}
+    </div>
+
+    {# ── Tags ── #}
+    <div class="camp-tags" id="camp-tags-{{ c.id }}"
+         data-campaign-id="{{ c.id }}"
+         data-client-id="{{ client_id }}"
+         data-tags="{{ (c.tags or []) | tojson | e }}">
+      {% for tag in (c.tags or []) %}
+      <span class="camp-tag">
+        {{ tag }}
+        <button class="camp-tag-remove" aria-label="Remove tag" onclick="removeCampaignTag('{{ c.id }}','{{ client_id }}','{{ tag | e }}',event)">×</button>
+      </span>
+      {% endfor %}
+      <button class="camp-tag-add" onclick="openTagInput('{{ c.id }}',event)" aria-label="Add tag">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <span class="camp-tag-input-wrap" id="camp-tag-input-{{ c.id }}" style="display:none">
+        <input class="camp-tag-input" type="text" placeholder="tag name…" maxlength="40"
+               onkeydown="handleTagKey(event,'{{ c.id }}','{{ client_id }}')"
+               onblur="closeTagInput('{{ c.id }}')">
+      </span>
     </div>
 
     <div class="camp-actions">

@@ -116,7 +116,7 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
                 params={
                     "select":    "id,created_at,campaign_name,sender_profile_name,"
                                  "client_id,client_name,sheet_id,sheet_url,"
-                                 "total_prospects,sent_count,completed,"
+                                 "total_prospects,sent_count,completed,tags,"
                                  "lead_count,reply_count,interested_count,unsubscribe_count",
                     "order":     "created_at.desc",
                     "client_id": f"eq.{client_id}",
@@ -386,6 +386,32 @@ async def complete_campaign(
             headers=_sb_headers("return=minimal"),
             params={"id": f"eq.{campaign_id}"},
             json={"completed": True},
+            timeout=10,
+        ).raise_for_status()
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return await list_campaigns(request, client_id=client_id)
+
+
+# ── Update campaign tags ───────────────────────────────────────────────────────
+
+@router.patch("/api/campaigns/{campaign_id}/tags")
+async def update_campaign_tags(
+    request:     Request,
+    campaign_id: str,
+    client_id:   str = Query(""),
+):
+    """Receive {tags: [...]} and persist to Supabase. Returns refreshed campaign list."""
+    if not _sb_configured():
+        return JSONResponse({"error": "Supabase not configured."}, status_code=503)
+    try:
+        body = await request.json()
+        tags = [t.strip() for t in (body.get("tags") or []) if str(t).strip()]
+        http_req.patch(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            headers=_sb_headers("return=minimal"),
+            params={"id": f"eq.{campaign_id}"},
+            json={"tags": tags},
             timeout=10,
         ).raise_for_status()
     except Exception as exc:

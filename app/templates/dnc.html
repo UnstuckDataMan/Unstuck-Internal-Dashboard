@@ -1317,6 +1317,59 @@
   .camp-sync-ok  { color: #4ade80; }
   .camp-sync-err { color: #f87171; }
 
+  /* ── Campaign tags ───────────────────────────────────────── */
+  .camp-tag-filter {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+    margin-top: 16px; margin-bottom: 2px;
+  }
+  .camp-tag-filter-label {
+    font-size: .74rem; font-weight: 600; color: var(--text-3);
+    letter-spacing: .04em; text-transform: uppercase; margin-right: 2px;
+  }
+  .camp-tag-pill {
+    display: inline-flex; align-items: center;
+    padding: 3px 11px; border-radius: 20px; font-size: .75rem; font-weight: 600;
+    border: 1px solid var(--border); background: transparent; color: var(--text-2);
+    cursor: pointer; font-family: var(--font);
+    transition: background .14s, color .14s, border-color .14s;
+  }
+  .camp-tag-pill:hover { border-color: #818cf8; color: #818cf8; }
+  .camp-tag-pill.camp-tag-pill-active {
+    background: #818cf8; border-color: #818cf8; color: #fff;
+  }
+  .camp-tags {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 5px;
+    margin: 6px 0 2px;
+  }
+  .camp-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px 2px 9px; border-radius: 20px;
+    background: rgba(129,140,248,.15); border: 1px solid rgba(129,140,248,.35);
+    font-size: .72rem; font-weight: 600; color: #a5b4fc;
+  }
+  .camp-tag-remove {
+    background: none; border: none; cursor: pointer; color: #a5b4fc;
+    font-size: .82rem; line-height: 1; padding: 0; opacity: .7;
+    transition: opacity .12s;
+  }
+  .camp-tag-remove:hover { opacity: 1; }
+  .camp-tag-add {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 1px dashed var(--border); background: none; color: var(--text-3);
+    cursor: pointer; transition: border-color .12s, color .12s;
+  }
+  .camp-tag-add:hover { border-color: #818cf8; color: #818cf8; }
+  .camp-tag-input-wrap { display: inline-flex; align-items: center; }
+  .camp-tag-input {
+    width: 90px; padding: 2px 8px; border-radius: 20px;
+    border: 1px solid #818cf8; background: rgba(129,140,248,.1);
+    color: var(--text-1); font-size: .72rem; font-family: var(--font);
+    outline: none;
+  }
+  /* hide cards that don't match the active tag filter */
+  .camp-card.camp-hidden { display: none; }
+
   /* ── Campaign dashboard ──────────────────────────────────── */
   .cdash { margin-bottom: 24px; }
   .cdash-row {
@@ -3837,6 +3890,84 @@
 (function () {
   let _pendingCampaignId  = null;   // single campaign sync
   let _pendingCampaignIds = null;   // sync-all mode (array)
+
+  // ── Campaign tags ──────────────────────────────────────────────────── //
+
+  window.openTagInput = function (campId, evt) {
+    evt.stopPropagation();
+    const wrap = document.getElementById('camp-tag-input-' + campId);
+    if (!wrap) return;
+    wrap.style.display = 'inline-flex';
+    const inp = wrap.querySelector('input');
+    if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 0); }
+  };
+
+  window.closeTagInput = function (campId) {
+    const wrap = document.getElementById('camp-tag-input-' + campId);
+    if (wrap) wrap.style.display = 'none';
+  };
+
+  window.handleTagKey = function (evt, campId, clientId) {
+    if (evt.key === 'Escape') { closeTagInput(campId); return; }
+    if (evt.key !== 'Enter' && evt.key !== ',') return;
+    evt.preventDefault();
+    const inp = evt.target;
+    const newTag = inp.value.trim().toLowerCase().replace(/[^a-z0-9 _\-]/g, '');
+    if (!newTag) { closeTagInput(campId); return; }
+    // Merge with existing tags
+    const container = document.getElementById('camp-tags-' + campId);
+    let tags = [];
+    try { tags = JSON.parse(container?.dataset.tags || '[]'); } catch (_) {}
+    if (!tags.includes(newTag)) tags = tags.concat(newTag);
+    closeTagInput(campId);
+    _saveTagsAndRefresh(campId, clientId, tags);
+  };
+
+  window.removeCampaignTag = function (campId, clientId, tag, evt) {
+    evt.stopPropagation();
+    const container = document.getElementById('camp-tags-' + campId);
+    let tags = [];
+    try { tags = JSON.parse(container?.dataset.tags || '[]'); } catch (_) {}
+    tags = tags.filter(t => t !== tag);
+    _saveTagsAndRefresh(campId, clientId, tags);
+  };
+
+  async function _saveTagsAndRefresh(campId, clientId, tags) {
+    try {
+      await fetch('/api/campaigns/' + campId + '/tags?client_id=' + encodeURIComponent(clientId), {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ tags }),
+      }).then(async r => {
+        const html = await r.text();
+        document.getElementById('campaigns-panel-inner').innerHTML = html;
+        htmx.process(document.getElementById('campaigns-panel-inner'));
+      });
+    } catch (e) {
+      console.error('Tag save failed', e);
+    }
+  }
+
+  // ── Tag filter pills (rendered by campaigns_list partial) ─────────── //
+  document.addEventListener('click', function (e) {
+    const pill = e.target.closest('.camp-tag-pill');
+    if (!pill) return;
+    // Mark active
+    document.querySelectorAll('.camp-tag-pill').forEach(p => p.classList.remove('camp-tag-pill-active'));
+    pill.classList.add('camp-tag-pill-active');
+    const filterTag = pill.dataset.tag;
+    // Show/hide cards
+    document.querySelectorAll('.camp-card').forEach(card => {
+      if (!filterTag) {
+        card.classList.remove('camp-hidden');
+        return;
+      }
+      let tags = [];
+      const tagsEl = card.querySelector('.camp-tags');
+      try { tags = JSON.parse(tagsEl?.dataset.tags || '[]'); } catch (_) {}
+      card.classList.toggle('camp-hidden', !tags.includes(filterTag));
+    });
+  });
 
   // Single campaign sync (per-card button)
   window.openSyncModal = function (campaignId) {
