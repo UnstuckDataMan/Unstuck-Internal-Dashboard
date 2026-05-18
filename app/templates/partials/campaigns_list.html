@@ -178,6 +178,7 @@
        data-replies="{{ c.reply_count or 0 }}"
        data-interested="{{ c.interested_count or 0 }}"
        data-unsubs="{{ c.unsubscribe_count or 0 }}"
+       data-tags="{{ (c.tags or []) | join(',') | e }}"
        onclick="selectCampaign(this, event)">
     <div class="camp-card-header">
       <span class="camp-name">{{ c.campaign_name or '(unnamed)' }}</span>
@@ -365,6 +366,7 @@
        data-replies="{{ c.reply_count or 0 }}"
        data-interested="{{ c.interested_count or 0 }}"
        data-unsubs="{{ c.unsubscribe_count or 0 }}"
+       data-tags="{{ (c.tags or []) | join(',') | e }}"
        onclick="selectCampaign(this, event)">
     <div class="camp-card-header">
       <span class="camp-name">{{ c.campaign_name or '(unnamed)' }}</span>

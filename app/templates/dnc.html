@@ -3956,20 +3956,18 @@
   document.addEventListener('click', function (e) {
     const pill = e.target.closest('.camp-tag-pill');
     if (!pill) return;
-    // Mark active
+    // Mark active pill
     document.querySelectorAll('.camp-tag-pill').forEach(p => p.classList.remove('camp-tag-pill-active'));
     pill.classList.add('camp-tag-pill-active');
-    const filterTag = pill.dataset.tag;
-    // Show/hide cards
-    document.querySelectorAll('.camp-card').forEach(card => {
+    const filterTag = pill.dataset.tag;   // '' means "All"
+    // Show/hide cards — read comma-separated tags directly from the card element
+    document.querySelectorAll('.camp-card').forEach(function (card) {
       if (!filterTag) {
         card.classList.remove('camp-hidden');
         return;
       }
-      let tags = [];
-      const tagsEl = card.querySelector('.camp-tags');
-      try { tags = JSON.parse(tagsEl?.dataset.tags || '[]'); } catch (_) {}
-      card.classList.toggle('camp-hidden', !tags.includes(filterTag));
+      const cardTags = (card.dataset.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+      card.classList.toggle('camp-hidden', !cardTags.includes(filterTag));
     });
   });
 
