@@ -3956,10 +3956,12 @@
   document.addEventListener('click', function (e) {
     const pill = e.target.closest('.camp-tag-pill');
     if (!pill) return;
+
     // Mark active pill
     document.querySelectorAll('.camp-tag-pill').forEach(p => p.classList.remove('camp-tag-pill-active'));
     pill.classList.add('camp-tag-pill-active');
     const filterTag = pill.dataset.tag;   // '' means "All"
+
     // Show/hide cards — read comma-separated tags directly from the card element
     document.querySelectorAll('.camp-card').forEach(function (card) {
       if (!filterTag) {
@@ -3969,6 +3971,75 @@
       const cardTags = (card.dataset.tags || '').split(',').map(t => t.trim()).filter(Boolean);
       card.classList.toggle('camp-hidden', !cardTags.includes(filterTag));
     });
+
+    // ── Update stats dashboard to reflect visible campaigns only ─────── //
+    const el  = id => document.getElementById(id);
+    const set = (id, v) => { const n = el(id); if (n) n.textContent = v; };
+
+    if (!filterTag) {
+      // "All" — restore original client-level stats from the stored snapshot
+      const s = window._campClientStats;
+      if (s) {
+        set('cdash-num-campaigns',  s.campNum);
+        set('cdash-sub-campaigns',  s.campSub);
+        set('cdash-sub2-campaigns', s.campSub2);
+        set('cdash-num-prospects',  s.prospects);
+        set('cdash-num-leads',      s.leads);
+        set('cdash-num-replies',    s.replies);
+        set('cdash-num-interested', s.interested);
+        set('cdash-num-unsubs',     s.unsubs);
+      }
+      return;
+    }
+
+    // Snapshot full stats the first time a tag filter is applied
+    if (!window._campClientStats) {
+      window._campClientStats = {
+        campNum:   el('cdash-num-campaigns')  ? el('cdash-num-campaigns').textContent  : '0',
+        campSub:   el('cdash-sub-campaigns')  ? el('cdash-sub-campaigns').textContent  : 'active',
+        campSub2:  el('cdash-sub2-campaigns') ? el('cdash-sub2-campaigns').textContent : '',
+        prospects: el('cdash-num-prospects')  ? el('cdash-num-prospects').textContent  : '0',
+        leads:     el('cdash-num-leads')      ? el('cdash-num-leads').textContent      : '0',
+        replies:   el('cdash-num-replies')    ? el('cdash-num-replies').textContent    : '0',
+        interested:el('cdash-num-interested') ? el('cdash-num-interested').textContent : '0',
+        unsubs:    el('cdash-num-unsubs')     ? el('cdash-num-unsubs').textContent     : '0',
+      };
+    }
+
+    // Sum up stats from currently visible cards
+    let totalCamps = 0, activeCamps = 0, pipeline = 0;
+    let leads = 0, replies = 0, interested = 0, unsubs = 0;
+
+    document.querySelectorAll('.camp-card:not(.camp-hidden)').forEach(function (card) {
+      totalCamps++;
+      const isActive = card.classList.contains('camp-card-active');
+      const total    = parseInt(card.dataset.total    || '0', 10);
+      const sent     = parseInt(card.dataset.sent     || '0', 10);
+      if (isActive) {
+        activeCamps++;
+        pipeline += Math.max(0, total - sent);
+      }
+      leads      += parseInt(card.dataset.leads      || '0', 10);
+      replies    += parseInt(card.dataset.replies    || '0', 10);
+      interested += parseInt(card.dataset.interested || '0', 10);
+      unsubs     += parseInt(card.dataset.unsubs     || '0', 10);
+    });
+
+    set('cdash-num-campaigns',  activeCamps);
+    set('cdash-sub-campaigns',  'active');
+    set('cdash-sub2-campaigns', totalCamps + ' total');
+    set('cdash-num-prospects',  pipeline);
+    set('cdash-num-leads',      leads);
+    set('cdash-num-replies',    replies);
+    set('cdash-num-interested', interested);
+    set('cdash-num-unsubs',     unsubs);
+  });
+
+  // Reset tag snapshot when the campaigns panel is re-rendered (client change / sync)
+  document.addEventListener('htmx:afterSwap', function (e) {
+    if (e.target && e.target.id === 'campaigns-panel-inner') {
+      window._campClientStats = null;
+    }
   });
 
   // Single campaign sync (per-card button)
