@@ -555,8 +555,9 @@ async def send_clean_to_merge(token: str):
 
 @router.get("/api/dnc/contacted/campaigns")
 async def get_contacted_campaigns(
-    request:   Request,
-    client_id: str = Query(...),
+    request:         Request,
+    client_id:       str = Query(...),
+    success_message: str = "",
 ):
     """Return campaign groups (name + count) for the campaign-first selector UI."""
     from collections import Counter
@@ -612,6 +613,7 @@ async def get_contacted_campaigns(
             "no_campaign_count": no_campaign_count,
             "client_id":         client_id,
             "error":             None,
+            "success_message":   success_message,
         },
     )
 
@@ -900,13 +902,22 @@ async def upload_contacted(
                 json=rows,
                 timeout=30,
             )
-            # 409 = unique conflict (rows already exist) — treat as success
-            if r.status_code not in (200, 201, 409):
-                r.raise_for_status()
+            # 201 = inserted, 204 = inserted (return=minimal), 409 = already exists
+            if r.status_code not in (200, 201, 204, 409):
+                body = ""
+                try:
+                    body = r.json().get("message") or r.json().get("details") or r.text[:300]
+                except Exception:
+                    body = r.text[:300]
+                return error(f"Supabase error {r.status_code}: {body}")
         except Exception as e:
             return error(f"Supabase error during upload: {e}")
 
-    return await get_contacted_campaigns(request, client_id=client_id)
+    return await get_contacted_campaigns(
+        request,
+        client_id=client_id,
+        success_message=f"✓ {len(emails):,} email{'s' if len(emails) != 1 else ''} uploaded successfully.",
+    )
 
 
 @router.delete("/api/dnc/contacted/campaign")

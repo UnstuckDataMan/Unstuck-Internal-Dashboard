@@ -1,3 +1,6 @@
+{% if success_message %}
+<div class="result-meta" style="color:#4ade80;margin-bottom:10px;font-weight:600">{{ success_message }}</div>
+{% endif %}
 {% if error %}
 <div class="err-box">{{ error }}</div>
 {% elif total_count == 0 %}
