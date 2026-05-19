@@ -396,61 +396,64 @@
     .admin-tab-pane { display: none; }
     .admin-tab-pane.active { display: contents; }
 
-    /* ── Block editor (template drag-and-drop) ── */
-    .tpl-block-editor { display: flex; flex-direction: column; }
-    .tpl-text-block {
-      min-height: 40px; padding: 8px 10px; margin: 3px 0;
-      border: 1px solid var(--border); border-radius: 8px;
-      font-size: 13px; color: var(--text); background: rgba(255,255,255,.04);
-      outline: none; white-space: pre-wrap; word-wrap: break-word;
+    /* ── Unified inline template editor ── */
+    .tpl-block-editor {
+      padding: 10px 12px; min-height: 120px;
+      border: 1px solid var(--border); border-radius: 10px;
+      background: rgba(255,255,255,.04);
+      font-size: 13px; color: var(--text); line-height: 1.75;
+      outline: none; white-space: pre-wrap; word-wrap: break-word; cursor: text;
       transition: border-color .15s;
     }
-    .tpl-text-block:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(139,92,246,.18); }
+    .tpl-block-editor:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(139,92,246,.12); }
+
+    /* Inline snippet chip — base colour: purple (all senders) */
     .tpl-snippet-chip {
-      display: flex; align-items: center; gap: 8px; padding: 7px 12px; margin: 3px 0;
-      border-radius: 8px; border: 1px solid rgba(139,92,246,.35);
-      background: rgba(139,92,246,.1); cursor: grab; user-select: none;
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 1px 5px 1px 8px; margin: 0 2px;
+      border-radius: 20px; font-size: 11px; font-weight: 600;
+      cursor: grab; user-select: none; vertical-align: middle;
+      border: 1px solid rgba(139,92,246,.5);
+      background: rgba(139,92,246,.16); color: #c4b5fd;
+      transition: opacity .15s; white-space: nowrap;
     }
-    .tpl-snippet-chip.dragging { opacity: .4; }
-    .chip-label { font-size: 13px; font-weight: 600; color: #a78bfa; }
-    .chip-scope, .chip-territory {
-      font-size: 10px; padding: 2px 6px; border-radius: 10px;
-      background: rgba(139,92,246,.2); color: #c4b5fd;
-      text-transform: uppercase; letter-spacing: .5px;
-    }
-    .chip-badge.toggle {
-      font-size: 10px; padding: 2px 6px; border-radius: 10px;
-      background: rgba(99,102,241,.2); color: #a5b4fc; text-transform: uppercase;
-    }
+    .tpl-snippet-chip.dragging { opacity: .35; cursor: grabbing; }
+
+    /* Leo-only → amber */
+    .tpl-snippet-chip.scope-leo  { border-color: rgba(245,158,11,.5);  background: rgba(245,158,11,.14);  color: #fcd34d; }
+    /* Others-only → teal */
+    .tpl-snippet-chip.scope-others { border-color: rgba(20,184,166,.5); background: rgba(20,184,166,.13); color: #5eead4; }
+
+    .chip-label  { font-size: 11px; font-weight: 600; }
     .chip-delete {
-      margin-left: auto; border: none; background: transparent;
-      color: var(--text-3); cursor: pointer; font-size: 12px; padding: 2px 5px;
-      border-radius: 4px; transition: color .15s, background .15s; line-height: 1;
+      border: none; background: transparent; cursor: pointer;
+      font-size: 10px; padding: 0 1px; color: inherit; opacity: .55; line-height: 1;
+      transition: opacity .15s;
     }
-    .chip-delete:hover { color: #f87171; background: rgba(248,113,113,.1); }
-    .drop-zone {
-      height: 6px; border-radius: 3px; margin: 1px 0;
-      transition: height .15s, background .15s;
-    }
-    .drop-zone.dragover {
-      height: 20px; background: rgba(139,92,246,.25);
-      border: 1px dashed rgba(139,92,246,.5);
-    }
+    .chip-delete:hover { opacity: 1; }
 
     /* ── Snippet palette ── */
     .snippet-palette { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
-    .palette-label {
-      font-size: 10px; font-weight: 700; color: var(--text-3);
-      text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px;
-    }
-    .palette-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .palette-label  { font-size: 10px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; }
+    .palette-chips  { display: flex; flex-wrap: wrap; gap: 6px; }
     .palette-chip {
-      padding: 5px 12px; border-radius: 7px; cursor: grab;
-      background: var(--surface); border: 1px solid var(--border);
-      font-size: 12px; font-weight: 600; color: var(--text-2);
-      transition: border-color .15s, background .15s; user-select: none;
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 10px; border-radius: 20px; cursor: grab;
+      border: 1px solid rgba(139,92,246,.4); background: rgba(139,92,246,.1);
+      font-size: 11px; font-weight: 600; color: #c4b5fd;
+      transition: opacity .15s; user-select: none;
     }
-    .palette-chip:hover { border-color: rgba(139,92,246,.5); background: rgba(139,92,246,.08); }
+    .palette-chip:hover { opacity: .75; }
+    /* Same colour variants for palette chips */
+    .palette-chip.scope-leo    { border-color: rgba(245,158,11,.45);  background: rgba(245,158,11,.13);  color: #fcd34d; }
+    .palette-chip.scope-others { border-color: rgba(20,184,166,.45);  background: rgba(20,184,166,.12);  color: #5eead4; }
+
+    /* Colour legend */
+    .palette-legend { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .legend-chip { font-size: 10px; padding: 1px 9px; border-radius: 20px; font-weight: 600; }
+    .legend-chip.scope-all    { border: 1px solid rgba(139,92,246,.45); background: rgba(139,92,246,.15); color: #c4b5fd; }
+    .legend-chip.scope-leo    { border: 1px solid rgba(245,158,11,.45);  background: rgba(245,158,11,.13);  color: #fcd34d; }
+    .legend-chip.scope-others { border: 1px solid rgba(20,184,166,.45);  background: rgba(20,184,166,.12);  color: #5eead4; }
 
     /* ── Snippet metadata fields ── */
     .snip-meta {
@@ -597,11 +600,6 @@
         <div class="admin-template-label">
           Email <span class="edited-chip" id="chip-adm-email" style="display:none">Edited</span>
         </div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
         <div class="tpl-block-editor" id="adm-email-editor"></div>
         <div class="snippet-palette">
           <div class="palette-label">Drag snippets into template ↑</div>
@@ -612,11 +610,6 @@
       <div class="admin-template-block">
         <div class="admin-template-label">
           LinkedIn <span class="edited-chip" id="chip-adm-linkedin" style="display:none">Edited</span>
-        </div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
         <div class="tpl-block-editor" id="adm-linkedin-editor"></div>
         <div class="snippet-palette">
@@ -1104,115 +1097,127 @@ function parseTemplate(str) {
   }).filter(s => s.type === 'snippet' || s.content !== '');
 }
 
-// Re-join segments → template string
+// Re-join segments → template string (kept for parseTemplate compat; unified editor uses serializeUnifiedEditor)
 function serializeTemplate(segs) {
   return segs.map(s => s.type === 'snippet' ? `[[${s.key}]]` : s.content).join('');
 }
 
-// Render block editor into containerId; segments array is mutated in place
+// ── Create a compact inline chip span ──────────────────────────────────────
+function createInlineChip(key) {
+  const snip = SNIPPETS[key] || {};
+  const chip = document.createElement('span');
+  chip.contentEditable = 'false';
+  chip.draggable       = true;
+  chip.dataset.snippetKey = key;
+  const scopeClass = snip.senderScope === 'leo'    ? ' scope-leo'
+                   : snip.senderScope === 'others' ? ' scope-others' : '';
+  chip.className = 'tpl-snippet-chip' + scopeClass;
+  chip.innerHTML = `<span class="chip-label">${snip.label || key}</span>`
+    + `<button class="chip-delete" title="Remove">✕</button>`;
+  chip.querySelector('.chip-delete').addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation(); chip.remove();
+  });
+  chip.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('snippetKey', key);
+    e.dataTransfer.setData('snippetSrc', 'template');
+    chip.classList.add('dragging');
+  });
+  chip.addEventListener('dragend', () => chip.classList.remove('dragging'));
+  return chip;
+}
+
+// ── Unified inline editor — single contenteditable with inline chips ───────
 function renderBlockEditor(containerId, segments) {
   const container = document.getElementById(containerId);
   if (!container) return;
+  container.innerHTML      = '';
+  container.contentEditable = 'true';
 
-  function rebuild() {
-    container.innerHTML = '';
-    // Opening drop zone
-    container.appendChild(makeDropZone(0));
+  segments.forEach(seg => {
+    if (seg.type === 'text') {
+      container.appendChild(document.createTextNode(seg.content));
+    } else {
+      container.appendChild(createInlineChip(seg.key));
+    }
+  });
 
-    segments.forEach((seg, idx) => {
-      if (seg.type === 'text') {
-        const block = document.createElement('div');
-        block.className = 'tpl-text-block';
-        block.contentEditable = 'true';
-        block.textContent = seg.content;
-        block.dataset.idx = idx;
-        block.addEventListener('input', () => { segments[idx].content = block.textContent; });
-        container.appendChild(block);
-      } else {
-        const snip  = SNIPPETS[seg.key] || {};
-        const chip  = document.createElement('div');
-        chip.className    = 'tpl-snippet-chip';
-        chip.draggable    = true;
-        chip.dataset.idx  = idx;
-        chip.dataset.src  = 'template';
-        chip.dataset.key  = seg.key;
+  // Accept drops from palette and chip repositions
+  container.addEventListener('dragover', e => { e.preventDefault(); });
+  container.addEventListener('drop', e => {
+    e.preventDefault();
+    const key = e.dataTransfer.getData('snippetKey');
+    const src = e.dataTransfer.getData('snippetSrc');
+    if (!key) return;
 
-        const scopeBadge = snip.senderScope && snip.senderScope !== 'all'
-          ? `<span class="chip-scope">${snip.senderScope}</span>` : '';
-        const terrBadge  = snip.territoryScope && snip.territoryScope !== 'all'
-          ? `<span class="chip-territory">${snip.territoryScope}</span>` : '';
-        const togBadge   = snip.isToggle
-          ? `<span class="chip-badge toggle">toggle</span>` : '';
-        chip.innerHTML = `
-          <span class="chip-label">${snip.label || seg.key}</span>
-          ${scopeBadge}${terrBadge}${togBadge}
-          <button class="chip-delete" title="Remove snippet from template">✕</button>`;
-        chip.querySelector('.chip-delete').addEventListener('click', e => {
-          e.stopPropagation();
-          segments.splice(idx, 1);
-          rebuild();
-        });
-        chip.addEventListener('dragstart', e => {
-          e.dataTransfer.setData('snippetKey', seg.key);
-          e.dataTransfer.setData('snippetSrc', 'template');
-          e.dataTransfer.setData('snippetIdx', String(idx));
-          chip.classList.add('dragging');
-        });
-        chip.addEventListener('dragend', () => chip.classList.remove('dragging'));
-        container.appendChild(chip);
-      }
+    // Remove existing chip if repositioning within the editor
+    if (src === 'template') {
+      const existing = container.querySelector(`[data-snippet-key="${key}"]`);
+      if (existing) existing.remove();
+    }
 
-      // Drop zone after each block
-      container.appendChild(makeDropZone(idx + 1));
-    });
-  }
-
-  function makeDropZone(insertBefore) {
-    const dz = document.createElement('div');
-    dz.className   = 'drop-zone';
-    dz.dataset.pos = insertBefore;
-    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
-    dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
-    dz.addEventListener('drop', e => {
-      e.preventDefault();
-      dz.classList.remove('dragover');
-      const key = e.dataTransfer.getData('snippetKey');
-      const src = e.dataTransfer.getData('snippetSrc');
-      const oldIdx = parseInt(e.dataTransfer.getData('snippetIdx'), 10);
-      let pos = parseInt(dz.dataset.pos, 10);
-
-      if (src === 'template' && !isNaN(oldIdx)) {
-        // Moving an existing chip: remove from old position first
-        const removed = segments.splice(oldIdx, 1)[0];
-        // Adjust pos if we removed from before the target
-        if (oldIdx < pos) pos--;
-        segments.splice(pos, 0, removed);
-      } else {
-        // New snippet from palette: insert
-        segments.splice(pos, 0, { type: 'snippet', key });
-      }
-      rebuild();
-    });
-    return dz;
-  }
-
-  rebuild();
+    // Insert chip at the precise text cursor position
+    let range;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(e.clientX, e.clientY);
+    } else if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
+      if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); }
+    }
+    if (range) {
+      range.collapse(true);
+      range.insertNode(createInlineChip(key));
+    } else {
+      container.appendChild(createInlineChip(key));
+    }
+  });
 }
 
-// Render snippet palette into paletteId; clicking/dragging inserts into block editor
+// ── Serialize unified editor DOM → template string ─────────────────────────
+function serializeUnifiedEditor(container) {
+  let result = '';
+  function walk(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      result += node.textContent;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const key = node.dataset?.snippetKey;
+      if (key) { result += `[[${key}]]`; return; }           // chip span
+      if (node.tagName === 'BR') { result += '\n'; return; }  // explicit line break
+      const isBlock = ['DIV', 'P'].includes(node.tagName);
+      if (isBlock && node !== container && node.previousSibling) result += '\n';
+      for (const child of node.childNodes) walk(child);
+    }
+  }
+  for (const child of container.childNodes) walk(child);
+  return result.replace(/\n{3,}/g, '\n\n');
+}
+
+// ── Snippet palette with colour coding and legend ──────────────────────────
 function renderSnippetPalette(paletteId) {
   const palette = document.getElementById(paletteId);
   if (!palette) return;
+
+  // Build chips with colour class
   palette.innerHTML = Object.entries(SNIPPETS).map(([key, snip]) => {
-    const scopeBadge = snip.senderScope && snip.senderScope !== 'all'
-      ? ` · ${snip.senderScope}` : '';
-    const terrBadge  = snip.territoryScope && snip.territoryScope !== 'all'
-      ? ` · ${snip.territoryScope}` : '';
-    return `<div class="palette-chip" draggable="true" data-key="${key}"
-        title="${snip.label || key}${scopeBadge}${terrBadge}">
+    const terrHint  = snip.territoryScope && snip.territoryScope !== 'all' ? ` · ${snip.territoryScope}` : '';
+    const scopeClass = snip.senderScope === 'leo'    ? ' scope-leo'
+                     : snip.senderScope === 'others' ? ' scope-others' : '';
+    return `<div class="palette-chip${scopeClass}" draggable="true" data-key="${key}"
+        title="${snip.label || key}${terrHint}">
       ${snip.label || key}
     </div>`;
   }).join('');
+
+  // Append legend (idempotent: only add if the parent .snippet-palette doesn't already have one)
+  const section = palette.closest('.snippet-palette');
+  if (section && !section.querySelector('.palette-legend')) {
+    const legend = document.createElement('div');
+    legend.className = 'palette-legend';
+    legend.innerHTML = `<span class="legend-chip scope-all">All senders</span>`
+      + `<span class="legend-chip scope-leo">Leo only</span>`
+      + `<span class="legend-chip scope-others">Others only</span>`;
+    section.appendChild(legend);
+  }
+
   palette.querySelectorAll('.palette-chip').forEach(chip => {
     chip.addEventListener('dragstart', e => {
       e.dataTransfer.setData('snippetKey', chip.dataset.key);
@@ -1347,8 +1352,7 @@ function adminGetSelectors() {
   };
 }
 
-// Store parsed segments per channel so save handler can serialize them
-const _tplSegments = {};
+// (Unified editor serializes directly from DOM; no segment cache needed)
 
 function adminLoadTemplates() {
   const { territory, industry } = adminGetSelectors();
@@ -1358,7 +1362,6 @@ function adminLoadTemplates() {
     const key      = `${territory}_Standard_${channel}_${industry}`;
     const editorId = `adm-${channel.toLowerCase()}-editor`;
     const segs     = parseTemplate(TEMPLATES[key] || '');
-    _tplSegments[channel] = segs;
     renderBlockEditor(editorId, segs);
     renderSnippetPalette(`palette-${channel.toLowerCase()}`);
     const chip = document.getElementById(`chip-adm-${channel.toLowerCase()}`);
@@ -1375,18 +1378,10 @@ document.getElementById('adm-save-templates').addEventListener('click', () => {
   const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
 
   for (const channel of ['Email', 'LinkedIn']) {
-    const key  = `${territory}_Standard_${channel}_${industry}`;
-    // Sync text blocks from DOM before serializing
-    const editorId = `adm-${channel.toLowerCase()}-editor`;
-    const editor   = document.getElementById(editorId);
-    const segs     = _tplSegments[channel] || [];
-    if (editor) {
-      editor.querySelectorAll('.tpl-text-block').forEach(el => {
-        const idx = parseInt(el.dataset.idx, 10);
-        if (segs[idx]) segs[idx].content = el.textContent;
-      });
-    }
-    const val = serializeTemplate(segs);
+    const key    = `${territory}_Standard_${channel}_${industry}`;
+    const editor = document.getElementById(`adm-${channel.toLowerCase()}-editor`);
+    if (!editor) continue;
+    const val = serializeUnifiedEditor(editor);
     tOverrides[key] = val;
     TEMPLATES[key]  = val;
     const chip = document.getElementById(`chip-adm-${channel.toLowerCase()}`);
