@@ -4,10 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Reply Bank — Unstuck Agency</title>
-  <link rel="icon"             type="image/x-icon"  href="/static/img/favicon.ico">
-  <link rel="icon"             type="image/png"     href="/static/img/favicon-32x32.png" sizes="32x32">
-  <link rel="icon"             type="image/png"     href="/static/img/favicon-16x16.png" sizes="16x16">
-  <link rel="apple-touch-icon"                      href="/static/img/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
@@ -399,6 +395,100 @@
     .admin-tab-btn.active { color: #a78bfa; border-bottom-color: #a78bfa; }
     .admin-tab-pane { display: none; }
     .admin-tab-pane.active { display: contents; }
+
+    /* ── Block editor (template drag-and-drop) ── */
+    .tpl-block-editor { display: flex; flex-direction: column; }
+    .tpl-text-block {
+      min-height: 40px; padding: 8px 10px; margin: 3px 0;
+      border: 1px solid var(--border); border-radius: 8px;
+      font-size: 13px; color: var(--text); background: rgba(255,255,255,.04);
+      outline: none; white-space: pre-wrap; word-wrap: break-word;
+      transition: border-color .15s;
+    }
+    .tpl-text-block:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(139,92,246,.18); }
+    .tpl-snippet-chip {
+      display: flex; align-items: center; gap: 8px; padding: 7px 12px; margin: 3px 0;
+      border-radius: 8px; border: 1px solid rgba(139,92,246,.35);
+      background: rgba(139,92,246,.1); cursor: grab; user-select: none;
+    }
+    .tpl-snippet-chip.dragging { opacity: .4; }
+    .chip-label { font-size: 13px; font-weight: 600; color: #a78bfa; }
+    .chip-scope, .chip-territory {
+      font-size: 10px; padding: 2px 6px; border-radius: 10px;
+      background: rgba(139,92,246,.2); color: #c4b5fd;
+      text-transform: uppercase; letter-spacing: .5px;
+    }
+    .chip-badge.toggle {
+      font-size: 10px; padding: 2px 6px; border-radius: 10px;
+      background: rgba(99,102,241,.2); color: #a5b4fc; text-transform: uppercase;
+    }
+    .chip-delete {
+      margin-left: auto; border: none; background: transparent;
+      color: var(--text-3); cursor: pointer; font-size: 12px; padding: 2px 5px;
+      border-radius: 4px; transition: color .15s, background .15s; line-height: 1;
+    }
+    .chip-delete:hover { color: #f87171; background: rgba(248,113,113,.1); }
+    .drop-zone {
+      height: 6px; border-radius: 3px; margin: 1px 0;
+      transition: height .15s, background .15s;
+    }
+    .drop-zone.dragover {
+      height: 20px; background: rgba(139,92,246,.25);
+      border: 1px dashed rgba(139,92,246,.5);
+    }
+
+    /* ── Snippet palette ── */
+    .snippet-palette { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .palette-label {
+      font-size: 10px; font-weight: 700; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px;
+    }
+    .palette-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .palette-chip {
+      padding: 5px 12px; border-radius: 7px; cursor: grab;
+      background: var(--surface); border: 1px solid var(--border);
+      font-size: 12px; font-weight: 600; color: var(--text-2);
+      transition: border-color .15s, background .15s; user-select: none;
+    }
+    .palette-chip:hover { border-color: rgba(139,92,246,.5); background: rgba(139,92,246,.08); }
+
+    /* ── Snippet metadata fields ── */
+    .snip-meta {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      margin-top: 8px; padding: 8px 10px;
+      background: rgba(255,255,255,.03); border-radius: 7px;
+      border: 1px solid var(--border);
+    }
+    .snip-meta select {
+      padding: 3px 7px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 12px; background: var(--surface); color: var(--text);
+      outline: none; font-family: var(--font); cursor: pointer;
+    }
+    .snip-meta input[type="text"] {
+      padding: 3px 7px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 12px; background: var(--surface); color: var(--text);
+      outline: none; font-family: var(--font);
+    }
+    .snip-meta label {
+      font-size: 12px; color: var(--text-2);
+      display: flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap;
+    }
+    .snip-label-input {
+      flex: 1; min-width: 120px; padding: 5px 8px;
+      border: 1px solid var(--border); border-radius: 6px;
+      font-size: 13px; font-weight: 600; background: var(--surface);
+      color: var(--text); outline: none; font-family: var(--font);
+      transition: border-color .15s;
+    }
+    .snip-label-input:focus { border-color: var(--border-focus); }
+    .snip-add-btn {
+      padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      cursor: pointer; border: 1px dashed rgba(139,92,246,.4); background: transparent;
+      color: var(--text-3); font-family: var(--font);
+      transition: border-color .15s, color .15s, background .15s;
+    }
+    .snip-add-btn:hover { border-color: rgba(139,92,246,.7); color: #a78bfa; background: rgba(139,92,246,.06); }
+    .snip-leo-section { margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -464,12 +554,7 @@
 
     <div class="panel-section">
       <div class="section-label">Modifiers</div>
-      <div class="checkbox-group">
-        <label class="cb-row"><input type="checkbox" id="cb-pricing"><span>Pricing?</span></label>
-        <label class="cb-row"><input type="checkbox" id="cb-pay-per-lead"><span>Pay per lead?</span></label>
-        <label class="cb-row"><input type="checkbox" id="cb-referral"><span>Referral confusion?</span></label>
-        <label class="cb-row"><input type="checkbox" id="cb-face-to-face"><span>Face-to-face request</span></label>
-      </div>
+      <div class="checkbox-group" id="modifiers-group"></div>
     </div>
 
   </div>
@@ -517,7 +602,11 @@
           <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
           <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <div class="admin-textarea" id="adm-email" contenteditable="true" spellcheck="true"></div>
+        <div class="tpl-block-editor" id="adm-email-editor"></div>
+        <div class="snippet-palette">
+          <div class="palette-label">Drag snippets into template ↑</div>
+          <div class="palette-chips" id="palette-email"></div>
+        </div>
       </div>
 
       <div class="admin-template-block">
@@ -529,7 +618,11 @@
           <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
           <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
         </div>
-        <div class="admin-textarea" id="adm-linkedin" contenteditable="true" spellcheck="true"></div>
+        <div class="tpl-block-editor" id="adm-linkedin-editor"></div>
+        <div class="snippet-palette">
+          <div class="palette-label">Drag snippets into template ↑</div>
+          <div class="palette-chips" id="palette-linkedin"></div>
+        </div>
       </div>
 
       <div class="admin-save-row">
@@ -544,104 +637,13 @@
 
     <div class="admin-card">
       <div class="admin-card-title">Snippets</div>
-
-      <div class="admin-snippet-group-label">Always included when checkbox is ticked</div>
-
-      <div class="snippet-row">
-        <div class="snippet-label">Pay per lead? <span class="edited-chip" id="chip-payPerLead" style="display:none">Edited</span></div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
-        <div class="snippet-textarea" id="snip-payPerLead" contenteditable="true" spellcheck="true"></div>
-      </div>
-      <div class="snippet-row">
-        <div class="snippet-label">Referral confusion? <span class="edited-chip" id="chip-referral" style="display:none">Edited</span></div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
-        <div class="snippet-textarea" id="snip-referral" contenteditable="true" spellcheck="true"></div>
-      </div>
-      <div class="snippet-row">
-        <div class="snippet-label">Face-to-face request <span class="edited-chip" id="chip-f2f" style="display:none">Edited</span></div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
-        <div class="snippet-textarea" id="snip-f2f" contenteditable="true" spellcheck="true"></div>
-      </div>
-
-      <div class="admin-snippet-group-label" style="margin-top:18px">Pricing — auto-selected by territory (US or UK)</div>
-
-      <div class="snippet-row">
-        <div class="snippet-label">US Pricing <span class="edited-chip" id="chip-usPricing" style="display:none">Edited</span></div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
-        <div class="snippet-textarea" id="snip-usPricing" contenteditable="true" spellcheck="true"></div>
-      </div>
-      <div class="snippet-row">
-        <div class="snippet-label">UK Pricing <span class="edited-chip" id="chip-ukPricing" style="display:none">Edited</span></div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
-        <div class="snippet-textarea" id="snip-ukPricing" contenteditable="true" spellcheck="true"></div>
-      </div>
-
-      <div class="admin-snippet-group-label" style="margin-top:18px">Sender-specific phrases — inserted via [TOKEN] in templates</div>
-
-      <div class="snippet-row">
-        <div class="snippet-label">Meeting phrase — Leo <span class="edited-chip" id="chip-meetingLeo" style="display:none">Edited</span></div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
-        <div class="snippet-textarea" id="snip-meetingLeo" contenteditable="true" spellcheck="true"></div>
-      </div>
-      <div class="snippet-row">
-        <div class="snippet-label">Meeting phrase — others <span class="edited-chip" id="chip-meetingOther" style="display:none">Edited</span></div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
-        <div class="snippet-textarea" id="snip-meetingOther" contenteditable="true" spellcheck="true"></div>
-      </div>
-
-      <div class="admin-snippet-group-label" style="margin-top:18px">Meeting link — auto-selected by sender (Leo or others)</div>
-
-      <div class="snippet-row">
-        <div class="snippet-label">Leo's link <span class="edited-chip" id="chip-leoLink" style="display:none">Edited</span></div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
-        <div class="snippet-textarea" id="snip-leoLink" contenteditable="true" spellcheck="true"></div>
-      </div>
-      <div class="snippet-row">
-        <div class="snippet-label">Other senders' link <span class="edited-chip" id="chip-otherLink" style="display:none">Edited</span></div>
-        <div class="format-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
-        <div class="snippet-textarea" id="snip-otherLink" contenteditable="true" spellcheck="true"></div>
-      </div>
-
-      <div class="admin-save-row">
+      <div id="adm-snippets-list"></div>
+      <div class="admin-save-row" style="margin-top:16px;gap:8px">
+        <button class="snip-add-btn" id="adm-add-snippet">+ Add Snippet</button>
         <button class="admin-save-btn" id="adm-save-snippets">Save Snippets</button>
       </div>
     </div>
+
 
     <!-- Action Bar -->
     <div class="admin-card">
@@ -689,39 +691,65 @@
 
 <script>
 // ════════════════════════════════════════════════════════
-//  SUPABASE CONFIG  (injected server-side — never in source)
-// ════════════════════════════════════════════════════════
-const SUPABASE_URL      = "{{ supabase_url }}";
-const SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
-
-function sbHeaders(prefer) {
-  const h = {
-    "apikey":        SUPABASE_ANON_KEY,
-    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-    "Content-Type":  "application/json",
-  };
-  if (prefer) h["Prefer"] = prefer;
-  return h;
-}
-
-// ════════════════════════════════════════════════════════
 //  EMBEDDED DATA
 // ════════════════════════════════════════════════════════
-const TEMPLATES = {"US_Standard_Email_PR":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for PR agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US PR agencies drive both domestic growth and engagement with European businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of agency sales experience on both sides of the Atlantic.\n\nWe work with boutique agencies along with some of the established PR agencies in the US (like Hopscotch, Factory PR, and Digenniro, who between them represent the likes of Nvidia, Meta, and Spotify).\n\nHere are some PR testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/brilliant-relations/\nhttps://unstuck-agency.com/case-studies/ambition-pr/\n\nBest,","US_Standard_Email_Marketing":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for marketing agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US agencies drive both domestic growth and engagement with European businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established marketing and communications agencies in the US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","US_Standard_Email_Media":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for media production agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US agencies drive both domestic growth and engagement with European businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established content and communications agencies in the US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","US_Standard_Email_SaaS":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B SaaS firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US B2B SaaS and tech firms drive both domestic growth and engagement with UK businesses.\n\nWe act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","US_Standard_Email_AI":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B AI firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US AI firms drive both domestic growth and engagement with UK businesses.\n\nWe act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","US_Standard_Email_Accounting":"Hi\n\nThanks for your quick reply.\n\nAs a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 9:30 AM or 10:30 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US accounting firms drive both domestic growth and engagement with UK businesses expanding into the US.\n\nWe act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients while representing your brand responsibly.\n\nWe use proprietary technology that identifies UK companies actively expanding in the US, so outreach is focused on firms likely to need US accounting support.\n\nOn average, clients stay with us for around two years, and the most common reason an accounting firm stops working with us is that they reach full capacity.\n\nHere are some accounting client testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/ten-accountants/\nhttps://unstuck-agency.com/case-studies/blue-shore-accountants/\nhttps://unstuck-agency.com/case-studies/redwood-accountants/\n\nBest,","US_Standard_Email_Cybersecurity":null,"US_Standard_LinkedIn_PR":"Hi\n\nThanks for getting back to me.\n\nWe work with PR agencies looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nWe bring 10+ years of agency sales experience on both sides of the Atlantic. Current clients include Smoking Gun, Factory PR, DiGennaro, Hopscotch, and Quarter Horse PR.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your local time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Marketing":"Hi\n\nThanks for getting back to me.\n\nWe work with US marketing agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Media":"Hi\n\nThanks for getting back to me.\n\nWe work with US content agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_SaaS":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B SaaS and tech firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the UK.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_AI":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B AI firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the UK.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Accounting":"Hi\n\nThanks for getting back to me.\n\nWe work with US accounting firms that want a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running researched multichannel outreach to book meetings with target clients, both domestically and with UK companies expanding in the US.\n\nWe also use proprietary tech to focus outreach on firms with active US expansion needs.\n\nIf this sounds relevant, happy to set up a quick virtual chat. I could do 9:30 AM or 10:30 AM your local time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Cybersecurity":null,"UK_Standard_Email_PR":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for PR agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK PR agencies drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, delivering highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of agency sales experience on both sides of the Atlantic.\n\nWe work with boutique agencies along with some of the established PR agencies in the UK and US (like Hopscotch, Factory PR, and Digenniro, who between them represent the likes of Nvidia, Meta, and Spotify).\n\nHere are some PR testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/brilliant-relations/\nhttps://unstuck-agency.com/case-studies/ambition-pr/\n\nBest,","UK_Standard_Email_Marketing":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for marketing agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK agencies drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, delivering highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established marketing and communications agencies in the UK and US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","UK_Standard_Email_Media":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for media production agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK agencies drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, delivering highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established content and communications agencies in the UK and US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","UK_Standard_Email_SaaS":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B SaaS firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK B2B SaaS and tech firms drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","UK_Standard_Email_AI":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B AI firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK AI firms drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","UK_Standard_Email_Accounting":"Hi\n\nThanks for your quick reply.\n\nAs a first step I'd suggest a short virtual meeting[MEETING_PHRASE]. I can suggest 10:30 AM or 2:30 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK accounting firms drive both domestic growth and engagement with US businesses looking for UK accounting support.\n\nWe act as your ready-made new business team, delivering highly researched, multichannel outreach to book meetings with your target clients, while representing your firm responsibly.\n\nWe use proprietary technology that identifies US companies actively expanding in the UK, so outreach is focused on firms likely to need UK accounting support.\n\nOn average, clients stay with us for around two years, and the most common reason an accounting firm stops working with us is that they reach full capacity.\n\nHere are some accounting client testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/ten-accountants/\nhttps://unstuck-agency.com/case-studies/blue-shore-accountants/\nhttps://unstuck-agency.com/case-studies/redwood-accountants/\n\nBest,","UK_Standard_Email_Cybersecurity":null,"UK_Standard_LinkedIn_PR":"Hi\n\nThanks for getting back to me.\n\nWe work with PR agencies looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nWe bring 10+ years of agency sales experience on both sides of the Atlantic. Current clients include Smoking Gun, Factory PR, DiGennaro, Hopscotch, and Quarter Horse PR.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Marketing":"Hi\n\nThanks for getting back to me.\n\nWe work with UK marketing agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Media":"Hi\n\nThanks for getting back to me.\n\nWe work with UK content agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_SaaS":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B SaaS and tech firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_AI":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B AI firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 10:30 AM or 2 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Accounting":"Hi\n\nThanks for getting back to me.\n\nWe work with UK accounting firms looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients, both domestically and with US companies expanding into the UK.\n\nWe use proprietary tech that identifies US companies actively expanding in the UK, so outreach is focused on firms in need of UK accounting support.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 10:30 AM or 2 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Cybersecurity":null};
-const SNIPPETS = {"meetingLeo":"","meetingOther":" with me and my CEO","leoLink":"If those times don't work, here is a link to my Calendly. Please find a time that suits you: https://calendly.com/leokesner/30min","otherLink":"If those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min","usPricing":"Our rate is between $3.7k and $4.9k per month depending on your requirements, and we work on a retainer basis (no other fees).","ukPricing":"Our rate is between £2.7k and £3.7k per month depending on your requirements, and we work on a retainer basis (no other fees).","payPerLead":"I'm afraid we don't work on this basis - it would be very difficult to have this model whilst representing your brand responsibly, as we take a low-volume, researched approach. There are some providers who do this but it's likely to be a spray and pray approach.","referral":"Just to clarify, we don't work with brands directly and I'll explain how we work below.","f2f":"We're currently confirming dates and will let you know. In the meantime, it would be good to establish whether we're a good fit."};
+const TEMPLATES = {"US_Standard_Email_PR":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for PR agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US PR agencies drive both domestic growth and engagement with European businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of agency sales experience on both sides of the Atlantic.\n\nWe work with boutique agencies along with some of the established PR agencies in the US (like Hopscotch, Factory PR, and Digenniro, who between them represent the likes of Nvidia, Meta, and Spotify).\n\nHere are some PR testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/brilliant-relations/\nhttps://unstuck-agency.com/case-studies/ambition-pr/\n\nBest,","US_Standard_Email_Marketing":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for marketing agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US agencies drive both domestic growth and engagement with European businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established marketing and communications agencies in the US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","US_Standard_Email_Media":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for media production agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US agencies drive both domestic growth and engagement with European businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established content and communications agencies in the US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","US_Standard_Email_SaaS":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B SaaS firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US B2B SaaS and tech firms drive both domestic growth and engagement with UK businesses.\n\nWe act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","US_Standard_Email_AI":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B AI firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 9 AM or 10 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US AI firms drive both domestic growth and engagement with UK businesses.\n\nWe act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","US_Standard_Email_Accounting":"Hi\n\nThanks for your quick reply.\n\nAs a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 9:30 AM or 10:30 AM your local time on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped US accounting firms drive both domestic growth and engagement with UK businesses expanding into the US.\n\nWe act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients while representing your brand responsibly.\n\nWe use proprietary technology that identifies UK companies actively expanding in the US, so outreach is focused on firms likely to need US accounting support.\n\nOn average, clients stay with us for around two years, and the most common reason an accounting firm stops working with us is that they reach full capacity.\n\nHere are some accounting client testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/ten-accountants/\nhttps://unstuck-agency.com/case-studies/blue-shore-accountants/\nhttps://unstuck-agency.com/case-studies/redwood-accountants/\n\nBest,","US_Standard_Email_Cybersecurity":null,"US_Standard_LinkedIn_PR":"Hi\n\nThanks for getting back to me.\n\nWe work with PR agencies looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nWe bring 10+ years of agency sales experience on both sides of the Atlantic. Current clients include Smoking Gun, Factory PR, DiGennaro, Hopscotch, and Quarter Horse PR.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your local time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Marketing":"Hi\n\nThanks for getting back to me.\n\nWe work with US marketing agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Media":"Hi\n\nThanks for getting back to me.\n\nWe work with US content agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in Europe.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat? I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_SaaS":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B SaaS and tech firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the UK.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_AI":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B AI firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the UK.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 9 AM or 10 AM your time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Accounting":"Hi\n\nThanks for getting back to me.\n\nWe work with US accounting firms that want a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running researched multichannel outreach to book meetings with target clients, both domestically and with UK companies expanding in the US.\n\nWe also use proprietary tech to focus outreach on firms with active US expansion needs.\n\nIf this sounds relevant, happy to set up a quick virtual chat. I could do 9:30 AM or 10:30 AM your local time on Monday or Tuesday.\n\nBest,","US_Standard_LinkedIn_Cybersecurity":null,"UK_Standard_Email_PR":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for PR agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK PR agencies drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, delivering highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of agency sales experience on both sides of the Atlantic.\n\nWe work with boutique agencies along with some of the established PR agencies in the UK and US (like Hopscotch, Factory PR, and Digenniro, who between them represent the likes of Nvidia, Meta, and Spotify).\n\nHere are some PR testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/brilliant-relations/\nhttps://unstuck-agency.com/case-studies/ambition-pr/\n\nBest,","UK_Standard_Email_Marketing":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for marketing agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK agencies drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, delivering highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established marketing and communications agencies in the UK and US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","UK_Standard_Email_Media":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for media production agencies looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK agencies drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, delivering highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe work with boutiques as well as some established content and communications agencies in the UK and US (like Hopscotch, Factory PR, and Digenniro, who between them serve the likes of Nvidia, Meta, and Spotify).\n\nHere are some testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/favoured/\nhttps://unstuck-agency.com/case-studies/we-are-monty/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/factory-pr/\nhttps://unstuck-agency.com/case-studies/huddle-creative/\nhttps://unstuck-agency.com/case-studies/quarter-horse-pr/\n\nBest,","UK_Standard_Email_SaaS":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B SaaS firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK B2B SaaS and tech firms drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","UK_Standard_Email_AI":"Hi\n\nThanks for your quick reply.\n\nOur approach works best for B2B AI firms looking for consistent business development support, rather than one-off introductions.\n\nIf that aligns, as a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 10:30 AM or 2 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK AI firms drive both domestic growth and engagement with US businesses.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, while representing your brand responsibly.\n\nWe bring over 10 years of B2B sales experience on both sides of the Atlantic.\n\nHere are a few testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/grantify/\nhttps://unstuck-agency.com/case-studies/releasd/\nhttps://unstuck-agency.com/case-studies/causa-ai/\nhttps://unstuck-agency.com/case-studies/video-sherpa/\nhttps://unstuck-agency.com/case-studies/traktion-ai/\n\nBest,","UK_Standard_Email_Accounting":"Hi\n\nThanks for your quick reply.\n\nAs a first step I'd suggest a short virtual meeting[[meetingPhrase]]. I can suggest 10:30 AM or 2:30 PM on Mon or Tue.\n\nFor context, here's a brief overview of what we do:\n\nFor the past six years, we've helped UK accounting firms drive both domestic growth and engagement with US businesses looking for UK accounting support.\n\nWe act as your ready-made new business team, delivering highly researched, multichannel outreach to book meetings with your target clients, while representing your firm responsibly.\n\nWe use proprietary technology that identifies US companies actively expanding in the UK, so outreach is focused on firms likely to need UK accounting support.\n\nOn average, clients stay with us for around two years, and the most common reason an accounting firm stops working with us is that they reach full capacity.\n\nHere are some accounting client testimonials in the meantime:\nhttps://unstuck-agency.com/case-studies/ten-accountants/\nhttps://unstuck-agency.com/case-studies/blue-shore-accountants/\nhttps://unstuck-agency.com/case-studies/redwood-accountants/\n\nBest,","UK_Standard_Email_Cybersecurity":null,"UK_Standard_LinkedIn_PR":"Hi\n\nThanks for getting back to me.\n\nWe work with PR agencies looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nWe bring 10+ years of agency sales experience on both sides of the Atlantic. Current clients include Smoking Gun, Factory PR, DiGennaro, Hopscotch, and Quarter Horse PR.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Marketing":"Hi\n\nThanks for getting back to me.\n\nWe work with UK marketing agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Media":"Hi\n\nThanks for getting back to me.\n\nWe work with UK content agencies looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of agency sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_SaaS":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B SaaS and tech firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 11 AM or 3 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_AI":"Hi\n\nThanks for getting back to me.\n\nWe work with B2B AI firms looking for a consistent approach to new business, rather than one-off introductions.\n\nWe act as your ready-made new business team, running highly researched email and LinkedIn outreach to book meetings with your target clients, both domestically and in the US.\n\nMy team brings 10+ years of B2B sales experience on both sides of the Atlantic.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 10:30 AM or 2 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Accounting":"Hi\n\nThanks for getting back to me.\n\nWe work with UK accounting firms looking for a consistent approach to new business, rather than one-off introductions. We act as your ready-made new business team, running highly researched, multichannel outreach to book meetings with your target clients, both domestically and with US companies expanding into the UK.\n\nWe use proprietary tech that identifies US companies actively expanding in the UK, so outreach is focused on firms in need of UK accounting support.\n\nIf this sounds relevant, I'd be happy to set up a quick virtual chat. I could do 10:30 AM or 2 PM on Monday or Tuesday.\n\nBest,","UK_Standard_LinkedIn_Cybersecurity":null};
+const SNIPPETS = {
+  meetingLink: {
+    label: "Meeting link",
+    content: "If those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min",
+    contentLeo: "If those times don't work, here is a link to my Calendly. Please find a time that suits you: https://calendly.com/leokesner/30min",
+    senderScope: "all", territoryScope: "all", isToggle: false, toggleGroup: null,
+  },
+  meetingPhrase: {
+    label: "Meeting phrase",
+    content: " with me and my CEO",
+    contentLeo: "",
+    senderScope: "all", territoryScope: "all", isToggle: false, toggleGroup: null,
+  },
+  usPricing: {
+    label: "Pricing",
+    content: "Our rate is between $3.7k and $4.9k per month depending on your requirements, and we work on a retainer basis (no other fees).",
+    contentLeo: null,
+    senderScope: "all", territoryScope: "US", isToggle: true, toggleGroup: "pricing",
+  },
+  ukPricing: {
+    label: "Pricing",
+    content: "Our rate is between £2.7k and £3.7k per month depending on your requirements, and we work on a retainer basis (no other fees).",
+    contentLeo: null,
+    senderScope: "all", territoryScope: "UK", isToggle: true, toggleGroup: "pricing",
+  },
+  payPerLead: {
+    label: "Pay per lead?",
+    content: "I'm afraid we don't work on this basis - it would be very difficult to have this model whilst representing your brand responsibly, as we take a low-volume, researched approach. There are some providers who do this but it's likely to be a spray and pray approach.",
+    contentLeo: null,
+    senderScope: "all", territoryScope: "all", isToggle: true, toggleGroup: null,
+  },
+  referral: {
+    label: "Referral confusion?",
+    content: "Just to clarify, we don't work with brands directly and I'll explain how we work below.",
+    contentLeo: null,
+    senderScope: "all", territoryScope: "all", isToggle: true, toggleGroup: null,
+  },
+  f2f: {
+    label: "Face-to-face request",
+    content: "We're currently confirming dates and will let you know. In the meantime, it would be good to establish whether we're a good fit.",
+    contentLeo: null,
+    senderScope: "all", territoryScope: "all", isToggle: true, toggleGroup: null,
+  },
+};
 const OPTIONS = {"industries":["PR","Marketing","Media","SaaS","AI","Accounting","Cybersecurity"],"territories":["US","UK"],"senders":["Robyn","Glen","Leo","Chris","Devlin"]};
 
 // ════════════════════════════════════════════════════════
 //  STATE
 // ════════════════════════════════════════════════════════
-let channel   = 'Email';
-let territory = 'US';
-let style     = 'Standard';
-let _lastMsg  = ''; // last assembled raw message, used by copy handler
+let channel     = 'Email';
+let territory   = 'US';
+let style       = 'Standard';
+let _lastMsg    = ''; // stores last assembled raw message for copy
+let toggleState = {}; // { groupOrKey: boolean } — user-facing modifier toggles
 
-// ════════════════════════════════════════════════════════
-//  FORMATTING HELPERS
-// ════════════════════════════════════════════════════════
+// ── Rich editor helpers ──────────────────────────────────
 // applyFormat uses execCommand so bold→click again→unbold (native toggle)
 function applyFormat(tag) {
   const cmd = tag === 'b' ? 'bold' : tag === 'i' ? 'italic' : 'underline';
@@ -751,21 +779,70 @@ function setRichContent(el, str) {
 }
 
 function sanitizeHtml(str) {
-  // Strip any tags that aren't the allowed formatting set, then convert \n → <br>
   return str
-    .replace(/<(?!\/?(?:b|i|u|strong|em)\b)[^>]*>/gi, '')
+    .replace(/<(?!\/?(?:b|i|u|strong|em)\b)[^>]*>/gi, '') // strip unsafe tags
     .replace(/\n/g, '<br>');
 }
 
+// Convert a plain string (may contain \n and <b>/<i>/<u>) → innerHTML for a contenteditable
+function textToHtml(str) { return sanitizeHtml(str || ''); }
+
+// Convert innerHTML from a contenteditable → clean string (inverse of textToHtml)
+function htmlToText(html) {
+  const el = document.createElement('div');
+  el.innerHTML = html;
+  return getRichContent(el);
+}
+
 // Force Enter to insert <br> instead of Chrome's default <div> wrapping
-document.querySelectorAll('[contenteditable]').forEach(el => {
-  el.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      document.execCommand('insertLineBreak');
-    }
-  });
+// Use delegation so dynamically-created contenteditables (snippet rows, block editor) are covered
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.isContentEditable) {
+    e.preventDefault();
+    document.execCommand('insertLineBreak');
+  }
 });
+
+// ════════════════════════════════════════════════════════
+//  TEMPLATE MIGRATION (idempotent — runs once at startup)
+// ════════════════════════════════════════════════════════
+function migrateTemplates() {
+  // Upgrades template strings from implicit insertion anchors to explicit [[key]] markers.
+  // Safe to run multiple times — checks for existing markers before inserting.
+  for (const key of Object.keys(TEMPLATES)) {
+    let t = TEMPLATES[key];
+    if (!t) continue;
+
+    if (key.includes('_Email_')) {
+      // Insert modifier markers after email opener
+      if (!t.includes('[[payPerLead]]') && t.includes('Thanks for your quick reply.\n\n')) {
+        t = t.replace('Thanks for your quick reply.\n\n',
+          'Thanks for your quick reply.\n\n[[usPricing]][[ukPricing]][[payPerLead]][[referral]][[f2f]]\n\n');
+      }
+      // Insert meeting link before "For context,"
+      if (!t.includes('[[meetingLink]]')) {
+        if (t.includes('\n\nFor context,')) {
+          t = t.replace('\n\nFor context,', '\n\n[[meetingLink]]\n\nFor context,');
+        }
+      }
+    } else if (key.includes('_LinkedIn_')) {
+      // Insert modifier markers after LinkedIn opener
+      if (!t.includes('[[payPerLead]]') && t.includes('Thanks for getting back to me.\n\n')) {
+        t = t.replace('Thanks for getting back to me.\n\n',
+          'Thanks for getting back to me.\n\n[[payPerLead]][[referral]][[f2f]]\n\n');
+      }
+      // Insert meeting link before last "Best,"
+      if (!t.includes('[[meetingLink]]')) {
+        const lastBestIdx = t.lastIndexOf('\n\nBest,');
+        if (lastBestIdx !== -1) {
+          t = t.slice(0, lastBestIdx) + '\n\n[[meetingLink]]' + t.slice(lastBestIdx);
+        }
+      }
+    }
+
+    TEMPLATES[key] = t;
+  }
+}
 
 // ════════════════════════════════════════════════════════
 //  MESSAGE ASSEMBLY
@@ -774,78 +851,39 @@ function assemble() {
   const name     = document.getElementById('recipient-name').value.trim();
   const sender   = document.getElementById('sender').value;
   const industry = document.getElementById('industry').value;
-
-  const key = `${territory}_${style}_${channel}_${industry}`;
-  let msg = TEMPLATES[key] || '';
+  const key      = `${territory}_${style}_${channel}_${industry}`;
+  let msg        = TEMPLATES[key] || '';
 
   if (!msg || msg.length < 30 || !msg.trimStart().startsWith('Hi')) return 'NOT_AVAILABLE';
 
-  // ── 0. Resolve sender-specific phrase tokens ──
-  // Templates use [TOKEN] markers; values come from SNIPPETS and vary by sender.
-  // To add a new sender-specific phrase: add [MY_TOKEN] to the template,
-  // add snippets.myTokenLeo + snippets.myTokenOther, then add a line here.
-  msg = msg.replace('[MEETING_PHRASE]', sender === 'Leo' ? SNIPPETS.meetingLeo : SNIPPETS.meetingOther);
+  // ── 1. Resolve [[key]] snippet markers ──
+  msg = msg.replace(/\[\[(\w+)\]\]/g, (_, snipKey) => {
+    const snip = SNIPPETS[snipKey];
+    if (!snip) return '';
+    // Sender scope filter
+    if (snip.senderScope === 'leo'    && sender !== 'Leo') return '';
+    if (snip.senderScope === 'others' && sender === 'Leo') return '';
+    // Territory scope filter
+    if (snip.territoryScope && snip.territoryScope !== 'all' && snip.territoryScope !== territory) return '';
+    // Toggle filter
+    if (snip.isToggle) {
+      const group = snip.toggleGroup || snipKey;
+      if (!toggleState[group]) return '';
+    }
+    // Content variant (Leo vs everyone else)
+    const useLeo = snip.contentLeo !== null && snip.contentLeo !== undefined && sender === 'Leo';
+    return useLeo ? (snip.contentLeo || '') : (snip.content || '');
+  });
 
-  // ── 1. Insert name in greeting ──
+  // ── 2. Clean up blank lines left by removed snippets ──
+  msg = msg.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
+
+  // ── 3. Insert name in greeting ──
   const displayName = name || '[NAME]';
-  if (msg.includes('[NAME]')) {
-    msg = msg.replace('[NAME]', displayName);
-  } else if (msg.match(/^Hi\n\n/m)) {
+  if (msg.match(/^Hi\n\n/m)) {
     msg = msg.replace(/^Hi\n\n/m, `Hi ${displayName},\n\n`);
-  } else if (msg.match(/^Hi \n[^\n,]+,/m)) {
-    msg = msg.replace(/^Hi \n[^\n,]+,/m, `Hi ${displayName},`);
   } else {
     msg = msg.replace(/^Hi[^\n]*/m, `Hi ${displayName},`);
-  }
-
-  // ── 2. Insert modifier snippets after opener ──
-  const pricing  = document.getElementById('cb-pricing').checked;
-  const ppl      = document.getElementById('cb-pay-per-lead').checked;
-  const referral = document.getElementById('cb-referral').checked;
-  const f2f      = document.getElementById('cb-face-to-face').checked;
-
-  const yesno = [];
-  if (pricing)  yesno.push(territory === 'US' ? SNIPPETS.usPricing : SNIPPETS.ukPricing);
-  if (ppl)      yesno.push(SNIPPETS.payPerLead);
-  if (referral) yesno.push(SNIPPETS.referral);
-  if (f2f)      yesno.push(SNIPPETS.f2f);
-
-  if (yesno.length) {
-    const openers = [
-      'Thanks for your quick reply.\n\n',
-      'Thanks for getting back to me.\n\n'
-    ];
-    for (const opener of openers) {
-      if (msg.includes(opener)) {
-        msg = msg.replace(opener, opener + yesno.filter(Boolean).join('\n\n') + '\n\n');
-        break;
-      }
-    }
-  }
-
-  // ── 3. Insert/swap meeting link ──
-  if (channel === 'Email') {
-    const link = sender === 'Leo' ? SNIPPETS.leoLink : SNIPPETS.otherLink;
-    if (link) {
-      if (msg.includes('For context,')) {
-        // Regex captures any opening formatting tags (<b>/<i>/<u>) sitting directly
-        // before 'For context,' so the snippet is inserted OUTSIDE those tags,
-        // not inside them — preventing the snippet inheriting that formatting.
-        msg = msg.replace(/((?:<(?:b|i|u)>)*)For context,/, (_, tags) => link + '\n\n' + tags + 'For context,');
-      } else {
-        msg = msg.replace(/(Mon or Tue\.\n\n)/, `$1${link}\n\n`);
-      }
-    }
-  } else if (channel === 'LinkedIn') {
-    const link = sender === 'Leo' ? SNIPPETS.leoLink : SNIPPETS.otherLink;
-    if (link) {
-      const bestIdx = msg.lastIndexOf('\n\nBest,');
-      if (bestIdx !== -1) {
-        msg = msg.slice(0, bestIdx) + '\n\n' + link + msg.slice(bestIdx);
-      } else {
-        msg += '\n\n' + link;
-      }
-    }
   }
 
   // ── 4. Fix sign-off ──
@@ -873,6 +911,7 @@ function render() {
 
   const msg = assemble();
   _lastMsg = msg || '';
+
   box.className = 'message-box';
 
   if (msg === 'NOT_AVAILABLE') {
@@ -894,9 +933,8 @@ function render() {
   document.getElementById(id).addEventListener('change', render);
 });
 
-['cb-pricing','cb-pay-per-lead','cb-referral','cb-face-to-face'].forEach(id => {
-  document.getElementById(id).addEventListener('change', render);
-});
+// Re-render modifier toggles when sender changes (some may be Leo-only or others-only)
+document.getElementById('sender').addEventListener('change', renderModifiers);
 
 document.querySelectorAll('[data-channel]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -909,13 +947,13 @@ document.querySelectorAll('[data-channel]').forEach(btn => {
 
 // Territory buttons are rendered dynamically — see renderTerritoryButtons()
 
-// Copy button — rich text (text/html) + plain text (text/plain) fallback
+// Copy button
 document.getElementById('copy-btn').addEventListener('click', async () => {
   const box = document.getElementById('message-box');
   if (box.classList.contains('placeholder') ||
       box.classList.contains('not-available')) return;
 
-  const plainText = _lastMsg.replace(/<[^>]+>/g, '');
+  const plainText = _lastMsg.replace(/<[^>]+>/g, ''); // strip all tags
   const htmlBody  = sanitizeHtml(_lastMsg);
 
   try {
@@ -926,7 +964,7 @@ document.getElementById('copy-btn').addEventListener('click', async () => {
       })
     ]);
   } catch {
-    // Fallback: plain text only
+    // Fallback — plain text only
     try {
       await navigator.clipboard.writeText(plainText);
     } catch {
@@ -999,47 +1037,278 @@ function renderTerritoryButtons() {
 }
 
 // ════════════════════════════════════════════════════════
-//  SUPABASE — load shared data at startup
-// ════════════════════════════════════════════════════════
-async function loadFromSupabase() {
-  try {
-    const [tRes, sRes, oRes] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/reply_bank_templates?select=key,content`, { headers: sbHeaders() }),
-      fetch(`${SUPABASE_URL}/rest/v1/reply_bank_snippets?select=key,content`,  { headers: sbHeaders() }),
-      fetch(`${SUPABASE_URL}/rest/v1/reply_bank_options?select=key,values`,    { headers: sbHeaders() }),
-    ]);
-    if (!tRes.ok || !sRes.ok || !oRes.ok) throw new Error('Supabase fetch failed');
-    const [tRows, sRows, oRows] = await Promise.all([tRes.json(), sRes.json(), oRes.json()]);
-
-    tRows.forEach(r => { TEMPLATES[r.key] = r.content; });
-    sRows.forEach(r => { SNIPPETS[r.key]  = r.content; });
-    oRows.forEach(r => { OPTIONS[r.key]   = r.values;  });
-
-    populateDropdowns();
-    render();
-  } catch(e) {
-    console.warn('Supabase load failed — using embedded defaults.', e);
-  }
-}
-
-// ════════════════════════════════════════════════════════
 //  ADMIN — localStorage merge (runs at startup)
 // ════════════════════════════════════════════════════════
 (function mergeLocalStorage() {
   try {
     const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
-    const sOverrides = JSON.parse(localStorage.getItem('rb_snippets')  || '{}');
+    const sRaw       = JSON.parse(localStorage.getItem('rb_snippets')  || '{}');
     const oOverrides = JSON.parse(localStorage.getItem('rb_options')   || '{}');
     Object.assign(TEMPLATES, tOverrides);
-    Object.assign(SNIPPETS,  sOverrides);
+    // Migration guard: if saved snippets are old flat-string format, discard and use defaults
+    const isOldFormat = Object.keys(sRaw).length > 0 && Object.values(sRaw).some(v => typeof v === 'string');
+    if (!isOldFormat && Object.keys(sRaw).length > 0) {
+      Object.assign(SNIPPETS, sRaw);
+    }
     if (oOverrides.industries)  OPTIONS.industries  = oOverrides.industries;
     if (oOverrides.territories) OPTIONS.territories = oOverrides.territories;
     if (oOverrides.senders)     OPTIONS.senders     = oOverrides.senders;
   } catch(e) {}
+  migrateTemplates();   // one-time upgrade of template strings to [[key]] format
   populateDropdowns();
+  renderModifiers();
   render();
-  loadFromSupabase(); // async — Supabase data overwrites defaults when it arrives
 })();
+
+// ════════════════════════════════════════════════════════
+//  MODIFIER TOGGLES (dynamic, from isToggle snippets)
+// ════════════════════════════════════════════════════════
+function renderModifiers() {
+  const sender = document.getElementById('sender').value;
+  const seen   = new Set();
+  const items  = [];
+  for (const [key, snip] of Object.entries(SNIPPETS)) {
+    if (!snip.isToggle) continue;
+    if (snip.senderScope === 'leo'    && sender !== 'Leo') continue;
+    if (snip.senderScope === 'others' && sender === 'Leo') continue;
+    const group = snip.toggleGroup || key;
+    if (seen.has(group)) continue;
+    seen.add(group);
+    items.push({ group, label: snip.label });
+  }
+  const container = document.getElementById('modifiers-group');
+  if (!container) return;
+  container.innerHTML = items.map(({ group, label }) => `
+    <label class="cb-row">
+      <input type="checkbox" data-toggle="${group}"${toggleState[group] ? ' checked' : ''}>
+      <span>${label}</span>
+    </label>
+  `).join('');
+  container.querySelectorAll('[data-toggle]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      toggleState[cb.dataset.toggle] = cb.checked;
+      render();
+    });
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  BLOCK EDITOR — parse / serialize / render
+// ════════════════════════════════════════════════════════
+
+// Split "text [[key]] text" → [{type,content/key}, ...]
+function parseTemplate(str) {
+  return (str || '').split(/(\[\[\w+\]\])/).map(p => {
+    const m = p.match(/^\[\[(\w+)\]\]$/);
+    return m ? { type: 'snippet', key: m[1] } : { type: 'text', content: p };
+  }).filter(s => s.type === 'snippet' || s.content !== '');
+}
+
+// Re-join segments → template string
+function serializeTemplate(segs) {
+  return segs.map(s => s.type === 'snippet' ? `[[${s.key}]]` : s.content).join('');
+}
+
+// Render block editor into containerId; segments array is mutated in place
+function renderBlockEditor(containerId, segments) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  function rebuild() {
+    container.innerHTML = '';
+    // Opening drop zone
+    container.appendChild(makeDropZone(0));
+
+    segments.forEach((seg, idx) => {
+      if (seg.type === 'text') {
+        const block = document.createElement('div');
+        block.className = 'tpl-text-block';
+        block.contentEditable = 'true';
+        block.textContent = seg.content;
+        block.dataset.idx = idx;
+        block.addEventListener('input', () => { segments[idx].content = block.textContent; });
+        container.appendChild(block);
+      } else {
+        const snip  = SNIPPETS[seg.key] || {};
+        const chip  = document.createElement('div');
+        chip.className    = 'tpl-snippet-chip';
+        chip.draggable    = true;
+        chip.dataset.idx  = idx;
+        chip.dataset.src  = 'template';
+        chip.dataset.key  = seg.key;
+
+        const scopeBadge = snip.senderScope && snip.senderScope !== 'all'
+          ? `<span class="chip-scope">${snip.senderScope}</span>` : '';
+        const terrBadge  = snip.territoryScope && snip.territoryScope !== 'all'
+          ? `<span class="chip-territory">${snip.territoryScope}</span>` : '';
+        const togBadge   = snip.isToggle
+          ? `<span class="chip-badge toggle">toggle</span>` : '';
+        chip.innerHTML = `
+          <span class="chip-label">${snip.label || seg.key}</span>
+          ${scopeBadge}${terrBadge}${togBadge}
+          <button class="chip-delete" title="Remove snippet from template">✕</button>`;
+        chip.querySelector('.chip-delete').addEventListener('click', e => {
+          e.stopPropagation();
+          segments.splice(idx, 1);
+          rebuild();
+        });
+        chip.addEventListener('dragstart', e => {
+          e.dataTransfer.setData('snippetKey', seg.key);
+          e.dataTransfer.setData('snippetSrc', 'template');
+          e.dataTransfer.setData('snippetIdx', String(idx));
+          chip.classList.add('dragging');
+        });
+        chip.addEventListener('dragend', () => chip.classList.remove('dragging'));
+        container.appendChild(chip);
+      }
+
+      // Drop zone after each block
+      container.appendChild(makeDropZone(idx + 1));
+    });
+  }
+
+  function makeDropZone(insertBefore) {
+    const dz = document.createElement('div');
+    dz.className   = 'drop-zone';
+    dz.dataset.pos = insertBefore;
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault();
+      dz.classList.remove('dragover');
+      const key = e.dataTransfer.getData('snippetKey');
+      const src = e.dataTransfer.getData('snippetSrc');
+      const oldIdx = parseInt(e.dataTransfer.getData('snippetIdx'), 10);
+      let pos = parseInt(dz.dataset.pos, 10);
+
+      if (src === 'template' && !isNaN(oldIdx)) {
+        // Moving an existing chip: remove from old position first
+        const removed = segments.splice(oldIdx, 1)[0];
+        // Adjust pos if we removed from before the target
+        if (oldIdx < pos) pos--;
+        segments.splice(pos, 0, removed);
+      } else {
+        // New snippet from palette: insert
+        segments.splice(pos, 0, { type: 'snippet', key });
+      }
+      rebuild();
+    });
+    return dz;
+  }
+
+  rebuild();
+}
+
+// Render snippet palette into paletteId; clicking/dragging inserts into block editor
+function renderSnippetPalette(paletteId) {
+  const palette = document.getElementById(paletteId);
+  if (!palette) return;
+  palette.innerHTML = Object.entries(SNIPPETS).map(([key, snip]) => {
+    const scopeBadge = snip.senderScope && snip.senderScope !== 'all'
+      ? ` · ${snip.senderScope}` : '';
+    const terrBadge  = snip.territoryScope && snip.territoryScope !== 'all'
+      ? ` · ${snip.territoryScope}` : '';
+    return `<div class="palette-chip" draggable="true" data-key="${key}"
+        title="${snip.label || key}${scopeBadge}${terrBadge}">
+      ${snip.label || key}
+    </div>`;
+  }).join('');
+  palette.querySelectorAll('.palette-chip').forEach(chip => {
+    chip.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('snippetKey', chip.dataset.key);
+      e.dataTransfer.setData('snippetSrc', 'palette');
+    });
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  ADMIN SNIPPET ROWS — build / load / save
+// ════════════════════════════════════════════════════════
+function buildSnippetRow(key, snip) {
+  const wrapper = document.createElement('div');
+  wrapper.className   = 'snippet-row';
+  wrapper.dataset.key = key;
+  wrapper.style.cssText = 'border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;';
+
+  const hasLeoVariant = snip.contentLeo !== null && snip.contentLeo !== undefined;
+  const leoChecked    = hasLeoVariant ? 'checked' : '';
+
+  wrapper.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <input type="text" class="snip-key-input" value="${key}" placeholder="snippet key"
+        style="font-size:11px;color:var(--text-3);background:transparent;border:none;outline:none;font-family:var(--font);width:120px;"
+        title="Internal key (no spaces; changing this key updates SNIPPETS but won't auto-update existing [[key]] markers in templates)">
+      <input type="text" class="snip-label-input" value="${(snip.label||'').replace(/"/g,'&quot;')}" placeholder="Label shown in UI"
+        style="flex:1;padding:5px 9px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface);color:var(--text);outline:none;font-family:var(--font);">
+      <button class="chip-delete snip-delete-btn" title="Delete snippet" style="margin-left:auto;">✕</button>
+    </div>
+
+    <div class="snip-meta">
+      <label>Sender:
+        <select class="snip-sender-scope">
+          <option value="all"${snip.senderScope==='all'?' selected':''}>All senders</option>
+          <option value="leo"${snip.senderScope==='leo'?' selected':''}>Leo only</option>
+          <option value="others"${snip.senderScope==='others'?' selected':''}>Others only</option>
+        </select>
+      </label>
+      <label>Territory:
+        <select class="snip-territory-scope">
+          <option value="all"${snip.territoryScope==='all'?' selected':''}>All territories</option>
+          <option value="US"${snip.territoryScope==='US'?' selected':''}>US only</option>
+          <option value="UK"${snip.territoryScope==='UK'?' selected':''}>UK only</option>
+        </select>
+      </label>
+      <label class="snip-toggle-label">
+        <input type="checkbox" class="snip-is-toggle"${snip.isToggle?' checked':''}>
+        User toggle
+      </label>
+      <span class="snip-toggle-group-wrap" style="${snip.isToggle?'':'display:none'}">
+        <input type="text" class="snip-toggle-group" value="${snip.toggleGroup||''}" placeholder="group (blank = use key)"
+          style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);outline:none;font-family:var(--font);width:140px;">
+      </span>
+    </div>
+
+    <div style="margin-top:10px;">
+      <div style="font-size:11px;color:var(--text-3);margin-bottom:4px;">Content</div>
+      <div class="format-toolbar" style="margin-bottom:4px;">
+        <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+        <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+        <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
+      </div>
+      <div class="admin-content-area snip-content" contenteditable="true">${textToHtml(snip.content||'')}</div>
+    </div>
+
+    <div class="snip-leo-section" style="margin-top:10px;">
+      <label style="font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" class="snip-has-leo" ${leoChecked}>
+        Has Leo-specific content?
+      </label>
+      <div class="snip-leo-content-wrap" style="${hasLeoVariant?'':'display:none'};margin-top:8px;">
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px;">Leo variant (used when sender = Leo)</div>
+        <div class="format-toolbar" style="margin-bottom:4px;">
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
+        </div>
+        <div class="admin-content-area snip-content-leo" contenteditable="true">${textToHtml(snip.contentLeo||'')}</div>
+      </div>
+    </div>`;
+
+  // Wire up local interactivity
+  wrapper.querySelector('.snip-is-toggle').addEventListener('change', function() {
+    wrapper.querySelector('.snip-toggle-group-wrap').style.display = this.checked ? '' : 'none';
+  });
+  wrapper.querySelector('.snip-has-leo').addEventListener('change', function() {
+    wrapper.querySelector('.snip-leo-content-wrap').style.display = this.checked ? '' : 'none';
+  });
+  wrapper.querySelector('.snip-delete-btn').addEventListener('click', () => {
+    if (confirm(`Delete snippet "${snip.label || key}"? This won't remove [[${key}]] markers from templates.`)) {
+      wrapper.remove();
+    }
+  });
+
+  return wrapper;
+}
 
 // ════════════════════════════════════════════════════════
 //  ADMIN — panel logic
@@ -1049,8 +1318,8 @@ const ADMIN_PASSWORD = 'unstuck2025';
 function adminShow() {
   document.querySelector('.main').style.display = 'none';
   document.getElementById('admin-panel').classList.add('visible');
+  adminLoadSnippets();   // snippets first — templates need the palette
   adminLoadTemplates();
-  adminLoadSnippets();
   adminRenderAllOptions();
 }
 
@@ -1078,17 +1347,22 @@ function adminGetSelectors() {
   };
 }
 
+// Store parsed segments per channel so save handler can serialize them
+const _tplSegments = {};
+
 function adminLoadTemplates() {
   const { territory, industry } = adminGetSelectors();
   const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
 
   for (const channel of ['Email', 'LinkedIn']) {
-    const key  = `${territory}_Standard_${channel}_${industry}`;
-    const elId = `adm-${channel.toLowerCase()}`;
-    const ta   = document.getElementById(elId);
-    setRichContent(ta, TEMPLATES[key] || '');
+    const key      = `${territory}_Standard_${channel}_${industry}`;
+    const editorId = `adm-${channel.toLowerCase()}-editor`;
+    const segs     = parseTemplate(TEMPLATES[key] || '');
+    _tplSegments[channel] = segs;
+    renderBlockEditor(editorId, segs);
+    renderSnippetPalette(`palette-${channel.toLowerCase()}`);
     const chip = document.getElementById(`chip-adm-${channel.toLowerCase()}`);
-    chip.style.display = tOverrides[key] !== undefined ? 'inline-block' : 'none';
+    if (chip) chip.style.display = tOverrides[key] !== undefined ? 'inline-block' : 'none';
   }
 }
 
@@ -1102,24 +1376,24 @@ document.getElementById('adm-save-templates').addEventListener('click', () => {
 
   for (const channel of ['Email', 'LinkedIn']) {
     const key  = `${territory}_Standard_${channel}_${industry}`;
-    const val  = getRichContent(document.getElementById(`adm-${channel.toLowerCase()}`));
+    // Sync text blocks from DOM before serializing
+    const editorId = `adm-${channel.toLowerCase()}-editor`;
+    const editor   = document.getElementById(editorId);
+    const segs     = _tplSegments[channel] || [];
+    if (editor) {
+      editor.querySelectorAll('.tpl-text-block').forEach(el => {
+        const idx = parseInt(el.dataset.idx, 10);
+        if (segs[idx]) segs[idx].content = el.textContent;
+      });
+    }
+    const val = serializeTemplate(segs);
     tOverrides[key] = val;
     TEMPLATES[key]  = val;
-    document.getElementById(`chip-adm-${channel.toLowerCase()}`).style.display = 'inline-block';
+    const chip = document.getElementById(`chip-adm-${channel.toLowerCase()}`);
+    if (chip) chip.style.display = 'inline-block';
   }
 
   localStorage.setItem('rb_templates', JSON.stringify(tOverrides));
-
-  // ── Sync to Supabase ──
-  const sbRows = ['Email', 'LinkedIn'].map(ch => ({
-    key:     `${territory}_Standard_${ch}_${industry}`,
-    content: TEMPLATES[`${territory}_Standard_${ch}_${industry}`] ?? null,
-  }));
-  fetch(`${SUPABASE_URL}/rest/v1/reply_bank_templates?on_conflict=key`, {
-    method:  'POST',
-    headers: sbHeaders('resolution=merge-duplicates,return=minimal'),
-    body:    JSON.stringify(sbRows),
-  }).catch(e => console.warn('Supabase template save failed', e));
 
   const btn = document.getElementById('adm-save-templates');
   btn.textContent = '✓ Saved!';
@@ -1128,37 +1402,49 @@ document.getElementById('adm-save-templates').addEventListener('click', () => {
 });
 
 function adminLoadSnippets() {
-  const sOverrides = JSON.parse(localStorage.getItem('rb_snippets') || '{}');
-  for (const key of Object.keys(SNIPPETS)) {
-    const ta = document.getElementById(`snip-${key}`);
-    if (ta) {
-      setRichContent(ta, SNIPPETS[key] || '');
-      const chip = document.getElementById(`chip-${key}`);
-      if (chip) chip.style.display = sOverrides[key] !== undefined ? 'inline-block' : 'none';
-    }
+  const list = document.getElementById('adm-snippets-list');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const [key, snip] of Object.entries(SNIPPETS)) {
+    list.appendChild(buildSnippetRow(key, snip));
   }
 }
 
-document.getElementById('adm-save-snippets').addEventListener('click', () => {
-  const sOverrides = JSON.parse(localStorage.getItem('rb_snippets') || '{}');
-  for (const key of Object.keys(SNIPPETS)) {
-    const ta = document.getElementById(`snip-${key}`);
-    if (ta) {
-      sOverrides[key] = getRichContent(ta);
-      SNIPPETS[key]   = getRichContent(ta);
-      const chip = document.getElementById(`chip-${key}`);
-      if (chip) chip.style.display = 'inline-block';
-    }
-  }
-  localStorage.setItem('rb_snippets', JSON.stringify(sOverrides));
+function _readSnippetRows() {
+  const rows = document.querySelectorAll('.snippet-row[data-key]');
+  const result = {};
+  rows.forEach(row => {
+    const origKey  = row.dataset.key;
+    const newKey   = (row.querySelector('.snip-key-input')?.value || origKey).trim();
+    const hasLeo   = row.querySelector('.snip-has-leo')?.checked;
+    const isToggle = row.querySelector('.snip-is-toggle')?.checked;
+    result[newKey] = {
+      label:         row.querySelector('.snip-label-input')?.value || '',
+      content:       htmlToText(row.querySelector('.snip-content')?.innerHTML || ''),
+      contentLeo:    hasLeo ? htmlToText(row.querySelector('.snip-content-leo')?.innerHTML || '') : null,
+      senderScope:   row.querySelector('.snip-sender-scope')?.value   || 'all',
+      territoryScope:row.querySelector('.snip-territory-scope')?.value || 'all',
+      isToggle:      !!isToggle,
+      toggleGroup:   isToggle ? (row.querySelector('.snip-toggle-group')?.value.trim() || null) : null,
+    };
+  });
+  return result;
+}
 
-  // ── Sync to Supabase ──
-  const sbRows = Object.keys(SNIPPETS).map(key => ({ key, content: SNIPPETS[key] }));
-  fetch(`${SUPABASE_URL}/rest/v1/reply_bank_snippets?on_conflict=key`, {
-    method:  'POST',
-    headers: sbHeaders('resolution=merge-duplicates,return=minimal'),
-    body:    JSON.stringify(sbRows),
-  }).catch(e => console.warn('Supabase snippet save failed', e));
+document.getElementById('adm-save-snippets').addEventListener('click', () => {
+  const updated = _readSnippetRows();
+  // Replace SNIPPETS in memory
+  for (const k of Object.keys(SNIPPETS)) delete SNIPPETS[k];
+  Object.assign(SNIPPETS, updated);
+  localStorage.setItem('rb_snippets', JSON.stringify(SNIPPETS));
+
+  // Refresh modifier list in main UI
+  renderModifiers();
+  // Refresh key inputs (in case key was renamed)
+  document.querySelectorAll('.snippet-row[data-key]').forEach(row => {
+    const newKey = row.querySelector('.snip-key-input')?.value.trim();
+    if (newKey) row.dataset.key = newKey;
+  });
 
   const btn = document.getElementById('adm-save-snippets');
   btn.textContent = '✓ Saved!';
@@ -1166,17 +1452,25 @@ document.getElementById('adm-save-snippets').addEventListener('click', () => {
   setTimeout(() => { btn.textContent = 'Save Snippets'; btn.classList.remove('success'); }, 2000);
 });
 
-document.getElementById('adm-reset').addEventListener('click', async () => {
-  if (!confirm('Reset all templates, snippets, and options to the original embedded defaults? Your edits will be lost for everyone.')) return;
+document.getElementById('adm-add-snippet').addEventListener('click', () => {
+  const list = document.getElementById('adm-snippets-list');
+  if (!list) return;
+  const newKey  = `snippet_${Date.now()}`;
+  const newSnip = {
+    label: 'New Snippet', content: '', contentLeo: null,
+    senderScope: 'all', territoryScope: 'all', isToggle: false, toggleGroup: null,
+  };
+  SNIPPETS[newKey] = newSnip;
+  list.appendChild(buildSnippetRow(newKey, newSnip));
+  // Scroll to new row
+  list.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+document.getElementById('adm-reset').addEventListener('click', () => {
+  if (!confirm('Reset all templates, snippets, and options to the original embedded defaults? Your edits will be lost.')) return;
   localStorage.removeItem('rb_templates');
   localStorage.removeItem('rb_snippets');
   localStorage.removeItem('rb_options');
-  // ── Clear Supabase tables so everyone gets fresh defaults ──
-  await Promise.allSettled([
-    fetch(`${SUPABASE_URL}/rest/v1/reply_bank_templates?key=neq.null`, { method: 'DELETE', headers: sbHeaders() }),
-    fetch(`${SUPABASE_URL}/rest/v1/reply_bank_snippets?key=neq.null`,  { method: 'DELETE', headers: sbHeaders() }),
-    fetch(`${SUPABASE_URL}/rest/v1/reply_bank_options?key=neq.null`,   { method: 'DELETE', headers: sbHeaders() }),
-  ]);
   location.reload();
 });
 
@@ -1209,14 +1503,6 @@ function adminSaveOptions() {
     territories: OPTIONS.territories,
     senders:     OPTIONS.senders,
   }));
-
-  // ── Sync to Supabase ──
-  const sbRows = ['industries', 'territories', 'senders'].map(key => ({ key, values: OPTIONS[key] }));
-  fetch(`${SUPABASE_URL}/rest/v1/reply_bank_options?on_conflict=key`, {
-    method:  'POST',
-    headers: sbHeaders('resolution=merge-duplicates,return=minimal'),
-    body:    JSON.stringify(sbRows),
-  }).catch(e => console.warn('Supabase options save failed', e));
 }
 
 function adminAddOption(category) {
