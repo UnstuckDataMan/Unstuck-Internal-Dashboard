@@ -312,36 +312,16 @@ def _apply_sheet_formatting(
             },
         }})
 
-    # ── Conditional formatting: Lead Status cell colours ─────────────────
-    if lead_status_col >= 0:
-        ls_range = {
-            "sheetId":          sheet_gid,
-            "startRowIndex":    1,
-            "endRowIndex":      last_row_idx,
-            "startColumnIndex": lead_status_col,
-            "endColumnIndex":   lead_status_col + 1,
-        }
-        for value, hex_color in [
-            ("Lead",        "D4EDD6"),
-            ("Reply",       "FFD9B3"),
-            ("Interested",  "E1BEE7"),
-            ("Unsubscribe", "FFCDD2"),
-        ]:
-            requests.append({"addConditionalFormatRule": {
-                "rule": {
-                    "ranges": [ls_range],
-                    "booleanRule": {
-                        "condition": {
-                            "type":   "TEXT_EQ",
-                            "values": [{"userEnteredValue": value}],
-                        },
-                        "format": {"backgroundColor": _rgb(hex_color)},
-                    },
-                },
-                "index": 0,
-            }})
+    # ── Conditional formatting ─────────────────────────────────────────────
+    # Rule priority is controlled by insertion order with index=0:
+    # the LAST rule added at index 0 ends up with the HIGHEST priority.
+    #
+    # Addition order → final priority (low → high):
+    #   1. Send Status whole-row blue   (lowest  — domain-grey overrides it)
+    #   2. Domain-grey row              (middle  — Lead-cell colours override it)
+    #   3. Lead Status cell colours     (highest — always visible on LS cell)
 
-    # ── Conditional formatting: Send Status checked → whole-row light green
+    # 1. Send Status checked → whole-row light BLUE (added first = lowest priority)
     if send_status_col >= 0:
         ss_letter = _col_letter(send_status_col + 1)
         requests.append({"addConditionalFormatRule": {
@@ -358,33 +338,27 @@ def _apply_sheet_formatting(
                         "type":   "CUSTOM_FORMULA",
                         "values": [{"userEnteredValue": f"=${ss_letter}2=TRUE"}],
                     },
-                    "format": {"backgroundColor": _rgb("E8F5E9")},
+                    "format": {"backgroundColor": _rgb("E3F2FD")},  # light blue
                 },
             },
             "index": 0,
         }})
 
-    # ── Conditional formatting: domain-match grey-out ─────────────────────
-    # When any row is marked "Lead", grey out every other row that shares
-    # the same email domain — a live signal that the whole company is blocked.
-    # Added at index 99 (lowest priority) so cell-level status colours
-    # (Lead/Reply/Interested/Unsubscribe) still show through on those cells.
+    # 2. Domain-grey: when any row is "Lead", grey out every other row with
+    #    the same email domain.  Uses COUNTIFS (fast) instead of SUMPRODUCT
+    #    (slow array formula).  Subtracts 1 when the current row is itself
+    #    the Lead so it is not self-greyed (its LS cell colour handles it).
     if lead_status_col >= 0 and email_col >= 0:
-        ls_ltr = _col_letter(lead_status_col + 1)   # e.g. "K"
-        e_ltr  = _col_letter(email_col + 1)          # e.g. "D"
-        last_1 = last_row_idx                        # 1-based last data row number
+        ls_ltr = _col_letter(lead_status_col + 1)
+        e_ltr  = _col_letter(email_col + 1)
+        last_1 = last_row_idx  # 1-based last data row number
 
-        # CUSTOM_FORMULA anchored at row 2; ${e_ltr}2 is column-fixed / row-relative
-        # so Google Sheets automatically shifts the row reference for each evaluated row.
-        # The final condition excludes the Lead row itself (ROW() <> ROW()).
         domain_formula = (
-            f"=IFERROR(SUMPRODUCT("
-            f"(${ls_ltr}$2:${ls_ltr}${last_1}=\"Lead\")"
-            f"*IFERROR((MID(${e_ltr}$2:${e_ltr}${last_1},"
-            f"FIND(\"@\",${e_ltr}$2:${e_ltr}${last_1})+1,255)"
-            f"=MID(${e_ltr}2,FIND(\"@\",${e_ltr}2)+1,255))*1,0)"
-            f"*(ROW(${e_ltr}$2:${e_ltr}${last_1})<>ROW(${e_ltr}2))"
-            f")>0,FALSE)"
+            f"=IFERROR("
+            f"COUNTIFS(${ls_ltr}$2:${ls_ltr}${last_1},\"Lead\","
+            f"${e_ltr}$2:${e_ltr}${last_1},\"*@\"&MID(${e_ltr}2,FIND(\"@\",${e_ltr}2)+1,100))"
+            f"-IF(${ls_ltr}2=\"Lead\",1,0)"
+            f">0,FALSE)"
         )
         requests.append({"addConditionalFormatRule": {
             "rule": {
@@ -402,14 +376,50 @@ def _apply_sheet_formatting(
                     },
                     "format": {
                         "backgroundColor": _rgb("EEEEEE"),
-                        "textFormat": {
-                            "foregroundColor": _rgb("9E9E9E"),
-                        },
+                        "textFormat": {"foregroundColor": _rgb("9E9E9E")},
                     },
                 },
             },
-            "index": 99,   # lowest priority — cell-level colours win
+            "index": 0,
         }})
+
+    # 3. Lead Status cell colours (added last = highest priority).
+    #    Narrow range — only the Lead Status column cell — so they always win
+    #    over any whole-row highlight.  Vivid colours + bold white text for
+    #    instant recognition.
+    if lead_status_col >= 0:
+        ls_range = {
+            "sheetId":          sheet_gid,
+            "startRowIndex":    1,
+            "endRowIndex":      last_row_idx,
+            "startColumnIndex": lead_status_col,
+            "endColumnIndex":   lead_status_col + 1,
+        }
+        for value, bg_hex, fg_hex in [
+            ("Lead",        "66BB6A", "FFFFFF"),   # vivid green / white
+            ("Reply",       "FFA726", "FFFFFF"),   # vivid amber / white
+            ("Interested",  "AB47BC", "FFFFFF"),   # vivid purple / white
+            ("Unsubscribe", "EF5350", "FFFFFF"),   # vivid red / white
+        ]:
+            requests.append({"addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [ls_range],
+                    "booleanRule": {
+                        "condition": {
+                            "type":   "TEXT_EQ",
+                            "values": [{"userEnteredValue": value}],
+                        },
+                        "format": {
+                            "backgroundColor": _rgb(bg_hex),
+                            "textFormat": {
+                                "foregroundColor": _rgb(fg_hex),
+                                "bold": True,
+                            },
+                        },
+                    },
+                },
+                "index": 0,
+            }})
 
     if not requests:
         return
