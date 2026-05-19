@@ -2548,33 +2548,53 @@ function addNewEntry(type) {
   if (!TEMPLATES[key]) TEMPLATES[key] = defaultContent();
   const d = TEMPLATES[key];
   const ch = activeChannel;
+
+  // Reserve a slot in TEMPLATES and record the index
+  let idx, editCh;
   if (type === 'subject') {
-    d[ch].subjects.push('');
+    editCh = ch; idx = d[ch].subjects.length; d[ch].subjects.push('');
   } else if (type === 'variation') {
-    d[ch].variations.push({ body: '' });
+    editCh = ch; idx = d[ch].variations.length; d[ch].variations.push({ body: '' });
   } else if (type === 'step') {
-    d.linkedin.steps.push({ body: '' });
+    editCh = 'linkedin'; idx = d.linkedin.steps.length; d.linkedin.steps.push({ body: '' });
   }
-  // Re-render then open the newly added card in edit mode
-  render();
-  setTimeout(function(){
-    const sections = document.querySelectorAll('#rp-scroll .channel-section');
-    let sectionCards = null;
-    sections.forEach(function(sec){
-      const title = sec.querySelector('.channel-title');
-      if (!title) return;
-      const t = title.textContent;
-      if (type === 'subject' && t === 'Subject Lines') sectionCards = sec.querySelectorAll('.variation-card');
-      else if (type === 'variation' && (t === 'Email Variations' || t === 'Fly-out Variations')) sectionCards = sec.querySelectorAll('.variation-card');
-      else if (type === 'step' && t === 'LinkedIn Sequence') sectionCards = sec.querySelectorAll('.variation-card');
-    });
-    if (sectionCards && sectionCards.length) {
-      const lastCard = sectionCards[sectionCards.length - 1];
-      lastCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const editBtn = lastCard.querySelector('.copy-edit-btn');
-      if (editBtn) editBtn.click();
-    }
-  }, 60);
+
+  const editInfo = { key, channel: editCh, type, idx, rawValue: '', isNew: true };
+  const labelMap = { subject: 'Subject', variation: 'Variation', step: 'Step' };
+  const card = makeCard(labelMap[type] + ' ' + (idx + 1), '', '', editInfo);
+
+  // Find the section title that matches and insert before its add button
+  const titleMatch = { subject: 'Subject Lines', variation: null, step: 'LinkedIn Sequence' };
+  let targetSection = null;
+  document.querySelectorAll('#rp-scroll .channel-section').forEach(function(sec) {
+    const t = (sec.querySelector('.channel-title') || {}).textContent || '';
+    if (type === 'subject' && t === 'Subject Lines') targetSection = sec;
+    else if (type === 'variation' && (t === 'Email Variations' || t === 'Fly-out Variations')) targetSection = sec;
+    else if (type === 'step' && t === 'LinkedIn Sequence') targetSection = sec;
+  });
+
+  if (targetSection) {
+    const emptyMsg = targetSection.querySelector('.channel-empty');
+    if (emptyMsg) emptyMsg.remove();
+    const addBtn = targetSection.querySelector('.add-template-btn');
+    targetSection.insertBefore(card, addBtn);
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    enterCardEditMode(card, editInfo);
+  }
+}
+
+function cancelNewEntry(card, editInfo) {
+  // Remove the placeholder slot from TEMPLATES
+  const d = TEMPLATES[editInfo.key];
+  if (d) {
+    if (editInfo.type === 'subject' && d[editInfo.channel] && d[editInfo.channel].subjects)
+      d[editInfo.channel].subjects.splice(editInfo.idx, 1);
+    else if (editInfo.type === 'variation' && d[editInfo.channel] && d[editInfo.channel].variations)
+      d[editInfo.channel].variations.splice(editInfo.idx, 1);
+    else if (editInfo.type === 'step' && d.linkedin && d.linkedin.steps)
+      d.linkedin.steps.splice(editInfo.idx, 1);
+  }
+  card.remove();
 }
 
 
@@ -3035,16 +3055,28 @@ function enterCardEditMode(card, editInfo) {
 
   const revertBtn = document.createElement('button');
   revertBtn.className = 'copy-revert-btn';
-  revertBtn.textContent = '↩ Revert';
-  revertBtn.addEventListener('click', function(){ revertCard(card, editInfo); });
 
   const doneBtn = document.createElement('button');
   doneBtn.className = 'copy-edit-done-btn';
   doneBtn.textContent = '✓ Done';
-  doneBtn.addEventListener('click', function(){
-    commitCardEdit(card, editInfo, ta.value);
-    exitCardEditMode(card, editInfo);
-  });
+
+  if (editInfo && editInfo.isNew) {
+    revertBtn.textContent = '✕ Cancel';
+    revertBtn.addEventListener('click', function(){ cancelNewEntry(card, editInfo); });
+    doneBtn.addEventListener('click', function(){
+      const val = ta.value.trim();
+      if (!val) { cancelNewEntry(card, editInfo); return; }
+      commitCardEdit(card, editInfo, ta.value);
+      exitCardEditMode(card, editInfo);
+    });
+  } else {
+    revertBtn.textContent = '↩ Revert';
+    revertBtn.addEventListener('click', function(){ revertCard(card, editInfo); });
+    doneBtn.addEventListener('click', function(){
+      commitCardEdit(card, editInfo, ta.value);
+      exitCardEditMode(card, editInfo);
+    });
+  }
 
   actionsDiv.appendChild(revertBtn);
   actionsDiv.appendChild(doneBtn);
