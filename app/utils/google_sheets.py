@@ -700,6 +700,58 @@ def read_leads(sheet_id: str) -> list[dict]:
     return results
 
 
+# ── DNC reason → Lead Status mapping ─────────────────────────────────────────
+
+_REASON_TO_LEAD_STATUS: dict[str, str] = {
+    "lead":       "Lead",
+    "interested": "Interested",
+    "reply":      "Reply",
+    "opt_out":    "Unsubscribe",
+    "manual":     "Unsubscribe",
+}
+
+
+def mark_email_in_sheet(sheet_id: str, email: str, reason: str = "manual") -> int:
+    """
+    Find every row in the sheet where 'Recipient Email' matches *email*
+    and set 'Lead Status' to the value that corresponds to *reason*.
+
+    Returns the number of rows updated (0 if the email isn't found or
+    the required columns don't exist in this sheet).
+    """
+    lead_status = _REASON_TO_LEAD_STATUS.get(reason.lower(), "Unsubscribe")
+    email_norm  = email.lower().strip()
+
+    gc = _client()
+    sh = gc.open_by_key(sheet_id)
+    ws = sh.sheet1
+
+    # Find column positions from the header row
+    headers = ws.row_values(1)
+    try:
+        email_col_idx = headers.index("Recipient Email") + 1   # 1-based
+        ls_col_idx    = headers.index("Lead Status")    + 1
+    except ValueError:
+        return 0   # sheet doesn't have the expected columns
+
+    # Fetch the entire email column (header included at position 0)
+    col_values = ws.col_values(email_col_idx)
+
+    # Collect the A1 ranges that need updating (skip header row 1)
+    updates = []
+    for row_num, cell_val in enumerate(col_values, start=1):
+        if row_num == 1:
+            continue   # header
+        if str(cell_val).lower().strip() == email_norm:
+            a1 = f"{_col_letter(ls_col_idx)}{row_num}"
+            updates.append({"range": a1, "values": [[lead_status]]})
+
+    if updates:
+        ws.batch_update(updates)
+
+    return len(updates)
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _col_letter(n: int) -> str:

@@ -1441,6 +1441,32 @@ async def add_dnc_entry(
                 timeout=10,
             )
         except Exception:
+            pass  # non-fatal
+
+    # Mark email in all linked Google Sheets for this client (non-fatal)
+    if not is_domain:
+        try:
+            from app.utils.google_sheets import is_configured, mark_email_in_sheet
+            if is_configured():
+                camp_r = http_req.get(
+                    f"{SUPABASE_URL}/rest/v1/campaigns",
+                    headers=_sb_headers(),
+                    params={
+                        "select":    "sheet_id",
+                        "client_id": f"eq.{client_id}",
+                        "sheet_id":  "not.is.null",
+                    },
+                    timeout=10,
+                )
+                if camp_r.ok:
+                    for camp in camp_r.json():
+                        sid = (camp.get("sheet_id") or "").strip()
+                        if sid:
+                            try:
+                                mark_email_in_sheet(sid, email_norm, reason)
+                            except Exception:
+                                pass  # one sheet failing doesn't block others
+        except Exception:
             pass  # non-fatal — DNC entry already saved successfully
 
     return await get_dnc_entries(request, client_id=client_id, offset=0, search="")
