@@ -883,40 +883,84 @@ async def upload_contacted(
 
     campaign = campaign_name.strip() or None
 
-    for i in range(0, len(emails), CHUNK_SIZE):
-        chunk = emails[i : i + CHUNK_SIZE]
-        rows = [
-            {
-                "client_id":    client_id,
-                "email":        e,
-                "contacted_at": contacted_at,
-                "source":       "csv_upload",
-                **({"campaign_name": campaign} if campaign else {}),
+    # ── Pre-fetch existing emails for this client+campaign so we only
+    # insert genuinely new rows and avoid unique-constraint 409 errors.
+    existing: set[str] = set()
+    try:
+        ex_offset = 0
+        while True:
+            ex_params: dict = {
+                "select":    "email",
+                "client_id": f"eq.{client_id}",
+                "limit":     str(CHUNK_SIZE),
+                "offset":    str(ex_offset),
             }
-            for e in chunk
-        ]
-        try:
-            r = http_req.post(
+            if campaign:
+                ex_params["campaign_name"] = f"eq.{campaign}"
+            else:
+                ex_params["campaign_name"] = "is.null"
+            ex_r = http_req.get(
                 f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                headers=_sb_headers("return=minimal"),
-                json=rows,
+                headers=_sb_headers(),
+                params=ex_params,
                 timeout=30,
             )
-            # 201 = inserted, 204 = inserted (return=minimal), 409 = already exists
-            if r.status_code not in (200, 201, 204, 409):
-                body = ""
-                try:
-                    body = r.json().get("message") or r.json().get("details") or r.text[:300]
-                except Exception:
-                    body = r.text[:300]
-                return error(f"Supabase error {r.status_code}: {body}")
-        except Exception as e:
-            return error(f"Supabase error during upload: {e}")
+            ex_r.raise_for_status()
+            page = ex_r.json()
+            for row in page:
+                if row.get("email"):
+                    existing.add(str(row["email"]).lower().strip())
+            if len(page) < CHUNK_SIZE:
+                break
+            ex_offset += CHUNK_SIZE
+    except Exception as e:
+        return error(f"Could not check existing contacts: {e}")
+
+    new_emails = [e for e in emails if e not in existing]
+    skipped    = len(emails) - len(new_emails)
+
+    if new_emails:
+        for i in range(0, len(new_emails), CHUNK_SIZE):
+            chunk = new_emails[i : i + CHUNK_SIZE]
+            rows = [
+                {
+                    "client_id":    client_id,
+                    "email":        e,
+                    "contacted_at": contacted_at,
+                    "source":       "csv_upload",
+                    **({"campaign_name": campaign} if campaign else {}),
+                }
+                for e in chunk
+            ]
+            try:
+                r = http_req.post(
+                    f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                    headers=_sb_headers("return=minimal"),
+                    json=rows,
+                    timeout=30,
+                )
+                if r.status_code not in (200, 201, 204):
+                    body = ""
+                    try:
+                        body = r.json().get("message") or r.json().get("details") or r.text[:300]
+                    except Exception:
+                        body = r.text[:300]
+                    return error(f"Supabase error {r.status_code}: {body}")
+            except Exception as e:
+                return error(f"Supabase error during upload: {e}")
+
+    added = len(new_emails)
+    if added == 0:
+        msg = f"All {skipped:,} emails already exist for this campaign — nothing new to add."
+    elif skipped:
+        msg = f"✓ {added:,} email{'s' if added != 1 else ''} added. {skipped:,} already existed and were skipped."
+    else:
+        msg = f"✓ {added:,} email{'s' if added != 1 else ''} added successfully."
 
     return await get_contacted_campaigns(
         request,
         client_id=client_id,
-        success_message=f"✓ {len(emails):,} email{'s' if len(emails) != 1 else ''} uploaded successfully.",
+        success_message=msg,
     )
 
 
