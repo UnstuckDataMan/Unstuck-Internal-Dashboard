@@ -559,6 +559,13 @@
     }
     .copy-edit-done-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(124,58,237,.4); }
     .variation-card.edit-mode { border-color: rgba(139,92,246,.45); background: rgba(139,92,246,.04); }
+    .variation-card.card-has-changes {
+      border-color: rgba(251,146,60,.5);
+      box-shadow: 0 0 0 2px rgba(251,146,60,.2), 0 0 18px rgba(251,146,60,.15);
+    }
+    .variation-card.card-has-changes.edit-mode {
+      border-color: rgba(251,146,60,.6);
+    }
 
     /* ── Unsaved-changes modal ────────────────────────────── */
     #unsaved-modal { display: none; }
@@ -2534,6 +2541,26 @@ function buildSection(title, copyLabel) {
   return section;
 }
 function emptyEl(msg) { const el=document.createElement('div'); el.className='channel-empty'; el.textContent=msg; return el; }
+function getOrigVal(editInfo) {
+  const orig = ORIG_TEMPLATES[editInfo.key] || {};
+  if (editInfo.type === 'subject') return ((orig[editInfo.channel] && orig[editInfo.channel].subjects) || [])[editInfo.idx] || '';
+  if (editInfo.type === 'variation') return (((orig[editInfo.channel] && orig[editInfo.channel].variations) || [])[editInfo.idx] || {}).body || '';
+  if (editInfo.type === 'step') return (((orig.linkedin && orig.linkedin.steps) || [])[editInfo.idx] || {}).body || '';
+  return '';
+}
+
+function updateCardGlow(card, editInfo) {
+  if (!editInfo) return;
+  const origVal = getOrigVal(editInfo);
+  const changed = editInfo.rawValue !== origVal;
+  card.classList.toggle('card-has-changes', changed);
+}
+
+function updateApprovalBtn() {
+  if (currentPending) return; // pending state manages its own buttons
+  document.getElementById('request-approval-btn').style.display = dirtyContent ? '' : 'none';
+}
+
 function makeCard(label, displayText, copyPayload, editInfo) {
   const card=document.createElement('div'); card.className='variation-card';
   const top=document.createElement('div'); top.className='var-card-top';
@@ -2547,6 +2574,7 @@ function makeCard(label, displayText, copyPayload, editInfo) {
     const editBtn=document.createElement('button'); editBtn.className='copy-edit-btn'; editBtn.textContent='✏ Edit';
     editBtn.addEventListener('click', function(){ enterCardEditMode(card, editInfo); });
     card.appendChild(editBtn);
+    updateCardGlow(card, editInfo);
   }
   return card;
 }
@@ -2777,7 +2805,7 @@ function setPendingApprovalState(createdAt) {
 function setNormalApprovalState() {
   currentPending = null;
   document.getElementById('view-pending-banner').style.display = 'none';
-  document.getElementById('request-approval-btn').style.display = '';
+  document.getElementById('request-approval-btn').style.display = dirtyContent ? '' : 'none';
   document.getElementById('approve-btn').style.display = 'none';
 }
 
@@ -3126,6 +3154,8 @@ function commitCardEdit(card, editInfo, val) {
   }
   editInfo.rawValue = val; // keep editInfo in sync for future reverts
   dirtyContent = true;
+  updateCardGlow(card, editInfo);
+  updateApprovalBtn();
 }
 
 function exitCardEditMode(card, editInfo) {
@@ -3175,10 +3205,11 @@ function revertCard(card, editInfo) {
 function recalcDirty() {
   for (const key in TEMPLATES) {
     const orig = ORIG_TEMPLATES[key];
-    if (!orig) { dirtyContent = true; return; }
-    if (JSON.stringify(TEMPLATES[key]) !== JSON.stringify(orig)) { dirtyContent = true; return; }
+    if (!orig) { dirtyContent = true; updateApprovalBtn(); return; }
+    if (JSON.stringify(TEMPLATES[key]) !== JSON.stringify(orig)) { dirtyContent = true; updateApprovalBtn(); return; }
   }
   dirtyContent = false;
+  updateApprovalBtn();
 }
 
 // ════════════════════════════════════════════════════════
@@ -3235,7 +3266,7 @@ async function submitInlineApprovalRequest(afterCallback, requestedBy) {
     if (data.ok) {
       currentPending = { created_at: new Date().toISOString(), content };
       TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(content)));
-      ORIG_TEMPLATES[key] = JSON.parse(JSON.stringify(TEMPLATES[key]));
+      // NOTE: do NOT update ORIG_TEMPLATES here — glow must persist until copy is actually approved
       dirtyContent = false;
       showToast('✓ Approval request sent to Slack');
       setPendingApprovalState(currentPending.created_at);
