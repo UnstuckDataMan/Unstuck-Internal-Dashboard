@@ -405,11 +405,12 @@ async def api_dnc_scrub(
                 ]
                 r = http_req.post(
                     f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                    headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                    headers=_sb_headers("return=minimal"),
                     json=rows,
                     timeout=30,
                 )
-                r.raise_for_status()
+                if r.status_code not in (200, 201, 409):
+                    r.raise_for_status()
                 contacted_saved_count += len(chunk)
         except Exception:
             contacted_saved_count = 0  # non-fatal — scrub result is unaffected
@@ -895,11 +896,13 @@ async def upload_contacted(
         try:
             r = http_req.post(
                 f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                headers=_sb_headers("return=minimal"),
                 json=rows,
                 timeout=30,
             )
-            r.raise_for_status()
+            # 409 = unique conflict (rows already exist) — treat as success
+            if r.status_code not in (200, 201, 409):
+                r.raise_for_status()
         except Exception as e:
             return error(f"Supabase error during upload: {e}")
 
