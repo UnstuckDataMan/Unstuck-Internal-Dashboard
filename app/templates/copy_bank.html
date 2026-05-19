@@ -2644,7 +2644,15 @@ function renderSubjectsSection(container, subjects) {
 }
 
 function renderVariationsSection(container, ch, variations, sender) {
-  const label = ch==='email'?'Email Variations':'Fly-out Variations';
+  // For known channels use fixed labels; for custom channels derive from the key
+  let label;
+  if (ch === 'email') label = 'Email Variations';
+  else if (ch === 'flyout') label = 'Fly-out Variations';
+  else {
+    // Convert snake_case key to Title Case, e.g. cold_call → Cold Call Variations
+    const name = ch.replace(/_/g,' ').replace(/\b\w/g,function(c){ return c.toUpperCase(); });
+    label = name + ' Variations';
+  }
   const section = buildSection(label,'Copy all Variations');
   const btn = section.querySelector('.copy-channel-btn');
   const assembled = variations.map(function(v,i){
@@ -2819,7 +2827,7 @@ function addNewEntry(type) {
   document.querySelectorAll('#rp-scroll .channel-section').forEach(function(sec) {
     const t = (sec.querySelector('.channel-title') || {}).textContent || '';
     if (type === 'subject' && t === 'Subject Lines') targetSection = sec;
-    else if (type === 'variation' && (t === 'Email Variations' || t === 'Fly-out Variations')) targetSection = sec;
+    else if (type === 'variation' && t.endsWith('Variations')) targetSection = sec;
     else if (type === 'step' && t === 'LinkedIn Sequence') targetSection = sec;
   });
 
