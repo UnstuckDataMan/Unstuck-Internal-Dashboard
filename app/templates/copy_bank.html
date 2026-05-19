@@ -2554,7 +2554,9 @@ function getOrigVal(editInfo) {
 function updateCardGlow(card, editInfo) {
   if (!editInfo) return;
   const origVal = getOrigVal(editInfo);
-  const changed = editInfo.rawValue !== origVal;
+  // Trim both sides: rawValue for variations/steps is already trimmed on render,
+  // but ORIG_TEMPLATES may store content with trailing whitespace from Supabase.
+  const changed = (editInfo.rawValue || '').trim() !== (origVal || '').trim();
   card.classList.toggle('card-has-changes', changed);
 }
 
