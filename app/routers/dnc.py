@@ -405,7 +405,7 @@ async def api_dnc_scrub(
                 ]
                 r = http_req.post(
                     f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                    headers=_sb_headers("return=minimal"),
+                    headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
                     json=rows,
                     timeout=30,
                 )
@@ -895,7 +895,7 @@ async def upload_contacted(
         try:
             r = http_req.post(
                 f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                headers=_sb_headers("return=minimal"),
+                headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
                 json=rows,
                 timeout=30,
             )
