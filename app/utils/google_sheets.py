@@ -197,6 +197,7 @@ def _apply_sheet_formatting(
     lead_status_col = col_idx("Lead Status")
     sender_col      = col_idx("Sender Account")
     email_col       = col_idx("Recipient Email")
+    div_col         = col_idx("__divider__")
     n_data          = len(data_rows)
     last_row_idx    = 1 + n_data   # exclusive end (0-based, row 0 = header)
 
@@ -266,10 +267,64 @@ def _apply_sheet_formatting(
                         },
                         "cell": {"userEnteredFormat": {
                             "backgroundColor": _rgb("FFFDE7"),
+                            "textFormat": {"bold": True},
                         }},
-                        "fields": "userEnteredFormat.backgroundColor",
+                        "fields": "userEnteredFormat(backgroundColor,textFormat.bold)",
                     }})
                     prev_sender = curr
+
+    # ── Divider column (grey separator before prospect columns) ──────────
+    # Matches the light-grey divider column written by excel_writer.py.
+    # Header cell text is cleared; the whole column gets a grey fill and a
+    # narrow pixel width so it reads as a visual boundary, not a data column.
+    if div_col >= 0:
+        # Header cell: dark grey fill, clear the "__divider__" text
+        requests.append({"updateCells": {
+            "rows": [{"values": [{"userEnteredFormat": {
+                "backgroundColor": _rgb("BDBDBD"),
+            }}]}],
+            "fields": "userEnteredFormat.backgroundColor",
+            "start": {
+                "sheetId":     sheet_gid,
+                "rowIndex":    0,
+                "columnIndex": div_col,
+            },
+        }})
+        requests.append({"updateCells": {
+            "rows": [{"values": [{"userEnteredValue": {"stringValue": ""}}]}],
+            "fields": "userEnteredValue",
+            "start": {
+                "sheetId":     sheet_gid,
+                "rowIndex":    0,
+                "columnIndex": div_col,
+            },
+        }})
+        # Data rows: lighter grey fill
+        if n_data > 0:
+            requests.append({"repeatCell": {
+                "range": {
+                    "sheetId":          sheet_gid,
+                    "startRowIndex":    1,
+                    "endRowIndex":      last_row_idx,
+                    "startColumnIndex": div_col,
+                    "endColumnIndex":   div_col + 1,
+                },
+                "cell": {"userEnteredFormat": {
+                    "backgroundColor": _rgb("EEEEEE"),
+                }},
+                "fields": "userEnteredFormat.backgroundColor",
+            }})
+        # Narrow column width (~20 px ≈ 3-char wide visual separator)
+        requests.append({"updateDimensionProperties": {
+            "range": {
+                "sheetId":    sheet_gid,
+                "dimension":  "COLUMNS",
+                "startIndex": div_col,
+                "endIndex":   div_col + 1,
+            },
+            "properties": {"pixelSize": 20},
+            "fields": "pixelSize",
+        }})
 
     # ── Data validation: Send Status = checkbox ───────────────────────────
     if send_status_col >= 0:
