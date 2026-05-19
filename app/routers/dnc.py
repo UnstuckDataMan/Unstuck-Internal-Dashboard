@@ -1372,6 +1372,44 @@ async def export_dnc_entries(
     )
 
 
+@router.get("/api/dnc/campaign-sheet-options")
+async def campaign_sheet_options(client_id: str = Query("")):
+    """
+    Return <option> elements for active campaigns that have a Google Sheet linked.
+    Used to populate the campaign dropdown in the manual DNC entry form.
+    """
+    if not client_id or not _sb_configured():
+        return HTMLResponse('<option value="">— select a client first —</option>')
+    try:
+        r = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            headers=_sb_headers(),
+            params={
+                "select":    "campaign_name,sheet_id",
+                "client_id": f"eq.{client_id}",
+                "sheet_id":  "not.is.null",
+                "completed": "neq.true",
+                "order":     "created_at.desc",
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        campaigns = r.json()
+    except Exception:
+        return HTMLResponse('<option value="">— error loading campaigns —</option>')
+
+    opts = ['<option value="">All active sheets</option>']
+    for c in campaigns:
+        name = (c.get("campaign_name") or "Unnamed").replace('"', "&quot;")
+        sid  = c.get("sheet_id", "")
+        if sid:
+            opts.append(f'<option value="{sid}">{name}</option>')
+
+    if len(opts) == 1:
+        return HTMLResponse('<option value="">No active sheets found</option>')
+    return HTMLResponse("\n".join(opts))
+
+
 @router.post("/api/dnc/entries")
 async def add_dnc_entry(
     request:   Request,
@@ -1379,6 +1417,7 @@ async def add_dnc_entry(
     email:     str = Form(...),
     reason:    str = Form("manual"),
     notes:     str = Form(""),
+    sheet_id:  str = Form(""),   # optional: target a single campaign sheet
 ):
     def error(msg: str):
         # Retarget the swap to #add-entry-error so the table is left untouched
@@ -1443,29 +1482,36 @@ async def add_dnc_entry(
         except Exception:
             pass  # non-fatal
 
-    # Mark email in all linked Google Sheets for this client (non-fatal)
+    # Mark email in linked Google Sheet(s) (non-fatal)
     if not is_domain:
         try:
             from app.utils.google_sheets import is_configured, mark_email_in_sheet
             if is_configured():
-                camp_r = http_req.get(
-                    f"{SUPABASE_URL}/rest/v1/campaigns",
-                    headers=_sb_headers(),
-                    params={
-                        "select":    "sheet_id",
-                        "client_id": f"eq.{client_id}",
-                        "sheet_id":  "not.is.null",
-                    },
-                    timeout=10,
-                )
-                if camp_r.ok:
-                    for camp in camp_r.json():
-                        sid = (camp.get("sheet_id") or "").strip()
-                        if sid:
-                            try:
-                                mark_email_in_sheet(sid, email_norm, reason)
-                            except Exception:
-                                pass  # one sheet failing doesn't block others
+                target_sid = sheet_id.strip()
+                if target_sid:
+                    # User picked a specific campaign — update only that sheet
+                    mark_email_in_sheet(target_sid, email_norm, reason)
+                else:
+                    # No campaign selected — update all active sheets for this client
+                    camp_r = http_req.get(
+                        f"{SUPABASE_URL}/rest/v1/campaigns",
+                        headers=_sb_headers(),
+                        params={
+                            "select":    "sheet_id",
+                            "client_id": f"eq.{client_id}",
+                            "sheet_id":  "not.is.null",
+                            "completed": "neq.true",
+                        },
+                        timeout=10,
+                    )
+                    if camp_r.ok:
+                        for camp in camp_r.json():
+                            sid = (camp.get("sheet_id") or "").strip()
+                            if sid:
+                                try:
+                                    mark_email_in_sheet(sid, email_norm, reason)
+                                except Exception:
+                                    pass
         except Exception:
             pass  # non-fatal — DNC entry already saved successfully
 

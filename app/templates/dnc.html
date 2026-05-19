@@ -2279,6 +2279,14 @@
     >
       <input type="hidden" name="client_id" id="add-client-id-input" value="" />
 
+      <!-- Campaign sheet selector — shown once a client is chosen -->
+      <div class="form-group" id="dnc-campaign-wrap" style="display:none;margin-bottom:14px">
+        <label>Campaign <span class="opt">optional — leave as "All" to update every active sheet</span></label>
+        <select name="sheet_id" id="dnc-campaign-select">
+          <option value="">All active sheets</option>
+        </select>
+      </div>
+
       <div class="form-row">
         <div class="form-group" style="margin-bottom:0">
           <label style="display:flex;align-items:center;justify-content:space-between">
@@ -2766,6 +2774,22 @@
       // Sync hidden inputs so the add/bulk forms submit the right client_id
       addClientInput.value  = cid;
       bulkClientInput.value = cid;
+
+      // Load campaign sheet options for the manual DNC entry dropdown
+      const dncCampaignWrap   = document.getElementById('dnc-campaign-wrap');
+      const dncCampaignSelect = document.getElementById('dnc-campaign-select');
+      if (dncCampaignWrap && dncCampaignSelect) {
+        if (cid) {
+          htmx.ajax('GET', `/api/dnc/campaign-sheet-options?client_id=${encodeURIComponent(cid)}`, {
+            target: '#dnc-campaign-select',
+            swap:   'innerHTML',
+          });
+          dncCampaignWrap.style.display = '';
+        } else {
+          dncCampaignSelect.innerHTML   = '<option value="">All active sheets</option>';
+          dncCampaignWrap.style.display = 'none';
+        }
+      }
       // Export CSV button — update href and visibility
       const exportWrap = document.getElementById('export-csv-wrap');
       const exportLink = document.getElementById('export-csv-link');
