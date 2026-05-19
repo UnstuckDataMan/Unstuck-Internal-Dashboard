@@ -1857,12 +1857,11 @@
 <dialog id="requester-dialog">
   <div class="approver-dialog-inner">
     <div class="approver-dialog-title">Who is requesting approval?</div>
-    <div class="approver-dialog-sub">This will be logged alongside the approval request.</div>
-    <div class="approver-btns">
-      <button class="approver-btn" onclick="submitWithRequester('Ollie')">Ollie</button>
-      <button class="approver-btn" onclick="submitWithRequester('Chris')">Chris</button>
-      <button class="approver-btn" onclick="submitWithRequester('Leo')">Leo</button>
-    </div>
+    <div class="approver-dialog-sub">Enter your name — this will be logged with the request.</div>
+    <input id="requester-name-input" type="text" placeholder="Your name"
+      style="width:100%;padding:10px 14px;margin:16px 0 12px;border-radius:10px;border:1px solid var(--border);
+             background:rgba(255,255,255,.06);color:var(--text);font-size:15px;font-family:var(--font);outline:none;">
+    <button id="requester-submit-btn" class="approver-btn" style="width:100%;margin-bottom:10px">Submit Request</button>
     <button class="approver-cancel" onclick="document.getElementById('requester-dialog').close()">Cancel</button>
   </div>
 </dialog>
@@ -2723,16 +2722,33 @@ function showToast(msg, isError) {
 
 // ── Request Approval button ───────────────────────────────
 document.getElementById('request-approval-btn').addEventListener('click', function() {
+  document.getElementById('requester-name-input').value = '';
   document.getElementById('requester-dialog').showModal();
+  setTimeout(function(){ document.getElementById('requester-name-input').focus(); }, 80);
 });
 
 let _pendingApprovalCallback = null;
+
 function submitWithRequester(name) {
   document.getElementById('requester-dialog').close();
   const cb = _pendingApprovalCallback;
   _pendingApprovalCallback = null;
   submitInlineApprovalRequest(cb, name);
 }
+
+document.getElementById('requester-submit-btn').addEventListener('click', function() {
+  const name = document.getElementById('requester-name-input').value.trim();
+  if (!name) { document.getElementById('requester-name-input').focus(); return; }
+  submitWithRequester(name);
+});
+
+document.getElementById('requester-name-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    const name = this.value.trim();
+    if (!name) return;
+    submitWithRequester(name);
+  }
+});
 
 // ── Approve & Publish button ──────────────────────────────
 document.getElementById('approve-btn').addEventListener('click', function() {
@@ -3102,7 +3118,9 @@ function showUnsavedModal(onDiscard, onApproval) {
   document.getElementById('unsaved-request-approval').onclick = function() {
     cleanup();
     // Ask who is requesting before submitting
+    document.getElementById('requester-name-input').value = '';
     document.getElementById('requester-dialog').showModal();
+    setTimeout(function(){ document.getElementById('requester-name-input').focus(); }, 80);
     // Store the afterCallback so submitWithRequester can invoke it
     _pendingApprovalCallback = onApproval || null;
   };
