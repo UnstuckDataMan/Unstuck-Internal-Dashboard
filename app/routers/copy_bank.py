@@ -325,15 +325,13 @@ def approval_logs():
 
     logs_resp = http_req.get(
         f"{url}/rest/v1/copy_approval_logs",
-        params={"select": "id,key,client_name,territory,industry,approved_by,requested_by,requested_at,approved_at,content_snapshot,previous_content_snapshot",
-                "order": "approved_at.desc", "limit": "100"},
+        params={"select": "*", "order": "approved_at.desc", "limit": "100"},
         headers=_sb_headers(),
         timeout=10,
     )
     pending_resp = http_req.get(
         f"{url}/rest/v1/copy_bank_pending",
-        params={"select": "id,key,client_name,territory,industry,created_at,requested_by,content,previous_content",
-                "status": "eq.pending", "order": "created_at.desc", "limit": "100"},
+        params={"select": "*", "status": "eq.pending", "order": "created_at.desc", "limit": "100"},
         headers=_sb_headers(),
         timeout=10,
     )
