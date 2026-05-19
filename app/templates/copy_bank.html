@@ -1372,6 +1372,29 @@
     }
     .approver-cancel:hover { border-color: rgba(255,255,255,.25); color: var(--text); }
 
+    /* Requester name input */
+    .requester-name-input {
+      width: 100%; padding: 10px 14px; margin: 16px 0 10px;
+      border-radius: 10px; border: 1px solid var(--border);
+      background: rgba(255,255,255,.05); color: var(--text);
+      font-size: 15px; font-family: var(--font); outline: none;
+      transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+    }
+    .requester-name-input::placeholder { color: var(--text-3); }
+    .requester-name-input:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px rgba(139,92,246,.18);
+    }
+    .requester-submit-btn {
+      width: 100%; padding: 11px; margin-bottom: 10px;
+      border: none; border-radius: 10px;
+      background: var(--gradient-vivid); color: #fff;
+      font-size: 14px; font-weight: 600; font-family: var(--font);
+      cursor: pointer; box-shadow: 0 2px 12px rgba(124,58,237,.35);
+      transition: opacity .18s, box-shadow .18s;
+    }
+    .requester-submit-btn:hover { opacity: .9; box-shadow: 0 4px 18px rgba(124,58,237,.5); }
+
     /* Toast notification */
     .approval-toast {
       position: fixed;
@@ -1858,10 +1881,8 @@
   <div class="approver-dialog-inner">
     <div class="approver-dialog-title">Who is requesting approval?</div>
     <div class="approver-dialog-sub">Enter your name — this will be logged with the request.</div>
-    <input id="requester-name-input" type="text" placeholder="Your name"
-      style="width:100%;padding:10px 14px;margin:16px 0 12px;border-radius:10px;border:1px solid var(--border);
-             background:rgba(255,255,255,.06);color:var(--text);font-size:15px;font-family:var(--font);outline:none;">
-    <button id="requester-submit-btn" class="approver-btn" style="width:100%;margin-bottom:10px">Submit Request</button>
+    <input id="requester-name-input" type="text" placeholder="Your name" class="requester-name-input">
+    <button id="requester-submit-btn" class="requester-submit-btn">Submit Request</button>
     <button class="approver-cancel" onclick="document.getElementById('requester-dialog').close()">Cancel</button>
   </div>
 </dialog>
