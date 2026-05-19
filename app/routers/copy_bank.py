@@ -180,11 +180,13 @@ def test_slack():
 # ── Pydantic request bodies ────────────────────────────────────────────────────
 
 class ApprovalRequestBody(BaseModel):
-    key:         str
-    client_name: str
-    territory:   str
-    industry:    str
-    content:     dict
+    key:              str
+    client_name:      str
+    territory:        str
+    industry:         str
+    content:          dict
+    requested_by:     str = ""
+    previous_content: dict = {}
 
 
 class ApproveBody(BaseModel):
@@ -205,12 +207,14 @@ def request_approval(body: ApprovalRequestBody):
         f"{url}/rest/v1/copy_bank_pending",
         headers={**_sb_write_headers("resolution=merge-duplicates,return=minimal")},
         json={
-            "key":         body.key,
-            "client_name": body.client_name,
-            "territory":   body.territory,
-            "industry":    body.industry,
-            "content":     body.content,
-            "status":      "pending",
+            "key":              body.key,
+            "client_name":      body.client_name,
+            "territory":        body.territory,
+            "industry":         body.industry,
+            "content":          body.content,
+            "requested_by":     body.requested_by,
+            "previous_content": body.previous_content,
+            "status":           "pending",
         },
         timeout=10,
     )
@@ -279,13 +283,15 @@ def approve_copy(body: ApproveBody):
             f"{url}/rest/v1/copy_approval_logs",
             headers=_sb_write_headers(),
             json={
-                "key":              body.key,
-                "client_name":      pending["client_name"],
-                "territory":        pending["territory"],
-                "industry":         pending["industry"],
-                "content_snapshot": body.content,
-                "approved_by":      body.approved_by,
-                "requested_at":     pending["created_at"],
+                "key":                       body.key,
+                "client_name":               pending["client_name"],
+                "territory":                 pending["territory"],
+                "industry":                  pending["industry"],
+                "content_snapshot":          body.content,
+                "previous_content_snapshot": pending.get("previous_content", {}),
+                "approved_by":               body.approved_by,
+                "requested_by":              pending.get("requested_by", ""),
+                "requested_at":              pending["created_at"],
             },
             timeout=10,
         ).raise_for_status()
@@ -319,14 +325,14 @@ def approval_logs():
 
     logs_resp = http_req.get(
         f"{url}/rest/v1/copy_approval_logs",
-        params={"select": "id,key,client_name,territory,industry,approved_by,requested_at,approved_at",
+        params={"select": "id,key,client_name,territory,industry,approved_by,requested_by,requested_at,approved_at,content_snapshot,previous_content_snapshot",
                 "order": "approved_at.desc", "limit": "100"},
         headers=_sb_headers(),
         timeout=10,
     )
     pending_resp = http_req.get(
         f"{url}/rest/v1/copy_bank_pending",
-        params={"select": "id,key,client_name,territory,industry,created_at",
+        params={"select": "id,key,client_name,territory,industry,created_at,requested_by,content,previous_content",
                 "status": "eq.pending", "order": "created_at.desc", "limit": "100"},
         headers=_sb_headers(),
         timeout=10,

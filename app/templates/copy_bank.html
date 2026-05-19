@@ -1485,6 +1485,43 @@
     }
     .logs-badge-pending { background: rgba(245,158,11,.15); color: #fbbf24; border: 1px solid rgba(245,158,11,.3); }
     .logs-badge-approved { background: rgba(22,163,74,.12); color: #4ade80; border: 1px solid rgba(22,163,74,.3); }
+    .logs-table tbody tr.clickable { cursor: pointer; }
+    .logs-table tbody tr.clickable:hover { background: rgba(139,92,246,.12); }
+    .logs-view-diff { font-size: 11px; color: #a78bfa; font-weight: 600; white-space: nowrap; }
+
+    /* ── Diff modal ── */
+    .diff-dialog {
+      position: relative; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 18px; padding: 0; z-index: 1; box-shadow: var(--sh-md);
+      width: min(760px, 94vw); max-height: 86vh; display: flex; flex-direction: column;
+    }
+    .diff-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 24px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .diff-title { font-size: 16px; font-weight: 700; }
+    .diff-close {
+      background: transparent; border: none; color: var(--text-2); font-size: 22px;
+      cursor: pointer; line-height: 1; padding: 0 4px;
+    }
+    .diff-close:hover { color: var(--text); }
+    .diff-body { overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+    .diff-empty { font-size: 13px; color: var(--text-3); font-style: italic; text-align: center; padding: 24px 0; }
+    .diff-item { display: flex; flex-direction: column; gap: 8px; }
+    .diff-item-label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px;
+      color: var(--text-3); padding-bottom: 4px; border-bottom: 1px solid var(--border);
+    }
+    .diff-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .diff-old, .diff-new { border-radius: 10px; padding: 12px 14px; }
+    .diff-old { background: rgba(248,113,113,.08); border: 1px solid rgba(248,113,113,.2); }
+    .diff-new { background: rgba(34,197,94,.07); border: 1px solid rgba(34,197,94,.2); }
+    .diff-col-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; margin-bottom: 6px; }
+    .diff-old .diff-col-label { color: #f87171; }
+    .diff-new .diff-col-label { color: #4ade80; }
+    .diff-text { font-size: 13px; color: var(--text-2); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .diff-text.empty { color: var(--text-3); font-style: italic; }
+    @media (max-width: 600px) { .diff-row { grid-template-columns: 1fr; } }
 
     /* ════════════════════════════════════════════════════════
        RESPONSIVE — TABLET  ≤ 900px
@@ -1815,6 +1852,22 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
+     REQUESTER SELECTION DIALOG
+══════════════════════════════════════════════════════════ -->
+<dialog id="requester-dialog">
+  <div class="approver-dialog-inner">
+    <div class="approver-dialog-title">Who is requesting approval?</div>
+    <div class="approver-dialog-sub">This will be logged alongside the approval request.</div>
+    <div class="approver-btns">
+      <button class="approver-btn" onclick="submitWithRequester('Ollie')">Ollie</button>
+      <button class="approver-btn" onclick="submitWithRequester('Chris')">Chris</button>
+      <button class="approver-btn" onclick="submitWithRequester('Leo')">Leo</button>
+    </div>
+    <button class="approver-cancel" onclick="document.getElementById('requester-dialog').close()">Cancel</button>
+  </div>
+</dialog>
+
+<!-- ══════════════════════════════════════════════════════════
      APPROVER SELECTION DIALOG
 ══════════════════════════════════════════════════════════ -->
 <dialog id="approver-dialog">
@@ -1843,6 +1896,18 @@
   </div>
   <div class="logs-body" id="logs-body">
     <div class="rp-state"><div class="spinner"></div><span>Loading&hellip;</span></div>
+  </div>
+</div>
+
+<!-- Copy diff modal -->
+<div id="diff-modal" style="display:none;position:fixed;inset:0;z-index:900;align-items:center;justify-content:center;">
+  <div id="diff-backdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.6);"></div>
+  <div class="diff-dialog">
+    <div class="diff-header">
+      <div class="diff-title" id="diff-title">Copy Changes</div>
+      <button class="diff-close" id="diff-close">&times;</button>
+    </div>
+    <div class="diff-body" id="diff-body"></div>
   </div>
 </div>
 
@@ -2657,9 +2722,17 @@ function showToast(msg, isError) {
 }
 
 // ── Request Approval button ───────────────────────────────
-document.getElementById('request-approval-btn').addEventListener('click', async function() {
-  submitInlineApprovalRequest(null);
+document.getElementById('request-approval-btn').addEventListener('click', function() {
+  document.getElementById('requester-dialog').showModal();
 });
+
+let _pendingApprovalCallback = null;
+function submitWithRequester(name) {
+  document.getElementById('requester-dialog').close();
+  const cb = _pendingApprovalCallback;
+  _pendingApprovalCallback = null;
+  submitInlineApprovalRequest(cb, name);
+}
 
 // ── Approve & Publish button ──────────────────────────────
 document.getElementById('approve-btn').addEventListener('click', function() {
@@ -2772,9 +2845,9 @@ function renderLogsPanel(pending, logs) {
     pendingSection.appendChild(empty);
   } else {
     pendingSection.appendChild(buildLogsTable(
-      ['Client', 'Territory', 'Industry', 'Requested'],
-      pending.map(function(r){ return [r.client_name, r.territory, r.industry, formatLogDate(r.created_at)]; }),
-      pending  // pass raw rows so click handler can navigate
+      ['Client', 'Territory', 'Industry', 'Requested By', 'Requested', ''],
+      pending.map(function(r){ return [r.client_name, r.territory, r.industry, r.requested_by || '—', formatLogDate(r.created_at), '→ Review']; }),
+      function(i){ navigateToApproval(pending[i]); }
     ));
   }
   body.appendChild(pendingSection);
@@ -2793,14 +2866,15 @@ function renderLogsPanel(pending, logs) {
     histSection.appendChild(empty);
   } else {
     histSection.appendChild(buildLogsTable(
-      ['Client', 'Territory', 'Industry', 'Approved By', 'Requested', 'Approved'],
-      logs.map(function(r){ return [r.client_name, r.territory, r.industry, r.approved_by, formatLogDate(r.requested_at), formatLogDate(r.approved_at)]; })
+      ['Client', 'Territory', 'Industry', 'Requested By', 'Approved By', 'Approved', ''],
+      logs.map(function(r){ return [r.client_name, r.territory, r.industry, r.requested_by || '—', r.approved_by, formatLogDate(r.approved_at), '↔ View Changes']; }),
+      function(i){ showDiffModal(logs[i]); }
     ));
   }
   body.appendChild(histSection);
 }
 
-function buildLogsTable(headers, rows, rawRows) {
+function buildLogsTable(headers, rows, onRowClick) {
   const wrap  = document.createElement('div'); wrap.className = 'logs-table-wrap';
   const table = document.createElement('table'); table.className = 'logs-table';
   const thead = document.createElement('thead');
@@ -2808,19 +2882,83 @@ function buildLogsTable(headers, rows, rawRows) {
   const tbody = document.createElement('tbody');
   rows.forEach(function(row, i){
     const tr = document.createElement('tr');
-    tr.innerHTML = row.map(function(cell){ return '<td>' + escHtml(cell || '—') + '</td>'; }).join('');
-    if (rawRows) {
-      tr.style.cursor = 'pointer';
-      tr.title = 'Open in admin panel';
-      tr.addEventListener('click', function(){ navigateToApproval(rawRows[i]); });
-      tr.addEventListener('mouseenter', function(){ tr.style.background = 'rgba(139,92,246,0.12)'; });
-      tr.addEventListener('mouseleave', function(){ tr.style.background = ''; });
+    // Last cell is always a link-style action — render without escaping colour
+    const cells = row.slice(0, -1).map(function(cell){ return '<td>' + escHtml(cell || '—') + '</td>'; });
+    const actionCell = '<td class="logs-view-diff">' + escHtml(row[row.length - 1] || '') + '</td>';
+    tr.innerHTML = cells.join('') + actionCell;
+    if (onRowClick) {
+      tr.classList.add('clickable');
+      tr.addEventListener('click', function(){ onRowClick(i); });
     }
     tbody.appendChild(tr);
   });
   table.appendChild(thead); table.appendChild(tbody); wrap.appendChild(table);
   return wrap;
 }
+
+function computeDiff(oldC, newC) {
+  const changes = [];
+  const channels = [
+    { key: 'email',    label: 'Email',    varLabel: 'Variation' },
+    { key: 'flyout',   label: 'Fly-out',  varLabel: 'Variation' },
+    { key: 'linkedin', label: 'LinkedIn', varLabel: 'Step'      },
+  ];
+  channels.forEach(function(ch) {
+    const oldCh = (oldC || {})[ch.key] || {};
+    const newCh = (newC || {})[ch.key] || {};
+    const oldSubs = oldCh.subjects || [];
+    const newSubs = newCh.subjects || [];
+    const maxSubs = Math.max(oldSubs.length, newSubs.length);
+    for (var i = 0; i < maxSubs; i++) {
+      const o = oldSubs[i] || '', n = newSubs[i] || '';
+      if (o !== n) changes.push({ section: ch.label + ' Subject ' + (i + 1), old: o, new: n });
+    }
+    const oldVars = oldCh.variations || oldCh.steps || [];
+    const newVars = newCh.variations || newCh.steps || [];
+    const maxVars = Math.max(oldVars.length, newVars.length);
+    for (var j = 0; j < maxVars; j++) {
+      const o = ((oldVars[j] || {}).body || ''), n = ((newVars[j] || {}).body || '');
+      if (o !== n) changes.push({ section: ch.label + ' ' + ch.varLabel + ' ' + (j + 1), old: o, new: n });
+    }
+  });
+  return changes;
+}
+
+function showDiffModal(logRow) {
+  const oldC = logRow.previous_content_snapshot || logRow.previous_content || null;
+  const newC = logRow.content_snapshot || logRow.content || null;
+  document.getElementById('diff-title').textContent =
+    (logRow.client_name || '') + ' — ' + (logRow.territory || '') + ' / ' + (logRow.industry || '');
+  const body = document.getElementById('diff-body');
+  body.innerHTML = '';
+  if (!oldC || !newC) {
+    body.innerHTML = '<div class="diff-empty">No change history available for this entry.</div>';
+  } else {
+    const changes = computeDiff(oldC, newC);
+    if (!changes.length) {
+      body.innerHTML = '<div class="diff-empty">No text differences detected.</div>';
+    } else {
+      changes.forEach(function(c) {
+        const item = document.createElement('div'); item.className = 'diff-item';
+        item.innerHTML =
+          '<div class="diff-item-label">' + escHtml(c.section) + '</div>' +
+          '<div class="diff-row">' +
+            '<div class="diff-old"><div class="diff-col-label">Before</div><div class="diff-text' + (c.old ? '' : ' empty') + '">' + escHtml(c.old || '(empty)') + '</div></div>' +
+            '<div class="diff-new"><div class="diff-col-label">After</div><div class="diff-text' + (c.new ? '' : ' empty') + '">' + escHtml(c.new || '(empty)') + '</div></div>' +
+          '</div>';
+        body.appendChild(item);
+      });
+    }
+  }
+  document.getElementById('diff-modal').style.display = 'flex';
+}
+
+document.getElementById('diff-close').addEventListener('click', function(){
+  document.getElementById('diff-modal').style.display = 'none';
+});
+document.getElementById('diff-backdrop').addEventListener('click', function(){
+  document.getElementById('diff-modal').style.display = 'none';
+});
 
 function formatLogDate(iso) {
   if (!iso) return '—';
@@ -2963,25 +3101,33 @@ function showUnsavedModal(onDiscard, onApproval) {
 
   document.getElementById('unsaved-request-approval').onclick = function() {
     cleanup();
-    if (onApproval) onApproval();
+    // Ask who is requesting before submitting
+    document.getElementById('requester-dialog').showModal();
+    // Store the afterCallback so submitWithRequester can invoke it
+    _pendingApprovalCallback = onApproval || null;
   };
 
   document.getElementById('unsaved-cancel').onclick = cleanup;
   document.querySelector('.unsaved-backdrop').onclick = cleanup;
 }
 
-async function submitInlineApprovalRequest(afterCallback) {
+async function submitInlineApprovalRequest(afterCallback, requestedBy) {
   if (!activeProfile) { if (afterCallback) afterCallback(); return; }
-  const key      = currentKey();
-  const content  = TEMPLATES[key] || defaultContent();
-  const ind      = document.getElementById('industry') ? document.getElementById('industry').value : '';
-  const indLabel = industryLabel(ind);
+  const key             = currentKey();
+  const content         = TEMPLATES[key] || defaultContent();
+  const previousContent = ORIG_TEMPLATES[key] || {};
+  const ind             = document.getElementById('industry') ? document.getElementById('industry').value : '';
+  const indLabel        = industryLabel(ind);
 
   try {
     const res = await fetch('/api/copy-bank/request-approval', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, client_name: activeProfile.name, territory, industry: indLabel, content }),
+      body: JSON.stringify({
+        key, client_name: activeProfile.name, territory, industry: indLabel, content,
+        requested_by: requestedBy || '',
+        previous_content: previousContent,
+      }),
     });
     const data = await res.json();
     if (data.ok) {
