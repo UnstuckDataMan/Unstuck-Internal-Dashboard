@@ -196,6 +196,7 @@ def _apply_sheet_formatting(
     send_status_col = col_idx("Send Status")
     lead_status_col = col_idx("Lead Status")
     sender_col      = col_idx("Sender Account")
+    email_col       = col_idx("Recipient Email")
     n_data          = len(data_rows)
     last_row_idx    = 1 + n_data   # exclusive end (0-based, row 0 = header)
 
@@ -361,6 +362,53 @@ def _apply_sheet_formatting(
                 },
             },
             "index": 0,
+        }})
+
+    # ── Conditional formatting: domain-match grey-out ─────────────────────
+    # When any row is marked "Lead", grey out every other row that shares
+    # the same email domain — a live signal that the whole company is blocked.
+    # Added at index 99 (lowest priority) so cell-level status colours
+    # (Lead/Reply/Interested/Unsubscribe) still show through on those cells.
+    if lead_status_col >= 0 and email_col >= 0:
+        ls_ltr = _col_letter(lead_status_col + 1)   # e.g. "K"
+        e_ltr  = _col_letter(email_col + 1)          # e.g. "D"
+        last_1 = last_row_idx                        # 1-based last data row number
+
+        # CUSTOM_FORMULA anchored at row 2; ${e_ltr}2 is column-fixed / row-relative
+        # so Google Sheets automatically shifts the row reference for each evaluated row.
+        # The final condition excludes the Lead row itself (ROW() <> ROW()).
+        domain_formula = (
+            f"=IFERROR(SUMPRODUCT("
+            f"(${ls_ltr}$2:${ls_ltr}${last_1}=\"Lead\")"
+            f"*IFERROR((MID(${e_ltr}$2:${e_ltr}${last_1},"
+            f"FIND(\"@\",${e_ltr}$2:${e_ltr}${last_1})+1,255)"
+            f"=MID(${e_ltr}2,FIND(\"@\",${e_ltr}2)+1,255))*1,0)"
+            f"*(ROW(${e_ltr}$2:${e_ltr}${last_1})<>ROW(${e_ltr}2))"
+            f")>0,FALSE)"
+        )
+        requests.append({"addConditionalFormatRule": {
+            "rule": {
+                "ranges": [{
+                    "sheetId":          sheet_gid,
+                    "startRowIndex":    1,
+                    "endRowIndex":      last_row_idx,
+                    "startColumnIndex": 0,
+                    "endColumnIndex":   n_cols,
+                }],
+                "booleanRule": {
+                    "condition": {
+                        "type":   "CUSTOM_FORMULA",
+                        "values": [{"userEnteredValue": domain_formula}],
+                    },
+                    "format": {
+                        "backgroundColor": _rgb("EEEEEE"),
+                        "textFormat": {
+                            "foregroundColor": _rgb("9E9E9E"),
+                        },
+                    },
+                },
+            },
+            "index": 99,   # lowest priority — cell-level colours win
         }})
 
     if not requests:
