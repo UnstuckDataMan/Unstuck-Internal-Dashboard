@@ -994,6 +994,58 @@ async def delete_campaign_contacted(
     return await get_contacted_campaigns(request, client_id=client_id)
 
 
+@router.post("/api/dnc/contacted/{entry_id}/mark-dnc")
+async def mark_contacted_as_dnc(
+    entry_id:  str,
+    client_id: str = Query(...),
+):
+    """Add the email from a contacted-prospect row directly to the DNC list."""
+    if not _sb_configured():
+        return HTMLResponse('<span class="dnc-flag-err">Supabase not configured</span>')
+
+    # Fetch email from the contacted_prospects row
+    try:
+        r = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+            headers=_sb_headers(),
+            params={"id": f"eq.{entry_id}", "select": "email"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        rows = r.json()
+    except Exception as exc:
+        return HTMLResponse(f'<span class="dnc-flag-err">Error: {exc}</span>')
+
+    if not rows:
+        return HTMLResponse('<span class="dnc-flag-err">Entry not found</span>')
+
+    email_norm = str(rows[0].get("email", "")).lower().strip()
+    if not email_norm:
+        return HTMLResponse('<span class="dnc-flag-err">No email on record</span>')
+
+    # Insert into dnc_entries
+    try:
+        r = http_req.post(
+            f"{SUPABASE_URL}/rest/v1/dnc_entries",
+            headers=_sb_headers("return=minimal"),
+            json={
+                "client_id": client_id,
+                "email":     email_norm,
+                "reason":    "manual",
+                "added_by":  "dashboard_user",
+                "notes":     "Marked DNC from contacted prospects list",
+            },
+            timeout=10,
+        )
+        if r.status_code == 409:
+            return HTMLResponse('<span class="dnc-flag-ok">Already on DNC</span>')
+        r.raise_for_status()
+    except Exception as exc:
+        return HTMLResponse(f'<span class="dnc-flag-err">DNC error: {exc}</span>')
+
+    return HTMLResponse('<span class="dnc-flag-ok">✓ Added to DNC</span>')
+
+
 @router.delete("/api/dnc/contacted/{entry_id}")
 async def delete_contacted(
     request:   Request,
@@ -1372,6 +1424,24 @@ async def add_dnc_entry(
         r.raise_for_status()
     except Exception as e:
         return error(f"Supabase error: {e}")
+
+    # Auto-log to contacted_prospects for full emails (non-fatal)
+    if not is_domain:
+        from datetime import date as _date
+        try:
+            http_req.post(
+                f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                headers=_sb_headers("return=minimal"),
+                json={
+                    "client_id":    client_id,
+                    "email":        email_norm,
+                    "contacted_at": _date.today().isoformat(),
+                    "source":       "dnc_manual",
+                },
+                timeout=10,
+            )
+        except Exception:
+            pass  # non-fatal — DNC entry already saved successfully
 
     return await get_dnc_entries(request, client_id=client_id, offset=0, search="")
 

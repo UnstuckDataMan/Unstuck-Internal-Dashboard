@@ -121,7 +121,16 @@
           <td>{{ entry.contacted_at }}</td>
           <td>{{ entry.campaign_name or "—" }}</td>
           <td><span class="source-badge source-{{ entry.source | replace('_', '-') }}">{{ entry.source }}</span></td>
-          <td>
+          <td style="white-space:nowrap;display:flex;gap:6px;align-items:center">
+            <span id="dnc-flag-{{ entry.id }}">
+              <button class="btn-dnc-flag"
+                      hx-post="/api/dnc/contacted/{{ entry.id }}/mark-dnc?client_id={{ client_id }}"
+                      hx-target="#dnc-flag-{{ entry.id }}"
+                      hx-swap="outerHTML"
+                      hx-confirm="Add {{ entry.email }} to the DNC list?">
+                → DNC
+              </button>
+            </span>
             <button class="btn-delete"
                     hx-delete="/api/dnc/contacted/{{ entry.id }}?client_id={{ client_id }}&campaign={{ campaign | urlencode }}"
                     hx-target="#contacted-table"
