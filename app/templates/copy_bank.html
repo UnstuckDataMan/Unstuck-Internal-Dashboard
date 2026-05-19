@@ -606,6 +606,61 @@
     }
     #unsaved-cancel:hover { border-color: rgba(255,255,255,.28); color: var(--text); }
 
+    /* ── Sidebar add affordances ────────────────────────────── */
+    .toggle-add-btn {
+      padding: 3px 9px;
+      background: transparent;
+      border: 1px dashed rgba(139,92,246,.45);
+      border-radius: 7px;
+      color: #a78bfa;
+      font-size: 15px; font-weight: 600; font-family: var(--font);
+      cursor: pointer; transition: background .15s, border-color .15s; line-height: 1;
+    }
+    .toggle-add-btn:hover { background: rgba(139,92,246,.12); border-color: rgba(139,92,246,.7); }
+    .toggle-inline-input {
+      width: 58px; padding: 3px 7px;
+      background: var(--surface); border: 1px solid rgba(139,92,246,.55);
+      border-radius: 7px; color: var(--text); font-family: var(--font);
+      font-size: 12px; outline: none;
+    }
+    .tab-add-btn {
+      padding: 4px 10px;
+      background: transparent;
+      border: 1px dashed rgba(139,92,246,.4);
+      border-radius: 7px;
+      color: #a78bfa;
+      font-size: 15px; font-weight: 600; font-family: var(--font);
+      cursor: pointer; align-self: center; margin-left: 4px; line-height: 1;
+      transition: background .15s;
+    }
+    .tab-add-btn:hover { background: rgba(139,92,246,.12); }
+    .tab-inline-input {
+      width: 110px; padding: 4px 8px;
+      background: var(--surface); border: 1px solid rgba(139,92,246,.55);
+      border-radius: 7px; color: var(--text); font-family: var(--font);
+      font-size: 13px; outline: none; align-self: center; margin-left: 4px;
+    }
+    .inline-add-row {
+      display: flex; align-items: center; gap: 6px; margin-top: 8px;
+    }
+    .inline-add-input {
+      flex: 1; padding: 7px 10px;
+      background: var(--surface); border: 1px solid rgba(139,92,246,.4);
+      border-radius: 9px; color: var(--text); font-family: var(--font);
+      font-size: 13px; outline: none;
+    }
+    .inline-add-input:focus { border-color: rgba(139,92,246,.8); }
+    .inline-add-confirm {
+      padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer;
+      background: var(--gradient-vivid); color: #fff;
+      font-size: 12px; font-weight: 600; font-family: var(--font);
+    }
+    .inline-add-cancel {
+      padding: 6px 10px; border-radius: 8px; cursor: pointer;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-2); font-family: var(--font); font-size: 12px;
+    }
+
     /* ── Scrollbar ──────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -1886,13 +1941,12 @@
     <div class="panel-section">
       <div class="section-label">Sending Account</div>
       <div class="field">
-        <select id="sender">
-          <option value="Robyn">Robyn</option>
-          <option value="Glen">Glen</option>
-          <option value="Leo">Leo</option>
-          <option value="Chris">Chris</option>
-          <option value="Devlin">Devlin</option>
-        </select>
+        <select id="sender"><!-- populated dynamically from SENDERS --></select>
+      </div>
+      <div id="sender-add-row" style="display:none" class="inline-add-row">
+        <input id="sender-add-input" type="text" placeholder="Name" class="inline-add-input">
+        <button id="sender-add-confirm" class="inline-add-confirm">Add</button>
+        <button id="sender-add-cancel" class="inline-add-cancel">✕</button>
       </div>
     </div>
     <div class="panel-section">
@@ -1902,6 +1956,11 @@
     <div class="panel-section">
       <div class="section-label">Industry / Niche</div>
       <div class="field"><select id="industry"></select></div>
+      <div id="industry-add-row" style="display:none" class="inline-add-row">
+        <input id="industry-add-input" type="text" placeholder="Industry name" class="inline-add-input">
+        <button id="industry-add-confirm" class="inline-add-confirm">Add</button>
+        <button id="industry-add-cancel" class="inline-add-cancel">✕</button>
+      </div>
     </div>
   </div>
   <div class="right-panel">
@@ -2026,6 +2085,10 @@ let   profiles      = [];
 let   allClients    = [];
 let   spellLang     = localStorage.getItem('cb-spell-lang') || 'en-GB';
 
+// Global sender list (persisted to Supabase under SENDERS_KEY)
+let   SENDERS     = ['Robyn','Glen','Leo','Chris','Devlin'];
+const SENDERS_KEY = '__cb_senders__';
+
 // Territories / industries currently staged in the add-profile form
 let   psFormTerritories = ['US', 'UK'];
 let   psFormIndustries  = ['PR','Marketing','Media','SaaS','AI','Accounting','Management_Consulting'];
@@ -2081,6 +2144,20 @@ function currentKey() {
 // ════════════════════════════════════════════════════════
 function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function populateSenderSelect() {
+  const sel = document.getElementById('sender');
+  const cur = sel.value;
+  sel.innerHTML = '';
+  SENDERS.forEach(function(s){
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s; sel.appendChild(opt);
+  });
+  const addOpt = document.createElement('option');
+  addOpt.value = '__add_sender__'; addOpt.textContent = '+ Add sender…';
+  sel.appendChild(addOpt);
+  if (SENDERS.includes(cur)) sel.value = cur; else sel.value = SENDERS[0] || '';
+}
+
 async function copyText(text, btn, label) {
   try { await navigator.clipboard.writeText(text); }
   catch {
@@ -2110,10 +2187,21 @@ async function loadFromSupabase() {
     if (!res.ok) throw new Error('HTTP '+res.status);
     const rows = await res.json();
     rows.forEach(function(row){
-      if (row.key && row.content && row.key !== PROFILES_KEY) TEMPLATES[row.key] = migrateContent(row.content);
+      if (row.key && row.content && row.key !== PROFILES_KEY && row.key !== SENDERS_KEY)
+        TEMPLATES[row.key] = migrateContent(row.content);
     });
     // Snapshot for per-card revert
     Object.keys(TEMPLATES).forEach(function(k){ ORIG_TEMPLATES[k] = JSON.parse(JSON.stringify(TEMPLATES[k])); });
+
+    // Load or initialise global senders list
+    const sendersRow = rows.find(function(r){ return r.key === SENDERS_KEY; });
+    if (sendersRow && Array.isArray(sendersRow.content)) {
+      SENDERS = sendersRow.content;
+    } else {
+      saveToSupabase(SENDERS_KEY, SENDERS); // first-time: persist defaults
+    }
+    populateSenderSelect();
+
     dataReady = true;
 
     await Promise.all([loadProfiles(), loadAllClients()]);
@@ -2369,19 +2457,14 @@ document.getElementById('back-to-profiles-btn').addEventListener('click', functi
 });
 
 // ════════════════════════════════════════════════════════
-//  ENTER PROFILE (no password — direct entry)
+//  TERRITORY TOGGLE HELPERS
 // ════════════════════════════════════════════════════════
-function enterProfile(profile) {
-  activeProfile = profile;
-  territory     = profile.territories[0] || 'US';
-  activeChannel = 'email';
-
-  // Rebuild territory toggles
+function rebuildTerritoryToggles() {
   const tg = document.getElementById('territory-toggle');
   tg.innerHTML = '';
-  profile.territories.forEach(function(ter, i){
+  activeProfile.territories.forEach(function(ter){
     const btn = document.createElement('button');
-    btn.className = 'toggle-btn'+(i===0?' active':'');
+    btn.className = 'toggle-btn' + (ter === territory ? ' active' : '');
     btn.dataset.territory = ter; btn.textContent = ter;
     btn.addEventListener('click', function(){
       territory = ter;
@@ -2390,6 +2473,46 @@ function enterProfile(profile) {
     });
     tg.appendChild(btn);
   });
+  appendAddTerritoryBtn(tg);
+}
+
+function appendAddTerritoryBtn(tg) {
+  const plus = document.createElement('button');
+  plus.className = 'toggle-btn toggle-add-btn';
+  plus.title = 'Add territory'; plus.textContent = '+';
+  plus.addEventListener('click', function(){
+    const input = document.createElement('input');
+    input.type = 'text'; input.className = 'toggle-inline-input';
+    input.placeholder = 'e.g. AU'; input.maxLength = 6;
+    plus.replaceWith(input); input.focus();
+    let committed = false;
+    function commit() {
+      if (committed) return; committed = true;
+      const val = input.value.trim().toUpperCase();
+      if (val && !activeProfile.territories.includes(val)) {
+        activeProfile.territories.push(val);
+        saveProfiles();
+      }
+      rebuildTerritoryToggles();
+    }
+    input.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { committed = true; rebuildTerritoryToggles(); }
+    });
+    input.addEventListener('blur', commit);
+  });
+  tg.appendChild(plus);
+}
+
+// ════════════════════════════════════════════════════════
+//  ENTER PROFILE (no password — direct entry)
+// ════════════════════════════════════════════════════════
+function enterProfile(profile) {
+  activeProfile = profile;
+  territory     = profile.territories[0] || 'US';
+  activeChannel = 'email';
+
+  rebuildTerritoryToggles();
 
   // Rebuild industry dropdown
   const indSel = document.getElementById('industry');
@@ -2398,6 +2521,9 @@ function enterProfile(profile) {
     const opt = document.createElement('option');
     opt.value = v; opt.textContent = industryLabel(v); indSel.appendChild(opt);
   });
+  const addIndOpt = document.createElement('option');
+  addIndOpt.value = '__add_industry__'; addIndOpt.textContent = '+ Add industry…';
+  indSel.appendChild(addIndOpt);
 
   document.getElementById('mail-merge-btn').style.display  = '';
   document.getElementById('header-title').textContent = profile.name;
@@ -2422,8 +2548,13 @@ function pushToMailMerge() {
 //  TABS
 // ════════════════════════════════════════════════════════
 function renderTabs() {
-  const isBizdev = activeProfile && activeProfile.type === 'bizdev';
-  const tabDefs  = isBizdev ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']] : [['email','Email'],['linkedin','LinkedIn']];
+  let tabDefs;
+  if (activeProfile && activeProfile.channels) {
+    tabDefs = activeProfile.channels;
+  } else {
+    const isBizdev = activeProfile && activeProfile.type === 'bizdev';
+    tabDefs = isBizdev ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']] : [['email','Email'],['linkedin','LinkedIn']];
+  }
   if (!tabDefs.find(function(t){ return t[0]===activeChannel; })) activeChannel = 'email';
   const container = document.getElementById('tabs-container');
   container.innerHTML = '';
@@ -2438,6 +2569,37 @@ function renderTabs() {
     });
     container.appendChild(btn);
   });
+
+  // + button to add a new channel
+  const plus = document.createElement('button');
+  plus.className = 'tab-add-btn'; plus.title = 'Add channel'; plus.textContent = '+';
+  plus.addEventListener('click', function(){
+    const input = document.createElement('input');
+    input.type = 'text'; input.className = 'tab-inline-input';
+    input.placeholder = 'Channel name';
+    plus.replaceWith(input); input.focus();
+    let committed = false;
+    function commit() {
+      if (committed) return; committed = true;
+      const label = input.value.trim();
+      if (label) {
+        const key = label.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');
+        if (!activeProfile.channels) activeProfile.channels = tabDefs.slice();
+        if (key && !activeProfile.channels.find(function(c){ return c[0]===key; })) {
+          activeProfile.channels.push([key, label]);
+          saveProfiles();
+        }
+      }
+      renderTabs();
+    }
+    input.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { committed = true; renderTabs(); }
+    });
+    input.addEventListener('blur', commit);
+  });
+  container.appendChild(plus);
+
   document.getElementById('tab-bar').style.display = 'flex';
 }
 
@@ -2600,8 +2762,29 @@ document.getElementById('copy-all-btn').addEventListener('click', async function
   if (parts.length) await copyText(parts.join('\n\n'), btn, 'Copy All');
 });
 
-document.getElementById('sender').addEventListener('change', render);
-document.getElementById('industry').addEventListener('change', function(){ render(); checkPendingForView(); });
+let _prevSender = '';
+document.getElementById('sender').addEventListener('change', function(){
+  if (this.value === '__add_sender__') {
+    this.value = _prevSender || SENDERS[0] || '';
+    document.getElementById('sender-add-row').style.display = 'flex';
+    document.getElementById('sender-add-input').value = '';
+    document.getElementById('sender-add-input').focus();
+  } else {
+    _prevSender = this.value;
+    render();
+  }
+});
+
+document.getElementById('industry').addEventListener('change', function(){
+  if (this.value === '__add_industry__') {
+    this.value = activeProfile && activeProfile.industries[0] ? activeProfile.industries[0] : '';
+    document.getElementById('industry-add-row').style.display = 'flex';
+    document.getElementById('industry-add-input').value = '';
+    document.getElementById('industry-add-input').focus();
+  } else {
+    render(); checkPendingForView();
+  }
+});
 
 // ════════════════════════════════════════════════════════
 //  ADD NEW ENTRY (subject / variation / step)
@@ -2615,9 +2798,13 @@ function addNewEntry(type) {
   // Reserve a slot in TEMPLATES and record the index
   let idx, editCh;
   if (type === 'subject') {
-    editCh = ch; idx = d[ch].subjects.length; d[ch].subjects.push('');
+    editCh = ch;
+    if (!d[ch]) d[ch] = { subjects: [], variations: [] };
+    idx = d[ch].subjects.length; d[ch].subjects.push('');
   } else if (type === 'variation') {
-    editCh = ch; idx = d[ch].variations.length; d[ch].variations.push({ body: '' });
+    editCh = ch;
+    if (!d[ch]) d[ch] = { subjects: [], variations: [] };
+    idx = d[ch].variations.length; d[ch].variations.push({ body: '' });
   } else if (type === 'step') {
     editCh = 'linkedin'; idx = d.linkedin.steps.length; d.linkedin.steps.push({ body: '' });
   }
@@ -3150,9 +3337,11 @@ function commitCardEdit(card, editInfo, val) {
   if (!TEMPLATES[editInfo.key]) TEMPLATES[editInfo.key] = defaultContent();
   const d = TEMPLATES[editInfo.key];
   if (editInfo.type === 'subject') {
-    if (d[editInfo.channel] && d[editInfo.channel].subjects) d[editInfo.channel].subjects[editInfo.idx] = val;
+    if (!d[editInfo.channel]) d[editInfo.channel] = { subjects: [], variations: [] };
+    if (d[editInfo.channel].subjects) d[editInfo.channel].subjects[editInfo.idx] = val;
   } else if (editInfo.type === 'variation') {
-    if (d[editInfo.channel] && d[editInfo.channel].variations) d[editInfo.channel].variations[editInfo.idx] = { body: val };
+    if (!d[editInfo.channel]) d[editInfo.channel] = { subjects: [], variations: [] };
+    if (d[editInfo.channel].variations) d[editInfo.channel].variations[editInfo.idx] = { body: val };
   } else if (editInfo.type === 'step') {
     if (d.linkedin && d.linkedin.steps) d.linkedin.steps[editInfo.idx] = { body: val };
   }
@@ -3301,6 +3490,62 @@ document.getElementById('main-header-home').addEventListener('click', function(e
 // Browser tab / navigation away
 window.addEventListener('beforeunload', function(e){
   if (dirtyContent) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ════════════════════════════════════════════════════════
+//  SIDEBAR ADD — SENDER
+// ════════════════════════════════════════════════════════
+document.getElementById('sender-add-confirm').addEventListener('click', function(){
+  const name = document.getElementById('sender-add-input').value.trim();
+  document.getElementById('sender-add-row').style.display = 'none';
+  if (name && !SENDERS.includes(name)) {
+    SENDERS.push(name);
+    saveToSupabase(SENDERS_KEY, SENDERS);
+  }
+  populateSenderSelect();
+  if (name) { document.getElementById('sender').value = name; _prevSender = name; }
+  render();
+});
+document.getElementById('sender-add-cancel').addEventListener('click', function(){
+  document.getElementById('sender-add-row').style.display = 'none';
+});
+document.getElementById('sender-add-input').addEventListener('keydown', function(e){
+  if (e.key === 'Enter') document.getElementById('sender-add-confirm').click();
+  if (e.key === 'Escape') document.getElementById('sender-add-cancel').click();
+});
+
+// ════════════════════════════════════════════════════════
+//  SIDEBAR ADD — INDUSTRY
+// ════════════════════════════════════════════════════════
+document.getElementById('industry-add-confirm').addEventListener('click', function(){
+  const raw = document.getElementById('industry-add-input').value.trim();
+  document.getElementById('industry-add-row').style.display = 'none';
+  if (!raw || !activeProfile) return;
+  const key = raw.replace(/\s+/g,'_');
+  if (!activeProfile.industries.includes(key)) {
+    activeProfile.industries.push(key);
+    if (!INDUSTRY_LABELS[key]) INDUSTRY_LABELS[key] = raw;
+    saveProfiles();
+  }
+  // Re-populate dropdown and select the new industry
+  const indSel = document.getElementById('industry');
+  indSel.innerHTML = '';
+  activeProfile.industries.forEach(function(v){
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = industryLabel(v); indSel.appendChild(opt);
+  });
+  const addOpt = document.createElement('option');
+  addOpt.value = '__add_industry__'; addOpt.textContent = '+ Add industry…';
+  indSel.appendChild(addOpt);
+  indSel.value = key;
+  render(); checkPendingForView();
+});
+document.getElementById('industry-add-cancel').addEventListener('click', function(){
+  document.getElementById('industry-add-row').style.display = 'none';
+});
+document.getElementById('industry-add-input').addEventListener('keydown', function(e){
+  if (e.key === 'Enter') document.getElementById('industry-add-confirm').click();
+  if (e.key === 'Escape') document.getElementById('industry-add-cancel').click();
 });
 
 // ════════════════════════════════════════════════════════
