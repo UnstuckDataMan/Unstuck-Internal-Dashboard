@@ -1982,6 +1982,13 @@
         <button id="industry-add-cancel" class="inline-add-cancel">✕</button>
       </div>
     </div>
+    <div class="panel-section" id="enterprise-section" style="display:none">
+      <div class="section-label">Segment</div>
+      <div class="toggle-group" id="enterprise-toggle">
+        <button class="toggle-btn active" id="ent-standard-btn">Standard</button>
+        <button class="toggle-btn" id="ent-enterprise-btn">Enterprise</button>
+      </div>
+    </div>
   </div>
   <div class="right-panel">
     <div class="view-pending-banner" id="view-pending-banner" style="display:none">
@@ -2105,10 +2112,11 @@ function sbHeaders(prefer) {
 const TEMPLATES     = {};
 const ORIG_TEMPLATES = {};   // snapshot of last-saved state; used for per-card revert
 let   dirtyContent   = false; // true when copy text has been edited but not yet approved
-let   activeChannel = 'email';
-let   territory     = 'US';
-let   dataReady     = false;
-let   activeProfile = null;
+let   activeChannel  = 'email';
+let   territory      = 'US';
+let   dataReady      = false;
+let   activeProfile  = null;
+let   isEnterprise   = false;   // enterprise segment toggle (bizdev only)
 let   profiles      = [];
 let   allClients    = [];
 let   spellLang     = localStorage.getItem('cb-spell-lang') || 'en-GB';
@@ -2533,6 +2541,36 @@ function appendAddTerritoryBtn(tg) {
 }
 
 // ════════════════════════════════════════════════════════
+//  INDUSTRY DROPDOWN HELPER
+// ════════════════════════════════════════════════════════
+function rebuildIndustryDropdown(preserveValue) {
+  const indSel = document.getElementById('industry');
+  const cur = preserveValue !== undefined ? preserveValue : (indSel ? indSel.value : '');
+  indSel.innerHTML = '';
+
+  const all = (activeProfile && activeProfile.industries) || [];
+  // Filter by enterprise segment when toggle is active
+  const filtered = all.filter(function(v){
+    const ent = v.toLowerCase().includes('enterprise');
+    return isEnterprise ? ent : !ent;
+  });
+  // Fallback to all if no matches (e.g. no enterprise industries added yet)
+  const toShow = filtered.length ? filtered : all;
+
+  toShow.forEach(function(v){
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = industryLabel(v); indSel.appendChild(opt);
+  });
+  const addOpt = document.createElement('option');
+  addOpt.value = '__add_industry__'; addOpt.textContent = '+ Add industry…';
+  indSel.appendChild(addOpt);
+
+  // Restore previous selection if still in list, otherwise first item
+  if (toShow.includes(cur)) indSel.value = cur;
+  else if (toShow.length) indSel.value = toShow[0];
+}
+
+// ════════════════════════════════════════════════════════
 //  ENTER PROFILE (no password — direct entry)
 // ════════════════════════════════════════════════════════
 function enterProfile(profile) {
@@ -2542,16 +2580,15 @@ function enterProfile(profile) {
 
   rebuildTerritoryToggles();
 
+  // Show/hide enterprise segment toggle (bizdev only) and reset state
+  isEnterprise = false;
+  const isBizdev = profile.type === 'bizdev';
+  document.getElementById('enterprise-section').style.display = isBizdev ? '' : 'none';
+  document.getElementById('ent-standard-btn').classList.toggle('active', true);
+  document.getElementById('ent-enterprise-btn').classList.toggle('active', false);
+
   // Rebuild industry dropdown
-  const indSel = document.getElementById('industry');
-  indSel.innerHTML = '';
-  profile.industries.forEach(function(v){
-    const opt = document.createElement('option');
-    opt.value = v; opt.textContent = industryLabel(v); indSel.appendChild(opt);
-  });
-  const addIndOpt = document.createElement('option');
-  addIndOpt.value = '__add_industry__'; addIndOpt.textContent = '+ Add industry…';
-  indSel.appendChild(addIndOpt);
+  rebuildIndustryDropdown();
 
   document.getElementById('edit-profile-btn').style.display = '';
   document.getElementById('mail-merge-btn').style.display  = '';
@@ -3080,20 +3117,10 @@ document.getElementById('pe-save').addEventListener('click', async function(){
     populateSenderSelect();
     // Refresh the active profile view if it's the one we just edited
     if (activeProfile && profiles[peEditIdx] && activeProfile.client_id === profiles[peEditIdx].client_id) {
+      const curInd = document.getElementById('industry') ? document.getElementById('industry').value : '';
       activeProfile = profiles[peEditIdx];
       rebuildTerritoryToggles();
-      const indSel = document.getElementById('industry');
-      const curInd = indSel ? indSel.value : '';
-      indSel.innerHTML = '';
-      activeProfile.industries.forEach(function(v){
-        const opt = document.createElement('option');
-        opt.value = v; opt.textContent = industryLabel(v); indSel.appendChild(opt);
-      });
-      const addIndOpt = document.createElement('option');
-      addIndOpt.value = '__add_industry__'; addIndOpt.textContent = '+ Add industry…';
-      indSel.appendChild(addIndOpt);
-      if (activeProfile.industries.includes(curInd)) indSel.value = curInd;
-      else if (activeProfile.industries.length) indSel.value = activeProfile.industries[0];
+      rebuildIndustryDropdown(curInd);
       renderTabs();
     }
     renderProfileScreen();
@@ -3703,16 +3730,7 @@ document.getElementById('industry-add-confirm').addEventListener('click', functi
     saveProfiles();
   }
   // Re-populate dropdown and select the new industry
-  const indSel = document.getElementById('industry');
-  indSel.innerHTML = '';
-  activeProfile.industries.forEach(function(v){
-    const opt = document.createElement('option');
-    opt.value = v; opt.textContent = industryLabel(v); indSel.appendChild(opt);
-  });
-  const addOpt = document.createElement('option');
-  addOpt.value = '__add_industry__'; addOpt.textContent = '+ Add industry…';
-  indSel.appendChild(addOpt);
-  indSel.value = key;
+  rebuildIndustryDropdown(key);
   render(); checkPendingForView();
 });
 document.getElementById('industry-add-cancel').addEventListener('click', function(){
@@ -3721,6 +3739,26 @@ document.getElementById('industry-add-cancel').addEventListener('click', functio
 document.getElementById('industry-add-input').addEventListener('keydown', function(e){
   if (e.key === 'Enter') document.getElementById('industry-add-confirm').click();
   if (e.key === 'Escape') document.getElementById('industry-add-cancel').click();
+});
+
+// ════════════════════════════════════════════════════════
+//  ENTERPRISE SEGMENT TOGGLE (bizdev only)
+// ════════════════════════════════════════════════════════
+document.getElementById('ent-standard-btn').addEventListener('click', function(){
+  if (!isEnterprise) return;
+  isEnterprise = false;
+  this.classList.add('active');
+  document.getElementById('ent-enterprise-btn').classList.remove('active');
+  rebuildIndustryDropdown();
+  render(); checkPendingForView();
+});
+document.getElementById('ent-enterprise-btn').addEventListener('click', function(){
+  if (isEnterprise) return;
+  isEnterprise = true;
+  this.classList.add('active');
+  document.getElementById('ent-standard-btn').classList.remove('active');
+  rebuildIndustryDropdown();
+  render(); checkPendingForView();
 });
 
 // ════════════════════════════════════════════════════════
