@@ -205,6 +205,7 @@ def request_approval(body: ApprovalRequestBody):
     # Upsert into copy_bank_pending (on conflict for the key, replace the row)
     resp = http_req.post(
         f"{url}/rest/v1/copy_bank_pending",
+        params={"on_conflict": "key"},
         headers={**_sb_write_headers("resolution=merge-duplicates,return=minimal")},
         json={
             "key":              body.key,
@@ -218,10 +219,13 @@ def request_approval(body: ApprovalRequestBody):
         },
         timeout=10,
     )
-    try:
-        resp.raise_for_status()
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    if not resp.ok:
+        try:
+            err_body = resp.json()
+        except Exception:
+            err_body = resp.text
+        log.error("copy_bank_pending upsert failed %s: %s", resp.status_code, err_body)
+        return JSONResponse({"ok": False, "error": err_body}, status_code=500)
 
     slack = _send_slack_notification(body.client_name, body.territory, body.industry)
     return JSONResponse({"ok": True, "slack": slack})
@@ -268,14 +272,18 @@ def approve_copy(body: ApproveBody):
     # 2. Publish to copy_bank_templates — use reviewer's final content (may differ from original)
     pub = http_req.post(
         f"{url}/rest/v1/copy_bank_templates",
+        params={"on_conflict": "key"},
         headers=_sb_write_headers("resolution=merge-duplicates,return=minimal"),
         json={"key": body.key, "content": body.content},
         timeout=10,
     )
-    try:
-        pub.raise_for_status()
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": f"Publish failed: {exc}"}, status_code=500)
+    if not pub.ok:
+        try:
+            err_body = pub.json()
+        except Exception:
+            err_body = pub.text
+        log.error("copy_bank_templates publish failed %s: %s", pub.status_code, err_body)
+        return JSONResponse({"ok": False, "error": f"Publish failed: {err_body}"}, status_code=500)
 
     # 3. Write approval log
     try:
