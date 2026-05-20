@@ -1947,6 +1947,7 @@
 <div class="tab-bar" id="tab-bar" style="display:none">
   <div class="tabs" id="tabs-container"></div>
   <div class="tab-bar-right">
+    <button class="mail-merge-btn" id="edit-profile-btn" style="display:none">&#9881; Edit Profile</button>
     <button class="mail-merge-btn" id="mail-merge-btn" style="display:none" onclick="pushToMailMerge()">Mail Merge &#8594;</button>
     <button class="admin-request-btn" id="request-approval-btn" style="display:none">Request Approval</button>
     <button class="admin-approve-btn" id="approve-btn" style="display:none">Approve &amp; Publish</button>
@@ -2063,6 +2064,14 @@
     <div class="pe-field">
       <div class="pe-label">Industries / Niches</div>
       <div class="tag-editor" id="pe-ind-editor"></div>
+    </div>
+    <div class="pe-field" id="pe-channels-field">
+      <div class="pe-label">Channels</div>
+      <div class="tag-editor" id="pe-ch-editor"></div>
+    </div>
+    <div class="pe-field">
+      <div class="pe-label">Senders <span style="font-size:10px;font-weight:400;color:var(--text-3);text-transform:none">(shared across all profiles)</span></div>
+      <div class="tag-editor" id="pe-snd-editor"></div>
     </div>
     <div class="pe-actions">
       <button id="pe-remove" style="display:none">&times; Remove Client</button>
@@ -2544,6 +2553,7 @@ function enterProfile(profile) {
   addIndOpt.value = '__add_industry__'; addIndOpt.textContent = '+ Add industry…';
   indSel.appendChild(addIndOpt);
 
+  document.getElementById('edit-profile-btn').style.display = '';
   document.getElementById('mail-merge-btn').style.display  = '';
   document.getElementById('header-title').textContent = profile.name;
   document.getElementById('profile-screen').classList.remove('visible');
@@ -2942,31 +2952,48 @@ function openProfileEditModal(idx) {
 
 function renderPeModalTags() {
   const p = profiles[peEditIdx];
+
+  // Territories
   const terEditor = document.getElementById('pe-ter-editor');
   terEditor.innerHTML = p.territories.map(function(t){
     return '<span class="tag">'+escHtml(t)+
       '<button type="button" class="tag-x" data-pe-rm-ter="'+escHtml(t)+'">&times;</button></span>';
   }).join('') + '<input class="tag-input" id="pe-ter-input" placeholder="Add territory">';
+
+  // Industries
   const indEditor = document.getElementById('pe-ind-editor');
   indEditor.innerHTML = p.industries.map(function(v){
     return '<span class="tag">'+escHtml(industryLabel(v))+
       '<button type="button" class="tag-x" data-pe-rm-ind="'+escHtml(v)+'">&times;</button></span>';
   }).join('') + '<input class="tag-input" id="pe-ind-input" placeholder="Add industry">';
+
+  // Channels
+  const defaultChs = (p.type === 'bizdev')
+    ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']]
+    : [['email','Email'],['linkedin','LinkedIn']];
+  const chs = p.channels || defaultChs;
+  const chEditor = document.getElementById('pe-ch-editor');
+  chEditor.innerHTML = chs.map(function(c){
+    return '<span class="tag">'+escHtml(c[1])+
+      '<button type="button" class="tag-x" data-pe-rm-ch="'+escHtml(c[0])+'">&times;</button></span>';
+  }).join('') + '<input class="tag-input" id="pe-ch-input" placeholder="Add channel (e.g. Cold Call)">';
+
+  // Senders (global)
+  const sndEditor = document.getElementById('pe-snd-editor');
+  sndEditor.innerHTML = SENDERS.map(function(s){
+    return '<span class="tag">'+escHtml(s)+
+      '<button type="button" class="tag-x" data-pe-rm-snd="'+escHtml(s)+'">&times;</button></span>';
+  }).join('') + '<input class="tag-input" id="pe-snd-input" placeholder="Add sender name">';
+
   attachPeModalEvents();
 }
 
 function attachPeModalEvents() {
+  // Territories
   document.querySelectorAll('[data-pe-rm-ter]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const val = btn.dataset.peRmTer;
       profiles[peEditIdx].territories = profiles[peEditIdx].territories.filter(function(t){ return t !== val; });
-      renderPeModalTags();
-    });
-  });
-  document.querySelectorAll('[data-pe-rm-ind]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const val = btn.dataset.peRmInd;
-      profiles[peEditIdx].industries = profiles[peEditIdx].industries.filter(function(v){ return v !== val; });
       renderPeModalTags();
     });
   });
@@ -2976,6 +3003,15 @@ function attachPeModalEvents() {
     const val = this.value.trim().toUpperCase(); if (!val) return;
     if (!profiles[peEditIdx].territories.includes(val)) profiles[peEditIdx].territories.push(val);
     renderPeModalTags();
+  });
+
+  // Industries
+  document.querySelectorAll('[data-pe-rm-ind]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const val = btn.dataset.peRmInd;
+      profiles[peEditIdx].industries = profiles[peEditIdx].industries.filter(function(v){ return v !== val; });
+      renderPeModalTags();
+    });
   });
   const indInput = document.getElementById('pe-ind-input');
   if (indInput) indInput.addEventListener('keydown', function(e){
@@ -2988,6 +3024,49 @@ function attachPeModalEvents() {
     }
     renderPeModalTags();
   });
+
+  // Channels
+  document.querySelectorAll('[data-pe-rm-ch]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const key = btn.dataset.peRmCh;
+      const p = profiles[peEditIdx];
+      const defaultChs = (p.type === 'bizdev')
+        ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']]
+        : [['email','Email'],['linkedin','LinkedIn']];
+      if (!p.channels) p.channels = defaultChs.slice();
+      p.channels = p.channels.filter(function(c){ return c[0] !== key; });
+      renderPeModalTags();
+    });
+  });
+  const chInput = document.getElementById('pe-ch-input');
+  if (chInput) chInput.addEventListener('keydown', function(e){
+    if (e.key !== 'Enter' && e.key !== ',') return; e.preventDefault();
+    const label = this.value.trim(); if (!label) return;
+    const key = label.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');
+    const p = profiles[peEditIdx];
+    const defaultChs = (p.type === 'bizdev')
+      ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']]
+      : [['email','Email'],['linkedin','LinkedIn']];
+    if (!p.channels) p.channels = defaultChs.slice();
+    if (!p.channels.find(function(c){ return c[0]===key; })) p.channels.push([key, label]);
+    renderPeModalTags();
+  });
+
+  // Senders (global)
+  document.querySelectorAll('[data-pe-rm-snd]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const name = btn.dataset.peRmSnd;
+      SENDERS = SENDERS.filter(function(s){ return s !== name; });
+      renderPeModalTags();
+    });
+  });
+  const sndInput = document.getElementById('pe-snd-input');
+  if (sndInput) sndInput.addEventListener('keydown', function(e){
+    if (e.key !== 'Enter' && e.key !== ',') return; e.preventDefault();
+    const name = this.value.trim(); if (!name) return;
+    if (!SENDERS.includes(name)) SENDERS.push(name);
+    renderPeModalTags();
+  });
 }
 
 document.getElementById('pe-save').addEventListener('click', async function(){
@@ -2995,8 +3074,29 @@ document.getElementById('pe-save').addEventListener('click', async function(){
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
     await saveProfiles();
+    await saveToSupabase(SENDERS_KEY, SENDERS);
     document.getElementById('profile-edit-modal').style.display = 'none';
     showToast('Profile saved');
+    populateSenderSelect();
+    // Refresh the active profile view if it's the one we just edited
+    if (activeProfile && profiles[peEditIdx] && activeProfile.client_id === profiles[peEditIdx].client_id) {
+      activeProfile = profiles[peEditIdx];
+      rebuildTerritoryToggles();
+      const indSel = document.getElementById('industry');
+      const curInd = indSel ? indSel.value : '';
+      indSel.innerHTML = '';
+      activeProfile.industries.forEach(function(v){
+        const opt = document.createElement('option');
+        opt.value = v; opt.textContent = industryLabel(v); indSel.appendChild(opt);
+      });
+      const addIndOpt = document.createElement('option');
+      addIndOpt.value = '__add_industry__'; addIndOpt.textContent = '+ Add industry…';
+      indSel.appendChild(addIndOpt);
+      if (activeProfile.industries.includes(curInd)) indSel.value = curInd;
+      else if (activeProfile.industries.length) indSel.value = activeProfile.industries[0];
+      renderTabs();
+    }
+    renderProfileScreen();
   } catch(e) {
     btn.textContent = 'Error — retry';
     btn.disabled = false;
@@ -3023,6 +3123,11 @@ document.getElementById('pe-remove').addEventListener('click', async function(){
 
 document.getElementById('pe-backdrop').addEventListener('click', function(){
   document.getElementById('profile-edit-modal').style.display = 'none';
+});
+
+document.getElementById('edit-profile-btn').addEventListener('click', function(){
+  const idx = profiles.indexOf(activeProfile);
+  if (idx >= 0) openProfileEditModal(idx);
 });
 
 // ════════════════════════════════════════════════════════
