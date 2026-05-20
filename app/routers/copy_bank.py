@@ -28,6 +28,21 @@ def _sb_headers():
     return {"apikey": key, "Authorization": f"Bearer {key}"}
 
 
+@router.get("/api/copy-bank/senders")
+def copy_bank_senders():
+    url = os.environ.get("SUPABASE_URL", "")
+    resp = http_req.get(
+        f"{url}/rest/v1/copy_bank_templates",
+        params={"key": "eq.__cb_senders__", "select": "content"},
+        headers=_sb_headers(),
+        timeout=10,
+    )
+    rows = resp.json()
+    if rows and isinstance(rows[0].get("content"), list):
+        return rows[0]["content"]
+    return ["Robyn", "Glen", "Leo", "Chris", "Devlin"]
+
+
 @router.get("/api/copy-bank/profiles")
 def copy_bank_profiles():
     url = os.environ.get("SUPABASE_URL", "")

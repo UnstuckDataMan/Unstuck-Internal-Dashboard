@@ -1943,6 +1943,12 @@
                 <option value="flyout">Fly-out</option>
               </select>
             </div>
+            <div>
+              <label>Sender</label>
+              <select id="mm-cb-sender">
+                <option value="">— Loading… —</option>
+              </select>
+            </div>
           </div>
           <div class="mm-cb-actions">
             <button type="button" class="btn btn-download" id="mm-cb-load-btn" disabled>Load Templates</button>
@@ -3724,7 +3730,22 @@
   // ── Copy Bank loader ─────────────────────────────────────
   let _mmCbProfiles = [];
 
+  async function mmInitCopyBankSenders() {
+    try {
+      const resp = await fetch('/api/copy-bank/senders');
+      const senders = await resp.json();
+      const sel = $('mm-cb-sender');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">— No sender —</option>' +
+        senders.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+    } catch(e) {
+      const sel = $('mm-cb-sender');
+      if (sel) sel.innerHTML = '<option value="">— Could not load —</option>';
+    }
+  }
+
   async function mmInitCopyBankLoader() {
+    mmInitCopyBankSenders();
     try {
       const resp = await fetch('/api/copy-bank/profiles');
       _mmCbProfiles = await resp.json();
@@ -3805,11 +3826,15 @@
         addTemplate('subject');
       }
 
-      // Clear and reload bodies
+      // Clear and reload bodies (append sender name if selected)
+      const senderName = ($('mm-cb-sender') && $('mm-cb-sender').value) ? $('mm-cb-sender').value : '';
       $('mm-bodies-container').innerHTML = '';
       mm.bodyCount = 0;
       if (data.bodies.length) {
-        data.bodies.forEach(b => { addTemplate('body'); mmSetLastTemplateValue('body', b); });
+        data.bodies.forEach(b => {
+          const bodyWithSender = senderName ? b.trimEnd() + '\n\n' + senderName : b;
+          addTemplate('body'); mmSetLastTemplateValue('body', bodyWithSender);
+        });
       } else {
         addTemplate('body');
       }
