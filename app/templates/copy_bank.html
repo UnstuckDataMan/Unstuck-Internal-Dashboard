@@ -3076,7 +3076,8 @@ async function approveCopy(approvedBy) {
       setNormalApprovalState();
       render();
     } else {
-      showToast('Error: ' + (data.error || 'Unknown error'), true);
+      const errMsg = typeof data.error === 'object' ? JSON.stringify(data.error) : (data.error || 'Unknown error');
+      showToast('Error: ' + errMsg, true);
     }
   } catch(e) {
     showToast('Error: ' + e.message, true);
@@ -3473,7 +3474,8 @@ async function submitInlineApprovalRequest(afterCallback, requestedBy) {
       setPendingApprovalState(currentPending.created_at);
       if (afterCallback) afterCallback();
     } else {
-      showToast('Error: ' + (data.error || 'Unknown error'), true);
+      const errMsg = typeof data.error === 'object' ? JSON.stringify(data.error) : (data.error || 'Unknown error');
+      showToast('Error: ' + errMsg, true);
     }
   } catch(e) {
     showToast('Error: ' + e.message, true);
