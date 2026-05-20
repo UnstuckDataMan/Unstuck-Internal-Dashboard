@@ -202,11 +202,10 @@ def request_approval(body: ApprovalRequestBody):
     """Save a pending draft and fire a Slack notification to the reviewers."""
     url = os.environ.get("SUPABASE_URL", "")
 
-    # Upsert into copy_bank_pending (on conflict for the key, replace the row)
+    # Insert a new pending request row
     resp = http_req.post(
         f"{url}/rest/v1/copy_bank_pending",
-        params={"on_conflict": "key"},
-        headers={**_sb_write_headers("resolution=merge-duplicates,return=minimal")},
+        headers={**_sb_write_headers("return=minimal")},
         json={
             "key":              body.key,
             "client_name":      body.client_name,
