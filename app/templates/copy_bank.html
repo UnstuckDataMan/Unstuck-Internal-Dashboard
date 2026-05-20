@@ -532,6 +532,25 @@
       box-shadow: 0 2px 8px rgba(22,163,74,.25);
     }
     .copy-edit-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(22,163,74,.4); }
+    .copy-delete-btn {
+      display: inline-block; margin-top: 10px; margin-left: 6px;
+      padding: 5px 12px; border-radius: 8px;
+      background: transparent; border: 1px solid rgba(248,113,113,.35);
+      color: #f87171; font-size: 12px; font-weight: 600; font-family: var(--font);
+      cursor: pointer; transition: background .15s, border-color .15s;
+    }
+    .copy-delete-btn:hover { background: rgba(248,113,113,.12); border-color: rgba(248,113,113,.6); }
+    .copy-delete-confirm { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; margin-left: 6px; }
+    .copy-delete-confirm span { font-size: 12px; color: var(--text-2); }
+    .copy-delete-confirm-yes {
+      padding: 5px 12px; border-radius: 8px; border: none; cursor: pointer;
+      background: #dc2626; color: #fff; font-size: 12px; font-weight: 600; font-family: var(--font);
+    }
+    .copy-delete-confirm-no {
+      padding: 5px 10px; border-radius: 8px; cursor: pointer;
+      background: transparent; border: 1px solid var(--border); color: var(--text-2);
+      font-size: 12px; font-family: var(--font);
+    }
     .copy-edit-textarea {
       width: 100%; min-height: 80px;
       background: rgba(255,255,255,.04); color: var(--text);
@@ -2748,6 +2767,25 @@ function makeCard(label, displayText, copyPayload, editInfo) {
     const editBtn=document.createElement('button'); editBtn.className='copy-edit-btn'; editBtn.textContent='✏ Edit';
     editBtn.addEventListener('click', function(){ enterCardEditMode(card, editInfo); });
     card.appendChild(editBtn);
+
+    if (!editInfo.isNew) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'copy-delete-btn';
+      delBtn.textContent = '🗑 Delete';
+      delBtn.addEventListener('click', function() {
+        const confirmRow = document.createElement('span');
+        confirmRow.className = 'copy-delete-confirm';
+        const label = document.createElement('span'); label.textContent = 'Delete this?';
+        const yesBtn = document.createElement('button'); yesBtn.className = 'copy-delete-confirm-yes'; yesBtn.textContent = 'Delete';
+        const noBtn  = document.createElement('button'); noBtn.className  = 'copy-delete-confirm-no';  noBtn.textContent  = 'Cancel';
+        confirmRow.appendChild(label); confirmRow.appendChild(yesBtn); confirmRow.appendChild(noBtn);
+        delBtn.replaceWith(confirmRow);
+        yesBtn.addEventListener('click', function() { deleteEntry(editInfo); });
+        noBtn.addEventListener('click',  function() { confirmRow.replaceWith(delBtn); });
+      });
+      card.appendChild(delBtn);
+    }
+
     updateCardGlow(card, editInfo);
   }
   return card;
@@ -2853,6 +2891,24 @@ function cancelNewEntry(card, editInfo) {
       d.linkedin.steps.splice(editInfo.idx, 1);
   }
   card.remove();
+}
+
+function deleteEntry(editInfo) {
+  const d = TEMPLATES[editInfo.key];
+  if (!d) return;
+  if (editInfo.type === 'subject') {
+    if (d[editInfo.channel] && d[editInfo.channel].subjects)
+      d[editInfo.channel].subjects.splice(editInfo.idx, 1);
+  } else if (editInfo.type === 'variation') {
+    if (d[editInfo.channel] && d[editInfo.channel].variations)
+      d[editInfo.channel].variations.splice(editInfo.idx, 1);
+  } else if (editInfo.type === 'step') {
+    if (d.linkedin && d.linkedin.steps)
+      d.linkedin.steps.splice(editInfo.idx, 1);
+  }
+  dirtyContent = true;
+  updateApprovalBtn();
+  render();
 }
 
 
@@ -3304,9 +3360,11 @@ function enterCardEditMode(card, editInfo) {
   setTimeout(resize, 0);
   ta.focus();
 
-  // Hide Edit button
+  // Hide Edit + Delete buttons
   const editBtn = card.querySelector('.copy-edit-btn');
   if (editBtn) editBtn.style.display = 'none';
+  const delBtn = card.querySelector('.copy-delete-btn');
+  if (delBtn) delBtn.style.display = 'none';
 
   // Add Revert + Done buttons
   const actionsDiv = document.createElement('div');
@@ -3372,9 +3430,11 @@ function exitCardEditMode(card, editInfo) {
     ta.replaceWith(bodyEl);
   }
 
-  // Show Edit button again
+  // Show Edit + Delete buttons again
   const editBtn = card.querySelector('.copy-edit-btn');
   if (editBtn) editBtn.style.display = '';
+  const delBtn2 = card.querySelector('.copy-delete-btn');
+  if (delBtn2) delBtn2.style.display = '';
 
   // Remove Revert + Done row
   const actionsDiv = card.querySelector('.copy-card-edit-actions');
