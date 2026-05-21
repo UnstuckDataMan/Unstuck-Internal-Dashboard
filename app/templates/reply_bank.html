@@ -311,11 +311,11 @@
     .admin-selectors { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
     .admin-selectors select {
       flex: 1; min-width: 120px; padding: 7px 10px;
-      border: 1px solid var(--border); border-radius: 8px;
-      font-size: 13px; color: var(--text); background: var(--surface);
+      border: 1px solid rgba(255,255,255,.22); border-radius: 8px;
+      font-size: 13px; color: #f0eeff; background: #1e1b35;
       outline: none; cursor: pointer; font-family: var(--font); transition: border-color .15s;
     }
-    .admin-selectors select option { background: #18182e; }
+    .admin-selectors select option { background: #1e1b35; color: #f0eeff; }
     .admin-selectors select:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(139,92,246,.18); }
     .admin-template-block { margin-bottom: 14px; }
     .admin-template-block:last-of-type { margin-bottom: 0; }
@@ -479,13 +479,14 @@
       border: 1px solid var(--border);
     }
     .snip-meta select {
-      padding: 3px 7px; border: 1px solid var(--border); border-radius: 6px;
-      font-size: 12px; background: var(--surface); color: var(--text);
+      padding: 3px 7px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px;
+      font-size: 12px; background: #1e1b35; color: #f0eeff;
       outline: none; font-family: var(--font); cursor: pointer;
     }
+    .snip-meta select option { background: #1e1b35; color: #f0eeff; }
     .snip-meta input[type="text"] {
-      padding: 3px 7px; border: 1px solid var(--border); border-radius: 6px;
-      font-size: 12px; background: var(--surface); color: var(--text);
+      padding: 3px 7px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px;
+      font-size: 12px; background: #1e1b35; color: #f0eeff;
       outline: none; font-family: var(--font);
     }
     .snip-meta label {
