@@ -478,12 +478,28 @@
       background: rgba(255,255,255,.03); border-radius: 7px;
       border: 1px solid var(--border);
     }
-    .snip-meta select, .snip-var-territory, .snip-var-sender {
+    .snip-meta select, .snip-var-territory {
       padding: 3px 7px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px;
       font-size: 12px; background: #1e1b35; color: #f0eeff;
       outline: none; font-family: var(--font); cursor: pointer;
     }
-    .snip-meta select option, .snip-var-territory option, .snip-var-sender option { background: #1e1b35; color: #f0eeff; }
+    .snip-meta select option, .snip-var-territory option { background: #1e1b35; color: #f0eeff; }
+    /* Sender multi-select pills */
+    .sender-ms { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+    .sender-ms-label { font-size: 12px; color: var(--text-2); white-space: nowrap; }
+    .sender-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600;
+      cursor: pointer; user-select: none; transition: background .12s, border-color .12s;
+      border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: var(--text-2);
+    }
+    .sender-pill input[type="checkbox"] { display: none; }
+    .sender-pill.active {
+      border-color: rgba(139,92,246,.6); background: rgba(139,92,246,.2); color: #c4b5fd;
+    }
+    .sender-pill.pill-all.active {
+      border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.1); color: var(--text);
+    }
     .snip-meta input[type="text"] {
       padding: 3px 7px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px;
       font-size: 12px; background: #1e1b35; color: #f0eeff;
@@ -888,7 +904,10 @@ function assemble() {
     let best = null, bestScore = -1;
     for (const v of variations) {
       const tScore = v.territory === territory ? 2 : v.territory === 'all' ? 1 : 0;
-      const sScore = v.sender   === sender    ? 2 : v.sender   === 'all' ? 1 : 0;
+      let sScore;
+      if (!v.sender || v.sender === 'all')          sScore = 1;
+      else if (Array.isArray(v.sender))              sScore = v.sender.includes(sender) ? 2 : 0;
+      else                                           sScore = v.sender === sender ? 2 : 0;
       if (tScore === 0 || sScore === 0) continue;
       const score = tScore + sScore;
       if (score > bestScore) { bestScore = score; best = v; }
@@ -1383,40 +1402,107 @@ function renderSnippetPalette(paletteId) {
 // ════════════════════════════════════════════════════════
 //  ADMIN SNIPPET ROWS — build / load / save
 // ════════════════════════════════════════════════════════
+function buildSenderMultiSelect(selected) {
+  // selected: "all" | string (single sender) | string[] (multiple senders)
+  const selectedArr = selected === 'all' || !selected ? null
+    : Array.isArray(selected) ? selected : [selected];
+  const isAll = !selectedArr || selectedArr.length === 0;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'sender-ms';
+
+  // Hidden input for _readSnippetRows to consume
+  const hidden = document.createElement('input');
+  hidden.type = 'hidden';
+  hidden.className = 'snip-var-sender';
+  hidden.value = isAll ? 'all' : JSON.stringify(selectedArr);
+  wrapper.appendChild(hidden);
+
+  function syncHidden() {
+    const active = [...wrapper.querySelectorAll('.sender-pill:not(.pill-all)')].filter(p => p.classList.contains('active'));
+    hidden.value = active.length === 0 ? 'all' : JSON.stringify(active.map(p => p.dataset.sender));
+  }
+
+  // "All senders" pill
+  const allPill = document.createElement('label');
+  allPill.className = 'sender-pill pill-all' + (isAll ? ' active' : '');
+  allPill.innerHTML = `<input type="checkbox" value="all"> All`;
+  wrapper.appendChild(allPill);
+
+  // Individual sender pills
+  OPTIONS.senders.forEach(s => {
+    const pill = document.createElement('label');
+    pill.className = 'sender-pill' + (!isAll && selectedArr.includes(s) ? ' active' : '');
+    pill.dataset.sender = s;
+    pill.innerHTML = `<input type="checkbox" value="${s}"> ${s}`;
+    wrapper.appendChild(pill);
+  });
+
+  // Toggle logic
+  allPill.addEventListener('click', e => {
+    e.preventDefault();
+    // Clicking "All" deselects everyone else
+    wrapper.querySelectorAll('.sender-pill:not(.pill-all)').forEach(p => p.classList.remove('active'));
+    allPill.classList.add('active');
+    syncHidden();
+  });
+  wrapper.querySelectorAll('.sender-pill:not(.pill-all)').forEach(pill => {
+    pill.addEventListener('click', e => {
+      e.preventDefault();
+      pill.classList.toggle('active');
+      // If any individual selected, deactivate "All"
+      const anyActive = [...wrapper.querySelectorAll('.sender-pill:not(.pill-all)')].some(p => p.classList.contains('active'));
+      allPill.classList.toggle('active', !anyActive);
+      syncHidden();
+    });
+  });
+
+  return wrapper;
+}
+
 function buildVariationRow(v, index, totalCount) {
   const el = document.createElement('div');
   el.className = 'snip-variation';
   el.style.cssText = 'border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:10px 12px;margin-bottom:8px;';
 
   const territories = ['all', ...OPTIONS.territories];
-  const senders     = ['all', ...OPTIONS.senders];
   const terrOpts    = territories.map(t => `<option value="${t}"${v.territory===t?' selected':''}>${t==='all'?'All territories':t}</option>`).join('');
-  const sendOpts    = senders.map(s => `<option value="${s}"${v.sender===s?' selected':''}>${s==='all'?'All senders':s}</option>`).join('');
 
-  const scopeHtml = totalCount > 1 ? `
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+  if (totalCount > 1) {
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;';
+    header.innerHTML = `
       <span style="font-size:11px;font-weight:600;color:var(--text-3);">Variation ${index + 1}</span>
       <label style="font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:4px;">
         Territory: <select class="snip-var-territory" style="margin-left:4px;">${terrOpts}</select>
       </label>
-      <label style="font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:4px;">
-        Sender: <select class="snip-var-sender" style="margin-left:4px;">${sendOpts}</select>
-      </label>
-      <button class="snip-remove-variation chip-delete" title="Remove variation" style="margin-left:auto;">✕</button>
-    </div>` : `
-    <div style="margin-bottom:8px;">
-      <span style="font-size:11px;font-weight:600;color:var(--text-3);">Default — applies to everyone</span>
+      <span style="font-size:12px;color:var(--text-2);">Sender:</span>`;
+    header.appendChild(buildSenderMultiSelect(v.sender || 'all'));
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'snip-remove-variation chip-delete';
+    removeBtn.title = 'Remove variation';
+    removeBtn.textContent = '✕';
+    removeBtn.style.marginLeft = 'auto';
+    header.appendChild(removeBtn);
+    el.appendChild(header);
+  } else {
+    const header = document.createElement('div');
+    header.style.cssText = 'margin-bottom:8px;';
+    header.innerHTML = `<span style="font-size:11px;font-weight:600;color:var(--text-3);">Default — applies to everyone</span>
       <input type="hidden" class="snip-var-territory" value="all">
-      <input type="hidden" class="snip-var-sender" value="all">
-    </div>`;
+      <input type="hidden" class="snip-var-sender" value="all">`;
+    el.appendChild(header);
+  }
 
-  el.innerHTML = scopeHtml + `
+  const toolbar = document.createElement('div');
+  toolbar.innerHTML = `
     <div class="format-toolbar" style="margin-bottom:4px;">
       <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
       <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
       <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
     </div>
     <div class="admin-content-area snip-var-content" contenteditable="true">${textToHtml(v.content||'')}</div>`;
+  el.append(...toolbar.childNodes);
 
   return el;
 }
@@ -1426,10 +1512,11 @@ function refreshVariationHeaders(wrapper) {
   const total  = varEls.length;
   varEls.forEach((el, i) => {
     // Re-read current values before rebuild
-    const territory = el.querySelector('.snip-var-territory')?.value || 'all';
-    const sender    = el.querySelector('.snip-var-sender')?.value    || 'all';
-    const content   = htmlToText(el.querySelector('.snip-var-content')?.innerHTML || '');
-    const newEl     = buildVariationRow({ content, territory, sender }, i, total);
+    const territory  = el.querySelector('.snip-var-territory')?.value || 'all';
+    const senderRaw  = el.querySelector('.snip-var-sender')?.value    || 'all';
+    const sender     = _parseSender(senderRaw);
+    const content    = htmlToText(el.querySelector('.snip-var-content')?.innerHTML || '');
+    const newEl      = buildVariationRow({ content, territory, sender }, i, total);
     el.replaceWith(newEl);
     // Re-attach remove listener
     if (total > 1) {
@@ -1614,6 +1701,12 @@ function adminLoadSnippets() {
   }
 }
 
+function _parseSender(raw) {
+  if (!raw || raw === 'all') return 'all';
+  try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) return parsed; } catch(e) {}
+  return raw; // single string sender
+}
+
 function _readSnippetRows() {
   const rows = document.querySelectorAll('.snippet-row[data-key]');
   const result = {};
@@ -1624,7 +1717,7 @@ function _readSnippetRows() {
     const variations = [...row.querySelectorAll('.snip-variation')].map(el => ({
       content:   htmlToText(el.querySelector('.snip-var-content')?.innerHTML || ''),
       territory: el.querySelector('.snip-var-territory')?.value || 'all',
-      sender:    el.querySelector('.snip-var-sender')?.value    || 'all',
+      sender:    _parseSender(el.querySelector('.snip-var-sender')?.value || 'all'),
     }));
     result[newKey] = {
       label:       row.querySelector('.snip-label-input')?.value || '',
