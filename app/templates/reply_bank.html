@@ -432,6 +432,22 @@
     }
     .chip-delete:hover { opacity: 1; }
 
+    /* Drop indicator — blinking caret shown at insertion point during drag */
+    #chip-drop-indicator {
+      display: inline-block; width: 2px; height: 1.1em;
+      background: #8b5cf6; vertical-align: middle; border-radius: 1px;
+      margin: 0 1px; pointer-events: none;
+      animation: blinkCaret .65s step-end infinite;
+    }
+    @keyframes blinkCaret { 0%,100% { opacity:1; } 50% { opacity:0; } }
+
+    /* Floating drag clone */
+    .chip-drag-clone {
+      position: fixed; pointer-events: none; z-index: 9999;
+      box-shadow: 0 6px 24px rgba(0,0,0,.45); opacity: .92;
+      transition: none !important;
+    }
+
     /* ── Snippet palette ── */
     .snippet-palette { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
     .palette-label  { font-size: 10px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; }
@@ -1102,12 +1118,161 @@ function serializeTemplate(segs) {
   return segs.map(s => s.type === 'snippet' ? `[[${s.key}]]` : s.content).join('');
 }
 
+// ════════════════════════════════════════════════════════
+//  CHIP DRAG SYSTEM — pointer events (no HTML5 DnD)
+// ════════════════════════════════════════════════════════
+let _drag = null; // { key, src, chipEl, clone, moved, startX, startY }
+
+// Get or create the singleton drop indicator
+function _dropIndicator() {
+  let el = document.getElementById('chip-drop-indicator');
+  if (!el) {
+    el = document.createElement('span');
+    el.id = 'chip-drop-indicator';
+    el.contentEditable = 'false';
+  }
+  return el;
+}
+
+// Find the editor element under a viewport point
+function _editorAt(x, y) {
+  for (const ed of document.querySelectorAll('.tpl-block-editor')) {
+    const r = ed.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return ed;
+  }
+  return null;
+}
+
+// Get a range at (x,y), adjusted so it never lands inside a chip
+function _safeRange(x, y, editor) {
+  let range;
+  if (document.caretRangeFromPoint) {
+    range = document.caretRangeFromPoint(x, y);
+  } else if (document.caretPositionFromPoint) {
+    const cp = document.caretPositionFromPoint(x, y);
+    if (cp) { range = document.createRange(); range.setStart(cp.offsetNode, cp.offset); }
+  }
+  if (!range) return null;
+
+  // Walk up from the caret node; if inside a chip, move range to chip boundary
+  let node = range.startContainer;
+  while (node && node !== editor) {
+    if (node.nodeType === Node.ELEMENT_NODE && node.dataset?.snippetKey) {
+      const r2 = document.createRange();
+      const cr = node.getBoundingClientRect();
+      if (x < cr.left + cr.width / 2) r2.setStartBefore(node);
+      else r2.setStartAfter(node);
+      r2.collapse(true);
+      return r2;
+    }
+    node = node.parentNode;
+  }
+  range.collapse(true);
+  return range;
+}
+
+// Show the blinking caret indicator at the current drag position
+function _showIndicator(x, y) {
+  const ind = _dropIndicator();
+  ind.remove(); // pull out of DOM first so caretRangeFromPoint ignores it
+  const editor = _editorAt(x, y);
+  if (!editor) return;
+  const range = _safeRange(x, y, editor);
+  if (range) range.insertNode(ind);
+}
+
+function _onPointerMove(e) {
+  if (!_drag) return;
+  const dx = e.clientX - _drag.startX, dy = e.clientY - _drag.startY;
+  if (!_drag.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) _drag.moved = true;
+  if (!_drag.moved) return;
+
+  // Move clone with cursor
+  _drag.clone.style.left = `${e.clientX - _drag.ox}px`;
+  _drag.clone.style.top  = `${e.clientY - _drag.oy}px`;
+
+  _showIndicator(e.clientX, e.clientY);
+}
+
+function _onPointerUp(e) {
+  if (!_drag) return;
+  const { key, src, chipEl, clone, moved, startX, startY } = _drag;
+  _drag = null;
+
+  clone.remove();
+  _dropIndicator().remove();
+  if (chipEl) chipEl.style.opacity = '';
+  document.removeEventListener('pointermove', _onPointerMove);
+  document.removeEventListener('pointerup',   _onPointerUp);
+
+  if (!moved) {
+    // ── Click: insert at the editor's current text caret ──
+    if (src === 'palette') {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        let anchor = sel.getRangeAt(0).commonAncestorContainer;
+        // Walk up to check if the selection is inside an editor
+        let ed = anchor.nodeType === 1 ? anchor : anchor.parentElement;
+        while (ed && !ed.classList?.contains('tpl-block-editor')) ed = ed.parentElement;
+        if (ed) {
+          const r = sel.getRangeAt(0); r.collapse(true); r.insertNode(createInlineChip(key));
+          return;
+        }
+      }
+      // No editor focused — append to first visible editor
+      const ed = document.querySelector('.tpl-block-editor');
+      if (ed) ed.appendChild(createInlineChip(key));
+    }
+    return;
+  }
+
+  // ── Drag: insert at drop position ──
+  const editor = _editorAt(e.clientX, e.clientY);
+  if (!editor) return; // dropped outside — cancel
+
+  if (src === 'template' && chipEl?.parentNode) chipEl.remove();
+
+  const range = _safeRange(e.clientX, e.clientY, editor);
+  if (range) range.insertNode(createInlineChip(key));
+  else editor.appendChild(createInlineChip(key));
+}
+
+// Wire pointer-based drag onto any chip element (template or palette)
+function initChipDrag(chipEl, key, src) {
+  chipEl.addEventListener('pointerdown', e => {
+    if (e.target.classList.contains('chip-delete')) return;
+    e.preventDefault(); e.stopPropagation();
+
+    const rect = chipEl.getBoundingClientRect();
+    const clone = chipEl.cloneNode(true);
+    clone.querySelector?.('.chip-delete')?.remove();
+    clone.className = clone.className.replace(/\bpalette-chip\b/, 'tpl-snippet-chip');
+    clone.classList.add('chip-drag-clone');
+    clone.style.left = `${rect.left}px`;
+    clone.style.top  = `${rect.top}px`;
+    document.body.appendChild(clone);
+
+    if (src === 'template') chipEl.style.opacity = '0';
+
+    _drag = {
+      key, src,
+      chipEl: src === 'template' ? chipEl : null,
+      clone,
+      moved: false,
+      startX: e.clientX, startY: e.clientY,
+      ox: e.clientX - rect.left,
+      oy: e.clientY - rect.top,
+    };
+    document.addEventListener('pointermove', _onPointerMove);
+    document.addEventListener('pointerup',   _onPointerUp);
+  });
+}
+
 // ── Create a compact inline chip span ──────────────────────────────────────
 function createInlineChip(key) {
   const snip = SNIPPETS[key] || {};
   const chip = document.createElement('span');
   chip.contentEditable = 'false';
-  chip.draggable       = true;
   chip.dataset.snippetKey = key;
   const scopeClass = snip.senderScope === 'leo'    ? ' scope-leo'
                    : snip.senderScope === 'others' ? ' scope-others' : '';
@@ -1117,12 +1282,7 @@ function createInlineChip(key) {
   chip.querySelector('.chip-delete').addEventListener('click', e => {
     e.preventDefault(); e.stopPropagation(); chip.remove();
   });
-  chip.addEventListener('dragstart', e => {
-    e.dataTransfer.setData('snippetKey', key);
-    e.dataTransfer.setData('snippetSrc', 'template');
-    chip.classList.add('dragging');
-  });
-  chip.addEventListener('dragend', () => chip.classList.remove('dragging'));
+  initChipDrag(chip, key, 'template');
   return chip;
 }
 
@@ -1130,46 +1290,13 @@ function createInlineChip(key) {
 function renderBlockEditor(containerId, segments) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  container.innerHTML      = '';
+  container.innerHTML       = '';
   container.contentEditable = 'true';
-
   segments.forEach(seg => {
-    if (seg.type === 'text') {
-      container.appendChild(document.createTextNode(seg.content));
-    } else {
-      container.appendChild(createInlineChip(seg.key));
-    }
+    if (seg.type === 'text') container.appendChild(document.createTextNode(seg.content));
+    else container.appendChild(createInlineChip(seg.key));
   });
-
-  // Accept drops from palette and chip repositions
-  container.addEventListener('dragover', e => { e.preventDefault(); });
-  container.addEventListener('drop', e => {
-    e.preventDefault();
-    const key = e.dataTransfer.getData('snippetKey');
-    const src = e.dataTransfer.getData('snippetSrc');
-    if (!key) return;
-
-    // Remove existing chip if repositioning within the editor
-    if (src === 'template') {
-      const existing = container.querySelector(`[data-snippet-key="${key}"]`);
-      if (existing) existing.remove();
-    }
-
-    // Insert chip at the precise text cursor position
-    let range;
-    if (document.caretRangeFromPoint) {
-      range = document.caretRangeFromPoint(e.clientX, e.clientY);
-    } else if (document.caretPositionFromPoint) {
-      const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
-      if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); }
-    }
-    if (range) {
-      range.collapse(true);
-      range.insertNode(createInlineChip(key));
-    } else {
-      container.appendChild(createInlineChip(key));
-    }
-  });
+  // No HTML5 DnD listeners needed — pointer events handle everything
 }
 
 // ── Serialize unified editor DOM → template string ─────────────────────────
@@ -1179,9 +1306,10 @@ function serializeUnifiedEditor(container) {
     if (node.nodeType === Node.TEXT_NODE) {
       result += node.textContent;
     } else if (node.nodeType === Node.ELEMENT_NODE) {
+      if (node.id === 'chip-drop-indicator') return; // skip indicator if still in DOM
       const key = node.dataset?.snippetKey;
-      if (key) { result += `[[${key}]]`; return; }           // chip span
-      if (node.tagName === 'BR') { result += '\n'; return; }  // explicit line break
+      if (key) { result += `[[${key}]]`; return; }
+      if (node.tagName === 'BR') { result += '\n'; return; }
       const isBlock = ['DIV', 'P'].includes(node.tagName);
       if (isBlock && node !== container && node.previousSibling) result += '\n';
       for (const child of node.childNodes) walk(child);
@@ -1196,18 +1324,21 @@ function renderSnippetPalette(paletteId) {
   const palette = document.getElementById(paletteId);
   if (!palette) return;
 
-  // Build chips with colour class
-  palette.innerHTML = Object.entries(SNIPPETS).map(([key, snip]) => {
-    const terrHint  = snip.territoryScope && snip.territoryScope !== 'all' ? ` · ${snip.territoryScope}` : '';
+  palette.innerHTML = '';
+  for (const [key, snip] of Object.entries(SNIPPETS)) {
+    const terrHint   = snip.territoryScope && snip.territoryScope !== 'all' ? ` · ${snip.territoryScope}` : '';
     const scopeClass = snip.senderScope === 'leo'    ? ' scope-leo'
                      : snip.senderScope === 'others' ? ' scope-others' : '';
-    return `<div class="palette-chip${scopeClass}" draggable="true" data-key="${key}"
-        title="${snip.label || key}${terrHint}">
-      ${snip.label || key}
-    </div>`;
-  }).join('');
+    const chip = document.createElement('div');
+    chip.className   = `palette-chip${scopeClass}`;
+    chip.dataset.key = key;
+    chip.title       = `${snip.label || key}${terrHint}`;
+    chip.textContent = snip.label || key;
+    palette.appendChild(chip);
+    initChipDrag(chip, key, 'palette');
+  }
 
-  // Append legend (idempotent: only add if the parent .snippet-palette doesn't already have one)
+  // Legend (idempotent)
   const section = palette.closest('.snippet-palette');
   if (section && !section.querySelector('.palette-legend')) {
     const legend = document.createElement('div');
@@ -1217,13 +1348,6 @@ function renderSnippetPalette(paletteId) {
       + `<span class="legend-chip scope-others">Others only</span>`;
     section.appendChild(legend);
   }
-
-  palette.querySelectorAll('.palette-chip').forEach(chip => {
-    chip.addEventListener('dragstart', e => {
-      e.dataTransfer.setData('snippetKey', chip.dataset.key);
-      e.dataTransfer.setData('snippetSrc', 'palette');
-    });
-  });
 }
 
 // ════════════════════════════════════════════════════════
