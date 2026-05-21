@@ -217,7 +217,15 @@ def request_approval(body: ApprovalRequestBody):
     """Save a pending draft and fire a Slack notification to the reviewers."""
     url = os.environ.get("SUPABASE_URL", "")
 
-    # Insert a new pending request row
+    # Delete any existing pending rows for this key so there is always exactly one
+    http_req.delete(
+        f"{url}/rest/v1/copy_bank_pending",
+        params={"key": f"eq.{body.key}", "status": "eq.pending"},
+        headers=_sb_write_headers(),
+        timeout=10,
+    )
+
+    # Insert the new pending request row
     resp = http_req.post(
         f"{url}/rest/v1/copy_bank_pending",
         headers={**_sb_write_headers("return=minimal")},
@@ -238,7 +246,7 @@ def request_approval(body: ApprovalRequestBody):
             err_body = resp.json()
         except Exception:
             err_body = resp.text
-        log.error("copy_bank_pending upsert failed %s: %s", resp.status_code, err_body)
+        log.error("copy_bank_pending insert failed %s: %s", resp.status_code, err_body)
         return JSONResponse({"ok": False, "error": err_body}, status_code=500)
 
     slack = _send_slack_notification(body.client_name, body.territory, body.industry)
@@ -251,7 +259,7 @@ def get_pending(key: str):
     url = os.environ.get("SUPABASE_URL", "")
     resp = http_req.get(
         f"{url}/rest/v1/copy_bank_pending",
-        params={"key": f"eq.{key}", "status": "eq.pending", "select": "*"},
+        params={"key": f"eq.{key}", "status": "eq.pending", "select": "*", "order": "created_at.desc", "limit": "1"},
         headers=_sb_headers(),
         timeout=10,
     )
@@ -270,10 +278,10 @@ def approve_copy(body: ApproveBody):
     """
     url = os.environ.get("SUPABASE_URL", "")
 
-    # 1. Fetch pending row
+    # 1. Fetch most recent pending row
     resp = http_req.get(
         f"{url}/rest/v1/copy_bank_pending",
-        params={"key": f"eq.{body.key}", "status": "eq.pending", "select": "*"},
+        params={"key": f"eq.{body.key}", "status": "eq.pending", "select": "*", "order": "created_at.desc", "limit": "1"},
         headers=_sb_headers(),
         timeout=10,
     )

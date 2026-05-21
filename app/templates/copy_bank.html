@@ -3638,8 +3638,16 @@ function showUnsavedModal(onDiscard, onApproval) {
   document.querySelector('.unsaved-backdrop').onclick = cleanup;
 }
 
+function autoCommitOpenEdits() {
+  // If any cards are still in edit mode, click their Done button so TEMPLATES is up to date
+  document.querySelectorAll('.variation-card.edit-mode .copy-edit-done-btn').forEach(function(btn){
+    btn.click();
+  });
+}
+
 async function submitInlineApprovalRequest(afterCallback, requestedBy) {
   if (!activeProfile) { if (afterCallback) afterCallback(); return; }
+  autoCommitOpenEdits();
   const key             = currentKey();
   const content         = TEMPLATES[key] || defaultContent();
   const previousContent = ORIG_TEMPLATES[key] || {};
@@ -3662,6 +3670,7 @@ async function submitInlineApprovalRequest(afterCallback, requestedBy) {
       TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(content)));
       // NOTE: do NOT update ORIG_TEMPLATES here — glow must persist until copy is actually approved
       dirtyContent = false;
+      render(); // refresh display with the committed content
       showToast('✓ Approval request sent to Slack');
       setPendingApprovalState(currentPending.created_at);
       if (afterCallback) afterCallback();
