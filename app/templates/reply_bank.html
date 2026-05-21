@@ -432,6 +432,21 @@
     }
     .chip-delete:hover { opacity: 1; }
 
+    /* Snippet hover tooltip */
+    #chip-tooltip {
+      position: fixed; z-index: 10000; pointer-events: none;
+      max-width: 340px; padding: 10px 13px;
+      background: rgba(18,14,36,.97); border: 1px solid rgba(139,92,246,.35);
+      border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.55);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      font-size: 12px; color: var(--text-2); line-height: 1.6;
+      opacity: 0; transition: opacity .12s; white-space: pre-wrap; word-wrap: break-word;
+    }
+    #chip-tooltip.visible { opacity: 1; }
+    #chip-tooltip .tt-label { font-size: 11px; font-weight: 700; color: #c4b5fd; margin-bottom: 5px; }
+    #chip-tooltip .tt-variation + .tt-variation { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
+    #chip-tooltip .tt-scope { font-size: 10px; color: var(--text-3); margin-bottom: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+
     /* Drop indicator — blinking caret shown at insertion point during drag */
     #chip-drop-indicator {
       display: inline-block; width: 2px; height: 1.1em;
@@ -1333,6 +1348,61 @@ function initChipDrag(chipEl, key, src) {
 }
 
 // ── Create a compact inline chip span ──────────────────────────────────────
+// ── Snippet hover tooltip ─────────────────────────────────────────────────────
+(function initChipTooltip() {
+  const tt = document.createElement('div');
+  tt.id = 'chip-tooltip';
+  document.body.appendChild(tt);
+
+  let _hideTimer = null;
+
+  window._showChipTooltip = function(key, anchorEl) {
+    clearTimeout(_hideTimer);
+    const snip = SNIPPETS[key];
+    if (!snip) return;
+    const variations = snip.variations || [];
+    const isSingle   = variations.length === 1;
+
+    let html = `<div class="tt-label">${snip.label || key}</div>`;
+    variations.forEach((v, i) => {
+      const scopeParts = [];
+      if (!isSingle) {
+        if (v.territory && v.territory !== 'all') scopeParts.push(v.territory);
+        const s = v.sender;
+        if (s && s !== 'all') {
+          scopeParts.push(Array.isArray(s) ? s.join(', ') : s);
+        }
+      }
+      const scopeLine = scopeParts.length ? scopeParts.join(' · ') : (isSingle ? '' : 'All');
+      const preview   = (v.content || '').trim().slice(0, 220) + ((v.content || '').length > 220 ? '…' : '');
+      html += `<div class="tt-variation">
+        ${scopeLine ? `<div class="tt-scope">${scopeLine}</div>` : ''}
+        <div>${preview || '<em style="opacity:.4">No content</em>'}</div>
+      </div>`;
+    });
+
+    tt.innerHTML = html;
+
+    // Position: prefer below the chip, flip up if too close to bottom
+    const rect = anchorEl.getBoundingClientRect();
+    const gap  = 8;
+    tt.style.left = `${Math.min(rect.left, window.innerWidth - 360)}px`;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if (spaceBelow < 160 && rect.top > 160) {
+      tt.style.top    = '';
+      tt.style.bottom = `${window.innerHeight - rect.top + gap}px`;
+    } else {
+      tt.style.bottom = '';
+      tt.style.top    = `${rect.bottom + gap}px`;
+    }
+    tt.classList.add('visible');
+  };
+
+  window._hideChipTooltip = function() {
+    _hideTimer = setTimeout(() => tt.classList.remove('visible'), 80);
+  };
+})();
+
 function createInlineChip(key) {
   const snip = SNIPPETS[key] || {};
   const chip = document.createElement('span');
@@ -1344,6 +1414,8 @@ function createInlineChip(key) {
   chip.querySelector('.chip-delete').addEventListener('click', e => {
     e.preventDefault(); e.stopPropagation(); chip.remove();
   });
+  chip.addEventListener('mouseenter', () => _showChipTooltip(key, chip));
+  chip.addEventListener('mouseleave', _hideChipTooltip);
   initChipDrag(chip, key, 'template');
   return chip;
 }
@@ -1394,6 +1466,8 @@ function renderSnippetPalette(paletteId) {
     chip.title       = snip.label || key;
     chip.textContent = snip.label || key;
     palette.appendChild(chip);
+    chip.addEventListener('mouseenter', () => _showChipTooltip(key, chip));
+    chip.addEventListener('mouseleave', _hideChipTooltip);
     initChipDrag(chip, key, 'palette');
   }
 
