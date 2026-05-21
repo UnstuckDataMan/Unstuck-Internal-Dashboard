@@ -478,12 +478,12 @@
       background: rgba(255,255,255,.03); border-radius: 7px;
       border: 1px solid var(--border);
     }
-    .snip-meta select {
+    .snip-meta select, .snip-var-territory, .snip-var-sender {
       padding: 3px 7px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px;
       font-size: 12px; background: #1e1b35; color: #f0eeff;
       outline: none; font-family: var(--font); cursor: pointer;
     }
-    .snip-meta select option { background: #1e1b35; color: #f0eeff; }
+    .snip-meta select option, .snip-var-territory option, .snip-var-sender option { background: #1e1b35; color: #f0eeff; }
     .snip-meta input[type="text"] {
       padding: 3px 7px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px;
       font-size: 12px; background: #1e1b35; color: #f0eeff;
@@ -707,45 +707,48 @@ const TEMPLATES = {"US_Standard_Email_PR":"Hi\n\nThanks for your quick reply.\n\
 const SNIPPETS = {
   meetingLink: {
     label: "Meeting link",
-    content: "If those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min",
-    contentLeo: "If those times don't work, here is a link to my Calendly. Please find a time that suits you: https://calendly.com/leokesner/30min",
-    senderScope: "all", territoryScope: "all", isToggle: false, toggleGroup: null,
+    isToggle: false, toggleGroup: null,
+    variations: [
+      { content: "If those times don't work, here is the meeting link for our CEO Leo, who will be leading the call. Please find a time that suits you: https://calendly.com/leokesner/30min", territory: "all", sender: "others" },
+      { content: "If those times don't work, here is a link to my Calendly. Please find a time that suits you: https://calendly.com/leokesner/30min", territory: "all", sender: "Leo" },
+    ],
   },
   meetingPhrase: {
     label: "Meeting phrase",
-    content: " with me and my CEO",
-    contentLeo: "",
-    senderScope: "all", territoryScope: "all", isToggle: false, toggleGroup: null,
+    isToggle: false, toggleGroup: null,
+    variations: [
+      { content: " with me and my CEO", territory: "all", sender: "others" },
+      { content: "", territory: "all", sender: "Leo" },
+    ],
   },
-  usPricing: {
+  pricing: {
     label: "Pricing",
-    content: "Our rate is between $3.7k and $4.9k per month depending on your requirements, and we work on a retainer basis (no other fees).",
-    contentLeo: null,
-    senderScope: "all", territoryScope: "US", isToggle: true, toggleGroup: "pricing",
-  },
-  ukPricing: {
-    label: "Pricing",
-    content: "Our rate is between £2.7k and £3.7k per month depending on your requirements, and we work on a retainer basis (no other fees).",
-    contentLeo: null,
-    senderScope: "all", territoryScope: "UK", isToggle: true, toggleGroup: "pricing",
+    isToggle: true, toggleGroup: null,
+    variations: [
+      { content: "Our rate is between $3.7k and $4.9k per month depending on your requirements, and we work on a retainer basis (no other fees).", territory: "US", sender: "all" },
+      { content: "Our rate is between £2.7k and £3.7k per month depending on your requirements, and we work on a retainer basis (no other fees).", territory: "UK", sender: "all" },
+    ],
   },
   payPerLead: {
     label: "Pay per lead?",
-    content: "I'm afraid we don't work on this basis - it would be very difficult to have this model whilst representing your brand responsibly, as we take a low-volume, researched approach. There are some providers who do this but it's likely to be a spray and pray approach.",
-    contentLeo: null,
-    senderScope: "all", territoryScope: "all", isToggle: true, toggleGroup: null,
+    isToggle: true, toggleGroup: null,
+    variations: [
+      { content: "I'm afraid we don't work on this basis - it would be very difficult to have this model whilst representing your brand responsibly, as we take a low-volume, researched approach. There are some providers who do this but it's likely to be a spray and pray approach.", territory: "all", sender: "all" },
+    ],
   },
   referral: {
     label: "Referral confusion?",
-    content: "Just to clarify, we don't work with brands directly and I'll explain how we work below.",
-    contentLeo: null,
-    senderScope: "all", territoryScope: "all", isToggle: true, toggleGroup: null,
+    isToggle: true, toggleGroup: null,
+    variations: [
+      { content: "Just to clarify, we don't work with brands directly and I'll explain how we work below.", territory: "all", sender: "all" },
+    ],
   },
   f2f: {
     label: "Face-to-face request",
-    content: "We're currently confirming dates and will let you know. In the meantime, it would be good to establish whether we're a good fit.",
-    contentLeo: null,
-    senderScope: "all", territoryScope: "all", isToggle: true, toggleGroup: null,
+    isToggle: true, toggleGroup: null,
+    variations: [
+      { content: "We're currently confirming dates and will let you know. In the meantime, it would be good to establish whether we're a good fit.", territory: "all", sender: "all" },
+    ],
   },
 };
 const OPTIONS = {"industries":["PR","Marketing","Media","SaaS","AI","Accounting","Cybersecurity"],"territories":["US","UK"],"senders":["Robyn","Glen","Leo","Chris","Devlin"]};
@@ -823,11 +826,16 @@ function migrateTemplates() {
     let t = TEMPLATES[key];
     if (!t) continue;
 
+    // Consolidate old usPricing/ukPricing markers → pricing
+    t = t.replace(/\[\[usPricing\]\]\[\[ukPricing\]\]/g, '[[pricing]]')
+         .replace(/\[\[usPricing\]\]/g, '[[pricing]]')
+         .replace(/\[\[ukPricing\]\]/g, '[[pricing]]');
+
     if (key.includes('_Email_')) {
       // Insert modifier markers after email opener
       if (!t.includes('[[payPerLead]]') && t.includes('Thanks for your quick reply.\n\n')) {
         t = t.replace('Thanks for your quick reply.\n\n',
-          'Thanks for your quick reply.\n\n[[usPricing]][[ukPricing]][[payPerLead]][[referral]][[f2f]]\n\n');
+          'Thanks for your quick reply.\n\n[[pricing]][[payPerLead]][[referral]][[f2f]]\n\n');
       }
       // Insert meeting link before "For context,"
       if (!t.includes('[[meetingLink]]')) {
@@ -870,19 +878,22 @@ function assemble() {
   msg = msg.replace(/\[\[(\w+)\]\]/g, (_, snipKey) => {
     const snip = SNIPPETS[snipKey];
     if (!snip) return '';
-    // Sender scope filter
-    if (snip.senderScope === 'leo'    && sender !== 'Leo') return '';
-    if (snip.senderScope === 'others' && sender === 'Leo') return '';
-    // Territory scope filter
-    if (snip.territoryScope && snip.territoryScope !== 'all' && snip.territoryScope !== territory) return '';
     // Toggle filter
     if (snip.isToggle) {
       const group = snip.toggleGroup || snipKey;
       if (!toggleState[group]) return '';
     }
-    // Content variant (Leo vs everyone else)
-    const useLeo = snip.contentLeo !== null && snip.contentLeo !== undefined && sender === 'Leo';
-    return useLeo ? (snip.contentLeo || '') : (snip.content || '');
+    // Find best-matching variation (score: 2=exact match, 1=wildcard "all", 0=mismatch → skip)
+    const variations = snip.variations || [];
+    let best = null, bestScore = -1;
+    for (const v of variations) {
+      const tScore = v.territory === territory ? 2 : v.territory === 'all' ? 1 : 0;
+      const sScore = v.sender   === sender    ? 2 : v.sender   === 'all' ? 1 : 0;
+      if (tScore === 0 || sScore === 0) continue;
+      const score = tScore + sScore;
+      if (score > bestScore) { bestScore = score; best = v; }
+    }
+    return best ? (best.content || '') : '';
   });
 
   // ── 2. Clean up blank lines left by removed snippets ──
@@ -1055,10 +1066,46 @@ function renderTerritoryButtons() {
     const sRaw       = JSON.parse(localStorage.getItem('rb_snippets')  || '{}');
     const oOverrides = JSON.parse(localStorage.getItem('rb_options')   || '{}');
     Object.assign(TEMPLATES, tOverrides);
-    // Migration guard: if saved snippets are old flat-string format, discard and use defaults
-    const isOldFormat = Object.keys(sRaw).length > 0 && Object.values(sRaw).some(v => typeof v === 'string');
-    if (!isOldFormat && Object.keys(sRaw).length > 0) {
-      Object.assign(SNIPPETS, sRaw);
+    // Migrate old snippet format to new variations-based format
+    if (Object.keys(sRaw).length > 0) {
+      const isStringFormat = Object.values(sRaw).some(v => typeof v === 'string');
+      const isOldObjFormat = !isStringFormat && Object.values(sRaw).some(v => v && ('content' in v || 'senderScope' in v) && !Array.isArray(v.variations));
+      if (!isStringFormat) {
+        const migrated = {};
+        for (const [k, v] of Object.entries(sRaw)) {
+          if (Array.isArray(v.variations)) {
+            migrated[k] = v; // already new format
+          } else if (isOldObjFormat) {
+            // Convert old {content, contentLeo, senderScope, territoryScope} → variations
+            const baseVariation = { content: v.content || '', territory: v.territoryScope || 'all', sender: v.senderScope || 'all' };
+            const variations = [baseVariation];
+            if (v.contentLeo !== null && v.contentLeo !== undefined) {
+              baseVariation.sender = 'others';
+              variations.push({ content: v.contentLeo || '', territory: 'all', sender: 'Leo' });
+            }
+            migrated[k] = { label: v.label || '', isToggle: !!v.isToggle, toggleGroup: v.toggleGroup || null, variations };
+          }
+        }
+        // Merge usPricing + ukPricing into pricing if they exist separately
+        if (migrated.usPricing && migrated.ukPricing && !migrated.pricing) {
+          migrated.pricing = {
+            label: 'Pricing', isToggle: true, toggleGroup: null,
+            variations: [
+              ...(migrated.usPricing.variations || []).map(v => ({ ...v, territory: 'US' })),
+              ...(migrated.ukPricing.variations || []).map(v => ({ ...v, territory: 'UK' })),
+            ],
+          };
+          delete migrated.usPricing;
+          delete migrated.ukPricing;
+        }
+        Object.assign(SNIPPETS, migrated);
+      }
+    }
+    // Migrate [[usPricing]][[ukPricing]] → [[pricing]] in any saved templates
+    for (const k of Object.keys(TEMPLATES)) {
+      TEMPLATES[k] = TEMPLATES[k].replace(/\[\[usPricing\]\]\[\[ukPricing\]\]/g, '[[pricing]]')
+                                  .replace(/\[\[usPricing\]\]/g, '[[pricing]]')
+                                  .replace(/\[\[ukPricing\]\]/g, '[[pricing]]');
     }
     if (oOverrides.industries)  OPTIONS.industries  = oOverrides.industries;
     if (oOverrides.territories) OPTIONS.territories = oOverrides.territories;
@@ -1074,13 +1121,10 @@ function renderTerritoryButtons() {
 //  MODIFIER TOGGLES (dynamic, from isToggle snippets)
 // ════════════════════════════════════════════════════════
 function renderModifiers() {
-  const sender = document.getElementById('sender').value;
-  const seen   = new Set();
-  const items  = [];
+  const seen  = new Set();
+  const items = [];
   for (const [key, snip] of Object.entries(SNIPPETS)) {
     if (!snip.isToggle) continue;
-    if (snip.senderScope === 'leo'    && sender !== 'Leo') continue;
-    if (snip.senderScope === 'others' && sender === 'Leo') continue;
     const group = snip.toggleGroup || key;
     if (seen.has(group)) continue;
     seen.add(group);
@@ -1275,9 +1319,7 @@ function createInlineChip(key) {
   const chip = document.createElement('span');
   chip.contentEditable = 'false';
   chip.dataset.snippetKey = key;
-  const scopeClass = snip.senderScope === 'leo'    ? ' scope-leo'
-                   : snip.senderScope === 'others' ? ' scope-others' : '';
-  chip.className = 'tpl-snippet-chip' + scopeClass;
+  chip.className = 'tpl-snippet-chip';
   chip.innerHTML = `<span class="chip-label">${snip.label || key}</span>`
     + `<button class="chip-delete" title="Remove">✕</button>`;
   chip.querySelector('.chip-delete').addEventListener('click', e => {
@@ -1327,114 +1369,156 @@ function renderSnippetPalette(paletteId) {
 
   palette.innerHTML = '';
   for (const [key, snip] of Object.entries(SNIPPETS)) {
-    const terrHint   = snip.territoryScope && snip.territoryScope !== 'all' ? ` · ${snip.territoryScope}` : '';
-    const scopeClass = snip.senderScope === 'leo'    ? ' scope-leo'
-                     : snip.senderScope === 'others' ? ' scope-others' : '';
     const chip = document.createElement('div');
-    chip.className   = `palette-chip${scopeClass}`;
+    chip.className   = 'palette-chip';
     chip.dataset.key = key;
-    chip.title       = `${snip.label || key}${terrHint}`;
+    chip.title       = snip.label || key;
     chip.textContent = snip.label || key;
     palette.appendChild(chip);
     initChipDrag(chip, key, 'palette');
   }
 
-  // Legend (idempotent)
-  const section = palette.closest('.snippet-palette');
-  if (section && !section.querySelector('.palette-legend')) {
-    const legend = document.createElement('div');
-    legend.className = 'palette-legend';
-    legend.innerHTML = `<span class="legend-chip scope-all">All senders</span>`
-      + `<span class="legend-chip scope-leo">Leo only</span>`
-      + `<span class="legend-chip scope-others">Others only</span>`;
-    section.appendChild(legend);
-  }
 }
 
 // ════════════════════════════════════════════════════════
 //  ADMIN SNIPPET ROWS — build / load / save
 // ════════════════════════════════════════════════════════
+function buildVariationRow(v, index, totalCount) {
+  const el = document.createElement('div');
+  el.className = 'snip-variation';
+  el.style.cssText = 'border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:10px 12px;margin-bottom:8px;';
+
+  const territories = ['all', ...OPTIONS.territories];
+  const senders     = ['all', ...OPTIONS.senders];
+  const terrOpts    = territories.map(t => `<option value="${t}"${v.territory===t?' selected':''}>${t==='all'?'All territories':t}</option>`).join('');
+  const sendOpts    = senders.map(s => `<option value="${s}"${v.sender===s?' selected':''}>${s==='all'?'All senders':s}</option>`).join('');
+
+  const scopeHtml = totalCount > 1 ? `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+      <span style="font-size:11px;font-weight:600;color:var(--text-3);">Variation ${index + 1}</span>
+      <label style="font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:4px;">
+        Territory: <select class="snip-var-territory" style="margin-left:4px;">${terrOpts}</select>
+      </label>
+      <label style="font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:4px;">
+        Sender: <select class="snip-var-sender" style="margin-left:4px;">${sendOpts}</select>
+      </label>
+      <button class="snip-remove-variation chip-delete" title="Remove variation" style="margin-left:auto;">✕</button>
+    </div>` : `
+    <div style="margin-bottom:8px;">
+      <span style="font-size:11px;font-weight:600;color:var(--text-3);">Default — applies to everyone</span>
+      <input type="hidden" class="snip-var-territory" value="all">
+      <input type="hidden" class="snip-var-sender" value="all">
+    </div>`;
+
+  el.innerHTML = scopeHtml + `
+    <div class="format-toolbar" style="margin-bottom:4px;">
+      <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
+      <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
+      <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
+    </div>
+    <div class="admin-content-area snip-var-content" contenteditable="true">${textToHtml(v.content||'')}</div>`;
+
+  return el;
+}
+
+function refreshVariationHeaders(wrapper) {
+  const varEls = [...wrapper.querySelectorAll('.snip-variation')];
+  const total  = varEls.length;
+  varEls.forEach((el, i) => {
+    // Re-read current values before rebuild
+    const territory = el.querySelector('.snip-var-territory')?.value || 'all';
+    const sender    = el.querySelector('.snip-var-sender')?.value    || 'all';
+    const content   = htmlToText(el.querySelector('.snip-var-content')?.innerHTML || '');
+    const newEl     = buildVariationRow({ content, territory, sender }, i, total);
+    el.replaceWith(newEl);
+    // Re-attach remove listener
+    if (total > 1) {
+      newEl.querySelector('.snip-remove-variation')?.addEventListener('click', () => {
+        newEl.remove();
+        refreshVariationHeaders(wrapper);
+      });
+    }
+  });
+}
+
 function buildSnippetRow(key, snip) {
   const wrapper = document.createElement('div');
   wrapper.className   = 'snippet-row';
   wrapper.dataset.key = key;
   wrapper.style.cssText = 'border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;';
 
-  const hasLeoVariant = snip.contentLeo !== null && snip.contentLeo !== undefined;
-  const leoChecked    = hasLeoVariant ? 'checked' : '';
-
   wrapper.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
       <input type="text" class="snip-key-input" value="${key}" placeholder="snippet key"
         style="font-size:11px;color:var(--text-3);background:transparent;border:none;outline:none;font-family:var(--font);width:120px;"
-        title="Internal key (no spaces; changing this key updates SNIPPETS but won't auto-update existing [[key]] markers in templates)">
+        title="Internal key — must match [[key]] in templates">
       <input type="text" class="snip-label-input" value="${(snip.label||'').replace(/"/g,'&quot;')}" placeholder="Label shown in UI"
-        style="flex:1;padding:5px 9px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface);color:var(--text);outline:none;font-family:var(--font);">
+        style="flex:1;padding:5px 9px;border:1px solid rgba(255,255,255,.22);border-radius:7px;font-size:13px;background:#1e1b35;color:#f0eeff;outline:none;font-family:var(--font);">
       <button class="chip-delete snip-delete-btn" title="Delete snippet" style="margin-left:auto;">✕</button>
     </div>
 
-    <div class="snip-meta">
-      <label>Sender:
-        <select class="snip-sender-scope">
-          <option value="all"${snip.senderScope==='all'?' selected':''}>All senders</option>
-          <option value="leo"${snip.senderScope==='leo'?' selected':''}>Leo only</option>
-          <option value="others"${snip.senderScope==='others'?' selected':''}>Others only</option>
-        </select>
-      </label>
-      <label>Territory:
-        <select class="snip-territory-scope">
-          <option value="all"${snip.territoryScope==='all'?' selected':''}>All territories</option>
-          <option value="US"${snip.territoryScope==='US'?' selected':''}>US only</option>
-          <option value="UK"${snip.territoryScope==='UK'?' selected':''}>UK only</option>
-        </select>
-      </label>
+    <div class="snip-meta" style="margin-bottom:12px;">
       <label class="snip-toggle-label">
         <input type="checkbox" class="snip-is-toggle"${snip.isToggle?' checked':''}>
-        User toggle
+        Show as user toggle
       </label>
       <span class="snip-toggle-group-wrap" style="${snip.isToggle?'':'display:none'}">
-        <input type="text" class="snip-toggle-group" value="${snip.toggleGroup||''}" placeholder="group (blank = use key)"
-          style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);outline:none;font-family:var(--font);width:140px;">
+        <input type="text" class="snip-toggle-group" value="${snip.toggleGroup||''}" placeholder="group key (blank = use snippet key)"
+          style="padding:4px 8px;border:1px solid rgba(255,255,255,.22);border-radius:6px;font-size:12px;background:#1e1b35;color:#f0eeff;outline:none;font-family:var(--font);width:180px;">
       </span>
     </div>
 
-    <div style="margin-top:10px;">
-      <div style="font-size:11px;color:var(--text-3);margin-bottom:4px;">Content</div>
-      <div class="format-toolbar" style="margin-bottom:4px;">
-        <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-        <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-        <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-      </div>
-      <div class="admin-content-area snip-content" contenteditable="true">${textToHtml(snip.content||'')}</div>
-    </div>
+    <div class="snip-variations-list"></div>
 
-    <div class="snip-leo-section" style="margin-top:10px;">
-      <label style="font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:6px;cursor:pointer;">
-        <input type="checkbox" class="snip-has-leo" ${leoChecked}>
-        Has Leo-specific content?
-      </label>
-      <div class="snip-leo-content-wrap" style="${hasLeoVariant?'':'display:none'};margin-top:8px;">
-        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px;">Leo variant (used when sender = Leo)</div>
-        <div class="format-toolbar" style="margin-bottom:4px;">
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('b')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('i')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();applyFormat('u')" title="Underline"><u>U</u></button>
-        </div>
-        <div class="admin-content-area snip-content-leo" contenteditable="true">${textToHtml(snip.contentLeo||'')}</div>
-      </div>
-    </div>`;
+    <button class="snip-add-btn snip-add-variation-btn" style="margin-top:4px;">+ Add variation</button>`;
 
-  // Wire up local interactivity
+  // Wire toggle visibility
   wrapper.querySelector('.snip-is-toggle').addEventListener('change', function() {
     wrapper.querySelector('.snip-toggle-group-wrap').style.display = this.checked ? '' : 'none';
   });
-  wrapper.querySelector('.snip-has-leo').addEventListener('change', function() {
-    wrapper.querySelector('.snip-leo-content-wrap').style.display = this.checked ? '' : 'none';
-  });
+
+  // Delete snippet
   wrapper.querySelector('.snip-delete-btn').addEventListener('click', () => {
     if (confirm(`Delete snippet "${snip.label || key}"? This won't remove [[${key}]] markers from templates.`)) {
       wrapper.remove();
     }
+  });
+
+  // Render initial variations
+  const variations = snip.variations && snip.variations.length ? snip.variations : [{ content: '', territory: 'all', sender: 'all' }];
+  const list = wrapper.querySelector('.snip-variations-list');
+  variations.forEach((v, i) => {
+    const el = buildVariationRow(v, i, variations.length);
+    if (variations.length > 1) {
+      el.querySelector('.snip-remove-variation')?.addEventListener('click', () => {
+        el.remove();
+        refreshVariationHeaders(wrapper);
+      });
+    }
+    list.appendChild(el);
+  });
+
+  // Add variation
+  wrapper.querySelector('.snip-add-variation-btn').addEventListener('click', () => {
+    const existing = [...list.querySelectorAll('.snip-variation')];
+    const newV = { content: '', territory: 'all', sender: 'all' };
+    // Rebuild all to show scope selectors now that there are >1
+    const allV = existing.map(el => ({
+      content:   htmlToText(el.querySelector('.snip-var-content')?.innerHTML || ''),
+      territory: el.querySelector('.snip-var-territory')?.value || 'all',
+      sender:    el.querySelector('.snip-var-sender')?.value    || 'all',
+    }));
+    allV.push(newV);
+    list.innerHTML = '';
+    allV.forEach((v, i) => {
+      const el = buildVariationRow(v, i, allV.length);
+      el.querySelector('.snip-remove-variation')?.addEventListener('click', () => {
+        el.remove();
+        refreshVariationHeaders(wrapper);
+      });
+      list.appendChild(el);
+    });
+    list.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
 
   return wrapper;
@@ -1536,16 +1620,17 @@ function _readSnippetRows() {
   rows.forEach(row => {
     const origKey  = row.dataset.key;
     const newKey   = (row.querySelector('.snip-key-input')?.value || origKey).trim();
-    const hasLeo   = row.querySelector('.snip-has-leo')?.checked;
     const isToggle = row.querySelector('.snip-is-toggle')?.checked;
+    const variations = [...row.querySelectorAll('.snip-variation')].map(el => ({
+      content:   htmlToText(el.querySelector('.snip-var-content')?.innerHTML || ''),
+      territory: el.querySelector('.snip-var-territory')?.value || 'all',
+      sender:    el.querySelector('.snip-var-sender')?.value    || 'all',
+    }));
     result[newKey] = {
-      label:         row.querySelector('.snip-label-input')?.value || '',
-      content:       htmlToText(row.querySelector('.snip-content')?.innerHTML || ''),
-      contentLeo:    hasLeo ? htmlToText(row.querySelector('.snip-content-leo')?.innerHTML || '') : null,
-      senderScope:   row.querySelector('.snip-sender-scope')?.value   || 'all',
-      territoryScope:row.querySelector('.snip-territory-scope')?.value || 'all',
-      isToggle:      !!isToggle,
-      toggleGroup:   isToggle ? (row.querySelector('.snip-toggle-group')?.value.trim() || null) : null,
+      label:       row.querySelector('.snip-label-input')?.value || '',
+      isToggle:    !!isToggle,
+      toggleGroup: isToggle ? (row.querySelector('.snip-toggle-group')?.value.trim() || null) : null,
+      variations:  variations.length ? variations : [{ content: '', territory: 'all', sender: 'all' }],
     };
   });
   return result;
@@ -1577,8 +1662,8 @@ document.getElementById('adm-add-snippet').addEventListener('click', () => {
   if (!list) return;
   const newKey  = `snippet_${Date.now()}`;
   const newSnip = {
-    label: 'New Snippet', content: '', contentLeo: null,
-    senderScope: 'all', territoryScope: 'all', isToggle: false, toggleGroup: null,
+    label: 'New Snippet', isToggle: false, toggleGroup: null,
+    variations: [{ content: '', territory: 'all', sender: 'all' }],
   };
   SNIPPETS[newKey] = newSnip;
   list.appendChild(buildSnippetRow(newKey, newSnip));
