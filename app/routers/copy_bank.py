@@ -253,6 +253,19 @@ def request_approval(body: ApprovalRequestBody):
     return JSONResponse({"ok": True, "slack": slack})
 
 
+@router.get("/api/copy-bank/pending-all")
+def get_all_pending():
+    """Return all pending draft rows (used to pre-load on page init)."""
+    url = os.environ.get("SUPABASE_URL", "")
+    resp = http_req.get(
+        f"{url}/rest/v1/copy_bank_pending",
+        params={"status": "eq.pending", "select": "*", "order": "created_at.desc", "limit": "500"},
+        headers=_sb_headers(),
+        timeout=10,
+    )
+    return resp.json() if resp.ok else []
+
+
 @router.get("/api/copy-bank/pending/{key:path}")
 def get_pending(key: str):
     """Return the current pending draft for a given key, or null if none."""

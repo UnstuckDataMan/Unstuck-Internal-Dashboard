@@ -2109,8 +2109,9 @@ function sbHeaders(prefer) {
 // ════════════════════════════════════════════════════════
 //  STATE
 // ════════════════════════════════════════════════════════
-const TEMPLATES     = {};
-const ORIG_TEMPLATES = {};   // snapshot of last-saved state; used for per-card revert
+const TEMPLATES      = {};
+const ORIG_TEMPLATES = {};   // snapshot of last-saved (approved) state; used for per-card revert & glow
+const PENDING_CACHE  = {};   // key → pending row; loaded at init so all pending content survives reload
 let   dirtyContent   = false; // true when copy text has been edited but not yet approved
 let   activeChannel  = 'email';
 let   territory      = 'US';
@@ -2175,6 +2176,35 @@ function currentKey() {
   return '__c__' + activeProfile.client_id + '__' + territory + '_' + ind;
 }
 
+// Does a template key belong to the given profile?
+function keyBelongsToProfile(key, profile) {
+  if (!profile) return false;
+  if (profile.type === 'bizdev') {
+    return (profile.territories || []).some(function(ter){ return key.startsWith(ter + '_'); });
+  }
+  return key.startsWith('__c__' + profile.client_id + '__');
+}
+
+// Parse territory and industry display-label out of a template key for the active profile
+function parseKeyForProfile(key) {
+  if (!activeProfile) return null;
+  var territories = activeProfile.territories || [];
+  var rest = key;
+  if (activeProfile.type !== 'bizdev') {
+    var prefix = '__c__' + activeProfile.client_id + '__';
+    if (!key.startsWith(prefix)) return null;
+    rest = key.slice(prefix.length);
+  }
+  for (var i = 0; i < territories.length; i++) {
+    var ter = territories[i];
+    if (rest.startsWith(ter + '_')) {
+      var indKey = rest.slice(ter.length + 1);
+      return { territory: ter, industry: industryLabel(indKey) };
+    }
+  }
+  return null;
+}
+
 // ════════════════════════════════════════════════════════
 //  HELPERS
 // ════════════════════════════════════════════════════════
@@ -2226,8 +2256,23 @@ async function loadFromSupabase() {
       if (row.key && row.content && row.key !== PROFILES_KEY && row.key !== SENDERS_KEY)
         TEMPLATES[row.key] = migrateContent(row.content);
     });
-    // Snapshot for per-card revert
+    // Snapshot approved content for per-card revert & glow comparison
     Object.keys(TEMPLATES).forEach(function(k){ ORIG_TEMPLATES[k] = JSON.parse(JSON.stringify(TEMPLATES[k])); });
+
+    // Pre-load ALL pending rows so edits survive page reload across all territory/industry combos
+    try {
+      const pendingRes = await fetch('/api/copy-bank/pending-all');
+      if (pendingRes.ok) {
+        const pendingRows = await pendingRes.json();
+        pendingRows.forEach(function(row){
+          if (row.key && row.content) {
+            PENDING_CACHE[row.key] = row;
+            // Apply pending content over approved content — ORIG_TEMPLATES stays as approved baseline
+            TEMPLATES[row.key] = migrateContent(JSON.parse(JSON.stringify(row.content)));
+          }
+        });
+      }
+    } catch(e) { /* non-fatal — pending rows will be fetched per-key as fallback */ }
 
     // Load or initialise global senders list
     const sendersRow = rows.find(function(r){ return r.key === SENDERS_KEY; });
@@ -3164,21 +3209,48 @@ let currentPending = null;
 
 async function checkPendingForView() {
   if (!activeProfile) return;
-  const key = currentKey();
-  currentPending = null;
-  setNormalApprovalState();
-  try {
-    const res = await fetch('/api/copy-bank/pending/' + encodeURIComponent(key));
-    if (res.ok) {
-      const data = await res.json();
-      if (data.pending) {
-        currentPending = data.pending;
-        TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(currentPending.content)));
-        render();
-        setPendingApprovalState(currentPending.created_at);
+
+  // Find all pending keys that belong to this profile (from cache loaded at init)
+  var profilePendingKeys = Object.keys(PENDING_CACHE).filter(function(k){
+    return keyBelongsToProfile(k, activeProfile);
+  });
+
+  if (!profilePendingKeys.length) {
+    // No cached pending — do a live fetch for just the current key as a fallback
+    const key = currentKey();
+    currentPending = null;
+    setNormalApprovalState();
+    try {
+      const res = await fetch('/api/copy-bank/pending/' + encodeURIComponent(key));
+      if (res.ok) {
+        const data = await res.json();
+        if (data.pending) {
+          PENDING_CACHE[key] = data.pending;
+          TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(data.pending.content)));
+          currentPending = data.pending;
+          render();
+          setPendingApprovalState(currentPending.created_at);
+        }
       }
-    }
-  } catch(e) { /* non-fatal */ }
+    } catch(e) { /* non-fatal */ }
+    return;
+  }
+
+  // Apply all pending content for this profile to TEMPLATES
+  profilePendingKeys.forEach(function(k){
+    var row = PENDING_CACHE[k];
+    if (row && row.content) TEMPLATES[k] = migrateContent(JSON.parse(JSON.stringify(row.content)));
+  });
+
+  // Use most recent pending row to drive the banner date
+  var mostRecent = profilePendingKeys.reduce(function(best, k){
+    var row = PENDING_CACHE[k];
+    return (!best || row.created_at > best.created_at) ? row : best;
+  }, null);
+
+  currentPending = mostRecent;
+  render();
+  setPendingApprovalState(mostRecent.created_at);
 }
 
 function setPendingApprovalState(createdAt) {
@@ -3244,31 +3316,45 @@ document.getElementById('approve-btn').addEventListener('click', function() {
 
 async function approveCopy(approvedBy) {
   document.getElementById('approver-dialog').close();
-  const key     = currentKey();
-  const content = TEMPLATES[key] || defaultContent();
-  const btn     = document.getElementById('approve-btn');
+  const btn = document.getElementById('approve-btn');
   btn.textContent = 'Publishing…'; btn.disabled = true;
 
-  try {
-    const res = await fetch('/api/copy-bank/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, approved_by: approvedBy, content }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(content)));
-      ORIG_TEMPLATES[key] = JSON.parse(JSON.stringify(TEMPLATES[key]));
-      dirtyContent = false;
-      showToast('✓ Published — approved by ' + approvedBy);
-      setNormalApprovalState();
-      render();
-    } else {
-      const errMsg = typeof data.error === 'object' ? JSON.stringify(data.error) : (data.error || 'Unknown error');
-      showToast('Error: ' + errMsg, true);
-    }
-  } catch(e) {
-    showToast('Error: ' + e.message, true);
+  // Approve every pending key for this profile
+  var pendingKeys = Object.keys(PENDING_CACHE).filter(function(k){
+    return keyBelongsToProfile(k, activeProfile);
+  });
+  // Always include current key even if not in cache
+  var curKey = currentKey();
+  if (!pendingKeys.includes(curKey)) pendingKeys.push(curKey);
+
+  var anyFailed = false;
+  for (var pi = 0; pi < pendingKeys.length; pi++) {
+    var k = pendingKeys[pi];
+    var content = TEMPLATES[k] || defaultContent();
+    try {
+      var res = await fetch('/api/copy-bank/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: k, approved_by: approvedBy, content }),
+      });
+      var data = await res.json();
+      if (data.ok) {
+        TEMPLATES[k] = migrateContent(JSON.parse(JSON.stringify(content)));
+        ORIG_TEMPLATES[k] = JSON.parse(JSON.stringify(TEMPLATES[k]));
+        delete PENDING_CACHE[k];
+      } else {
+        anyFailed = true;
+        const errMsg = typeof data.error === 'object' ? JSON.stringify(data.error) : (data.error || 'Unknown');
+        showToast('Error approving ' + k + ': ' + errMsg, true);
+      }
+    } catch(e) { anyFailed = true; showToast('Error: ' + e.message, true); }
+  }
+
+  if (!anyFailed) {
+    dirtyContent = false;
+    showToast('✓ Published — approved by ' + approvedBy);
+    setNormalApprovalState();
+    render();
   }
   btn.textContent = 'Approve & Publish'; btn.disabled = false;
 }
@@ -3648,39 +3734,81 @@ function autoCommitOpenEdits() {
 async function submitInlineApprovalRequest(afterCallback, requestedBy) {
   if (!activeProfile) { if (afterCallback) afterCallback(); return; }
   autoCommitOpenEdits();
-  const key             = currentKey();
-  const content         = TEMPLATES[key] || defaultContent();
-  const previousContent = ORIG_TEMPLATES[key] || {};
-  const ind             = document.getElementById('industry') ? document.getElementById('industry').value : '';
-  const indLabel        = industryLabel(ind);
 
-  try {
-    const res = await fetch('/api/copy-bank/request-approval', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        key, client_name: activeProfile.name, territory, industry: indLabel, content,
-        requested_by: requestedBy || '',
-        previous_content: previousContent,
-      }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      currentPending = { created_at: new Date().toISOString(), content };
-      TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(content)));
-      // NOTE: do NOT update ORIG_TEMPLATES here — glow must persist until copy is actually approved
-      dirtyContent = false;
-      render(); // refresh display with the committed content
-      showToast('✓ Approval request sent to Slack');
-      setPendingApprovalState(currentPending.created_at);
-      if (afterCallback) afterCallback();
-    } else {
-      const errMsg = typeof data.error === 'object' ? JSON.stringify(data.error) : (data.error || 'Unknown error');
-      showToast('Error: ' + errMsg, true);
+  // Collect every dirty key that belongs to this profile
+  var dirtyEntries = [];
+  Object.keys(TEMPLATES).forEach(function(k){
+    if (!keyBelongsToProfile(k, activeProfile)) return;
+    var orig = ORIG_TEMPLATES[k];
+    if (!orig || JSON.stringify(TEMPLATES[k]) !== JSON.stringify(orig)) {
+      var parsed = parseKeyForProfile(k);
+      if (parsed) dirtyEntries.push({
+        key:             k,
+        territory:       parsed.territory,
+        industry:        parsed.industry,
+        content:         TEMPLATES[k] || defaultContent(),
+        previousContent: orig || {},
+      });
     }
-  } catch(e) {
-    showToast('Error: ' + e.message, true);
+  });
+
+  if (!dirtyEntries.length) { if (afterCallback) afterCallback(); return; }
+
+  var anyFailed = false;
+  var nowIso = new Date().toISOString();
+
+  for (var ei = 0; ei < dirtyEntries.length; ei++) {
+    var entry = dirtyEntries[ei];
+    try {
+      var res = await fetch('/api/copy-bank/request-approval', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key:              entry.key,
+          client_name:      activeProfile.name,
+          territory:        entry.territory,
+          industry:         entry.industry,
+          content:          entry.content,
+          requested_by:     requestedBy || '',
+          previous_content: entry.previousContent,
+        }),
+      });
+      var data = await res.json();
+      if (data.ok) {
+        // Update cache — do NOT update ORIG_TEMPLATES (glow must persist until approved)
+        PENDING_CACHE[entry.key] = {
+          key: entry.key, created_at: nowIso,
+          content: entry.content, client_name: activeProfile.name,
+          territory: entry.territory, industry: entry.industry,
+        };
+        TEMPLATES[entry.key] = migrateContent(JSON.parse(JSON.stringify(entry.content)));
+      } else {
+        anyFailed = true;
+        var errMsg = typeof data.error === 'object' ? JSON.stringify(data.error) : (data.error || 'Unknown error');
+        showToast('Error: ' + errMsg, true);
+      }
+    } catch(e) { anyFailed = true; showToast('Error: ' + e.message, true); }
   }
+
+  if (anyFailed) return;
+
+  dirtyContent = false;
+  render();
+  var label = dirtyEntries.length > 1
+    ? '✓ Approval request sent for ' + dirtyEntries.length + ' template combinations'
+    : '✓ Approval request sent to Slack';
+  showToast(label);
+
+  // Set pending state using most recently cached row for this profile
+  var latestRow = Object.keys(PENDING_CACHE)
+    .filter(function(k){ return keyBelongsToProfile(k, activeProfile); })
+    .reduce(function(best, k){
+      var r = PENDING_CACHE[k];
+      return (!best || r.created_at > best.created_at) ? r : best;
+    }, null);
+  if (latestRow) { currentPending = latestRow; setPendingApprovalState(latestRow.created_at); }
+
+  if (afterCallback) afterCallback();
 }
 
 // ════════════════════════════════════════════════════════
