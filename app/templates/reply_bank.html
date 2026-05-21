@@ -1564,9 +1564,21 @@ function buildSnippetRow(key, snip) {
     wrapper.querySelector('.snip-toggle-group-wrap').style.display = this.checked ? '' : 'none';
   });
 
-  // Delete snippet
+  // Delete snippet — also strips [[key]] markers from all templates
   wrapper.querySelector('.snip-delete-btn').addEventListener('click', () => {
-    if (confirm(`Delete snippet "${snip.label || key}"? This won't remove [[${key}]] markers from templates.`)) {
+    if (confirm(`Delete snippet "${snip.label || key}"? [[${key}]] markers will be removed from all templates.`)) {
+      const marker = new RegExp(`\\[\\[${key}\\]\\]`, 'g');
+      for (const k of Object.keys(TEMPLATES)) {
+        TEMPLATES[k] = TEMPLATES[k].replace(marker, '');
+      }
+      // Persist cleaned templates
+      const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
+      for (const k of Object.keys(tOverrides)) {
+        tOverrides[k] = tOverrides[k].replace(marker, '');
+      }
+      localStorage.setItem('rb_templates', JSON.stringify(tOverrides));
+      // Reload template editors so they reflect the removal
+      adminLoadTemplates();
       wrapper.remove();
     }
   });
