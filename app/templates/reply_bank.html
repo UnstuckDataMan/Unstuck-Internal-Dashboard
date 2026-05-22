@@ -584,6 +584,14 @@
     </div>
 
     <div class="panel-section">
+      <div class="section-label">Style</div>
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-style="Standard">Standard</button>
+        <button class="toggle-btn" data-style="Enterprise">Enterprise</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
       <div class="section-label">Channel</div>
       <div class="toggle-group">
         <button class="toggle-btn active" data-channel="Email">Email</button>
@@ -640,6 +648,10 @@
     <div class="admin-card">
       <div class="admin-card-title">Templates</div>
       <div class="admin-selectors">
+        <select id="adm-style">
+          <option value="Standard">Standard</option>
+          <option value="Enterprise">Enterprise</option>
+        </select>
         <select id="adm-territory"></select>
         <select id="adm-industry"></select>
       </div>
@@ -990,6 +1002,15 @@ function render() {
 
 // Re-render modifier toggles when sender changes (some may be Leo-only or others-only)
 document.getElementById('sender').addEventListener('change', renderModifiers);
+
+document.querySelectorAll('[data-style]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    style = btn.dataset.style;
+    document.querySelectorAll('[data-style]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    render();
+  });
+});
 
 document.querySelectorAll('[data-channel]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1729,6 +1750,7 @@ document.getElementById('admin-back-btn').addEventListener('click', adminHide);
 
 function adminGetSelectors() {
   return {
+    style:     document.getElementById('adm-style').value,
     territory: document.getElementById('adm-territory').value,
     industry:  document.getElementById('adm-industry').value,
   };
@@ -1737,11 +1759,11 @@ function adminGetSelectors() {
 // (Unified editor serializes directly from DOM; no segment cache needed)
 
 function adminLoadTemplates() {
-  const { territory, industry } = adminGetSelectors();
+  const { style: admStyle, territory, industry } = adminGetSelectors();
   const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
 
   for (const channel of ['Email', 'LinkedIn']) {
-    const key      = `${territory}_Standard_${channel}_${industry}`;
+    const key      = `${territory}_${admStyle}_${channel}_${industry}`;
     const editorId = `adm-${channel.toLowerCase()}-editor`;
     const segs     = parseTemplate(TEMPLATES[key] || '');
     renderBlockEditor(editorId, segs);
@@ -1751,16 +1773,16 @@ function adminLoadTemplates() {
   }
 }
 
-['adm-territory','adm-industry'].forEach(id => {
+['adm-style','adm-territory','adm-industry'].forEach(id => {
   document.getElementById(id).addEventListener('change', adminLoadTemplates);
 });
 
 document.getElementById('adm-save-templates').addEventListener('click', () => {
-  const { territory, industry } = adminGetSelectors();
+  const { style: admStyle, territory, industry } = adminGetSelectors();
   const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
 
   for (const channel of ['Email', 'LinkedIn']) {
-    const key    = `${territory}_Standard_${channel}_${industry}`;
+    const key    = `${territory}_${admStyle}_${channel}_${industry}`;
     const editor = document.getElementById(`adm-${channel.toLowerCase()}-editor`);
     if (!editor) continue;
     const val = serializeUnifiedEditor(editor);
