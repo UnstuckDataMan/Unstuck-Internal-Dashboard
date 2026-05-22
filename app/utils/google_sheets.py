@@ -199,6 +199,7 @@ def _apply_sheet_formatting(
     sender_col      = col_idx("Sender Account")
     email_col       = col_idx("Recipient Email")
     div_col         = col_idx("__divider__")
+    domain_col      = col_idx("Domain")
     n_data          = len(data_rows)
     last_row_idx    = 1 + n_data   # exclusive end (0-based, row 0 = header)
 
@@ -327,6 +328,21 @@ def _apply_sheet_formatting(
             "fields": "pixelSize",
         }})
 
+    # ── Hide the Domain helper column ─────────────────────────────────────
+    # This column holds pre-extracted domain strings used only by the
+    # domain-grey CF rule.  Users should never see it.
+    if domain_col >= 0:
+        requests.append({"updateDimensionProperties": {
+            "range": {
+                "sheetId":    sheet_gid,
+                "dimension":  "COLUMNS",
+                "startIndex": domain_col,
+                "endIndex":   domain_col + 1,
+            },
+            "properties": {"hiddenByUser": True},
+            "fields": "hiddenByUser",
+        }})
+
     # ── Data validation: Send Status = checkbox ───────────────────────────
     if send_status_col >= 0:
         requests.append({"setDataValidation": {
@@ -369,20 +385,51 @@ def _apply_sheet_formatting(
         }})
 
     # ── Conditional formatting ─────────────────────────────────────────────
-    # Only two CF rules remain — both are natively evaluated by Sheets
-    # (no column-scan formulas) so they are near-instant on every edit.
+    # Rules are added with index=0. Each insertion shifts previous rules down,
+    # so the LAST rule added ends up at the highest priority (index 0).
     #
-    # Domain-grey is NO LONGER a CF rule.  It is applied as static cell
-    # background colours via apply_domain_grey_static() at sheet-creation
-    # time and refreshed by refresh_domain_grey() after each sync.  This
-    # eliminates the COUNTIFS column-scan that was re-evaluated for every
-    # cell in the sheet on every keystroke.
-    #
-    # Rule priority (low → high):
-    #   1. Send Status whole-row blue  (lower  — Lead-cell colour overrides it)
-    #   2. Lead Status cell colours    (higher — always visible on LS cell)
+    # Priority order (low → high):
+    #   1. Domain-grey  whole-row grey  (lowest  — overridden by send & lead)
+    #   2. Send Status  whole-row blue  (middle)
+    #   3. Lead Status  cell colours    (highest — narrow range, always wins)
 
-    # 1. Send Status checked → whole-row light BLUE
+    # 1. Domain-grey (lowest priority — added first).
+    # When any row has Lead Status="Lead", ALL rows sharing that email domain
+    # are highlighted grey.  We pre-extracted domain strings into a hidden
+    # "Domain" column at creation time, so COUNTIFS runs against static
+    # string values — no live email parsing on every keystroke.  The rule
+    # only re-evaluates when Lead Status changes, so it's near-instant.
+    if lead_status_col >= 0 and domain_col >= 0:
+        ls_letter = _col_letter(lead_status_col + 1)
+        dm_letter = _col_letter(domain_col + 1)
+        # Cap the scan range to the actual data rows for fastest evaluation
+        formula = (
+            f'=AND(${ls_letter}2<>"Lead",'
+            f'${dm_letter}2<>"",'
+            f'COUNTIFS(${ls_letter}$2:${ls_letter}${last_row_idx},"Lead",'
+            f'${dm_letter}$2:${dm_letter}${last_row_idx},${dm_letter}2)>0)'
+        )
+        requests.append({"addConditionalFormatRule": {
+            "rule": {
+                "ranges": [{
+                    "sheetId":          sheet_gid,
+                    "startRowIndex":    1,
+                    "endRowIndex":      last_row_idx,
+                    "startColumnIndex": 0,
+                    "endColumnIndex":   domain_col,   # stop before hidden Domain col
+                }],
+                "booleanRule": {
+                    "condition": {
+                        "type":   "CUSTOM_FORMULA",
+                        "values": [{"userEnteredValue": formula}],
+                    },
+                    "format": {"backgroundColor": _rgb("E0E0E0")},  # medium grey
+                },
+            },
+            "index": 0,
+        }})
+
+    # 3. Send Status checked → whole-row light BLUE  (medium priority)
     if send_status_col >= 0:
         ss_letter = _col_letter(send_status_col + 1)
         requests.append({"addConditionalFormatRule": {
@@ -405,7 +452,7 @@ def _apply_sheet_formatting(
             "index": 0,
         }})
 
-    # 2. Lead Status cell colours (highest priority — narrow range, LS cell only).
+    # 4. Lead Status cell colours (highest priority — narrow range, LS cell only).
     if lead_status_col >= 0:
         ls_range = {
             "sheetId":          sheet_gid,
@@ -473,10 +520,48 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     if not raw_rows:
         raise ValueError("The merge output file is empty.")
 
-    str_rows  = [[str(v) if v is not None else "" for v in row] for row in raw_rows]
+    # Detect the divider column by its grey header fill.
+    # excel_writer writes the cell VALUE as '' (blank) with fgColor=BDBDBD.
+    # We restore the "__divider__" marker so _apply_sheet_formatting can
+    # locate the column by name.  The marker is later cleared via batchUpdate.
+    _div_col_xlsx = -1
+    header_cells = list(ws.iter_rows(min_row=1, max_row=1))[0]
+    for _ci, _cell in enumerate(header_cells):
+        try:
+            if (_cell.fill.fill_type == "solid"
+                    and _cell.fill.fgColor.type == "rgb"
+                    and _cell.fill.fgColor.rgb.upper() in ("FFBDBDBD", "BDBDBD")):
+                _div_col_xlsx = _ci
+                break
+        except AttributeError:
+            pass
+
+    str_rows = [[str(v) if v is not None else "" for v in row] for row in raw_rows]
+
+    # Restore the divider marker the excel_writer blanked out
+    if _div_col_xlsx >= 0 and str_rows:
+        str_rows[0] = list(str_rows[0])
+        str_rows[0][_div_col_xlsx] = "__divider__"
+
+    # Append a hidden "Domain" column with pre-extracted domain strings.
+    # The domain-grey CF rule uses COUNTIFS against this static column instead
+    # of parsing email strings live — making the highlighting near-instant
+    # (re-evaluates only when Lead Status changes, not on every keystroke).
+    try:
+        _email_idx = str_rows[0].index("Recipient Email")
+        _new_header = list(str_rows[0]) + ["Domain"]
+        _new_rows   = []
+        for _row in str_rows[1:]:
+            _email  = _row[_email_idx] if _email_idx < len(_row) else ""
+            _domain = _email.split("@", 1)[1].lower().strip() if "@" in _email else ""
+            _new_rows.append(list(_row) + [_domain])
+        str_rows = [_new_header] + _new_rows
+    except ValueError:
+        pass   # No "Recipient Email" column — Domain column not added
+
     headers   = str_rows[0]
     data_rows = str_rows[1:]
-    all_rows  = [headers] + data_rows
+    all_rows  = str_rows
 
     # ── Create spreadsheet in Shared Drive ───────────────────────────────
     file_id, sheet_url = _create_spreadsheet(title)
