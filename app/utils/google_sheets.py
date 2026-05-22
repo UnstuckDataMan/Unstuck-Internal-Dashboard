@@ -160,86 +160,6 @@ def _rgb(hex_str: str) -> dict:
     }
 
 
-def _grey_range_request(
-    sheet_gid: int,
-    start_row: int,
-    end_row: int,
-    n_cols: int,
-) -> dict:
-    """Single repeatCell request that applies a subtle grey background."""
-    return {"repeatCell": {
-        "range": {
-            "sheetId":          sheet_gid,
-            "startRowIndex":    start_row,
-            "endRowIndex":      end_row,
-            "startColumnIndex": 0,
-            "endColumnIndex":   n_cols,
-        },
-        "cell": {"userEnteredFormat": {
-            "backgroundColor": _rgb("EFEFEF"),   # subtle grey
-        }},
-        "fields": "userEnteredFormat.backgroundColor",
-    }}
-
-
-def _build_domain_grey_requests(
-    sheet_gid: int,
-    headers: list[str],
-    data_rows: list[list[str]],
-) -> list[dict]:
-    """
-    Return batchUpdate requests that apply a light-grey background to every
-    row whose email domain is shared with at least one other row.
-
-    Applied as static userEnteredFormat (not CF) so it never re-evaluates.
-    CF rules (Lead Status cell colours, Send Status whole-row blue) have
-    higher rendering priority and always appear on top of these backgrounds.
-
-    These requests are inserted *first* in the batchUpdate list so that
-    sender-stripe yellow (added afterwards) overwrites grey where they overlap.
-    """
-    from collections import Counter
-
-    try:
-        email_col = headers.index("Recipient Email")
-    except ValueError:
-        return []
-
-    domain_counts: Counter = Counter()
-    for row in data_rows:
-        email = row[email_col] if email_col < len(row) else ""
-        if "@" in email:
-            domain = email.split("@", 1)[1].lower().strip()
-            domain_counts[domain] += 1
-
-    # Collect 0-based sheet-row indices that need grey (row 0 = header)
-    grey_indices: list[int] = []
-    for ri, row in enumerate(data_rows):
-        email = row[email_col] if email_col < len(row) else ""
-        if "@" in email:
-            domain = email.split("@", 1)[1].lower().strip()
-            if domain_counts[domain] > 1:
-                grey_indices.append(ri + 1)   # +1 because row 0 is the header
-
-    if not grey_indices:
-        return []
-
-    n_cols = len(headers)
-    reqs: list[dict] = []
-
-    # Compress consecutive indices into contiguous ranges (fewer API operations)
-    start = grey_indices[0]
-    end   = grey_indices[0] + 1
-    for idx in grey_indices[1:]:
-        if idx == end:
-            end += 1
-        else:
-            reqs.append(_grey_range_request(sheet_gid, start, end, n_cols))
-            start, end = idx, idx + 1
-    reqs.append(_grey_range_request(sheet_gid, start, end, n_cols))
-
-    return reqs
-
 
 def _apply_sheet_formatting(
     session: AuthorizedSession,
@@ -283,12 +203,6 @@ def _apply_sheet_formatting(
     last_row_idx    = 1 + n_data   # exclusive end (0-based, row 0 = header)
 
     requests: list[dict] = []
-
-    # ── Domain-grey static backgrounds (applied first so yellow stripe wins) ─
-    # Rows that share an email domain with another row get a subtle grey
-    # background to signal "same company".  This is a one-time static write —
-    # no formula re-evaluation — so it has zero impact on typing performance.
-    requests.extend(_build_domain_grey_requests(sheet_gid, headers, data_rows))
 
     # ── Per-row styles (separator merge + yellow first-sender stripe) ─────
     prev_sender: str | None = None
@@ -800,42 +714,6 @@ def mark_email_in_sheet(sheet_id: str, email: str, reason: str = "manual") -> in
         ws.batch_update(updates)
 
     return len(updates)
-
-
-# ── Public: refresh domain-grey after sync ────────────────────────────────────
-
-def refresh_domain_grey(sheet_id: str) -> None:
-    """
-    Re-apply static domain-grey backgrounds to an existing sheet.
-
-    Call this at the end of a sync pass so newly-added lead rows (which may
-    have altered which domains are represented) get correct grey shading.
-
-    Reads the current sheet values, computes which rows share a domain, and
-    pushes a targeted batchUpdate for only those rows.  Non-fatal — any error
-    is logged and swallowed so the caller's sync result is unaffected.
-    """
-    try:
-        gc     = _client()
-        sh     = gc.open_by_key(sheet_id)
-        ws     = sh.sheet1
-        all_values = ws.get_all_values()   # list[list[str]]
-        if len(all_values) < 2:
-            return
-        headers   = all_values[0]
-        data_rows = all_values[1:]
-        reqs = _build_domain_grey_requests(ws.id, headers, data_rows)
-        if not reqs:
-            return
-        session = _authed_session()
-        resp = session.post(
-            f"{_SHEETS_BASE_URL}/{sheet_id}:batchUpdate",
-            json={"requests": reqs},
-        )
-        if not resp.ok:
-            print(f"[google_sheets] refresh_domain_grey {resp.status_code}: {resp.text[:200]}")
-    except Exception as exc:
-        print(f"[google_sheets] refresh_domain_grey failed for {sheet_id}: {exc}")
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────

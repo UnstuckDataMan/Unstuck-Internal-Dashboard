@@ -173,15 +173,6 @@ def sync_campaign_core(
     except Exception:
         pass
 
-    # ── Refresh domain-grey static backgrounds ───────────────────────────
-    # Re-applies grey shading to rows that share an email domain.  This is
-    # non-fatal and runs last so it never blocks the sync result.
-    try:
-        from app.utils.google_sheets import refresh_domain_grey
-        refresh_domain_grey(sheet_id)
-    except Exception:
-        pass
-
     return result
 
 
