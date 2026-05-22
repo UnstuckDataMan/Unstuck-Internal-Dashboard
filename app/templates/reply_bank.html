@@ -864,8 +864,10 @@ document.addEventListener('keydown', e => {
 // ════════════════════════════════════════════════════════
 function migrateTemplates() {
   // Upgrades template strings from implicit insertion anchors to explicit [[key]] markers.
-  // Safe to run multiple times — checks for existing markers before inserting.
+  // Only runs on keys the user has NOT customised — saved templates are left exactly as-is.
+  const savedKeys = new Set(Object.keys(JSON.parse(localStorage.getItem('rb_templates') || '{}')));
   for (const key of Object.keys(TEMPLATES)) {
+    if (savedKeys.has(key)) continue; // user has saved this template — never touch it
     let t = TEMPLATES[key];
     if (!t) continue;
 
@@ -1734,20 +1736,34 @@ function buildSnippetRow(key, snip) {
 //  ADMIN — panel logic
 // ════════════════════════════════════════════════════════
 const ADMIN_PASSWORD = 'unstuck2025';
-let _tplDirty = false;
+let _tplDirty    = false;
+let _activeTplKeys = {}; // { Email: 'US_Standard_Email_PR', LinkedIn: '...' } — keys currently in the editors
 
 function _markTplDirty() { _tplDirty = true; }
 
-function _confirmDiscardOrSave(onDiscard) {
-  if (!_tplDirty) { onDiscard(); return; }
-  const choice = confirm('You have unsaved template changes.\n\nClick OK to save now, or Cancel to discard and continue.');
-  if (choice) {
-    // Save
-    document.getElementById('adm-save-templates').click();
+// Save whatever is currently in the editors, keyed by _activeTplKeys (not re-reading selectors).
+// This is safe to call even when selectors have already changed to new values.
+function _saveCurrentEditors() {
+  const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
+  for (const channel of ['Email', 'LinkedIn']) {
+    const key    = _activeTplKeys[channel];
+    if (!key) continue;
+    const editor = document.getElementById(`adm-${channel.toLowerCase()}-editor`);
+    if (!editor) continue;
+    const val = serializeUnifiedEditor(editor);
+    tOverrides[key] = val;
+    TEMPLATES[key]  = val;
   }
-  // Whether they saved or discarded, proceed
+  localStorage.setItem('rb_templates', JSON.stringify(tOverrides));
   _tplDirty = false;
-  onDiscard();
+}
+
+function _confirmDiscardOrSave(onProceed) {
+  if (!_tplDirty) { onProceed(); return; }
+  const choice = confirm('You have unsaved template changes.\n\nClick OK to save now, or Cancel to discard and continue.');
+  if (choice) _saveCurrentEditors();
+  _tplDirty = false;
+  onProceed();
 }
 
 function adminShow() {
@@ -1795,13 +1811,18 @@ function _doLoadTemplates() {
   for (const channel of ['Email', 'LinkedIn']) {
     const key      = `${territory}_${admStyle}_${channel}_${industry}`;
     const editorId = `adm-${channel.toLowerCase()}-editor`;
-    const segs     = parseTemplate(TEMPLATES[key] || '');
+    _activeTplKeys[channel] = key; // track which key is in each editor
+    const segs = parseTemplate(TEMPLATES[key] || '');
     renderBlockEditor(editorId, segs);
     renderSnippetPalette(`palette-${channel.toLowerCase()}`);
     const chip = document.getElementById(`chip-adm-${channel.toLowerCase()}`);
     if (chip) chip.style.display = tOverrides[key] !== undefined ? 'inline-block' : 'none';
-    // Mark dirty when editor content changes
-    document.getElementById(editorId)?.addEventListener('input', _markTplDirty);
+    // Attach dirty listener once per editor element (guard against duplicates)
+    const editorEl = document.getElementById(editorId);
+    if (editorEl && !editorEl.dataset.dirtyListenerAttached) {
+      editorEl.addEventListener('input', _markTplDirty);
+      editorEl.dataset.dirtyListenerAttached = '1';
+    }
   }
   _tplDirty = false;
 }
@@ -1815,22 +1836,15 @@ function adminLoadTemplates() {
 });
 
 document.getElementById('adm-save-templates').addEventListener('click', () => {
-  const { style: admStyle, territory, industry } = adminGetSelectors();
+  _saveCurrentEditors();
+
+  // Update "Edited" chips to reflect saved state
   const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
-
   for (const channel of ['Email', 'LinkedIn']) {
-    const key    = `${territory}_${admStyle}_${channel}_${industry}`;
-    const editor = document.getElementById(`adm-${channel.toLowerCase()}-editor`);
-    if (!editor) continue;
-    const val = serializeUnifiedEditor(editor);
-    tOverrides[key] = val;
-    TEMPLATES[key]  = val;
+    const key  = _activeTplKeys[channel];
     const chip = document.getElementById(`chip-adm-${channel.toLowerCase()}`);
-    if (chip) chip.style.display = 'inline-block';
+    if (chip) chip.style.display = key && tOverrides[key] !== undefined ? 'inline-block' : 'none';
   }
-
-  localStorage.setItem('rb_templates', JSON.stringify(tOverrides));
-  _tplDirty = false;
 
   const btn = document.getElementById('adm-save-templates');
   btn.textContent = '✓ Saved!';
