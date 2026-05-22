@@ -1332,9 +1332,21 @@ function _onPointerUp(e) {
 
   if (src === 'template' && chipEl?.parentNode) chipEl.remove();
 
+  const chip = createInlineChip(key);
   const range = _safeRange(e.clientX, e.clientY, editor);
-  if (range) range.insertNode(createInlineChip(key));
-  else editor.appendChild(createInlineChip(key));
+  if (range) range.insertNode(chip);
+  else editor.appendChild(chip);
+
+  // Place cursor immediately after the inserted chip
+  const sel = window.getSelection();
+  if (sel) {
+    const after = document.createRange();
+    after.setStartAfter(chip);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+  }
+  editor.focus();
 }
 
 // Wire pointer-based drag onto any chip element (template or palette)
@@ -1722,19 +1734,37 @@ function buildSnippetRow(key, snip) {
 //  ADMIN — panel logic
 // ════════════════════════════════════════════════════════
 const ADMIN_PASSWORD = 'unstuck2025';
+let _tplDirty = false;
+
+function _markTplDirty() { _tplDirty = true; }
+
+function _confirmDiscardOrSave(onDiscard) {
+  if (!_tplDirty) { onDiscard(); return; }
+  const choice = confirm('You have unsaved template changes.\n\nClick OK to save now, or Cancel to discard and continue.');
+  if (choice) {
+    // Save
+    document.getElementById('adm-save-templates').click();
+  }
+  // Whether they saved or discarded, proceed
+  _tplDirty = false;
+  onDiscard();
+}
 
 function adminShow() {
   document.querySelector('.main').style.display = 'none';
   document.getElementById('admin-panel').classList.add('visible');
+  _tplDirty = false;
   adminLoadSnippets();   // snippets first — templates need the palette
   adminLoadTemplates();
   adminRenderAllOptions();
 }
 
 function adminHide() {
-  document.getElementById('admin-panel').classList.remove('visible');
-  document.querySelector('.main').style.display = 'flex';
-  render();
+  _confirmDiscardOrSave(() => {
+    document.getElementById('admin-panel').classList.remove('visible');
+    document.querySelector('.main').style.display = 'flex';
+    render();
+  });
 }
 
 document.getElementById('gear-btn').addEventListener('click', () => {
@@ -1758,7 +1788,7 @@ function adminGetSelectors() {
 
 // (Unified editor serializes directly from DOM; no segment cache needed)
 
-function adminLoadTemplates() {
+function _doLoadTemplates() {
   const { style: admStyle, territory, industry } = adminGetSelectors();
   const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
 
@@ -1770,7 +1800,14 @@ function adminLoadTemplates() {
     renderSnippetPalette(`palette-${channel.toLowerCase()}`);
     const chip = document.getElementById(`chip-adm-${channel.toLowerCase()}`);
     if (chip) chip.style.display = tOverrides[key] !== undefined ? 'inline-block' : 'none';
+    // Mark dirty when editor content changes
+    document.getElementById(editorId)?.addEventListener('input', _markTplDirty);
   }
+  _tplDirty = false;
+}
+
+function adminLoadTemplates() {
+  _confirmDiscardOrSave(_doLoadTemplates);
 }
 
 ['adm-style','adm-territory','adm-industry'].forEach(id => {
@@ -1793,6 +1830,7 @@ document.getElementById('adm-save-templates').addEventListener('click', () => {
   }
 
   localStorage.setItem('rb_templates', JSON.stringify(tOverrides));
+  _tplDirty = false;
 
   const btn = document.getElementById('adm-save-templates');
   btn.textContent = '✓ Saved!';
@@ -1886,14 +1924,37 @@ document.getElementById('adm-reset').addEventListener('click', () => {
 function adminRenderOptionsList(category) {
   const list  = document.getElementById(`opt-list-${category}`);
   const items = OPTIONS[category];
-  list.innerHTML = items.map(item => `
-    <div class="opt-item">
-      <span>${item}</span>
-      <button class="opt-remove" data-category="${category}" data-item="${item}"${items.length <= 1 ? ' disabled' : ''}>Remove</button>
-    </div>
-  `).join('');
-  list.querySelectorAll('.opt-remove').forEach(btn => {
-    btn.addEventListener('click', () => adminRemoveOption(btn.dataset.category, btn.dataset.item));
+  list.innerHTML = '';
+  items.forEach((item, idx) => {
+    const row = document.createElement('div');
+    row.className = 'opt-item';
+
+    const input = document.createElement('input');
+    input.type  = 'text';
+    input.value = item;
+    input.style.cssText = 'flex:1;background:transparent;border:none;outline:none;font-family:var(--font);font-size:13px;color:var(--text);padding:2px 4px;border-radius:4px;';
+    input.addEventListener('focus', () => input.style.background = 'rgba(255,255,255,.06)');
+    input.addEventListener('blur',  () => {
+      input.style.background = 'transparent';
+      const newVal = input.value.trim();
+      if (!newVal || newVal === item) { input.value = item; return; }
+      if (OPTIONS[category].includes(newVal)) { input.value = item; return; }
+      OPTIONS[category][idx] = newVal;
+      adminSaveOptions();
+      populateDropdowns();
+      render();
+    });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = item; input.blur(); } });
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'opt-remove';
+    removeBtn.textContent = 'Remove';
+    removeBtn.disabled = items.length <= 1;
+    removeBtn.addEventListener('click', () => adminRemoveOption(category, item));
+
+    row.appendChild(input);
+    row.appendChild(removeBtn);
+    list.appendChild(row);
   });
 }
 
