@@ -1118,12 +1118,30 @@ function renderTerritoryButtons() {
 //  ADMIN — localStorage merge (runs at startup)
 // ════════════════════════════════════════════════════════
 (function mergeLocalStorage() {
+  // ── 1. Options — loaded first and independently so a snippet/template error can never block them ──
+  try {
+    const oOverrides = JSON.parse(localStorage.getItem('rb_options') || '{}');
+    if (oOverrides.industries)  OPTIONS.industries  = oOverrides.industries;
+    if (oOverrides.territories) OPTIONS.territories = oOverrides.territories;
+    if (oOverrides.senders)     OPTIONS.senders     = oOverrides.senders;
+  } catch(e) { console.warn('rb_options load failed', e); }
+
+  // ── 2. Templates ──
   try {
     const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
-    const sRaw       = JSON.parse(localStorage.getItem('rb_snippets')  || '{}');
-    const oOverrides = JSON.parse(localStorage.getItem('rb_options')   || '{}');
     Object.assign(TEMPLATES, tOverrides);
-    // Migrate old snippet format to new variations-based format
+    // Migrate [[usPricing]][[ukPricing]] → [[pricing]] in any saved templates
+    for (const k of Object.keys(TEMPLATES)) {
+      TEMPLATES[k] = TEMPLATES[k]
+        .replace(/\[\[usPricing\]\]\[\[ukPricing\]\]/g, '[[pricing]]')
+        .replace(/\[\[usPricing\]\]/g, '[[pricing]]')
+        .replace(/\[\[ukPricing\]\]/g, '[[pricing]]');
+    }
+  } catch(e) { console.warn('rb_templates load failed', e); }
+
+  // ── 3. Snippets — most complex migration, isolated so errors don't affect options/templates ──
+  try {
+    const sRaw = JSON.parse(localStorage.getItem('rb_snippets') || '{}');
     if (Object.keys(sRaw).length > 0) {
       const isStringFormat = Object.values(sRaw).some(v => typeof v === 'string');
       const isOldObjFormat = !isStringFormat && Object.values(sRaw).some(v => v && ('content' in v || 'senderScope' in v) && !Array.isArray(v.variations));
@@ -1131,9 +1149,8 @@ function renderTerritoryButtons() {
         const migrated = {};
         for (const [k, v] of Object.entries(sRaw)) {
           if (Array.isArray(v.variations)) {
-            migrated[k] = v; // already new format
+            migrated[k] = v;
           } else if (isOldObjFormat) {
-            // Convert old {content, contentLeo, senderScope, territoryScope} → variations
             const baseVariation = { content: v.content || '', territory: v.territoryScope || 'all', sender: v.senderScope || 'all' };
             const variations = [baseVariation];
             if (v.contentLeo !== null && v.contentLeo !== undefined) {
@@ -1143,7 +1160,6 @@ function renderTerritoryButtons() {
             migrated[k] = { label: v.label || '', isToggle: !!v.isToggle, toggleGroup: v.toggleGroup || null, variations };
           }
         }
-        // Merge usPricing + ukPricing into pricing if they exist separately
         if (migrated.usPricing && migrated.ukPricing && !migrated.pricing) {
           migrated.pricing = {
             label: 'Pricing', isToggle: true, toggleGroup: null,
@@ -1158,17 +1174,9 @@ function renderTerritoryButtons() {
         Object.assign(SNIPPETS, migrated);
       }
     }
-    // Migrate [[usPricing]][[ukPricing]] → [[pricing]] in any saved templates
-    for (const k of Object.keys(TEMPLATES)) {
-      TEMPLATES[k] = TEMPLATES[k].replace(/\[\[usPricing\]\]\[\[ukPricing\]\]/g, '[[pricing]]')
-                                  .replace(/\[\[usPricing\]\]/g, '[[pricing]]')
-                                  .replace(/\[\[ukPricing\]\]/g, '[[pricing]]');
-    }
-    if (oOverrides.industries)  OPTIONS.industries  = oOverrides.industries;
-    if (oOverrides.territories) OPTIONS.territories = oOverrides.territories;
-    if (oOverrides.senders)     OPTIONS.senders     = oOverrides.senders;
-  } catch(e) {}
-  migrateTemplates();   // one-time upgrade of template strings to [[key]] format
+  } catch(e) { console.warn('rb_snippets load failed', e); }
+
+  migrateTemplates();
   populateDropdowns();
   renderModifiers();
   render();
