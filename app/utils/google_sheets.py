@@ -199,7 +199,6 @@ def _apply_sheet_formatting(
     sender_col      = col_idx("Sender Account")
     email_col       = col_idx("Recipient Email")
     div_col         = col_idx("__divider__")
-    domain_col      = col_idx("Domain")
     n_data          = len(data_rows)
     last_row_idx    = 1 + n_data   # exclusive end (0-based, row 0 = header)
 
@@ -328,21 +327,6 @@ def _apply_sheet_formatting(
             "fields": "pixelSize",
         }})
 
-    # ── Hide the Domain helper column ─────────────────────────────────────
-    # This column holds pre-extracted domain strings used only by the
-    # domain-grey CF rule.  Users should never see it.
-    if domain_col >= 0:
-        requests.append({"updateDimensionProperties": {
-            "range": {
-                "sheetId":    sheet_gid,
-                "dimension":  "COLUMNS",
-                "startIndex": domain_col,
-                "endIndex":   domain_col + 1,
-            },
-            "properties": {"hiddenByUser": True},
-            "fields": "hiddenByUser",
-        }})
-
     # ── Data validation: Send Status = checkbox ───────────────────────────
     if send_status_col >= 0:
         requests.append({"setDataValidation": {
@@ -394,20 +378,21 @@ def _apply_sheet_formatting(
     #   3. Lead Status  cell colours    (highest — narrow range, always wins)
 
     # 1. Domain-grey (lowest priority — added first).
-    # When any row has Lead Status="Lead", ALL rows sharing that email domain
-    # are highlighted grey.  We pre-extracted domain strings into a hidden
-    # "Domain" column at creation time, so COUNTIFS runs against static
-    # string values — no live email parsing on every keystroke.  The rule
-    # only re-evaluates when Lead Status changes, so it's near-instant.
-    if lead_status_col >= 0 and domain_col >= 0:
+    # When any row has Lead Status="Lead", ALL rows sharing the same email
+    # domain are highlighted grey.  The formula extracts the domain from the
+    # Recipient Email column directly via RIGHT/FIND and matches it with a
+    # wildcard COUNTIFS — no helper column required.
+    if lead_status_col >= 0 and email_col >= 0:
         ls_letter = _col_letter(lead_status_col + 1)
-        dm_letter = _col_letter(domain_col + 1)
-        # Cap the scan range to the actual data rows for fastest evaluation
+        em_letter = _col_letter(email_col + 1)
+        # Formula anchors the column ($) but leaves the row relative so it
+        # shifts correctly as Sheets evaluates it for each row in the range.
         formula = (
             f'=AND(${ls_letter}2<>"Lead",'
-            f'${dm_letter}2<>"",'
+            f'ISNUMBER(FIND("@",${em_letter}2)),'
             f'COUNTIFS(${ls_letter}$2:${ls_letter}${last_row_idx},"Lead",'
-            f'${dm_letter}$2:${dm_letter}${last_row_idx},${dm_letter}2)>0)'
+            f'${em_letter}$2:${em_letter}${last_row_idx},'
+            f'"*@"&RIGHT(${em_letter}2,LEN(${em_letter}2)-FIND("@",${em_letter}2)))>0)'
         )
         requests.append({"addConditionalFormatRule": {
             "rule": {
@@ -416,7 +401,7 @@ def _apply_sheet_formatting(
                     "startRowIndex":    1,
                     "endRowIndex":      last_row_idx,
                     "startColumnIndex": 0,
-                    "endColumnIndex":   domain_col,   # stop before hidden Domain col
+                    "endColumnIndex":   n_cols,
                 }],
                 "booleanRule": {
                     "condition": {
@@ -523,33 +508,17 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
 
     str_rows = [[str(v) if v is not None else "" for v in row] for row in raw_rows]
 
-    # ── Append a hidden "Domain" column with pre-extracted domain strings.
-    # The domain-grey CF rule uses COUNTIFS against this static column instead
-    # of parsing email strings live — making the highlighting near-instant
-    # (re-evaluates only when Lead Status changes, not on every keystroke).
-    try:
-        _email_idx = str_rows[0].index("Recipient Email")
-        _new_header = list(str_rows[0]) + ["Domain"]
-        _new_rows   = []
-        for _row in str_rows[1:]:
-            _email  = _row[_email_idx] if _email_idx < len(_row) else ""
-            _domain = _email.split("@", 1)[1].lower().strip() if "@" in _email else ""
-            _new_rows.append(list(_row) + [_domain])
-        str_rows = [_new_header] + _new_rows
-    except ValueError:
-        pass   # No "Recipient Email" column — Domain column not added
-
     headers   = str_rows[0]
     data_rows = str_rows[1:]
     all_rows  = str_rows
 
     # Log detected column positions for debugging
     _div_idx = headers.index("__divider__") if "__divider__" in headers else -1
-    _dom_idx = headers.index("Domain")      if "Domain"      in headers else -1
     _ls_idx  = headers.index("Lead Status") if "Lead Status" in headers else -1
+    _em_idx  = headers.index("Recipient Email") if "Recipient Email" in headers else -1
     print(
         f"[google_sheets] columns — __divider__:{_div_idx}  "
-        f"Domain:{_dom_idx}  LeadStatus:{_ls_idx}  total:{len(headers)}"
+        f"LeadStatus:{_ls_idx}  RecipientEmail:{_em_idx}  total:{len(headers)}"
     )
 
     # ── Create spreadsheet in Shared Drive ───────────────────────────────
