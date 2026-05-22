@@ -495,8 +495,9 @@ def _apply_sheet_formatting(
         json={"requests": requests},
     )
     if not resp.ok:
-        # Non-fatal — sheet is usable without formatting
-        print(f"[google_sheets] batchUpdate warning {resp.status_code}: {resp.text[:300]}")
+        print(f"[google_sheets] batchUpdate FAILED {resp.status_code}: {resp.text[:600]}")
+    else:
+        print(f"[google_sheets] batchUpdate OK — {len(requests)} requests applied")
 
 
 # ── Public: create outreach sheet ─────────────────────────────────────────────
@@ -520,30 +521,9 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     if not raw_rows:
         raise ValueError("The merge output file is empty.")
 
-    # Detect the divider column by its grey header fill.
-    # excel_writer writes the cell VALUE as '' (blank) with fgColor=BDBDBD.
-    # We restore the "__divider__" marker so _apply_sheet_formatting can
-    # locate the column by name.  The marker is later cleared via batchUpdate.
-    _div_col_xlsx = -1
-    header_cells = list(ws.iter_rows(min_row=1, max_row=1))[0]
-    for _ci, _cell in enumerate(header_cells):
-        try:
-            if (_cell.fill.fill_type == "solid"
-                    and _cell.fill.fgColor.type == "rgb"
-                    and _cell.fill.fgColor.rgb.upper() in ("FFBDBDBD", "BDBDBD")):
-                _div_col_xlsx = _ci
-                break
-        except AttributeError:
-            pass
-
     str_rows = [[str(v) if v is not None else "" for v in row] for row in raw_rows]
 
-    # Restore the divider marker the excel_writer blanked out
-    if _div_col_xlsx >= 0 and str_rows:
-        str_rows[0] = list(str_rows[0])
-        str_rows[0][_div_col_xlsx] = "__divider__"
-
-    # Append a hidden "Domain" column with pre-extracted domain strings.
+    # ── Append a hidden "Domain" column with pre-extracted domain strings.
     # The domain-grey CF rule uses COUNTIFS against this static column instead
     # of parsing email strings live — making the highlighting near-instant
     # (re-evaluates only when Lead Status changes, not on every keystroke).
@@ -562,6 +542,15 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     headers   = str_rows[0]
     data_rows = str_rows[1:]
     all_rows  = str_rows
+
+    # Log detected column positions for debugging
+    _div_idx = headers.index("__divider__") if "__divider__" in headers else -1
+    _dom_idx = headers.index("Domain")      if "Domain"      in headers else -1
+    _ls_idx  = headers.index("Lead Status") if "Lead Status" in headers else -1
+    print(
+        f"[google_sheets] columns — __divider__:{_div_idx}  "
+        f"Domain:{_dom_idx}  LeadStatus:{_ls_idx}  total:{len(headers)}"
+    )
 
     # ── Create spreadsheet in Shared Drive ───────────────────────────────
     file_id, sheet_url = _create_spreadsheet(title)
@@ -583,9 +572,11 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     # ── Apply full formatting via batchUpdate ─────────────────────────────
     try:
         session = _authed_session()
+        print(f"[google_sheets] applying formatting (sheet_gid={gsheet.id}) …")
         _apply_sheet_formatting(session, file_id, gsheet.id, all_rows)
+        print("[google_sheets] formatting applied OK")
     except Exception as fmt_err:
-        print(f"[google_sheets] formatting skipped: {fmt_err}")
+        print(f"[google_sheets] formatting FAILED: {fmt_err}")
 
     # ── Share: anyone with link can edit ─────────────────────────────────
     sh.share("", perm_type="anyone", role="writer")

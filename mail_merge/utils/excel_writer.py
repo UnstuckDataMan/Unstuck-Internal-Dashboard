@@ -170,8 +170,12 @@ def write_merge_output(
     # ── Write header row ───────────────────────────────────────────────────
     for ci, header in enumerate(all_cols, 1):
         if header == _DIV:
-            cell = ws.cell(row=1, column=ci, value='')
+            # Write the marker string so google_sheets.py can locate this
+            # column by name without needing fragile fill-colour detection.
+            # Font colour matches the fill (BDBDBD) → visually invisible in Excel.
+            cell = ws.cell(row=1, column=ci, value='__divider__')
             cell.fill   = PatternFill('solid', fgColor='BDBDBD')
+            cell.font   = Font(name='Calibri', color='BDBDBD', size=9)
             cell.border = _thin_border()
             ws.column_dimensions[get_column_letter(ci)].width = col_widths[_DIV]
         else:
