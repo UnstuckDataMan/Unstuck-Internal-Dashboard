@@ -540,6 +540,12 @@
     }
     .snip-add-btn:hover { border-color: rgba(139,92,246,.7); color: #a78bfa; background: rgba(139,92,246,.06); }
     .snip-leo-section { margin-top: 4px; }
+    .app-loading { display:flex; align-items:center; justify-content:center; gap:10px;
+                   color: var(--text-3); font-size:.9rem; padding:40px; }
+    .app-loading::before { content:''; width:16px; height:16px; border-radius:50%;
+                           border:2px solid var(--border); border-top-color:var(--purple);
+                           animation: spin .7s linear infinite; display:block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Export tab ── */
     .adm-export-group { margin-bottom: 18px; }
@@ -565,6 +571,7 @@
                              background: rgba(139,92,246,.18); }
     .adm-export-generate   { margin-top: 6px; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 
@@ -867,6 +874,18 @@ const SNIPPETS = {
   },
 };
 const OPTIONS = {"industries":["PR","Marketing","Media","SaaS","AI","Accounting","Cybersecurity"],"territories":["US","UK"],"senders":["Robyn","Glen","Leo","Chris","Devlin"]};
+
+// ════════════════════════════════════════════════════════
+//  SUPABASE CLIENT
+//  Credentials are injected by Jinja2 when served via FastAPI.
+//  When served locally (Perl / direct file), the placeholders remain
+//  as literal strings → detected below → falls back to localStorage.
+// ════════════════════════════════════════════════════════
+const _SB_URL = '{{ supabase_url }}';
+const _SB_KEY = '{{ supabase_anon_key }}';
+const _sb = (_SB_URL && !_SB_URL.includes('{{') && window.supabase)
+  ? window.supabase.createClient(_SB_URL, _SB_KEY)
+  : null;
 
 // ════════════════════════════════════════════════════════
 //  STATE
@@ -1192,10 +1211,11 @@ function renderTerritoryButtons() {
 }
 
 // ════════════════════════════════════════════════════════
-//  ADMIN — localStorage merge (runs at startup)
+//  ADMIN — data loading (Supabase → localStorage fallback)
 // ════════════════════════════════════════════════════════
-(function mergeLocalStorage() {
-  // ── 1. Options — loaded first and independently so a snippet/template error can never block them ──
+
+// Merge localStorage into in-memory constants (local fallback)
+function _mergeLocalStorage() {
   try {
     const oOverrides = JSON.parse(localStorage.getItem('rb_options') || '{}');
     if (oOverrides.industries)  OPTIONS.industries  = oOverrides.industries;
@@ -1203,12 +1223,11 @@ function renderTerritoryButtons() {
     if (oOverrides.senders)     OPTIONS.senders     = oOverrides.senders;
   } catch(e) { console.warn('rb_options load failed', e); }
 
-  // ── 2. Templates ──
   try {
     const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
     Object.assign(TEMPLATES, tOverrides);
-    // Migrate [[usPricing]][[ukPricing]] → [[pricing]] in any saved templates
     for (const k of Object.keys(TEMPLATES)) {
+      if (!TEMPLATES[k]) continue;
       TEMPLATES[k] = TEMPLATES[k]
         .replace(/\[\[usPricing\]\]\[\[ukPricing\]\]/g, '[[pricing]]')
         .replace(/\[\[usPricing\]\]/g, '[[pricing]]')
@@ -1216,7 +1235,6 @@ function renderTerritoryButtons() {
     }
   } catch(e) { console.warn('rb_templates load failed', e); }
 
-  // ── 3. Snippets — most complex migration, isolated so errors don't affect options/templates ──
   try {
     const sRaw = JSON.parse(localStorage.getItem('rb_snippets') || '{}');
     if (Object.keys(sRaw).length > 0) {
@@ -1252,6 +1270,72 @@ function renderTerritoryButtons() {
       }
     }
   } catch(e) { console.warn('rb_snippets load failed', e); }
+}
+
+// Push all current in-memory data to Supabase (used for one-time migration from localStorage)
+async function _pushAllToSupabase() {
+  if (!_sb) return;
+  try {
+    const tRows = Object.entries(TEMPLATES).map(([key, content]) => ({ key, content }));
+    const oRows = [
+      { key: 'industries',  values: OPTIONS.industries },
+      { key: 'territories', values: OPTIONS.territories },
+      { key: 'senders',     values: OPTIONS.senders },
+    ];
+    const sRows = Object.entries(SNIPPETS).map(([key, val]) => ({ key, content: JSON.stringify(val) }));
+    await Promise.all([
+      _sb.from('reply_bank_templates').upsert(tRows, { onConflict: 'key' }),
+      _sb.from('reply_bank_options').upsert(oRows, { onConflict: 'key' }),
+      _sb.from('reply_bank_snippets').upsert(sRows, { onConflict: 'key' }),
+    ]);
+    localStorage.setItem('rb_sb_seeded', '1');
+    console.log('Reply Bank: seeded Supabase from localStorage');
+  } catch(e) { console.warn('Supabase seed failed', e); }
+}
+
+(async function initApp() {
+  // Show loading spinner while fetching shared data
+  const msgBox = document.getElementById('message-box');
+  if (msgBox) { msgBox.className = 'message-box'; msgBox.innerHTML = '<div class="app-loading">Loading…</div>'; }
+
+  if (_sb) {
+    // ── Load from Supabase (shared source of truth) ──
+    try {
+      const [tRes, sRes, oRes] = await Promise.all([
+        _sb.from('reply_bank_templates').select('key, content'),
+        _sb.from('reply_bank_snippets').select('key, content'),
+        _sb.from('reply_bank_options').select('key, values'),
+      ]);
+      if (tRes.error) throw tRes.error;
+      if (sRes.error) throw sRes.error;
+      if (oRes.error) throw oRes.error;
+
+      const hasData = (tRes.data?.length || 0) + (oRes.data?.length || 0) + (sRes.data?.length || 0) > 0;
+
+      if (!hasData && !localStorage.getItem('rb_sb_seeded')) {
+        // First-ever run: Supabase tables are empty — seed from localStorage if anything is there
+        _mergeLocalStorage();
+        await _pushAllToSupabase();
+      } else {
+        // Normal load: merge Supabase data over hardcoded defaults
+        for (const row of (tRes.data || [])) {
+          TEMPLATES[row.key] = row.content; // null = NOT_AVAILABLE, kept intentionally
+        }
+        for (const row of (oRes.data || [])) {
+          if (row.key in OPTIONS) OPTIONS[row.key] = row.values;
+        }
+        for (const row of (sRes.data || [])) {
+          try { SNIPPETS[row.key] = JSON.parse(row.content); } catch(e) {}
+        }
+      }
+    } catch(e) {
+      console.warn('Supabase load failed — falling back to localStorage', e);
+      _mergeLocalStorage();
+    }
+  } else {
+    // No Supabase (local dev) — use localStorage as before
+    _mergeLocalStorage();
+  }
 
   migrateTemplates();
   populateDropdowns();
@@ -1772,6 +1856,14 @@ function buildSnippetRow(key, snip) {
         tOverrides[k] = tOverrides[k].replace(marker, '');
       }
       localStorage.setItem('rb_templates', JSON.stringify(tOverrides));
+      // Sync cleaned templates to Supabase
+      if (_sb) {
+        const sbRows = Object.entries(TEMPLATES).map(([k, content]) => ({ key: k, content }));
+        _sb.from('reply_bank_templates').upsert(sbRows, { onConflict: 'key' })
+          .then(({ error }) => { if (error) console.warn('Supabase template sync after delete failed', error); });
+        _sb.from('reply_bank_snippets').delete().eq('key', key)
+          .then(({ error }) => { if (error) console.warn('Supabase snippet delete failed', error); });
+      }
       // Reload template editors so they reflect the removal
       adminLoadTemplates();
       wrapper.remove();
@@ -1831,6 +1923,7 @@ function _markTplDirty() { _tplDirty = true; }
 // This is safe to call even when selectors have already changed to new values.
 function _saveCurrentEditors() {
   const tOverrides = JSON.parse(localStorage.getItem('rb_templates') || '{}');
+  const sbRows = [];
   for (const channel of ['Email', 'LinkedIn']) {
     const key    = _activeTplKeys[channel];
     if (!key) continue;
@@ -1839,9 +1932,15 @@ function _saveCurrentEditors() {
     const val = serializeUnifiedEditor(editor);
     tOverrides[key] = val;
     TEMPLATES[key]  = val;
+    sbRows.push({ key, content: val });
   }
   localStorage.setItem('rb_templates', JSON.stringify(tOverrides));
   _tplDirty = false;
+  // Sync to Supabase (fire-and-forget)
+  if (_sb && sbRows.length) {
+    _sb.from('reply_bank_templates').upsert(sbRows, { onConflict: 'key' })
+      .then(({ error }) => { if (error) console.warn('Supabase template save failed', error); });
+  }
 }
 
 function _confirmDiscardOrSave(onProceed) {
@@ -1981,6 +2080,21 @@ document.getElementById('adm-save-snippets').addEventListener('click', () => {
   for (const k of Object.keys(SNIPPETS)) delete SNIPPETS[k];
   Object.assign(SNIPPETS, updated);
   localStorage.setItem('rb_snippets', JSON.stringify(SNIPPETS));
+  // Sync to Supabase (fire-and-forget): upsert all current + delete removed keys
+  if (_sb) {
+    const currentKeys = Object.keys(SNIPPETS);
+    const rows = currentKeys.map(key => ({ key, content: JSON.stringify(SNIPPETS[key]) }));
+    (async () => {
+      // Delete any rows in Supabase whose key is no longer in SNIPPETS
+      if (currentKeys.length) {
+        await _sb.from('reply_bank_snippets').delete().not('key', 'in', `(${currentKeys.map(k => `"${k}"`).join(',')})`);
+      } else {
+        await _sb.from('reply_bank_snippets').delete().neq('key', '');
+      }
+      const { error } = await _sb.from('reply_bank_snippets').upsert(rows, { onConflict: 'key' });
+      if (error) console.warn('Supabase snippets save failed', error);
+    })();
+  }
 
   // Refresh modifier list in main UI
   renderModifiers();
@@ -2070,6 +2184,16 @@ function adminSaveOptions() {
     territories: OPTIONS.territories,
     senders:     OPTIONS.senders,
   }));
+  // Sync to Supabase (fire-and-forget)
+  if (_sb) {
+    const rows = [
+      { key: 'industries',  values: OPTIONS.industries },
+      { key: 'territories', values: OPTIONS.territories },
+      { key: 'senders',     values: OPTIONS.senders },
+    ];
+    _sb.from('reply_bank_options').upsert(rows, { onConflict: 'key' })
+      .then(({ error }) => { if (error) console.warn('Supabase options save failed', error); });
+  }
 }
 
 function adminAddOption(category) {
