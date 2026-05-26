@@ -396,6 +396,24 @@
     .admin-tab-pane { display: none; }
     .admin-tab-pane.active { display: contents; }
 
+    /* ── Formatting toolbar ── */
+    .fmt-toolbar {
+      display: flex; gap: 4px; margin-bottom: 6px;
+    }
+    .fmt-btn {
+      width: 28px; height: 26px;
+      display: flex; align-items: center; justify-content: center;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: rgba(255,255,255,.05); color: var(--text-2);
+      font-family: var(--font); font-size: 13px; cursor: pointer;
+      transition: background .12s, color .12s, border-color .12s;
+      flex-shrink: 0;
+    }
+    .fmt-btn:hover { background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.5); color: #c4b5fd; }
+    .fmt-btn[data-cmd="bold"]      { font-weight: 700; }
+    .fmt-btn[data-cmd="italic"]    { font-style: italic; }
+    .fmt-btn[data-cmd="underline"] { text-decoration: underline; }
+
     /* ── Unified inline template editor ── */
     .tpl-block-editor {
       padding: 10px 12px; min-height: 120px;
@@ -692,6 +710,11 @@
         <div class="admin-template-label">
           Email <span class="edited-chip" id="chip-adm-email" style="display:none">Edited</span>
         </div>
+        <div class="fmt-toolbar" data-editor="adm-email-editor">
+          <button class="fmt-btn" data-cmd="bold" title="Bold">B</button>
+          <button class="fmt-btn" data-cmd="italic" title="Italic">I</button>
+          <button class="fmt-btn" data-cmd="underline" title="Underline">U</button>
+        </div>
         <div class="tpl-block-editor" id="adm-email-editor"></div>
         <div class="snippet-palette">
           <div class="palette-label">Drag snippets into template ↑</div>
@@ -702,6 +725,11 @@
       <div class="admin-template-block">
         <div class="admin-template-label">
           LinkedIn <span class="edited-chip" id="chip-adm-linkedin" style="display:none">Edited</span>
+        </div>
+        <div class="fmt-toolbar" data-editor="adm-linkedin-editor">
+          <button class="fmt-btn" data-cmd="bold" title="Bold">B</button>
+          <button class="fmt-btn" data-cmd="italic" title="Italic">I</button>
+          <button class="fmt-btn" data-cmd="underline" title="Underline">U</button>
         </div>
         <div class="tpl-block-editor" id="adm-linkedin-editor"></div>
         <div class="snippet-palette">
@@ -1640,8 +1668,15 @@ function renderBlockEditor(containerId, segments) {
   container.innerHTML       = '';
   container.contentEditable = 'true';
   segments.forEach(seg => {
-    if (seg.type === 'text') container.appendChild(document.createTextNode(seg.content));
-    else container.appendChild(createInlineChip(seg.key));
+    if (seg.type === 'snippet') {
+      container.appendChild(createInlineChip(seg.key));
+    } else {
+      // Parse the text segment as HTML so <b>/<i>/<u> render as real formatting
+      // textToHtml converts \n → <br> and keeps <b>/<i>/<u>
+      const tmp = document.createElement('span');
+      tmp.innerHTML = textToHtml(seg.content);
+      while (tmp.firstChild) container.appendChild(tmp.firstChild);
+    }
   });
   // No HTML5 DnD listeners needed — pointer events handle everything
 }
@@ -1649,14 +1684,22 @@ function renderBlockEditor(containerId, segments) {
 // ── Serialize unified editor DOM → template string ─────────────────────────
 function serializeUnifiedEditor(container) {
   let result = '';
+  const FORMAT_TAGS = { B: 'b', I: 'i', U: 'u', STRONG: 'b', EM: 'i' };
   function walk(node) {
     if (node.nodeType === Node.TEXT_NODE) {
       result += node.textContent;
     } else if (node.nodeType === Node.ELEMENT_NODE) {
-      if (node.id === 'chip-drop-indicator') return; // skip indicator if still in DOM
+      if (node.id === 'chip-drop-indicator') return;
       const key = node.dataset?.snippetKey;
       if (key) { result += `[[${key}]]`; return; }
       if (node.tagName === 'BR') { result += '\n'; return; }
+      const fmtTag = FORMAT_TAGS[node.tagName];
+      if (fmtTag) {
+        result += `<${fmtTag}>`;
+        for (const child of node.childNodes) walk(child);
+        result += `</${fmtTag}>`;
+        return;
+      }
       const isBlock = ['DIV', 'P'].includes(node.tagName);
       if (isBlock && node !== container && node.previousSibling) result += '\n';
       for (const child of node.childNodes) walk(child);
@@ -2027,6 +2070,18 @@ function adminLoadTemplates() {
 // adm-style needs to re-filter adm-industry first, then load templates
 ['adm-industry','adm-territory','adm-style'].forEach(id => {
   document.getElementById(id).addEventListener('change', adminLoadTemplates);
+});
+
+// ── Formatting toolbar (B / I / U) ─────────────────────────────────────────
+// mousedown + preventDefault keeps selection in editor when button is clicked
+document.querySelectorAll('.fmt-toolbar .fmt-btn').forEach(btn => {
+  btn.addEventListener('mousedown', e => {
+    e.preventDefault(); // don't steal focus / selection
+    const editorId = btn.closest('.fmt-toolbar').dataset.editor;
+    const editor   = document.getElementById(editorId);
+    if (editor) editor.focus();
+    document.execCommand(btn.dataset.cmd, false, null);
+  });
 });
 
 document.getElementById('adm-save-templates').addEventListener('click', () => {
