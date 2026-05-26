@@ -992,7 +992,7 @@ function assemble() {
   if (!msg || msg.length < 30 || !msg.trimStart().startsWith('Hi')) return 'NOT_AVAILABLE';
 
   // ── 1. Resolve [[key]] snippet markers ──
-  msg = msg.replace(/\[\[(\w+)\]\]/g, (_, snipKey) => {
+  msg = msg.replace(/\[\[(\w+)\]\]/g, (match, snipKey, offset, str) => {
     const snip = SNIPPETS[snipKey];
     if (!snip) return '';
     // Toggle filter
@@ -1014,7 +1014,11 @@ function assemble() {
       if (score > bestScore) { bestScore = score; best = v; }
     }
     const resolved = best ? (best.content || '') : '';
-    return resolved ? resolved + '\n\n' : '';
+    if (!resolved) return '';
+    // Block position (preceded by newline or start of string) → add paragraph break after.
+    // Inline position (mid-sentence) → return content as-is with no extra whitespace.
+    const isBlock = offset === 0 || str[offset - 1] === '\n';
+    return isBlock ? resolved + '\n\n' : resolved;
   });
 
   // ── 2. Clean up blank lines left by removed snippets ──
@@ -2123,7 +2127,7 @@ function assembleForExport(terr, sty, chan, ind, sender) {
   const SNIP_OPEN  = '\x00SO\x00';
   const SNIP_CLOSE = '\x00SC\x00';
 
-  msg = msg.replace(/\[\[(\w+)\]\]/g, (_, snipKey) => {
+  msg = msg.replace(/\[\[(\w+)\]\]/g, (match, snipKey, offset, str) => {
     const snip = SNIPPETS[snipKey];
     if (!snip) return '';
     const variations = snip.variations || [];
@@ -2139,7 +2143,10 @@ function assembleForExport(terr, sty, chan, ind, sender) {
       if (score > bestScore) { bestScore = score; best = v; }
     }
     const content = best ? (best.content || '') : '';
-    return content ? SNIP_OPEN + content + SNIP_CLOSE + '\n\n' : '';
+    if (!content) return '';
+    const isBlock = offset === 0 || str[offset - 1] === '\n';
+    const wrapped = SNIP_OPEN + content + SNIP_CLOSE;
+    return isBlock ? wrapped + '\n\n' : wrapped;
   });
 
   msg = msg.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\n\n$/, '');
