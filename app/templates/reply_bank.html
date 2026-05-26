@@ -1105,11 +1105,23 @@ function render() {
 // Re-render modifier toggles when sender changes (some may be Leo-only or others-only)
 document.getElementById('sender').addEventListener('change', renderModifiers);
 
+// Returns industries that have at least one template for the given style
+function _industriesForStyle(sty) {
+  return OPTIONS.industries.filter(ind =>
+    OPTIONS.territories.some(terr =>
+      ['Email', 'LinkedIn'].some(chan =>
+        TEMPLATES[`${terr}_${sty}_${chan}_${ind}`] !== undefined
+      )
+    )
+  );
+}
+
 document.querySelectorAll('[data-style]').forEach(btn => {
   btn.addEventListener('click', () => {
     style = btn.dataset.style;
     document.querySelectorAll('[data-style]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+    populateDropdowns(); // re-filter industry list for new style
     render();
   });
 });
@@ -1171,11 +1183,13 @@ function populateDropdowns() {
   senderEl.innerHTML = OPTIONS.senders.map(s => `<option value="${s}">${s}</option>`).join('');
   if (OPTIONS.senders.includes(curSender)) senderEl.value = curSender;
 
-  // Industry (main)
+  // Industry (main) — filtered to only show industries with templates for the current style
   const industryEl = document.getElementById('industry');
   const curIndustry = industryEl.value;
-  industryEl.innerHTML = OPTIONS.industries.map(i => `<option value="${i}">${i}</option>`).join('');
-  if (OPTIONS.industries.includes(curIndustry)) industryEl.value = curIndustry;
+  const filteredIndustries = _industriesForStyle(style);
+  industryEl.innerHTML = filteredIndustries.map(i => `<option value="${i}">${i}</option>`).join('');
+  if (filteredIndustries.includes(curIndustry)) industryEl.value = curIndustry;
+  else if (filteredIndustries.length) industryEl.value = filteredIndustries[0];
 
   // Industry (admin)
   const admIndustryEl = document.getElementById('adm-industry');
