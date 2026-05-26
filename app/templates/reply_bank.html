@@ -748,11 +748,18 @@
     <div class="admin-card">
       <div class="admin-card-title">Manage Lists</div>
 
-      <div class="opt-section-label">Industries</div>
+      <div class="opt-section-label">Standard Industries</div>
       <div class="opt-list" id="opt-list-industries"></div>
       <div class="opt-add-row">
-        <input type="text" id="opt-input-industries" placeholder="New industry…" autocomplete="off">
+        <input type="text" id="opt-input-industries" placeholder="New standard industry…" autocomplete="off">
         <button class="opt-add-btn" id="opt-add-industries">Add</button>
+      </div>
+
+      <div class="opt-section-label">Enterprise Industries</div>
+      <div class="opt-list" id="opt-list-industries-enterprise"></div>
+      <div class="opt-add-row">
+        <input type="text" id="opt-input-industries-enterprise" placeholder="New enterprise industry…" autocomplete="off">
+        <button class="opt-add-btn" id="opt-add-industries-enterprise">Add</button>
       </div>
 
       <div class="opt-section-label">Territories</div>
@@ -874,7 +881,7 @@ const SNIPPETS = {
     ],
   },
 };
-const OPTIONS = {"industries":["PR","Marketing","Media","SaaS","AI","Accounting","Cybersecurity"],"territories":["US","UK"],"senders":["Robyn","Glen","Leo","Chris","Devlin"]};
+const OPTIONS = {"industries":["PR","Marketing","Media","SaaS","AI","Accounting","Cybersecurity"],"industriesEnterprise":[],"territories":["US","UK"],"senders":["Robyn","Glen","Leo","Chris","Devlin"]};
 
 // ════════════════════════════════════════════════════════
 //  SUPABASE CLIENT
@@ -1105,15 +1112,9 @@ function render() {
 // Re-render modifier toggles when sender changes (some may be Leo-only or others-only)
 document.getElementById('sender').addEventListener('change', renderModifiers);
 
-// Returns industries that have at least one template for the given style
+// Returns the correct industry list for the given style
 function _industriesForStyle(sty) {
-  return OPTIONS.industries.filter(ind =>
-    OPTIONS.territories.some(terr =>
-      ['Email', 'LinkedIn'].some(chan =>
-        TEMPLATES[`${terr}_${sty}_${chan}_${ind}`] !== undefined
-      )
-    )
-  );
+  return sty === 'Enterprise' ? OPTIONS.industriesEnterprise : OPTIONS.industries;
 }
 
 document.querySelectorAll('[data-style]').forEach(btn => {
@@ -1191,12 +1192,15 @@ function populateDropdowns() {
   if (filteredIndustries.includes(curIndustry)) industryEl.value = curIndustry;
   else if (filteredIndustries.length) industryEl.value = filteredIndustries[0];
 
-  // Industry (admin)
+  // Industry (admin) — filtered to match the selected admin style
+  const admStyle = document.getElementById('adm-style')?.value || 'Standard';
+  const admIndustries = _industriesForStyle(admStyle);
   const admIndustryEl = document.getElementById('adm-industry');
   if (admIndustryEl) {
     const curAdmIndustry = admIndustryEl.value;
-    admIndustryEl.innerHTML = OPTIONS.industries.map(i => `<option value="${i}">${i}</option>`).join('');
-    if (OPTIONS.industries.includes(curAdmIndustry)) admIndustryEl.value = curAdmIndustry;
+    admIndustryEl.innerHTML = admIndustries.map(i => `<option value="${i}">${i}</option>`).join('');
+    if (admIndustries.includes(curAdmIndustry)) admIndustryEl.value = curAdmIndustry;
+    else if (admIndustries.length) admIndustryEl.value = admIndustries[0];
   }
 
   // Territory (admin select)
@@ -1236,9 +1240,10 @@ function renderTerritoryButtons() {
 function _mergeLocalStorage() {
   try {
     const oOverrides = JSON.parse(localStorage.getItem('rb_options') || '{}');
-    if (oOverrides.industries)  OPTIONS.industries  = oOverrides.industries;
-    if (oOverrides.territories) OPTIONS.territories = oOverrides.territories;
-    if (oOverrides.senders)     OPTIONS.senders     = oOverrides.senders;
+    if (oOverrides.industries)           OPTIONS.industries           = oOverrides.industries;
+    if (oOverrides.industriesEnterprise) OPTIONS.industriesEnterprise = oOverrides.industriesEnterprise;
+    if (oOverrides.territories)          OPTIONS.territories          = oOverrides.territories;
+    if (oOverrides.senders)              OPTIONS.senders              = oOverrides.senders;
   } catch(e) { console.warn('rb_options load failed', e); }
 
   try {
@@ -1296,9 +1301,10 @@ async function _pushAllToSupabase() {
   try {
     const tRows = Object.entries(TEMPLATES).map(([key, content]) => ({ key, content }));
     const oRows = [
-      { key: 'industries',  values: OPTIONS.industries },
-      { key: 'territories', values: OPTIONS.territories },
-      { key: 'senders',     values: OPTIONS.senders },
+      { key: 'industries',            values: OPTIONS.industries },
+      { key: 'industries_enterprise', values: OPTIONS.industriesEnterprise },
+      { key: 'territories',           values: OPTIONS.territories },
+      { key: 'senders',               values: OPTIONS.senders },
     ];
     const sRows = Object.entries(SNIPPETS).map(([key, val]) => ({ key, content: JSON.stringify(val) }));
     await Promise.all([
@@ -1333,7 +1339,11 @@ async function _pushAllToSupabase() {
         TEMPLATES[row.key] = row.content; // null = NOT_AVAILABLE, kept intentionally
       }
       for (const row of (oRes.data || [])) {
-        if (row.key in OPTIONS) OPTIONS[row.key] = row.values;
+        if (row.key === 'industries_enterprise') {
+          OPTIONS.industriesEnterprise = row.values;
+        } else if (row.key in OPTIONS) {
+          OPTIONS[row.key] = row.values;
+        }
       }
       for (const row of (sRes.data || [])) {
         try { SNIPPETS[row.key] = JSON.parse(row.content); } catch(e) {}
@@ -2036,7 +2046,12 @@ function adminLoadTemplates() {
   _confirmDiscardOrSave(_doLoadTemplates);
 }
 
-['adm-style','adm-territory','adm-industry'].forEach(id => {
+// adm-style needs to re-filter adm-industry first, then load templates
+document.getElementById('adm-style').addEventListener('change', () => {
+  populateDropdowns();
+  adminLoadTemplates();
+});
+['adm-territory','adm-industry'].forEach(id => {
   document.getElementById(id).addEventListener('change', adminLoadTemplates);
 });
 
@@ -2167,9 +2182,14 @@ document.getElementById('adm-reset').addEventListener('click', () => {
 // ════════════════════════════════════════════════════════
 //  ADMIN — Options tab
 // ════════════════════════════════════════════════════════
+// Maps hyphenated DOM category IDs to camelCase OPTIONS keys
+function _optKey(cat) {
+  return cat === 'industries-enterprise' ? 'industriesEnterprise' : cat;
+}
+
 function adminRenderOptionsList(category) {
   const list  = document.getElementById(`opt-list-${category}`);
-  const items = OPTIONS[category];
+  const items = OPTIONS[_optKey(category)];
   list.innerHTML = '';
   items.forEach((item, idx) => {
     const row = document.createElement('div');
@@ -2184,8 +2204,8 @@ function adminRenderOptionsList(category) {
       input.style.background = 'transparent';
       const newVal = input.value.trim();
       if (!newVal || newVal === item) { input.value = item; return; }
-      if (OPTIONS[category].includes(newVal)) { input.value = item; return; }
-      OPTIONS[category][idx] = newVal;
+      if (OPTIONS[_optKey(category)].includes(newVal)) { input.value = item; return; }
+      OPTIONS[_optKey(category)][idx] = newVal;
       adminSaveOptions();
       populateDropdowns();
       render();
@@ -2206,22 +2226,25 @@ function adminRenderOptionsList(category) {
 
 function adminRenderAllOptions() {
   adminRenderOptionsList('industries');
+  adminRenderOptionsList('industries-enterprise');
   adminRenderOptionsList('territories');
   adminRenderOptionsList('senders');
 }
 
 function adminSaveOptions() {
   localStorage.setItem('rb_options', JSON.stringify({
-    industries:  OPTIONS.industries,
-    territories: OPTIONS.territories,
-    senders:     OPTIONS.senders,
+    industries:           OPTIONS.industries,
+    industriesEnterprise: OPTIONS.industriesEnterprise,
+    territories:          OPTIONS.territories,
+    senders:              OPTIONS.senders,
   }));
   // Sync to Supabase (fire-and-forget)
   if (_sb) {
     const rows = [
-      { key: 'industries',  values: OPTIONS.industries },
-      { key: 'territories', values: OPTIONS.territories },
-      { key: 'senders',     values: OPTIONS.senders },
+      { key: 'industries',            values: OPTIONS.industries },
+      { key: 'industries_enterprise', values: OPTIONS.industriesEnterprise },
+      { key: 'territories',           values: OPTIONS.territories },
+      { key: 'senders',               values: OPTIONS.senders },
     ];
     _sb.from('reply_bank_options').upsert(rows, { onConflict: 'key' })
       .then(({ error }) => { if (error) console.warn('Supabase options save failed', error); });
@@ -2231,8 +2254,8 @@ function adminSaveOptions() {
 function adminAddOption(category) {
   const input = document.getElementById(`opt-input-${category}`);
   const val   = input.value.trim();
-  if (!val || OPTIONS[category].includes(val)) { input.focus(); return; }
-  OPTIONS[category].push(val);
+  if (!val || OPTIONS[_optKey(category)].includes(val)) { input.focus(); return; }
+  OPTIONS[_optKey(category)].push(val);
   input.value = '';
   adminSaveOptions();
   adminRenderOptionsList(category);
@@ -2241,15 +2264,15 @@ function adminAddOption(category) {
 }
 
 function adminRemoveOption(category, item) {
-  if (OPTIONS[category].length <= 1) return;
-  OPTIONS[category] = OPTIONS[category].filter(v => v !== item);
+  if (OPTIONS[_optKey(category)].length <= 1) return;
+  OPTIONS[_optKey(category)] = OPTIONS[_optKey(category)].filter(v => v !== item);
   adminSaveOptions();
   adminRenderOptionsList(category);
   populateDropdowns();
   render();
 }
 
-['industries', 'territories', 'senders'].forEach(cat => {
+['industries', 'industries-enterprise', 'territories', 'senders'].forEach(cat => {
   document.getElementById(`opt-add-${cat}`).addEventListener('click', () => adminAddOption(cat));
   document.getElementById(`opt-input-${cat}`).addEventListener('keydown', e => {
     if (e.key === 'Enter') adminAddOption(cat);
@@ -2359,7 +2382,8 @@ function renderExportTab() {
   makePills('exp-territories', OPTIONS.territories, true, true);
   makePills('exp-styles',      ['Standard', 'Enterprise'], true, true);
   makePills('exp-channels',    ['Email', 'LinkedIn'], true, true);
-  makePills('exp-industries',  OPTIONS.industries,   true, true);
+  const allIndustries = [...new Set([...OPTIONS.industries, ...OPTIONS.industriesEnterprise])];
+  makePills('exp-industries',  allIndustries,   true, true);
   makePills('exp-senders',     OPTIONS.senders,      false, false);
 
   // Select-all toggle for industries
