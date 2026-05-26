@@ -883,7 +883,10 @@ const OPTIONS = {"industries":["PR","Marketing","Media","SaaS","AI","Accounting"
 // ════════════════════════════════════════════════════════
 const _SB_URL = '{{ supabase_url }}';
 const _SB_KEY = '{{ supabase_anon_key }}';
-const _sb = (_SB_URL && !_SB_URL.includes('{{') && window.supabase)
+// When served via FastAPI, Jinja2 substitutes the values above with real credentials.
+// When served locally (Perl/direct), the placeholders are not substituted so the URL
+// won't start with https:// — detected here to fall back to localStorage automatically.
+const _sb = (_SB_URL && _SB_URL.startsWith('https://') && window.supabase)
   ? window.supabase.createClient(_SB_URL, _SB_KEY)
   : null;
 
