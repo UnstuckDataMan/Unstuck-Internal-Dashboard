@@ -11,6 +11,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,600;12..96,700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
+  <!-- html2pdf.js — used by the Export → PDF feature -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -678,6 +680,196 @@
       padding: 6px 10px; border-radius: 8px; cursor: pointer;
       background: transparent; border: 1px solid var(--border);
       color: var(--text-2); font-family: var(--font); font-size: 12px;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       EXPORT SCREEN
+       ══════════════════════════════════════════════════════════ */
+    .export-screen {
+      position: fixed; inset: 0; z-index: 950;
+      background: var(--bg); display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .export-topbar {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 24px; border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .export-back-btn {
+      padding: 7px 14px; border-radius: 9px; border: 1px solid var(--border);
+      background: transparent; color: var(--text-2); font-family: var(--font);
+      font-size: 13px; cursor: pointer; transition: border-color .15s, color .15s;
+    }
+    .export-back-btn:hover { border-color: rgba(139,92,246,.5); color: var(--text); }
+    .export-topbar-title { font-size: 16px; font-weight: 700; color: var(--text); flex: 1; }
+
+    /* Tab nav */
+    .export-tab-nav {
+      display: flex; gap: 4px;
+      padding: 14px 24px 0; flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .exp-nav-tab {
+      padding: 8px 18px; border-radius: 10px 10px 0 0;
+      border: 1px solid transparent; border-bottom: none;
+      background: transparent; color: var(--text-2); font-family: var(--font);
+      font-size: 13px; font-weight: 500; cursor: pointer;
+      transition: background .15s, color .15s;
+      position: relative; bottom: -1px;
+    }
+    .exp-nav-tab:hover { color: var(--text); }
+    .exp-nav-tab.active {
+      background: var(--bg); border-color: var(--border);
+      color: var(--text); font-weight: 600;
+    }
+    .exp-nav-tab.active::after {
+      content: ''; position: absolute; bottom: -1px; left: 0; right: 0;
+      height: 2px; background: var(--gradient-vivid);
+    }
+
+    /* Panel */
+    .exp-panel { flex: 1; overflow-y: auto; padding: 28px 28px 40px; }
+
+    /* Settings */
+    .exp-settings-grid { display: flex; flex-direction: column; gap: 28px; max-width: 680px; }
+    .exp-setting-group { }
+    .exp-setting-label {
+      font-size: 11px; font-weight: 700; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: .9px; margin-bottom: 10px;
+    }
+    .exp-multi-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+    .exp-toggle {
+      padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border);
+      background: transparent; color: var(--text-2); font-family: var(--font);
+      font-size: 13px; font-weight: 500; cursor: pointer;
+      transition: all .15s;
+    }
+    .exp-toggle.on {
+      background: rgba(124,58,237,.18); border-color: rgba(124,58,237,.6);
+      color: #c4b5fd; font-weight: 600;
+    }
+    .exp-toggle:hover:not(.on) { border-color: rgba(139,92,246,.35); color: var(--text); }
+    .exp-sender-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .exp-sender-row select { min-width: 140px; }
+    .exp-include-label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 13px; cursor: pointer; }
+    .exp-include-label input[type=checkbox] { accent-color: var(--purple); width: 16px; height: 16px; }
+
+    /* Actions bar */
+    .exp-actions-bar {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .exp-export-btn {
+      padding: 9px 20px; border-radius: 10px; border: none; cursor: pointer;
+      background: var(--gradient-vivid); color: #fff;
+      font-family: var(--font); font-size: 13px; font-weight: 600;
+      box-shadow: 0 2px 10px rgba(124,58,237,.35);
+      transition: opacity .18s;
+    }
+    .exp-export-btn:hover { opacity: .88; }
+    .exp-export-btn:disabled { opacity: .45; cursor: default; }
+    .exp-gdoc-link {
+      padding: 8px 16px; border-radius: 10px;
+      border: 1px solid rgba(124,58,237,.5); color: #c4b5fd;
+      font-family: var(--font); font-size: 13px; font-weight: 500;
+      text-decoration: none; transition: background .15s;
+    }
+    .exp-gdoc-link:hover { background: rgba(124,58,237,.12); }
+    .exp-status-msg { font-size: 12px; color: var(--text-3); }
+    .exp-status-msg.ok { color: #4ade80; }
+    .exp-status-msg.err { color: var(--red); }
+
+    /* Previews */
+    .exp-preview-wrap {
+      border-radius: 14px; overflow: hidden;
+      border: 1px solid var(--border); max-height: 62vh; overflow-y: auto;
+    }
+    .exp-pdf-preview-inner {
+      background: #100d1e; padding: 36px 40px;
+      font-family: 'DM Sans', sans-serif; color: #f0eeff;
+      min-height: 400px;
+    }
+    .exp-pdf-preview-inner .exp-p-title {
+      font-size: 22px; font-weight: 700; margin: 0 0 4px;
+      background: linear-gradient(135deg,#7c3aed,#e879f9);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .exp-pdf-preview-inner .exp-p-subtitle {
+      font-size: 11px; color: rgba(210,205,255,.45); margin: 0 0 28px;
+    }
+    .exp-pdf-preview-inner .exp-p-section {
+      margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid rgba(124,58,237,.2);
+    }
+    .exp-pdf-preview-inner .exp-p-section-title {
+      font-size: 15px; font-weight: 700; color: #c4b5fd; margin: 0 0 2px;
+    }
+    .exp-pdf-preview-inner .exp-p-channel {
+      font-size: 11px; font-weight: 700; color: #7c3aed;
+      text-transform: uppercase; letter-spacing: 1px; margin: 4px 0 12px;
+    }
+    .exp-pdf-preview-inner .exp-p-block-label {
+      font-size: 10px; font-weight: 700; color: rgba(210,205,255,.4);
+      text-transform: uppercase; letter-spacing: 1px; margin: 10px 0 6px;
+    }
+    .exp-pdf-preview-inner .exp-p-subject {
+      font-size: 13px; color: #f0eeff; padding: 5px 10px;
+      background: rgba(255,255,255,.06); border-radius: 6px;
+      border-left: 3px solid #7c3aed; margin-bottom: 4px;
+    }
+    .exp-pdf-preview-inner .exp-p-variation {
+      margin-bottom: 10px; padding: 12px 14px;
+      background: rgba(255,255,255,.05); border-radius: 9px;
+      border: 1px solid rgba(124,58,237,.2);
+    }
+    .exp-pdf-preview-inner .exp-p-var-label {
+      font-size: 10px; font-weight: 700; color: #7c3aed;
+      text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px;
+    }
+    .exp-pdf-preview-inner .exp-p-body {
+      font-size: 12.5px; line-height: 1.75; color: rgba(230,225,255,.75);
+      white-space: pre-wrap;
+    }
+
+    /* Google Doc preview (light, mimics Google Docs) */
+    .exp-gdoc-preview-inner {
+      background: #fff; padding: 36px 48px;
+      font-family: 'Arial', sans-serif; color: #202124;
+      min-height: 400px; max-width: 740px; margin: 0 auto;
+    }
+    .exp-gdoc-preview-inner .exp-g-title {
+      font-size: 20px; font-weight: 700; color: #7c3aed; margin: 0 0 4px;
+    }
+    .exp-gdoc-preview-inner .exp-g-subtitle {
+      font-size: 11px; color: #9aa0a6; margin: 0 0 20px;
+    }
+    .exp-gdoc-preview-inner hr { border: none; border-top: 2px solid #7c3aed; margin: 0 0 24px; }
+    .exp-gdoc-preview-inner .exp-g-section { margin-bottom: 24px; }
+    .exp-gdoc-preview-inner .exp-g-section-title {
+      font-size: 15px; font-weight: 700; color: #202124;
+      border-bottom: 2px solid rgba(124,58,237,.25); padding-bottom: 5px; margin: 0 0 2px;
+    }
+    .exp-gdoc-preview-inner .exp-g-channel {
+      font-size: 11px; font-weight: 700; color: #7c3aed;
+      text-transform: uppercase; letter-spacing: 1px; margin: 6px 0 12px;
+    }
+    .exp-gdoc-preview-inner .exp-g-label {
+      font-size: 10px; font-weight: 700; color: #9aa0a6;
+      text-transform: uppercase; letter-spacing: 1px; margin: 10px 0 5px;
+    }
+    .exp-gdoc-preview-inner .exp-g-subject {
+      font-size: 13px; margin: 0 0 4px; padding-left: 12px;
+      border-left: 3px solid #7c3aed; color: #202124;
+    }
+    .exp-gdoc-preview-inner .exp-g-variation {
+      margin-bottom: 10px; padding: 10px 14px;
+      background: #f5f3ff; border-radius: 6px; border-left: 4px solid #7c3aed;
+    }
+    .exp-gdoc-preview-inner .exp-g-var-label {
+      font-size: 10px; font-weight: 700; color: #7c3aed;
+      text-transform: uppercase; letter-spacing: .8px; margin-bottom: 5px;
+    }
+    .exp-gdoc-preview-inner .exp-g-body {
+      font-size: 13px; line-height: 1.7; color: #374151; white-space: pre-wrap;
     }
 
     /* ── Scrollbar ──────────────────────────────────────────── */
@@ -1948,6 +2140,7 @@
   <div class="tabs" id="tabs-container"></div>
   <div class="tab-bar-right">
     <button class="mail-merge-btn" id="edit-profile-btn" style="display:none">&#9881; Edit Profile</button>
+    <button class="mail-merge-btn" id="export-open-btn" style="display:none">&#8599; Export</button>
     <button class="mail-merge-btn" id="mail-merge-btn" style="display:none" onclick="pushToMailMerge()">Mail Merge &#8594;</button>
     <button class="admin-request-btn" id="request-approval-btn" style="display:none">Request Approval</button>
     <button class="admin-approve-btn" id="approve-btn" style="display:none">Approve &amp; Publish</button>
@@ -2635,8 +2828,9 @@ function enterProfile(profile) {
   // Rebuild industry dropdown
   rebuildIndustryDropdown();
 
-  document.getElementById('edit-profile-btn').style.display = '';
-  document.getElementById('mail-merge-btn').style.display  = '';
+  document.getElementById('edit-profile-btn').style.display  = '';
+  document.getElementById('export-open-btn').style.display   = '';
+  document.getElementById('mail-merge-btn').style.display    = '';
   document.getElementById('header-title').textContent = profile.name;
   document.getElementById('profile-screen').classList.remove('visible');
   document.getElementById('main-header').style.display = 'flex';
@@ -3899,10 +4093,459 @@ document.getElementById('ent-enterprise-btn').addEventListener('click', function
 });
 
 // ════════════════════════════════════════════════════════
+//  EXPORT SCREEN
+// ════════════════════════════════════════════════════════
+
+// ── State ──
+const expState = {
+  territories:   [],   // selected territory strings
+  industries:    [],   // selected industry keys
+  channels:      [],   // selected channel keys
+  includeSender: true,
+  senderName:    '',
+  googleSessionId: null,
+};
+
+// ── Open / close ──
+document.getElementById('export-open-btn').addEventListener('click', openExportScreen);
+document.getElementById('export-back-btn').addEventListener('click', closeExportScreen);
+
+function openExportScreen() {
+  if (!activeProfile) return;
+
+  // Set title
+  document.getElementById('export-topbar-title').textContent = 'Export — ' + activeProfile.name;
+
+  // Initialise state defaults from active profile / current selections
+  expState.territories = activeProfile.territories.slice();
+  expState.industries  = activeProfile.industries.filter(function(v){ return !v.toLowerCase().includes('enterprise'); });
+  if (!expState.industries.length) expState.industries = activeProfile.industries.slice();
+
+  // Derive available channels from profile
+  var defaultChs = (activeProfile.type === 'bizdev')
+    ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']]
+    : [['email','Email'],['linkedin','LinkedIn']];
+  var chs = activeProfile.channels || defaultChs;
+  expState.channels = chs.map(function(c){ return c[0]; });
+
+  // Sender
+  expState.includeSender = true;
+  expState.senderName    = document.getElementById('sender') ? (document.getElementById('sender').value || SENDERS[0] || '') : '';
+
+  // Render toggles
+  _renderExpToggles(activeProfile.territories, 'exp-ter-toggles', expState.territories, 'ter');
+  _renderExpToggles(
+    activeProfile.industries.map(function(v){ return {key: v, label: industryLabel(v)}; }),
+    'exp-ind-toggles', expState.industries, 'ind'
+  );
+  _renderExpToggles(
+    chs.map(function(c){ return {key: c[0], label: c[1]}; }),
+    'exp-ch-toggles', expState.channels, 'ch'
+  );
+
+  // Sender select
+  var ss = document.getElementById('exp-sender-sel');
+  ss.innerHTML = SENDERS.map(function(s){ return '<option value="'+escHtml(s)+'">'+escHtml(s)+'</option>'; }).join('');
+  if (SENDERS.includes(expState.senderName)) ss.value = expState.senderName;
+  document.getElementById('exp-include-sender').checked = true;
+
+  // Show correct tab (reset to settings)
+  _switchExpTab('settings');
+
+  document.getElementById('export-screen').style.display = 'flex';
+}
+
+function closeExportScreen() {
+  document.getElementById('export-screen').style.display = 'none';
+}
+
+function _renderExpToggles(items, containerId, selectedArr, type) {
+  var container = document.getElementById(containerId);
+  container.innerHTML = '';
+  items.forEach(function(item) {
+    var key   = typeof item === 'string' ? item : item.key;
+    var label = typeof item === 'string' ? item : item.label;
+    var btn   = document.createElement('button');
+    btn.className = 'exp-toggle' + (selectedArr.includes(key) ? ' on' : '');
+    btn.textContent = label;
+    btn.dataset.key  = key;
+    btn.dataset.type = type;
+    btn.addEventListener('click', function() {
+      var idx = selectedArr.indexOf(key);
+      if (idx >= 0) {
+        if (selectedArr.length > 1) { selectedArr.splice(idx, 1); btn.classList.remove('on'); }
+      } else {
+        selectedArr.push(key); btn.classList.add('on');
+      }
+      // Refresh preview if that tab is open
+      _refreshActiveExpPreview();
+    });
+    container.appendChild(btn);
+  });
+}
+
+// ── Tab switching ──
+document.querySelectorAll('.exp-nav-tab').forEach(function(btn) {
+  btn.addEventListener('click', function() { _switchExpTab(btn.dataset.expTab); });
+});
+
+function _switchExpTab(tabName) {
+  document.querySelectorAll('.exp-nav-tab').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.expTab === tabName);
+  });
+  document.getElementById('exp-settings-panel').style.display = tabName === 'settings' ? '' : 'none';
+  document.getElementById('exp-pdf-panel').style.display      = tabName === 'pdf'      ? '' : 'none';
+  document.getElementById('exp-gdoc-panel').style.display     = tabName === 'gdoc'     ? '' : 'none';
+
+  if (tabName === 'pdf')  _renderExpPdfPreview();
+  if (tabName === 'gdoc') { _renderExpGdocPreview(); _initGdocPanel(); }
+}
+
+function _refreshActiveExpPreview() {
+  var active = document.querySelector('.exp-nav-tab.active');
+  if (!active) return;
+  var t = active.dataset.expTab;
+  if (t === 'pdf')  _renderExpPdfPreview();
+  if (t === 'gdoc') _renderExpGdocPreview();
+}
+
+// ── Build export sections from TEMPLATES ──
+function _buildExpSections() {
+  var includeSender = document.getElementById('exp-include-sender').checked;
+  var senderName    = document.getElementById('exp-sender-sel').value || '';
+  var sections = [];
+
+  var defaultChs = (activeProfile && activeProfile.type === 'bizdev')
+    ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']]
+    : [['email','Email'],['linkedin','LinkedIn']];
+  var allChs = (activeProfile && activeProfile.channels) || defaultChs;
+
+  expState.territories.forEach(function(ter) {
+    expState.industries.forEach(function(ind) {
+      var key = activeProfile.type === 'bizdev'
+        ? ter + '_' + ind
+        : '__c__' + activeProfile.client_id + '__' + ter + '_' + ind;
+      var data = TEMPLATES[key];
+      if (!data) return;
+
+      expState.channels.forEach(function(chKey) {
+        var chLabel = (allChs.find(function(c){ return c[0] === chKey; }) || [chKey, chKey])[1];
+        var subjects = [], bodies = [];
+
+        if (chKey === 'linkedin') {
+          bodies = ((data.linkedin && data.linkedin.steps) || [])
+            .map(function(s){ return (s.body || '').trim(); })
+            .filter(Boolean);
+        } else {
+          var ch = data[chKey] || {};
+          subjects = (ch.subjects || []).filter(function(s){ return s && s.trim(); });
+          bodies   = (ch.variations || [])
+            .map(function(v){ return (v.body || '').trim(); })
+            .filter(Boolean);
+        }
+
+        // Append sender name to bodies if requested
+        if (includeSender && senderName) {
+          bodies = bodies.map(function(b){ return b.trimEnd() + '\n\n' + senderName; });
+        }
+
+        if (subjects.length || bodies.length) {
+          sections.push({
+            territory: ter,
+            industry:  industryLabel(ind),
+            channel:   chLabel,
+            subjects:  subjects,
+            bodies:    bodies,
+          });
+        }
+      });
+    });
+  });
+
+  return sections;
+}
+
+// ── PDF preview + export ──
+function _renderExpPdfPreview() {
+  var sections = _buildExpSections();
+  var el = document.getElementById('exp-pdf-preview');
+  el.innerHTML = _buildPdfHtml(sections);
+}
+
+function _buildPdfHtml(sections) {
+  var dateStr = new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'});
+  var profileName = activeProfile ? activeProfile.name : '';
+  var html = '<div class="exp-p-title">'+escHtml(profileName)+'</div>';
+  html += '<div class="exp-p-subtitle">Copy Bank Export &mdash; '+escHtml(dateStr)+'</div>';
+
+  if (!sections.length) {
+    html += '<p style="color:rgba(210,205,255,.4);font-size:13px">No content found for the selected filters.</p>';
+    return html;
+  }
+
+  sections.forEach(function(sec) {
+    html += '<div class="exp-p-section">';
+    html += '<div class="exp-p-section-title">'+escHtml(sec.territory)+' &mdash; '+escHtml(sec.industry)+'</div>';
+    html += '<div class="exp-p-channel">'+escHtml(sec.channel)+'</div>';
+
+    if (sec.subjects.length) {
+      html += '<div class="exp-p-block-label">Subject Lines</div>';
+      sec.subjects.forEach(function(s, i) {
+        html += '<div class="exp-p-subject">'+(i+1)+'. '+escHtml(s)+'</div>';
+      });
+    }
+
+    if (sec.bodies.length) {
+      html += '<div class="exp-p-block-label">Variations</div>';
+      sec.bodies.forEach(function(b, i) {
+        html += '<div class="exp-p-variation">';
+        html += '<div class="exp-p-var-label">Variation '+(i+1)+'</div>';
+        html += '<div class="exp-p-body">'+escHtml(b)+'</div>';
+        html += '</div>';
+      });
+    }
+
+    html += '</div>';
+  });
+
+  return html;
+}
+
+document.getElementById('exp-pdf-btn').addEventListener('click', function() {
+  var statusEl = document.getElementById('exp-pdf-status');
+  statusEl.textContent = 'Generating…'; statusEl.className = 'exp-status-msg';
+  var preview = document.getElementById('exp-pdf-preview');
+  var profileName = activeProfile ? activeProfile.name.replace(/[^a-z0-9]/gi, '_') : 'export';
+  var opt = {
+    margin:     [8, 8, 8, 8],
+    filename:   profileName + '_copy_bank.pdf',
+    image:      { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2, backgroundColor: '#100d1e', logging: false, useCORS: true },
+    jsPDF:      { unit: 'mm', format: 'a4', orientation: 'portrait' },
+  };
+  html2pdf().set(opt).from(preview).save().then(function(){
+    statusEl.textContent = '✓ PDF downloaded'; statusEl.className = 'exp-status-msg ok';
+    setTimeout(function(){ statusEl.textContent = ''; }, 4000);
+  }).catch(function(e){
+    statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'exp-status-msg err';
+  });
+});
+
+// ── Google Doc preview + export ──
+function _renderExpGdocPreview() {
+  var sections = _buildExpSections();
+  var el = document.getElementById('exp-gdoc-preview');
+  el.innerHTML = _buildGdocHtml(sections);
+}
+
+function _buildGdocHtml(sections) {
+  var dateStr = new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'});
+  var profileName = activeProfile ? activeProfile.name : '';
+  var html = '<div class="exp-g-title">'+escHtml(profileName)+' — Copy Bank</div>';
+  html += '<div class="exp-g-subtitle">Generated '+escHtml(dateStr)+'</div>';
+  html += '<hr>';
+
+  if (!sections.length) {
+    html += '<p style="color:#9aa0a6;font-size:13px">No content found for the selected filters.</p>';
+    return html;
+  }
+
+  sections.forEach(function(sec) {
+    html += '<div class="exp-g-section">';
+    html += '<div class="exp-g-section-title">'+escHtml(sec.territory)+' — '+escHtml(sec.industry)+'</div>';
+    html += '<div class="exp-g-channel">'+escHtml(sec.channel)+'</div>';
+
+    if (sec.subjects.length) {
+      html += '<div class="exp-g-label">Subject Lines</div>';
+      sec.subjects.forEach(function(s, i) {
+        html += '<p class="exp-g-subject">'+(i+1)+'. '+escHtml(s)+'</p>';
+      });
+    }
+
+    if (sec.bodies.length) {
+      html += '<div class="exp-g-label">Variations</div>';
+      sec.bodies.forEach(function(b, i) {
+        html += '<div class="exp-g-variation">';
+        html += '<div class="exp-g-var-label">Variation '+(i+1)+'</div>';
+        html += '<div class="exp-g-body">'+escHtml(b)+'</div>';
+        html += '</div>';
+      });
+    }
+
+    html += '</div>';
+  });
+
+  return html;
+}
+
+async function _initGdocPanel() {
+  var statusEl     = document.getElementById('exp-gdoc-status');
+  var connectBtn   = document.getElementById('exp-gdoc-connect-btn');
+  var exportBtn    = document.getElementById('exp-gdoc-export-btn');
+
+  statusEl.textContent = 'Checking Google integration…'; statusEl.className = 'exp-status-msg';
+
+  try {
+    var resp = await fetch('/api/export/google/status');
+    var data = await resp.json();
+    if (!data.configured) {
+      statusEl.textContent = 'Google integration not configured — see .env.example for setup instructions.';
+      statusEl.className = 'exp-status-msg err';
+      connectBtn.style.display = 'none'; exportBtn.style.display = 'none';
+      return;
+    }
+  } catch(e) {
+    statusEl.textContent = 'Could not reach server.'; statusEl.className = 'exp-status-msg err';
+    return;
+  }
+
+  statusEl.textContent = '';
+  if (expState.googleSessionId) {
+    connectBtn.style.display = 'none'; exportBtn.style.display = '';
+  } else {
+    connectBtn.style.display = ''; exportBtn.style.display = 'none';
+  }
+}
+
+document.getElementById('exp-gdoc-connect-btn').addEventListener('click', function() {
+  var statusEl = document.getElementById('exp-gdoc-status');
+  statusEl.textContent = 'Opening Google authorisation…'; statusEl.className = 'exp-status-msg';
+
+  var popup = window.open('/api/export/google/auth', 'google_auth',
+    'width=520,height=620,scrollbars=yes,resizable=yes');
+
+  var listener = function(e) {
+    if (!e.data || !e.data.type) return;
+    window.removeEventListener('message', listener);
+    if (e.data.type === 'google_auth_success') {
+      expState.googleSessionId = e.data.session_id;
+      document.getElementById('exp-gdoc-connect-btn').style.display = 'none';
+      document.getElementById('exp-gdoc-export-btn').style.display  = '';
+      statusEl.textContent = '✓ Connected to Google'; statusEl.className = 'exp-status-msg ok';
+      setTimeout(function(){ statusEl.textContent = ''; }, 3000);
+    } else {
+      statusEl.textContent = 'Google auth failed: ' + (e.data.error || 'unknown error');
+      statusEl.className = 'exp-status-msg err';
+    }
+    if (popup && !popup.closed) popup.close();
+  };
+  window.addEventListener('message', listener);
+});
+
+document.getElementById('exp-gdoc-export-btn').addEventListener('click', async function() {
+  var statusEl  = document.getElementById('exp-gdoc-status');
+  var exportBtn = this;
+  var linkEl    = document.getElementById('exp-gdoc-link');
+
+  exportBtn.disabled = true; exportBtn.textContent = 'Creating document…';
+  statusEl.textContent = ''; linkEl.style.display = 'none';
+
+  var sections = _buildExpSections();
+  if (!sections.length) {
+    statusEl.textContent = 'No content selected.'; statusEl.className = 'exp-status-msg err';
+    exportBtn.disabled = false; exportBtn.textContent = '↗ Export as Google Doc';
+    return;
+  }
+
+  try {
+    var res  = await fetch('/api/export/google/create-doc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id:   expState.googleSessionId,
+        profile_name: activeProfile ? activeProfile.name : '',
+        sections:     sections,
+      }),
+    });
+    var data = await res.json();
+    if (data.ok) {
+      linkEl.href = data.url; linkEl.style.display = '';
+      statusEl.textContent = '✓ Google Doc created!'; statusEl.className = 'exp-status-msg ok';
+    } else {
+      statusEl.textContent = 'Error: ' + (data.error || 'Unknown'); statusEl.className = 'exp-status-msg err';
+    }
+  } catch(e) {
+    statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'exp-status-msg err';
+  }
+
+  exportBtn.disabled = false; exportBtn.textContent = '↗ Export as Google Doc';
+});
+
+// ════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════
 loadFromSupabase();
 </script>
+
+<!-- ══════════════════════════════════════════════════════
+     EXPORT SCREEN
+══════════════════════════════════════════════════════ -->
+<div id="export-screen" class="export-screen" style="display:none">
+
+  <div class="export-topbar">
+    <button id="export-back-btn" class="export-back-btn">&#8592; Back</button>
+    <span class="export-topbar-title" id="export-topbar-title">Export</span>
+  </div>
+
+  <div class="export-tab-nav">
+    <button class="exp-nav-tab active" data-exp-tab="settings">&#9881; Export Settings</button>
+    <button class="exp-nav-tab"        data-exp-tab="pdf">&#128196; PDF</button>
+    <button class="exp-nav-tab"        data-exp-tab="gdoc">&#128196; Google Doc</button>
+  </div>
+
+  <!-- Settings panel -->
+  <div id="exp-settings-panel" class="exp-panel">
+    <div class="exp-settings-grid">
+      <div class="exp-setting-group">
+        <div class="exp-setting-label">Territories</div>
+        <div id="exp-ter-toggles" class="exp-multi-toggles"></div>
+      </div>
+      <div class="exp-setting-group">
+        <div class="exp-setting-label">Industries / Niches</div>
+        <div id="exp-ind-toggles" class="exp-multi-toggles"></div>
+      </div>
+      <div class="exp-setting-group">
+        <div class="exp-setting-label">Channels</div>
+        <div id="exp-ch-toggles" class="exp-multi-toggles"></div>
+      </div>
+      <div class="exp-setting-group">
+        <div class="exp-setting-label">Sender</div>
+        <div class="exp-sender-row">
+          <label class="exp-include-label">
+            <input type="checkbox" id="exp-include-sender" checked>
+            Append sender name to bodies
+          </label>
+          <select id="exp-sender-sel"></select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF panel -->
+  <div id="exp-pdf-panel" class="exp-panel" style="display:none">
+    <div class="exp-actions-bar">
+      <button id="exp-pdf-btn" class="exp-export-btn">&#8595; Export as PDF</button>
+      <span id="exp-pdf-status" class="exp-status-msg"></span>
+    </div>
+    <div class="exp-preview-wrap">
+      <div id="exp-pdf-preview" class="exp-pdf-preview-inner"></div>
+    </div>
+  </div>
+
+  <!-- Google Doc panel -->
+  <div id="exp-gdoc-panel" class="exp-panel" style="display:none">
+    <div class="exp-actions-bar">
+      <button id="exp-gdoc-connect-btn" class="exp-export-btn" style="display:none">&#128279; Connect Google Account</button>
+      <button id="exp-gdoc-export-btn"  class="exp-export-btn" style="display:none">&#8599; Export as Google Doc</button>
+      <a id="exp-gdoc-link" class="exp-gdoc-link" href="#" target="_blank" style="display:none">Open Google Doc &#8599;</a>
+      <span id="exp-gdoc-status" class="exp-status-msg"></span>
+    </div>
+    <div class="exp-preview-wrap">
+      <div id="exp-gdoc-preview" class="exp-gdoc-preview-inner"></div>
+    </div>
+  </div>
+
+</div>
 
 <!-- Unsaved-changes modal -->
 <div id="unsaved-modal">
