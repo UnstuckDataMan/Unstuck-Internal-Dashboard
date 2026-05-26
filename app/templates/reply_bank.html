@@ -735,6 +735,7 @@
       <div class="admin-card-title">Actions</div>
       <div class="admin-action-row">
         <button class="admin-action-btn export" id="adm-export">⬇ Export Updated HTML</button>
+        <button class="admin-action-btn" id="adm-push-local" title="Push your browser's saved data to the shared server, overwriting what others see">⬆ Push my local data to server</button>
         <button class="admin-action-btn danger" id="adm-reset">Reset to defaults</button>
       </div>
     </div>
@@ -1313,23 +1314,25 @@ async function _pushAllToSupabase() {
       if (sRes.error) throw sRes.error;
       if (oRes.error) throw oRes.error;
 
-      const hasData = (tRes.data?.length || 0) + (oRes.data?.length || 0) + (sRes.data?.length || 0) > 0;
+      // ── Step 1: apply Supabase data as baseline ──
+      for (const row of (tRes.data || [])) {
+        TEMPLATES[row.key] = row.content; // null = NOT_AVAILABLE, kept intentionally
+      }
+      for (const row of (oRes.data || [])) {
+        if (row.key in OPTIONS) OPTIONS[row.key] = row.values;
+      }
+      for (const row of (sRes.data || [])) {
+        try { SNIPPETS[row.key] = JSON.parse(row.content); } catch(e) {}
+      }
 
-      if (!hasData && !localStorage.getItem('rb_sb_seeded')) {
-        // First-ever run: Supabase tables are empty — seed from localStorage if anything is there
+      // ── Step 2: apply localStorage ON TOP (local edits win — one-time migration) ──
+      // Each device runs this exactly once. Local data overrides Supabase for any
+      // conflicting key, then the merged state is pushed to Supabase so all users see it.
+      // After this first sync, rb_sb_synced is set and future loads use Supabase only.
+      if (!localStorage.getItem('rb_sb_synced')) {
         _mergeLocalStorage();
         await _pushAllToSupabase();
-      } else {
-        // Normal load: merge Supabase data over hardcoded defaults
-        for (const row of (tRes.data || [])) {
-          TEMPLATES[row.key] = row.content; // null = NOT_AVAILABLE, kept intentionally
-        }
-        for (const row of (oRes.data || [])) {
-          if (row.key in OPTIONS) OPTIONS[row.key] = row.values;
-        }
-        for (const row of (sRes.data || [])) {
-          try { SNIPPETS[row.key] = JSON.parse(row.content); } catch(e) {}
-        }
+        localStorage.setItem('rb_sb_synced', '1');
       }
     } catch(e) {
       console.warn('Supabase load failed — falling back to localStorage', e);
@@ -2127,11 +2130,23 @@ document.getElementById('adm-add-snippet').addEventListener('click', () => {
   list.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
 
+document.getElementById('adm-push-local').addEventListener('click', async () => {
+  if (!_sb) { alert('Not connected to server — running in local mode.'); return; }
+  if (!confirm('Push your browser\'s saved data to the server? This will overwrite the shared templates, snippets, and options for everyone.')) return;
+  _mergeLocalStorage(); // apply local data to in-memory state
+  await _pushAllToSupabase();
+  localStorage.setItem('rb_sb_synced', '1');
+  alert('Done — your data is now live for everyone.');
+  location.reload();
+});
+
 document.getElementById('adm-reset').addEventListener('click', () => {
   if (!confirm('Reset all templates, snippets, and options to the original embedded defaults? Your edits will be lost.')) return;
   localStorage.removeItem('rb_templates');
   localStorage.removeItem('rb_snippets');
   localStorage.removeItem('rb_options');
+  localStorage.removeItem('rb_sb_synced');
+  localStorage.removeItem('rb_sb_seeded');
   location.reload();
 });
 
