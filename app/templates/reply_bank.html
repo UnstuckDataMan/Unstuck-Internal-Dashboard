@@ -540,6 +540,30 @@
     }
     .snip-add-btn:hover { border-color: rgba(139,92,246,.7); color: #a78bfa; background: rgba(139,92,246,.06); }
     .snip-leo-section { margin-top: 4px; }
+
+    /* ── Export tab ── */
+    .adm-export-group { margin-bottom: 18px; }
+    .adm-export-label { display: block; font-size: .72rem; color: var(--text-3);
+                        text-transform: uppercase; letter-spacing: .07em; margin-bottom: 7px; font-weight: 600; }
+    .adm-export-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .adm-export-pill  { padding: 4px 13px; border-radius: 999px; font-size: .82rem; cursor: pointer;
+                        border: 1.5px solid var(--border); color: var(--text-2);
+                        background: var(--surface); transition: background .13s, border-color .13s, color .13s;
+                        user-select: none; }
+    .adm-export-pill:hover { border-color: rgba(139,92,246,.5); color: var(--text); }
+    .adm-export-pill.sel  { background: rgba(139,92,246,.22); border-color: var(--purple); color: #f0eeff; }
+    .adm-export-all-btn   { margin-top: 7px; background: none; border: none; font-size: .76rem;
+                            color: var(--purple); cursor: pointer; padding: 0; text-decoration: underline;
+                            opacity: .85; }
+    .adm-export-all-btn:hover { opacity: 1; }
+    .adm-format-toggle  { display: flex; gap: 8px; }
+    .adm-format-btn     { padding: 6px 20px; border-radius: 8px; border: 1.5px solid var(--border);
+                          background: var(--surface); color: var(--text-2); cursor: pointer;
+                          font-size: .85rem; transition: all .13s; }
+    .adm-format-btn:hover  { border-color: rgba(139,92,246,.5); color: var(--text); }
+    .adm-format-btn.active { border-color: var(--purple); color: #f0eeff;
+                             background: rgba(139,92,246,.18); }
+    .adm-export-generate   { margin-top: 6px; }
   </style>
 </head>
 <body>
@@ -639,6 +663,7 @@
     <button class="admin-tab-btn active" data-tab="copy">Copy</button>
     <button class="admin-tab-btn" data-tab="snippets">Snippets</button>
     <button class="admin-tab-btn" data-tab="options">Options</button>
+    <button class="admin-tab-btn" data-tab="export">Export</button>
   </div>
   <div class="admin-body">
 
@@ -738,6 +763,53 @@
     </div>
 
     </div><!-- /admin-tab-options -->
+
+    <!-- ── Export tab ── -->
+    <div class="admin-tab-pane" id="admin-tab-export">
+
+    <div class="admin-card">
+      <div class="admin-card-title">Export Copies</div>
+
+      <div class="adm-export-group">
+        <label class="adm-export-label">Territory</label>
+        <div class="adm-export-pills" id="exp-territories"></div>
+      </div>
+
+      <div class="adm-export-group">
+        <label class="adm-export-label">Style</label>
+        <div class="adm-export-pills" id="exp-styles"></div>
+      </div>
+
+      <div class="adm-export-group">
+        <label class="adm-export-label">Channel</label>
+        <div class="adm-export-pills" id="exp-channels"></div>
+      </div>
+
+      <div class="adm-export-group">
+        <label class="adm-export-label">Industry</label>
+        <div class="adm-export-pills" id="exp-industries"></div>
+        <button class="adm-export-all-btn" id="exp-industries-toggle">Deselect all</button>
+      </div>
+
+      <div class="adm-export-group">
+        <label class="adm-export-label">Sender (for snippet variations)</label>
+        <div class="adm-export-pills" id="exp-senders"></div>
+      </div>
+
+      <div class="adm-export-group">
+        <label class="adm-export-label">Export format</label>
+        <div class="adm-format-toggle">
+          <button class="adm-format-btn active" data-fmt="doc">Google Doc</button>
+          <button class="adm-format-btn" data-fmt="pdf">PDF</button>
+        </div>
+      </div>
+
+      <div class="admin-save-row adm-export-generate">
+        <button class="admin-save-btn" id="adm-generate-export">Generate Export</button>
+      </div>
+    </div>
+
+    </div><!-- /admin-tab-export -->
 
   </div>
 </div>
@@ -1180,6 +1252,7 @@ function renderTerritoryButtons() {
   migrateTemplates();
   populateDropdowns();
   renderModifiers();
+  renderExportTab();
   render();
 })();
 
@@ -2031,6 +2104,261 @@ document.querySelectorAll('.admin-tab-btn').forEach(btn => {
     document.getElementById(`admin-tab-${btn.dataset.tab}`).classList.add('active');
   });
 });
+
+// ════════════════════════════════════════════════════════
+//  EXPORT TAB
+// ════════════════════════════════════════════════════════
+
+function getSelPills(id) {
+  return [...document.querySelectorAll(`#${id} .adm-export-pill.sel`)]
+    .map(el => el.dataset.value);
+}
+
+// Parameterised assemble — no DOM reads, always includes all snippets (grey/italic in output)
+function assembleForExport(terr, sty, chan, ind, sender) {
+  const key = `${terr}_${sty}_${chan}_${ind}`;
+  let msg   = TEMPLATES[key] || '';
+  if (!msg || msg.length < 30 || !msg.trimStart().startsWith('Hi')) return null;
+
+  const SNIP_OPEN  = '\x00SO\x00';
+  const SNIP_CLOSE = '\x00SC\x00';
+
+  msg = msg.replace(/\[\[(\w+)\]\]/g, (_, snipKey) => {
+    const snip = SNIPPETS[snipKey];
+    if (!snip) return '';
+    const variations = snip.variations || [];
+    let best = null, bestScore = -1;
+    for (const v of variations) {
+      const tScore = v.territory === terr  ? 2 : v.territory === 'all' ? 1 : 0;
+      let sScore;
+      if (!v.sender || v.sender === 'all') sScore = 1;
+      else if (Array.isArray(v.sender))    sScore = v.sender.includes(sender) ? 2 : 0;
+      else                                 sScore = v.sender === sender ? 2 : 0;
+      if (tScore === 0 || sScore === 0) continue;
+      const score = tScore + sScore;
+      if (score > bestScore) { bestScore = score; best = v; }
+    }
+    const content = best ? (best.content || '') : '';
+    return content ? SNIP_OPEN + content + SNIP_CLOSE + '\n\n' : '';
+  });
+
+  msg = msg.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\n\n$/, '');
+
+  // Insert [NAME] placeholder
+  if (msg.match(/^Hi\n\n/m)) {
+    msg = msg.replace(/^Hi\n\n/m, 'Hi [NAME],\n\n');
+  } else {
+    msg = msg.replace(/^Hi[^\n]*/m, 'Hi [NAME],');
+  }
+
+  // Fix sign-off
+  const lastBest = msg.lastIndexOf('Best,');
+  if (lastBest !== -1) {
+    msg = msg.substring(0, lastBest) + 'Best,\n\n' + sender;
+  }
+
+  // Escape HTML, then restore snippet markers as styled spans
+  const escaped = msg
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\x00SO\x00([\s\S]*?)\x00SC\x00/g,
+      (_, c) => `<span class="snip-text">${c.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>`);
+
+  return escaped;
+}
+
+function renderExportTab() {
+  function makePills(containerId, values, multiSelect, preSelectAll) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+    values.forEach((val, i) => {
+      const pill = document.createElement('span');
+      pill.className = 'adm-export-pill' + (preSelectAll || i === 0 ? ' sel' : '');
+      pill.dataset.value = val;
+      pill.textContent   = val;
+      pill.addEventListener('click', () => {
+        if (multiSelect) {
+          pill.classList.toggle('sel');
+        } else {
+          container.querySelectorAll('.adm-export-pill').forEach(p => p.classList.remove('sel'));
+          pill.classList.add('sel');
+        }
+        // Update select-all button label
+        const allBtn = document.getElementById(`${containerId}-toggle`);
+        if (allBtn) {
+          const allSel = container.querySelectorAll('.adm-export-pill.sel').length === values.length;
+          allBtn.textContent = allSel ? 'Deselect all' : 'Select all';
+        }
+      });
+      container.appendChild(pill);
+    });
+  }
+
+  makePills('exp-territories', OPTIONS.territories, true, true);
+  makePills('exp-styles',      ['Standard', 'Enterprise'], true, true);
+  makePills('exp-channels',    ['Email', 'LinkedIn'], true, true);
+  makePills('exp-industries',  OPTIONS.industries,   true, true);
+  makePills('exp-senders',     OPTIONS.senders,      false, false);
+
+  // Select-all toggle for industries
+  const indToggle = document.getElementById('exp-industries-toggle');
+  if (indToggle) {
+    indToggle.addEventListener('click', () => {
+      const pills = document.querySelectorAll('#exp-industries .adm-export-pill');
+      const allSel = [...pills].every(p => p.classList.contains('sel'));
+      pills.forEach(p => p.classList.toggle('sel', !allSel));
+      indToggle.textContent = allSel ? 'Select all' : 'Deselect all';
+    });
+  }
+
+  // Format toggle (single-select)
+  document.querySelectorAll('.adm-format-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.adm-format-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  document.getElementById('adm-generate-export').addEventListener('click', generateExport);
+}
+
+function generateExport() {
+  const territories = getSelPills('exp-territories');
+  const styles      = getSelPills('exp-styles');
+  const channels    = getSelPills('exp-channels');
+  const industries  = getSelPills('exp-industries');
+  const sender      = getSelPills('exp-senders')[0] || OPTIONS.senders[0];
+  const fmt         = (document.querySelector('.adm-format-btn.active') || {}).dataset?.fmt || 'doc';
+
+  if (!territories.length || !styles.length || !channels.length || !industries.length) {
+    alert('Please select at least one option in each group.'); return;
+  }
+
+  const sections = [];
+  for (const terr of territories)
+    for (const sty of styles)
+      for (const chan of channels) {
+        const copies = [];
+        for (const ind of industries) {
+          const html = assembleForExport(terr, sty, chan, ind, sender);
+          if (html) copies.push({ industry: ind, html });
+        }
+        if (copies.length) sections.push({ terr, sty, chan, copies });
+      }
+
+  if (!sections.length) { alert('No templates found for the selected combinations.'); return; }
+
+  openExportWindow(sections, fmt);
+}
+
+function openExportWindow(sections, fmt) {
+  const isPdf    = fmt === 'pdf';
+  const dateStr  = new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+
+  const sectionsHtml = sections.map(s => `
+    <div class="section-header">
+      <span class="section-badge">${s.terr}</span>
+      <span class="section-dot">·</span>
+      <span class="section-badge">${s.sty}</span>
+      <span class="section-dot">·</span>
+      <span class="section-badge">${s.chan}</span>
+    </div>
+    ${s.copies.map(c => `
+      <div class="copy-block">
+        <div class="copy-industry">${c.industry}</div>
+        <div class="copy-body">${c.html}</div>
+      </div>`).join('')}
+  `).join('');
+
+  const toolbarHtml = isPdf
+    ? `<button class="toolbar-btn" onclick="window.print()">🖨&nbsp; Print / Save as PDF</button>`
+    : `<button class="toolbar-btn" onclick="downloadHTML()">⬇&nbsp; Download as HTML</button>
+       <span class="toolbar-hint">Upload to Google Drive → Open with Google Docs</span>`;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reply Bank Export — ${dateStr}</title>
+<style>
+  :root {
+    --purple: #8b5cf6; --purple-dim: rgba(139,92,246,.25);
+    --bg: #0e0d1a; --surface: rgba(255,255,255,.065);
+    --border: rgba(255,255,255,.10); --text: #f0eeff;
+    --text-2: rgba(230,225,255,.68); --text-3: rgba(210,205,255,.38);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text);
+         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         font-size: 14px; line-height: 1.6; padding: 0 0 60px; }
+  .toolbar { position: sticky; top: 0; z-index: 10;
+             background: rgba(14,13,26,.95); backdrop-filter: blur(12px);
+             border-bottom: 1px solid var(--border);
+             padding: 14px 36px; display: flex; align-items: center; gap: 14px; }
+  .toolbar-title { flex: 1; font-weight: 700; font-size: 1rem; color: var(--text); }
+  .toolbar-date  { font-size: .8rem; color: var(--text-3); }
+  .toolbar-btn   { padding: 8px 20px; border-radius: 8px; cursor: pointer; font-size: .88rem;
+                   border: 1.5px solid var(--purple); background: rgba(139,92,246,.18);
+                   color: #f0eeff; font-weight: 600; transition: background .15s; }
+  .toolbar-btn:hover { background: rgba(139,92,246,.30); }
+  .toolbar-hint  { font-size: .75rem; color: var(--text-3); }
+  .content       { max-width: 820px; margin: 0 auto; padding: 36px 36px 0; }
+  .section-header { display: flex; align-items: center; gap: 8px;
+                    margin: 40px 0 18px; padding-bottom: 10px;
+                    border-bottom: 1px solid var(--purple-dim); }
+  .section-header:first-child { margin-top: 0; }
+  .section-badge { font-size: .88rem; font-weight: 700; color: var(--purple); }
+  .section-dot   { color: var(--text-3); }
+  .copy-block    { background: var(--surface); border-radius: 10px;
+                   padding: 20px 24px; margin-bottom: 16px;
+                   border-left: 3px solid var(--purple-dim); }
+  .copy-industry { font-size: .72rem; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: .09em; color: var(--text-3); margin-bottom: 12px; }
+  .copy-body     { font-size: .9rem; line-height: 1.75; white-space: pre-wrap; color: var(--text-2); }
+  .snip-text     { color: #7a8090; font-style: italic; }
+  @media print {
+    @page { margin: 20mm 18mm; }
+    body        { background: #fff; color: #111; font-size: 11pt; }
+    .toolbar    { display: none; }
+    .content    { max-width: 100%; padding: 0; }
+    .section-header { border-bottom-color: #c4b5fd; margin: 28pt 0 12pt; }
+    .section-badge  { color: #6d28d9; }
+    .copy-block { background: #fafafa; border-left-color: #c4b5fd;
+                  border-radius: 4px; padding: 14pt 16pt; margin-bottom: 10pt;
+                  break-inside: avoid; }
+    .copy-industry { color: #888; }
+    .copy-body  { color: #222; }
+    .snip-text  { color: #666; }
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span class="toolbar-title">Reply Bank Export</span>
+  <span class="toolbar-date">${dateStr}</span>
+  ${toolbarHtml}
+</div>
+<div class="content">
+${sectionsHtml}
+</div>
+<script>
+  function downloadHTML() {
+    const a = document.createElement('a');
+    const blob = new Blob([document.documentElement.outerHTML], {type: 'text/html'});
+    a.href = URL.createObjectURL(blob);
+    a.download = 'reply-bank-export.html';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+<\/script>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up blocked — please allow pop-ups for this page.'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
 
 document.getElementById('adm-export').addEventListener('click', () => {
   const src = document.documentElement.outerHTML;
