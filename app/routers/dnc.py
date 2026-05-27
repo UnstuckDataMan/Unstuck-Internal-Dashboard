@@ -59,6 +59,28 @@ def _store_result(data: bytes, mime: str, filename: str) -> str:
     return token
 
 
+# ── Background helpers ─────────────────────────────────────────────────────────
+
+def _mark_sheets_background(sheet_ids: list[str], mark_value: str, reason: str) -> None:
+    """
+    Mark Lead Status in one or more Google Sheets.  Intended to run in a
+    daemon thread so the HTTP response is not held up by Sheets API latency.
+
+    Each sheet is updated sequentially (the gspread client is cached and
+    reused, so there is no per-call OAuth overhead).  Errors are silently
+    swallowed — the DNC entry has already been committed to Supabase.
+    """
+    try:
+        from app.utils.google_sheets import mark_email_in_sheet
+        for sid in sheet_ids:
+            try:
+                mark_email_in_sheet(sid, mark_value, reason)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 # ── Supabase helpers ───────────────────────────────────────────────────────────
 
 def _sb_headers(prefer: Optional[str] = None) -> dict:
@@ -1494,25 +1516,24 @@ async def add_dnc_entry(
         except Exception:
             pass  # non-fatal
 
-    # Mark email in linked Google Sheet(s) (non-fatal).
+    # Mark email in linked Google Sheet(s) (non-fatal, runs in background thread).
     # We mark the sheet when:
     #   • a full email was entered (any reason) — exact row match in the sheet
     #   • a domain was entered with "lead" reason — domain-level match in the sheet
     #     so that ALL rows sharing that company domain get stamped "Lead"
+    #
+    # Sheet marking is fired in a daemon thread so the HTTP response returns
+    # immediately (the DNC entry is already saved; sheet updates are a bonus).
     should_mark = (not is_domain) or (reason_clean == "lead" and is_domain)
     if should_mark:
-        # email_norm is either a full email or a domain — mark_email_in_sheet
-        # handles both: domain input → matches all rows for that company.
-        mark_value = email_norm
+        mark_value = email_norm  # full email OR bare domain
         try:
-            from app.utils.google_sheets import is_configured, mark_email_in_sheet
+            from app.utils.google_sheets import is_configured
             if is_configured():
                 target_sid = sheet_id.strip()
                 if target_sid:
-                    # User picked a specific campaign — update only that sheet
-                    mark_email_in_sheet(target_sid, mark_value, reason_clean)
+                    sheet_ids = [target_sid]
                 else:
-                    # No campaign selected — update all active sheets for this client
                     camp_r = http_req.get(
                         f"{SUPABASE_URL}/rest/v1/campaigns",
                         headers=_sb_headers(),
@@ -1524,14 +1545,17 @@ async def add_dnc_entry(
                         },
                         timeout=10,
                     )
-                    if camp_r.ok:
-                        for camp in camp_r.json():
-                            sid = (camp.get("sheet_id") or "").strip()
-                            if sid:
-                                try:
-                                    mark_email_in_sheet(sid, mark_value, reason_clean)
-                                except Exception:
-                                    pass
+                    sheet_ids = [
+                        (c.get("sheet_id") or "").strip()
+                        for c in (camp_r.json() if camp_r.ok else [])
+                        if (c.get("sheet_id") or "").strip()
+                    ]
+                if sheet_ids:
+                    threading.Thread(
+                        target=_mark_sheets_background,
+                        args=(sheet_ids, mark_value, reason_clean),
+                        daemon=True,
+                    ).start()
         except Exception:
             pass  # non-fatal — DNC entry already saved successfully
 

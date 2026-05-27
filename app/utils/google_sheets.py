@@ -22,6 +22,7 @@ import base64
 import json
 import os
 import re
+import threading
 
 import gspread
 import openpyxl
@@ -59,10 +60,31 @@ def _decode_sa_json() -> dict:
         raise RuntimeError(f"Could not decode GOOGLE_SHEETS_SA_JSON: {exc}") from exc
 
 
+# Module-level gspread client cache.
+# Creating a new client for every call triggers a full OAuth token fetch each
+# time (≈300–600 ms per call).  gspread's internal AuthorizedSession refreshes
+# the token automatically when it nears expiry, so a long-lived client is safe.
+_gc_cache: gspread.Client | None = None
+_gc_lock  = threading.Lock()
+
+
 def _client() -> gspread.Client:
-    """Return an authenticated gspread Client (gspread v6 native method)."""
-    info = _decode_sa_json()
-    return gspread.service_account_from_dict(info, scopes=SCOPES)
+    """Return a cached, authenticated gspread Client (gspread v6 native method).
+
+    The client is created once per process and reused for all subsequent calls.
+    gspread's AuthorizedSession refreshes the OAuth access token transparently
+    when it expires, so no manual TTL management is needed.
+    """
+    global _gc_cache
+    if _gc_cache is not None:
+        return _gc_cache
+    with _gc_lock:
+        # Double-checked locking: another thread may have initialised it while
+        # we were waiting for the lock.
+        if _gc_cache is None:
+            info = _decode_sa_json()
+            _gc_cache = gspread.service_account_from_dict(info, scopes=SCOPES)
+    return _gc_cache
 
 
 def _authed_session() -> AuthorizedSession:
