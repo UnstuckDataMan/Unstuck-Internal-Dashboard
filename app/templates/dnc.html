@@ -4209,19 +4209,41 @@
   function _set(id, val) { const e = _el(id); if (e) e.textContent = val; }
 
   function _captureClientStats() {
+    // Compute campaign totals from card data-* attributes rather than from the
+    // DOM tiles, so the snapshot is always the true all-campaigns numbers even
+    // when a tag filter is active and the tiles are showing filtered values.
+    let totalCamps = 0, activeCamps = 0, pipeline = 0;
+    let leads = 0, replies = 0, interested = 0, unsubs = 0;
+    document.querySelectorAll('.camp-card').forEach(function (card) {
+      totalCamps++;
+      const isActive = card.classList.contains('camp-card-active');
+      const total    = parseInt(card.dataset.total || '0', 10);
+      const sent     = parseInt(card.dataset.sent  || '0', 10);
+      if (isActive) {
+        activeCamps++;
+        pipeline += Math.max(0, total - sent);
+      }
+      leads      += parseInt(card.dataset.leads      || '0', 10);
+      replies    += parseInt(card.dataset.replies    || '0', 10);
+      interested += parseInt(card.dataset.interested || '0', 10);
+      unsubs     += parseInt(card.dataset.unsubs     || '0', 10);
+    });
     return {
-      today:    _el('cdash-sn-today')    ? _el('cdash-sn-today').textContent    : '0',
-      week:     _el('cdash-sn-week')     ? _el('cdash-sn-week').textContent     : '0',
-      month:    _el('cdash-sn-month')    ? _el('cdash-sn-month').textContent    : '0',
-      alltime:  _el('cdash-sn-alltime')  ? _el('cdash-sn-alltime').textContent  : '0',
-      campNum:  _el('cdash-num-campaigns') ? _el('cdash-num-campaigns').textContent : '0',
-      campSub:  _el('cdash-sub-campaigns') ? _el('cdash-sub-campaigns').textContent : 'active',
-      campSub2: _el('cdash-sub2-campaigns') ? _el('cdash-sub2-campaigns').textContent : '',
-      prospects:_el('cdash-num-prospects') ? _el('cdash-num-prospects').textContent : '0',
-      leads:    _el('cdash-num-leads')    ? _el('cdash-num-leads').textContent    : '0',
-      replies:  _el('cdash-num-replies')  ? _el('cdash-num-replies').textContent  : '0',
-      interested:_el('cdash-num-interested') ? _el('cdash-num-interested').textContent : '0',
-      unsubs:   _el('cdash-num-unsubs')   ? _el('cdash-num-unsubs').textContent   : '0',
+      // Send-timeline tiles come from the server's contacted_prospects query;
+      // they are not available in card data-* so we read them from the DOM as-is.
+      today:    _el('cdash-sn-today')   ? _el('cdash-sn-today').textContent   : '0',
+      week:     _el('cdash-sn-week')    ? _el('cdash-sn-week').textContent    : '0',
+      month:    _el('cdash-sn-month')   ? _el('cdash-sn-month').textContent   : '0',
+      alltime:  _el('cdash-sn-alltime') ? _el('cdash-sn-alltime').textContent : '0',
+      // Remaining stats computed from card data-* so they are filter-independent.
+      campNum:   String(activeCamps),
+      campSub:   'active',
+      campSub2:  String(totalCamps) + ' total',
+      prospects: String(pipeline),
+      leads:     String(leads),
+      replies:   String(replies),
+      interested:String(interested),
+      unsubs:    String(unsubs),
     };
   }
 
@@ -4359,6 +4381,15 @@
     _detailActive = false;
 
     document.querySelectorAll('.camp-card').forEach(c => c.classList.remove('camp-card-selected'));
+
+    // Clear any active tag filter so all cards are visible again — "← All campaigns"
+    // means ALL campaigns, not just whatever tag subset was previously shown.
+    document.querySelectorAll('.camp-card').forEach(c => c.classList.remove('camp-hidden'));
+    document.querySelectorAll('.camp-tag-pill').forEach(function (p) {
+      p.classList.toggle('camp-tag-pill-active', p.dataset.tag === '');
+    });
+    // Invalidate the tag-filter snapshot so the next tag click re-captures fresh.
+    window._campClientStats = null;
 
     _set('cdash-sn-today',   _clientStats.today);
     _set('cdash-sn-week',    _clientStats.week);

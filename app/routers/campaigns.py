@@ -178,7 +178,7 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
 
 @router.post("/api/campaigns/{campaign_id}/refresh")
 async def refresh_campaign(request: Request, campaign_id: str):
-    from app.utils.google_sheets import is_configured, read_sheet_status
+    from app.utils.google_sheets import is_configured, read_sheet_status, read_leads
 
     if not _sb_configured():
         return JSONResponse({"error": "Supabase not configured."}, status_code=503)
@@ -213,12 +213,29 @@ async def refresh_campaign(request: Request, campaign_id: str):
     except Exception as exc:
         return JSONResponse({"error": f"Sheet read error: {exc}"}, status_code=500)
 
+    # Read Lead Status counts from the sheet so all counter columns stay in sync
+    lead_count = reply_count = interested_count = unsub_count = 0
+    try:
+        leads_data       = read_leads(sheet_id)
+        lead_count       = sum(1 for e in leads_data if e["status"] == "Lead")
+        reply_count      = sum(1 for e in leads_data if e["status"] == "Reply")
+        interested_count = sum(1 for e in leads_data if e["status"] == "Interested")
+        unsub_count      = sum(1 for e in leads_data if e["status"] == "Unsubscribe")
+    except Exception:
+        pass   # Non-fatal — sent_count will still be updated below
+
     try:
         http_req.patch(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers("return=minimal"),
             params={"id": f"eq.{campaign_id}"},
-            json={"sent_count": status["sent"]},
+            json={
+                "sent_count":        status["sent"],
+                "lead_count":        lead_count,
+                "reply_count":       reply_count,
+                "interested_count":  interested_count,
+                "unsubscribe_count": unsub_count,
+            },
             timeout=10,
         ).raise_for_status()
     except Exception as exc:
