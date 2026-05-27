@@ -1432,7 +1432,36 @@
   }
   .cdash-send-num { font-size: 1.6rem; font-weight: 700; color: var(--text); line-height: 1; }
   .cdash-send-lbl { font-size: .7rem; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .cdash-send-sub { font-size: .65rem; color: var(--text-3); opacity: .8; margin-top: -2px; }
   .cdash-send-sep { width: 1px; height: 40px; background: var(--border); margin: 0 4px; }
+
+  /* Custom date range picker */
+  .cdash-send-custom {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 12px; padding-top: 10px;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .cdash-date-input {
+    font-family: var(--font); font-size: .75rem; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 7px; padding: 5px 8px; outline: none;
+    transition: border-color .15s;
+  }
+  .cdash-date-input:focus { border-color: var(--accent); }
+  .cdash-date-sep { font-size: .8rem; color: var(--text-3); }
+  .cdash-date-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--font); font-size: .75rem; font-weight: 600;
+    color: var(--accent); background: transparent;
+    border: 1px solid var(--accent); border-radius: 7px;
+    padding: 5px 10px; cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .cdash-date-btn:hover { background: var(--accent); color: #fff; }
+  .cdash-custom-result { font-size: .78rem; color: var(--text-2); }
+  .cdash-custom-result.cdash-custom-ok  { color: #4ade80; }
+  .cdash-custom-result.cdash-custom-err { color: var(--red); }
 
   .cdash-row-status { gap: 10px; }
   .cdash-stat-tile {
@@ -4233,19 +4262,21 @@
     return {
       // Send-timeline tiles come from the server's contacted_prospects query;
       // they are not available in card data-* so we read them from the DOM as-is.
-      today:    _el('cdash-sn-today')   ? _el('cdash-sn-today').textContent   : '0',
-      week:     _el('cdash-sn-week')    ? _el('cdash-sn-week').textContent    : '0',
-      month:    _el('cdash-sn-month')   ? _el('cdash-sn-month').textContent   : '0',
-      alltime:  _el('cdash-sn-alltime') ? _el('cdash-sn-alltime').textContent : '0',
+      today:      _el('cdash-sn-today')        ? _el('cdash-sn-today').textContent        : '0',
+      week:       _el('cdash-sn-week')         ? _el('cdash-sn-week').textContent         : '0',
+      weekLabel:  _el('cdash-sn-week-label')   ? _el('cdash-sn-week-label').textContent   : '',
+      month:      _el('cdash-sn-month')        ? _el('cdash-sn-month').textContent        : '0',
+      monthLabel: _el('cdash-sn-month-label')  ? _el('cdash-sn-month-label').textContent  : '',
+      alltime:    _el('cdash-sn-alltime')      ? _el('cdash-sn-alltime').textContent      : '0',
       // Remaining stats computed from card data-* so they are filter-independent.
-      campNum:   String(activeCamps),
-      campSub:   'active',
-      campSub2:  String(totalCamps) + ' total',
-      prospects: String(pipeline),
-      leads:     String(leads),
-      replies:   String(replies),
-      interested:String(interested),
-      unsubs:    String(unsubs),
+      campNum:    String(activeCamps),
+      campSub:    'active',
+      campSub2:   String(totalCamps) + ' total',
+      prospects:  String(pipeline),
+      leads:      String(leads),
+      replies:    String(replies),
+      interested: String(interested),
+      unsubs:     String(unsubs),
     };
   }
 
@@ -4344,10 +4375,13 @@
     const remaining  = Math.max(0, total - sent);
     const name       = card.dataset.campName || 'Campaign';
 
-    _set('cdash-sn-today',   '—');
-    _set('cdash-sn-week',    '—');
-    _set('cdash-sn-month',   '—');
-    _set('cdash-sn-alltime', sent);
+    _set('cdash-sn-today',        '—');
+    _set('cdash-sn-week',         '—');
+    _set('cdash-sn-week-label',   '');
+    _set('cdash-sn-month',        '—');
+    _set('cdash-sn-month-label',  '');
+    _set('cdash-sn-alltime',      sent);
+    _set('cdash-custom-result',   '');
 
     _set('cdash-num-campaigns',  '1');
     _set('cdash-sub-campaigns',  'selected');
@@ -4393,10 +4427,13 @@
     // Invalidate the tag-filter snapshot so the next tag click re-captures fresh.
     window._campClientStats = null;
 
-    _set('cdash-sn-today',   _clientStats.today);
-    _set('cdash-sn-week',    _clientStats.week);
-    _set('cdash-sn-month',   _clientStats.month);
-    _set('cdash-sn-alltime', _clientStats.alltime);
+    _set('cdash-sn-today',       _clientStats.today);
+    _set('cdash-sn-week',        _clientStats.week);
+    _set('cdash-sn-week-label',  _clientStats.weekLabel  || '');
+    _set('cdash-sn-month',       _clientStats.month);
+    _set('cdash-sn-month-label', _clientStats.monthLabel || '');
+    _set('cdash-sn-alltime',     _clientStats.alltime);
+    _set('cdash-custom-result',  '');
 
     _set('cdash-num-campaigns',  _clientStats.campNum);
     _set('cdash-sub-campaigns',  _clientStats.campSub);
@@ -4417,6 +4454,57 @@
     // Hide A/B panel
     const abPanel = _el('cdash-ab-panel');
     if (abPanel) { abPanel.style.display = 'none'; abPanel.innerHTML = ''; }
+  };
+
+  // ── Custom date range send count ─────────────────────────────────────
+  window.fetchCustomSends = function () {
+    const fromEl  = document.getElementById('cdash-date-from');
+    const toEl    = document.getElementById('cdash-date-to');
+    const result  = document.getElementById('cdash-custom-result');
+    if (!fromEl || !toEl || !result) return;
+
+    const from = fromEl.value;
+    const to   = toEl.value;
+
+    if (!from || !to) {
+      result.textContent = 'Select both dates.';
+      result.className   = 'cdash-custom-result cdash-custom-err';
+      return;
+    }
+    if (from > to) {
+      result.textContent = 'Start date must be before end date.';
+      result.className   = 'cdash-custom-result cdash-custom-err';
+      return;
+    }
+
+    // Read client_id from the data attribute on the sends tile
+    const tile     = document.querySelector('.cdash-tile-wide[data-client-id]');
+    const clientId = tile ? (tile.dataset.clientId || '') : '';
+    if (!clientId) {
+      result.textContent = 'No client selected.';
+      result.className   = 'cdash-custom-result cdash-custom-err';
+      return;
+    }
+
+    result.textContent = 'Loading…';
+    result.className   = 'cdash-custom-result';
+
+    const url = `/api/campaigns/send-stats?client_id=${encodeURIComponent(clientId)}&date_from=${from}&date_to=${to}`;
+    fetch(url)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          result.textContent = data.error;
+          result.className   = 'cdash-custom-result cdash-custom-err';
+        } else {
+          result.innerHTML = `<strong>${data.count}</strong> sent ${from} – ${to}`;
+          result.className = 'cdash-custom-result cdash-custom-ok';
+        }
+      })
+      .catch(function () {
+        result.textContent = 'Network error.';
+        result.className   = 'cdash-custom-result cdash-custom-err';
+      });
   };
 
   // Reset stored stats when HTMX re-renders the panel (Refresh / Sync / Delete)

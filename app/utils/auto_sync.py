@@ -53,7 +53,7 @@ def sync_campaign_core(
     completed_at the first time sent_count reaches total_prospects.
     Does NOT raise — errors are returned in the dict so callers can log/continue.
     """
-    from app.utils.google_sheets import read_leads, read_sent_emails
+    from app.utils.google_sheets import read_leads, read_sent_with_dates, write_sent_dates
 
     result = {
         "leads_added": 0, "interested_added": 0,
@@ -69,9 +69,26 @@ def sync_campaign_core(
         return result
 
     try:
-        sent_emails = read_sent_emails(sheet_id)
+        sent_data = read_sent_with_dates(sheet_id)
     except Exception:
-        sent_emails = []
+        sent_data = []
+
+    # ── Back-fill missing Sent Date cells in the sheet ────────────────
+    # For every sent row that has no Sent Date yet, stamp today.
+    # Rows with an existing date keep it, so contacted_at always reflects
+    # the real send date rather than the date the sync job happened to run.
+    if sent_data:
+        today_str = _date.today().isoformat()
+        to_write: list[tuple[int, str]] = []
+        for entry in sent_data:
+            if not entry["sent_date"]:
+                entry["sent_date"] = today_str
+                to_write.append((entry["row_num"], today_str))
+        if to_write:
+            try:
+                write_sent_dates(sheet_id, to_write)
+            except Exception:
+                pass   # Non-fatal — stats will still be correct
 
     # ── Build DNC rows ────────────────────────────────────────────────
     if leads:
@@ -121,19 +138,20 @@ def sync_campaign_core(
                 return result
 
     # ── Add sent rows to contacted_prospects ──────────────────────────
-    if sent_emails:
-        today = _date.today().isoformat()
-        for i in range(0, len(sent_emails), CHUNK_SIZE):
-            chunk = sent_emails[i : i + CHUNK_SIZE]
+    # Use the actual Sent Date from the sheet so the date-bucketed stats
+    # (Today / This Week / This Month) accurately reflect when emails were sent.
+    if sent_data:
+        for i in range(0, len(sent_data), CHUNK_SIZE):
+            chunk = sent_data[i : i + CHUNK_SIZE]
             rows_to_insert = [
                 {
                     "client_id":    client_id,
-                    "email":        e,
-                    "contacted_at": today,
+                    "email":        entry["email"],
+                    "contacted_at": entry["sent_date"],
                     "source":       "auto_sync",
                     **({"campaign_name": campaign_name} if campaign_name else {}),
                 }
-                for e in chunk
+                for entry in chunk
             ]
             try:
                 r = http_req.post(
@@ -149,7 +167,7 @@ def sync_campaign_core(
                 pass
 
     # ── Update campaign counters ──────────────────────────────────────
-    new_sent = len(sent_emails)
+    new_sent = len(sent_data)
     patch_body: dict = {
         "sent_count":        new_sent,
         "lead_count":        result["leads_added"],

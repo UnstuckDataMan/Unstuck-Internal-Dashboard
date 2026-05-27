@@ -45,50 +45,75 @@ def _parse_total(headers: dict) -> int:
     return 0
 
 
-def _fetch_send_counts(client_id: str) -> dict:
-    """Return Today / This Week / This Month / All Time send counts from contacted_prospects."""
-    today     = _date.today()
-    week_ago  = (today - timedelta(days=7)).isoformat()
-    month_ago = (today - timedelta(days=30)).isoformat()
-    today_str = today.isoformat()
-
-    counts = {"today": 0, "week": 0, "month": 0, "all_time": 0}
-    for key, cutoff in (("month", month_ago), ("week", week_ago), ("today", today_str)):
-        try:
-            r = http_req.get(
-                f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                headers={**_sb_headers(), "Prefer": "count=exact"},
-                params={
-                    "select":        "id",
-                    "client_id":     f"eq.{client_id}",
-                    "contacted_at":  f"gte.{cutoff}",
-                    "campaign_name": "not.is.null",
-                    "limit":         "1",
-                },
-                timeout=10,
-            )
-            counts[key] = _parse_total(r.headers)
-        except Exception:
-            pass
-
-    # All-time: no date filter — source of truth from contacted_prospects
+def _count_contacted(
+    client_id: str,
+    date_eq:  str = "",
+    date_gte: str = "",
+    date_lte: str = "",
+) -> int:
+    """
+    Count contacted_prospects rows for a client, optionally filtered by date.
+    Passes duplicate contacted_at params as a list of tuples so PostgREST receives
+    both gte and lte filters simultaneously (e.g. for a week range).
+    """
+    base_params: list[tuple[str, str]] = [
+        ("select",        "id"),
+        ("client_id",     f"eq.{client_id}"),
+        ("campaign_name", "not.is.null"),
+        ("limit",         "1"),
+    ]
+    if date_eq:
+        base_params.append(("contacted_at", f"eq.{date_eq}"))
+    if date_gte:
+        base_params.append(("contacted_at", f"gte.{date_gte}"))
+    if date_lte:
+        base_params.append(("contacted_at", f"lte.{date_lte}"))
     try:
         r = http_req.get(
             f"{SUPABASE_URL}/rest/v1/contacted_prospects",
             headers={**_sb_headers(), "Prefer": "count=exact"},
-            params={
-                "select":        "id",
-                "client_id":     f"eq.{client_id}",
-                "campaign_name": "not.is.null",
-                "limit":         "1",
-            },
+            params=base_params,
             timeout=10,
         )
-        counts["all_time"] = _parse_total(r.headers)
+        return _parse_total(r.headers)
     except Exception:
-        pass
+        return 0
 
-    return counts
+
+def _fetch_send_counts(client_id: str) -> dict:
+    """
+    Return calendar-accurate send counts from contacted_prospects:
+      today     — rows where contacted_at = today's date exactly
+      week      — rows within the current work week (Mon–Sun)
+      month     — rows within the current calendar month (1st → today)
+      all_time  — all rows for this client (no date filter)
+    Also returns human-readable labels for the week and month ranges.
+    """
+    today       = _date.today()
+    monday      = today - timedelta(days=today.weekday())   # weekday() 0=Mon
+    sunday      = monday + timedelta(days=6)
+    month_start = today.replace(day=1)
+
+    today_str  = today.isoformat()
+    monday_str = monday.isoformat()
+    sunday_str = sunday.isoformat()
+    month_str  = month_start.isoformat()
+
+    # Human-readable range labels shown below the tiles
+    if monday.month == sunday.month:
+        week_label = f"{monday.strftime('%b %-d')}–{sunday.strftime('%-d')}"
+    else:
+        week_label = f"{monday.strftime('%b %-d')}–{sunday.strftime('%b %-d')}"
+    month_label = today.strftime("%B %Y")
+
+    return {
+        "today":       _count_contacted(client_id, date_eq=today_str),
+        "week":        _count_contacted(client_id, date_gte=monday_str, date_lte=sunday_str),
+        "month":       _count_contacted(client_id, date_gte=month_str,  date_lte=today_str),
+        "all_time":    _count_contacted(client_id),
+        "week_label":  week_label,
+        "month_label": month_label,
+    }
 
 
 # ── List campaigns + dashboard stats ──────────────────────────────────────────
@@ -172,6 +197,31 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
             "send_counts": send_counts,
         },
     )
+
+
+# ── Custom date-range send count ──────────────────────────────────────────────
+
+@router.get("/api/campaigns/send-stats")
+async def campaign_send_stats(
+    client_id: str = Query(""),
+    date_from: str = Query(""),
+    date_to:   str = Query(""),
+):
+    """
+    Return the count of contacted_prospects for a client within an arbitrary
+    [date_from, date_to] range (ISO date strings, inclusive).
+    Used by the custom date range picker in the campaigns stats panel.
+    """
+    if not client_id or not date_from or not date_to:
+        return JSONResponse(
+            {"error": "client_id, date_from, and date_to are all required."},
+            status_code=400,
+        )
+    if not _sb_configured():
+        return JSONResponse({"error": "Supabase not configured."}, status_code=503)
+
+    count = _count_contacted(client_id, date_gte=date_from, date_lte=date_to)
+    return JSONResponse({"count": count, "date_from": date_from, "date_to": date_to})
 
 
 # ── Refresh sent count ─────────────────────────────────────────────────────────

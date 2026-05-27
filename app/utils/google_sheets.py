@@ -521,6 +521,16 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
         f"LeadStatus:{_ls_idx}  RecipientEmail:{_em_idx}  total:{len(headers)}"
     )
 
+    # Append "Sent Date" helper column (tracks the date the prospect was marked sent).
+    # Each data row gets an empty cell; the auto_sync will fill in the date when syncing.
+    if "Sent Date" not in headers:
+        for row in str_rows:          # modifies all inner lists in-place
+            row.append("")
+        str_rows[0][-1] = "Sent Date"  # set the header cell
+        headers   = str_rows[0]
+        data_rows = str_rows[1:]
+        all_rows  = str_rows
+
     # ── Create spreadsheet in Shared Drive ───────────────────────────────
     file_id, sheet_url = _create_spreadsheet(title)
 
@@ -620,6 +630,59 @@ def read_sent_emails(sheet_id: str) -> list[str]:
         if _is_sent(r.get("Send Status", "")) and email and "@" in email:
             emails.append(email)
     return emails
+
+
+def read_sent_with_dates(sheet_id: str) -> list[dict]:
+    """
+    Return [{email, sent_date, row_num}] for all rows where Send Status is ticked.
+
+    sent_date is the value from the 'Sent Date' column (ISO date string, may be
+    "" if the column doesn't exist yet or has not been populated for that row).
+    row_num is 1-based sheet row number (row 1 = header, row 2 = first data row).
+    """
+    gc = _client()
+    sh = gc.open_by_key(sheet_id)
+    ws = sh.sheet1
+    records = ws.get_all_records(value_render_option="UNFORMATTED_VALUE")
+
+    results: list[dict] = []
+    for i, r in enumerate(records, start=2):   # row 2 = first data row
+        email = str(r.get("Recipient Email", "")).strip().lower()
+        if not _is_sent(r.get("Send Status", "")) or not email or "@" not in email:
+            continue
+        sent_date = str(r.get("Sent Date", "")).strip()
+        results.append({"email": email, "sent_date": sent_date, "row_num": i})
+    return results
+
+
+def write_sent_dates(sheet_id: str, row_date_pairs: list[tuple[int, str]]) -> None:
+    """
+    Batch-write (row_num, date_str) pairs to the 'Sent Date' column.
+
+    If 'Sent Date' doesn't exist in the header row it is appended automatically.
+    row_num values are 1-based sheet row numbers (1 = header).
+    """
+    if not row_date_pairs:
+        return
+
+    gc = _client()
+    sh = gc.open_by_key(sheet_id)
+    ws = sh.sheet1
+
+    headers = ws.row_values(1)
+    if "Sent Date" not in headers:
+        new_col_idx = len(headers) + 1          # 1-based
+        ws.update_cell(1, new_col_idx, "Sent Date")
+        sent_date_col = new_col_idx
+    else:
+        sent_date_col = headers.index("Sent Date") + 1   # 1-based
+
+    updates = [
+        {"range": f"{_col_letter(sent_date_col)}{row_num}", "values": [[date_str]]}
+        for row_num, date_str in row_date_pairs
+    ]
+    if updates:
+        ws.batch_update(updates)
 
 
 def read_ab_stats(sheet_id: str) -> list[dict]:

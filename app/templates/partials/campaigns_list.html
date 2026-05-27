@@ -47,7 +47,7 @@
 
   {# Send timeline tiles #}
   <div class="cdash-row">
-    <div class="cdash-tile cdash-tile-wide">
+    <div class="cdash-tile cdash-tile-wide" data-client-id="{{ client_id }}">
       <span class="cdash-tile-label">Sends</span>
       <div class="cdash-send-grid">
         <div class="cdash-send-cell">
@@ -58,17 +58,33 @@
         <div class="cdash-send-cell">
           <span class="cdash-send-num" id="cdash-sn-week">{{ send_counts.get('week', 0) }}</span>
           <span class="cdash-send-lbl">This Week</span>
+          <span class="cdash-send-sub" id="cdash-sn-week-label">{{ send_counts.get('week_label', '') }}</span>
         </div>
         <div class="cdash-send-sep"></div>
         <div class="cdash-send-cell">
           <span class="cdash-send-num" id="cdash-sn-month">{{ send_counts.get('month', 0) }}</span>
           <span class="cdash-send-lbl">This Month</span>
+          <span class="cdash-send-sub" id="cdash-sn-month-label">{{ send_counts.get('month_label', '') }}</span>
         </div>
         <div class="cdash-send-sep"></div>
         <div class="cdash-send-cell">
           <span class="cdash-send-num" id="cdash-sn-alltime">{{ send_counts.get('all_time', 0) }}</span>
           <span class="cdash-send-lbl">All Time</span>
         </div>
+      </div>
+      {# Custom date range picker #}
+      <div class="cdash-send-custom">
+        <input type="date" id="cdash-date-from" class="cdash-date-input" aria-label="From date">
+        <span class="cdash-date-sep">–</span>
+        <input type="date" id="cdash-date-to"   class="cdash-date-input" aria-label="To date">
+        <button class="cdash-date-btn" onclick="fetchCustomSends()">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          Search
+        </button>
+        <span id="cdash-custom-result" class="cdash-custom-result"></span>
       </div>
     </div>
 
