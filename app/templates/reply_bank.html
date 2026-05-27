@@ -1086,7 +1086,7 @@ function assemble() {
   // ── 4. Fix sign-off ──
   const lastBest = msg.lastIndexOf('Best,');
   if (lastBest !== -1) {
-    msg = msg.substring(0, lastBest) + 'Best,\n\n' + sender;
+    msg = msg.substring(0, lastBest) + 'Best,\n\n' + sender + '\n';
   }
 
   return msg;
@@ -2372,7 +2372,7 @@ function assembleForExport(terr, sty, chan, ind, sender) {
   // Fix sign-off
   const lastBest = msg.lastIndexOf('Best,');
   if (lastBest !== -1) {
-    msg = msg.substring(0, lastBest) + 'Best,\n\n' + sender;
+    msg = msg.substring(0, lastBest) + 'Best,\n\n' + sender + '\n';
   }
 
   // Escape HTML, then restore snippet markers as styled spans
