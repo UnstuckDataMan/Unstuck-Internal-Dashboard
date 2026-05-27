@@ -2960,9 +2960,11 @@ function renderVariationsSection(container, ch, variations, sender) {
   }
   const section = buildSection(label,'Copy all Variations');
   const btn = section.querySelector('.copy-channel-btn');
+  // Sender name is appended only for email and fly-out channels (professional sign-off)
+  const appendSender = (ch === 'email' || ch === 'flyout') && sender;
   const assembled = variations.map(function(v,i){
     const raw=(v.body||'').trim();
-    return { label:'Variation '+(i+1), body:raw?raw+'\n\n'+sender:'', raw:raw, idx:i };
+    return { label:'Variation '+(i+1), body:raw?(appendSender ? raw+'\n\n'+sender : raw):'', raw:raw, idx:i };
   });
   const hasAny = assembled.some(function(a){ return a.body; });
   btn.addEventListener('click', async function(){
@@ -2986,9 +2988,10 @@ function renderVariationsSection(container, ch, variations, sender) {
 function renderStepsSection(container, steps, sender) {
   const section = buildSection('LinkedIn Sequence','Copy all Steps');
   const btn = section.querySelector('.copy-channel-btn');
+  // LinkedIn steps do not get a sender sign-off (sender is for email/flyout only)
   const assembled = steps.map(function(s,i){
     const raw=(s.body||'').trim();
-    return { label:'Step '+(i+1), body:raw?raw+'\n\n'+sender:'', raw:raw, idx:i };
+    return { label:'Step '+(i+1), body:raw, raw:raw, idx:i };
   });
   const hasAny = assembled.some(function(a){ return a.body; });
   btn.addEventListener('click', async function(){
@@ -3084,12 +3087,13 @@ document.getElementById('copy-all-btn').addEventListener('click', async function
   if (!dataReady) return;
   const sender=document.getElementById('sender').value, key=currentKey(), parts=[], btn=document.getElementById('copy-all-btn');
   if (activeChannel==='linkedin') {
-    getChData(key,'linkedin').steps.forEach(function(s){ const b=(s.body||'').trim(); if(b) parts.push(b+'\n\n'+sender); });
+    getChData(key,'linkedin').steps.forEach(function(s){ const b=(s.body||'').trim(); if(b) parts.push(b); });
   } else {
     const d=getChData(key,activeChannel);
     const subs=d.subjects.filter(function(s){ return s.trim(); });
     if (subs.length) parts.push(subs.join('\n'));
-    d.variations.forEach(function(v){ const b=(v.body||'').trim(); if(b) parts.push(b+'\n\n'+sender); });
+    const addSender = (activeChannel==='email' || activeChannel==='flyout') && sender;
+    d.variations.forEach(function(v){ const b=(v.body||'').trim(); if(b) parts.push(addSender ? b+'\n\n'+sender : b); });
   }
   if (parts.length) await copyText(parts.join('\n\n'), btn, 'Copy All');
 });
@@ -3833,12 +3837,15 @@ function commitCardEdit(card, editInfo, val) {
 function exitCardEditMode(card, editInfo) {
   card.classList.remove('edit-mode');
 
-  // Swap textarea → body div showing current value
+  // Swap textarea → body div showing current value (re-append sender for email/flyout)
   const ta = card.querySelector('.copy-edit-textarea');
   if (ta) {
     const bodyEl = document.createElement('div');
     bodyEl.className = 'var-body';
-    bodyEl.textContent = editInfo ? editInfo.rawValue : ta.value;
+    const rawVal = editInfo ? editInfo.rawValue : ta.value;
+    const curSender = document.getElementById('sender') ? document.getElementById('sender').value : '';
+    const showSender = editInfo && (editInfo.channel === 'email' || editInfo.channel === 'flyout') && curSender;
+    bodyEl.textContent = rawVal && showSender ? rawVal.trim() + '\n\n' + curSender : rawVal;
     ta.replaceWith(bodyEl);
   }
 
