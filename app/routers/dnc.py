@@ -1433,8 +1433,10 @@ async def add_dnc_entry(
     if not _sb_configured():
         return error("Supabase is not configured.")
 
-    email_norm = email.lower().strip()
-    is_domain = "@" not in email_norm
+    email_norm   = email.lower().strip()
+    is_domain    = "@" not in email_norm
+    reason_clean = reason.strip() or "manual"
+
     if not email_norm:
         return error("Please enter an email address or domain.")
     if is_domain and "." not in email_norm:
@@ -1442,10 +1444,18 @@ async def add_dnc_entry(
     if not is_domain and email_norm.count("@") != 1:
         return error("Please enter a valid email address.")
 
+    # For "lead" reason with a full email, store the domain in DNC — not the specific
+    # email address.  This matches sync behaviour: Lead → domain-level block so the
+    # entire company is excluded from future outreach.  The full email is still used
+    # below to mark the individual row in the Google Sheet as "Lead".
+    dnc_value = email_norm
+    if reason_clean == "lead" and not is_domain:
+        dnc_value = email_norm.split("@")[1]
+
     payload: dict = {
         "client_id": client_id,
-        "email":     email_norm,
-        "reason":    reason.strip() or "manual",
+        "email":     dnc_value,
+        "reason":    reason_clean,
         "added_by":  "dashboard_user",
     }
     if notes.strip():
@@ -1459,7 +1469,7 @@ async def add_dnc_entry(
             timeout=10,
         )
         if r.status_code == 409:
-            return error(f"{email_norm} is already on the DNC list for this client.")
+            return error(f"{dnc_value} is already on the DNC list for this client.")
         r.raise_for_status()
     except Exception as e:
         return error(f"Supabase error: {e}")
@@ -1490,7 +1500,7 @@ async def add_dnc_entry(
                 target_sid = sheet_id.strip()
                 if target_sid:
                     # User picked a specific campaign — update only that sheet
-                    mark_email_in_sheet(target_sid, email_norm, reason)
+                    mark_email_in_sheet(target_sid, email_norm, reason_clean)
                 else:
                     # No campaign selected — update all active sheets for this client
                     camp_r = http_req.get(
@@ -1509,7 +1519,7 @@ async def add_dnc_entry(
                             sid = (camp.get("sheet_id") or "").strip()
                             if sid:
                                 try:
-                                    mark_email_in_sheet(sid, email_norm, reason)
+                                    mark_email_in_sheet(sid, email_norm, reason_clean)
                                 except Exception:
                                     pass
         except Exception:
