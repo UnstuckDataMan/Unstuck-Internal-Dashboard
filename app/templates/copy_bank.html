@@ -4107,8 +4107,13 @@ const expState = {
 };
 
 // ── Open / close ──
-document.getElementById('export-open-btn').addEventListener('click', openExportScreen);
-document.getElementById('export-back-btn').addEventListener('click', closeExportScreen);
+// Note: export-screen HTML may be below this script block; use null guards to avoid
+// halting execution if elements aren't in the DOM yet (they are wired via initExportListeners
+// called after the export-screen HTML is parsed, but also safe here with null checks).
+(function() {
+  var _openBtn = document.getElementById('export-open-btn');
+  if (_openBtn) _openBtn.addEventListener('click', openExportScreen);
+})();
 
 function openExportScreen() {
   if (!activeProfile) return;
@@ -4184,10 +4189,7 @@ function _renderExpToggles(items, containerId, selectedArr, type) {
   });
 }
 
-// ── Tab switching ──
-document.querySelectorAll('.exp-nav-tab').forEach(function(btn) {
-  btn.addEventListener('click', function() { _switchExpTab(btn.dataset.expTab); });
-});
+// ── Tab switching — wired in initExportListeners() after HTML is parsed ──
 
 function _switchExpTab(tabName) {
   document.querySelectorAll('.exp-nav-tab').forEach(function(b) {
@@ -4311,7 +4313,7 @@ function _buildPdfHtml(sections) {
   return html;
 }
 
-document.getElementById('exp-pdf-btn').addEventListener('click', function() {
+function _onPdfBtnClick() {
   var statusEl = document.getElementById('exp-pdf-status');
   statusEl.textContent = 'Generating…'; statusEl.className = 'exp-status-msg';
   var preview = document.getElementById('exp-pdf-preview');
@@ -4329,7 +4331,7 @@ document.getElementById('exp-pdf-btn').addEventListener('click', function() {
   }).catch(function(e){
     statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'exp-status-msg err';
   });
-});
+}
 
 // ── Google Doc preview + export ──
 function _renderExpGdocPreview() {
@@ -4407,7 +4409,7 @@ async function _initGdocPanel() {
   }
 }
 
-document.getElementById('exp-gdoc-connect-btn').addEventListener('click', function() {
+function _onGdocConnectClick() {
   var statusEl = document.getElementById('exp-gdoc-status');
   statusEl.textContent = 'Opening Google authorisation…'; statusEl.className = 'exp-status-msg';
 
@@ -4430,11 +4432,11 @@ document.getElementById('exp-gdoc-connect-btn').addEventListener('click', functi
     if (popup && !popup.closed) popup.close();
   };
   window.addEventListener('message', listener);
-});
+}
 
-document.getElementById('exp-gdoc-export-btn').addEventListener('click', async function() {
+async function _onGdocExportClick() {
   var statusEl  = document.getElementById('exp-gdoc-status');
-  var exportBtn = this;
+  var exportBtn = document.getElementById('exp-gdoc-export-btn');
   var linkEl    = document.getElementById('exp-gdoc-link');
 
   exportBtn.disabled = true; exportBtn.textContent = 'Creating document…';
@@ -4469,11 +4471,40 @@ document.getElementById('exp-gdoc-export-btn').addEventListener('click', async f
   }
 
   exportBtn.disabled = false; exportBtn.textContent = '↗ Export as Google Doc';
-});
+}
 
 // ════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════
+
+// Wire export-screen event listeners after the full DOM is parsed.
+// (The export-screen HTML is declared AFTER this script block, so we
+//  must defer wiring until DOMContentLoaded to avoid null-element errors
+//  that would otherwise halt execution and prevent loadFromSupabase().)
+function initExportListeners() {
+  try {
+    var backBtn = document.getElementById('export-back-btn');
+    if (backBtn) backBtn.addEventListener('click', closeExportScreen);
+
+    document.querySelectorAll('.exp-nav-tab').forEach(function(btn) {
+      btn.addEventListener('click', function() { _switchExpTab(btn.dataset.expTab); });
+    });
+
+    var pdfBtn = document.getElementById('exp-pdf-btn');
+    if (pdfBtn) pdfBtn.addEventListener('click', _onPdfBtnClick);
+
+    var gdocConnectBtn = document.getElementById('exp-gdoc-connect-btn');
+    if (gdocConnectBtn) gdocConnectBtn.addEventListener('click', _onGdocConnectClick);
+
+    var gdocExportBtn = document.getElementById('exp-gdoc-export-btn');
+    if (gdocExportBtn) gdocExportBtn.addEventListener('click', _onGdocExportClick);
+  } catch(e) {
+    console.error('Export listener init error:', e);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', initExportListeners);
+
 loadFromSupabase();
 </script>
 
