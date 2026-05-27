@@ -783,16 +783,22 @@ _REASON_TO_LEAD_STATUS: dict[str, str] = {
 }
 
 
-def mark_email_in_sheet(sheet_id: str, email: str, reason: str = "manual") -> int:
+def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manual") -> int:
     """
-    Find every row in the sheet where 'Recipient Email' matches *email*
-    and set 'Lead Status' to the value that corresponds to *reason*.
+    Find every matching row in the sheet and set 'Lead Status' to the value
+    that corresponds to *reason*.
 
-    Returns the number of rows updated (0 if the email isn't found or
-    the required columns don't exist in this sheet).
+    *email_or_domain* can be:
+      • A full email address (``user@company.com``) — only that exact row is updated.
+      • A bare domain (``company.com``, no "@") — ALL rows whose Recipient Email
+        belongs to that domain are updated.  This is used for "lead" reason when
+        a whole company domain should be stamped as "Lead".
+
+    Returns the number of rows updated (0 if no match or required columns absent).
     """
-    lead_status = _REASON_TO_LEAD_STATUS.get(reason.lower(), "Unsubscribe")
-    email_norm  = email.lower().strip()
+    lead_status   = _REASON_TO_LEAD_STATUS.get(reason.lower(), "Unsubscribe")
+    target        = email_or_domain.lower().strip()
+    is_domain_key = "@" not in target   # True → domain-level match
 
     gc = _client()
     sh = gc.open_by_key(sheet_id)
@@ -814,9 +820,17 @@ def mark_email_in_sheet(sheet_id: str, email: str, reason: str = "manual") -> in
     for row_num, cell_val in enumerate(col_values, start=1):
         if row_num == 1:
             continue   # header
-        if str(cell_val).lower().strip() == email_norm:
-            a1 = f"{_col_letter(ls_col_idx)}{row_num}"
-            updates.append({"range": a1, "values": [[lead_status]]})
+        cell_email = str(cell_val).lower().strip()
+        if is_domain_key:
+            # Domain-level: match any row whose email belongs to this domain
+            if "@" in cell_email and cell_email.split("@")[1] == target:
+                updates.append({"range": f"{_col_letter(ls_col_idx)}{row_num}",
+                                 "values": [[lead_status]]})
+        else:
+            # Exact email match
+            if cell_email == target:
+                updates.append({"range": f"{_col_letter(ls_col_idx)}{row_num}",
+                                 "values": [[lead_status]]})
 
     if updates:
         ws.batch_update(updates)

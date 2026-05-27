@@ -1468,9 +1468,11 @@ async def add_dnc_entry(
             json=payload,
             timeout=10,
         )
-        if r.status_code == 409:
-            return error(f"{dnc_value} is already on the DNC list for this client.")
-        r.raise_for_status()
+        if r.status_code not in (200, 201, 204, 409):
+            r.raise_for_status()
+        # 409 = already exists — silently continue so sheet marking still runs below.
+        # (A domain can already be on DNC from a previous auto-sync but the sheet row
+        #  may still need to be stamped with the correct Lead Status.)
     except Exception as e:
         return error(f"Supabase error: {e}")
 
@@ -1492,15 +1494,23 @@ async def add_dnc_entry(
         except Exception:
             pass  # non-fatal
 
-    # Mark email in linked Google Sheet(s) (non-fatal)
-    if not is_domain:
+    # Mark email in linked Google Sheet(s) (non-fatal).
+    # We mark the sheet when:
+    #   • a full email was entered (any reason) — exact row match in the sheet
+    #   • a domain was entered with "lead" reason — domain-level match in the sheet
+    #     so that ALL rows sharing that company domain get stamped "Lead"
+    should_mark = (not is_domain) or (reason_clean == "lead" and is_domain)
+    if should_mark:
+        # email_norm is either a full email or a domain — mark_email_in_sheet
+        # handles both: domain input → matches all rows for that company.
+        mark_value = email_norm
         try:
             from app.utils.google_sheets import is_configured, mark_email_in_sheet
             if is_configured():
                 target_sid = sheet_id.strip()
                 if target_sid:
                     # User picked a specific campaign — update only that sheet
-                    mark_email_in_sheet(target_sid, email_norm, reason_clean)
+                    mark_email_in_sheet(target_sid, mark_value, reason_clean)
                 else:
                     # No campaign selected — update all active sheets for this client
                     camp_r = http_req.get(
@@ -1519,7 +1529,7 @@ async def add_dnc_entry(
                             sid = (camp.get("sheet_id") or "").strip()
                             if sid:
                                 try:
-                                    mark_email_in_sheet(sid, email_norm, reason_clean)
+                                    mark_email_in_sheet(sid, mark_value, reason_clean)
                                 except Exception:
                                     pass
         except Exception:
