@@ -42,24 +42,39 @@
 
     /* ── Header ─────────────────────────────────── */
     .app-header {
-      background: rgba(255,255,255,0.025);
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-      padding: 0 24px;
-      height: 60px;
+      background: rgba(8,8,18,0.72);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      padding: 0 20px;
+      height: 58px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       position: sticky;
       top: 0;
       z-index: 50;
-      backdrop-filter: blur(16px);
+      backdrop-filter: saturate(160%) blur(22px);
+      gap: 10px;
     }
-    .app-logo {
-      font-size: 15px; font-weight: 700; color: #fff;
-      letter-spacing: -0.3px; display: flex; align-items: center;
-      gap: 10px; cursor: pointer; user-select: none;
+    .app-header-left { display: flex; align-items: center; gap: 10px; }
+    .home-link {
+      display: flex; align-items: center; gap: 8px;
+      text-decoration: none; flex-shrink: 0;
     }
-    .app-logo span { color: #a78bfa; }
+    .home-mark {
+      width: 34px; height: 34px; border-radius: 9px;
+      background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; box-shadow: 0 2px 10px rgba(124,58,237,0.35);
+      transition: transform 0.22s cubic-bezier(.34,1.56,.64,1), box-shadow 0.22s ease;
+    }
+    .home-link:hover .home-mark { transform: scale(1.1) rotate(-4deg); box-shadow: 0 4px 18px rgba(124,58,237,0.5); }
+    .home-label {
+      font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.45);
+      letter-spacing: 0.01em; transition: color 0.18s ease;
+    }
+    .home-link:hover .home-label { color: #fff; }
+    .topbar-sep { width: 1px; height: 20px; background: rgba(255,255,255,0.1); flex-shrink: 0; }
+    .app-title { font-size: 15px; font-weight: 600; color: #fff; letter-spacing: -0.2px; }
     .btn-header {
       background: rgba(255,255,255,0.07);
       color: rgba(255,255,255,0.6);
@@ -448,12 +463,19 @@
 <body>
 
 <header class="app-header">
-  <div class="app-logo" onclick="goHome()">
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-      <rect width="28" height="28" rx="7" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
-      <path d="M9 9v7a5 5 0 0010 0V9" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    </svg>
-    Unstuck <span>Launch Checker</span>
+  <div class="app-header-left">
+    <a href="/" class="home-link">
+      <div class="home-mark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+      </div>
+      <span class="home-label">Home</span>
+    </a>
+    <div class="topbar-sep"></div>
+    <span class="app-title">Launch Checker</span>
   </div>
   <button class="btn-header" onclick="openRecords()">All Records</button>
 </header>
