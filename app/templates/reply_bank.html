@@ -1154,43 +1154,24 @@ document.querySelectorAll('[data-channel]').forEach(btn => {
 // Territory buttons are rendered dynamically — see renderTerritoryButtons()
 
 // Copy button
-// Build clipboard HTML: paragraphs as <p> elements (zero margin) so Gmail
-// doesn't add leading indent from default <body> margin.
-function makeClipboardHtml(msg) {
-  // Split on paragraph breaks; within each paragraph convert \n → <br>
-  const paragraphs = msg.split(/\n\n+/);
-  const inner = paragraphs
-    .map(p => `<p style="margin:0 0 1em 0;padding:0">${sanitizeHtml(p)}</p>`)
-    .join('');
-  return `<html><body style="margin:0;padding:0">${inner}</body></html>`;
-}
-
 document.getElementById('copy-btn').addEventListener('click', async () => {
   const box = document.getElementById('message-box');
   if (box.classList.contains('placeholder') ||
       box.classList.contains('not-available')) return;
 
+  // Plain text only — no text/html flavour so Gmail pastes with its own
+  // default styling and no hidden font/colour/size formatting is carried over.
   const plainText = _lastMsg.replace(/<[^>]+>/g, ''); // strip all tags
 
   try {
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        'text/html':  new Blob([makeClipboardHtml(_lastMsg)], { type: 'text/html' }),
-        'text/plain': new Blob([plainText], { type: 'text/plain' }),
-      })
-    ]);
+    await navigator.clipboard.writeText(plainText);
   } catch {
-    // Fallback — plain text only
-    try {
-      await navigator.clipboard.writeText(plainText);
-    } catch {
-      const range = document.createRange();
-      range.selectNodeContents(box);
-      window.getSelection().removeAllRanges();
-      window.getSelection().addRange(range);
-      document.execCommand('copy');
-      window.getSelection().removeAllRanges();
-    }
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    document.execCommand('copy');
+    window.getSelection().removeAllRanges();
   }
 
   const btn = document.getElementById('copy-btn');
