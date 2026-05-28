@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.wsgi import WSGIMiddleware
 
 from app.deps import templates
-from app.routers import gender, city, dnc, reply_bank, mail_merge, copy_bank, copy_bank_export, campaigns
+from app.routers import gender, city, dnc, reply_bank, mail_merge, copy_bank, copy_bank_export, campaigns, launch_checker
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,7 @@ app.include_router(mail_merge.router)
 app.include_router(copy_bank.router)
 app.include_router(copy_bank_export.router)
 app.include_router(campaigns.router)
+app.include_router(launch_checker.router)
 
 # ── Mail Merge Tool (Flask WSGI sub-application) ──────────────────────────────
 # Load mail_merge/app.py explicitly by file path to avoid collision with the

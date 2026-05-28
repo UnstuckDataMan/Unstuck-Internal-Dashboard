@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drip Launch Checker — Unstuck Agency</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:              #09091a;
+      --surface:         rgba(255,255,255,0.05);
+      --surface2:        rgba(255,255,255,0.09);
+      --card:            rgba(255,255,255,0.06);
+      --accent:          #8b5cf6;
+      --accent-dark:     #7c3aed;
+      --accent-light:    rgba(139,92,246,0.18);
+      --text:            #f1f5f9;
+      --text-muted:      rgba(255,255,255,0.42);
+      --border:          rgba(255,255,255,0.09);
+      --critical:        #f59e0b;
+      --critical-bg:     rgba(245,158,11,0.1);
+      --critical-border: rgba(245,158,11,0.3);
+      --success:         #10b981;
+      --error:           #f87171;
+      --radius:          14px;
+      --radius-sm:       10px;
+      --shadow-md:       0 4px 24px rgba(0,0,0,0.5);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse 65% 55% at 8% 12%, rgba(109,40,217,0.28) 0%, transparent 60%),
+        radial-gradient(ellipse 55% 65% at 92% 88%, rgba(168,30,150,0.18) 0%, transparent 60%);
+      background-attachment: fixed;
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ── Header ─────────────────────────────────── */
+    .app-header {
+      background: rgba(255,255,255,0.025);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 0 24px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(16px);
+    }
+    .app-logo {
+      font-size: 15px; font-weight: 700; color: #fff;
+      letter-spacing: -0.3px; display: flex; align-items: center;
+      gap: 10px; cursor: pointer; user-select: none;
+    }
+    .app-logo span { color: #a78bfa; }
+    .btn-header {
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.6);
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 6px 14px; border-radius: 8px;
+      font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s;
+    }
+    .btn-header:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+    /* ── Screens ─────────────────────────────────── */
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    .screen-nav { padding: 0 0 16px; }
+    .btn-back {
+      background: none; border: none;
+      color: rgba(255,255,255,0.45); font-size: 13px; font-weight: 500;
+      cursor: pointer; padding: 4px 0;
+      display: inline-flex; align-items: center; gap: 5px; transition: color 0.15s;
+    }
+    .btn-back:hover { color: #fff; }
+
+    /* ── HOME ────────────────────────────────────── */
+    .home-container { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; }
+    .home-cols {
+      display: grid;
+      grid-template-columns: 1fr 1.25fr 1.25fr;
+      gap: 20px; align-items: start;
+    }
+    .home-col-hd {
+      font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: rgba(255,255,255,0.4);
+      margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+    }
+    .col-count {
+      background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.55);
+      font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px;
+    }
+    .new-launch-card {
+      background: linear-gradient(145deg, #7c3aed 0%, #5b21b6 100%);
+      border-radius: var(--radius); padding: 26px 20px;
+      cursor: pointer; transition: all 0.2s;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .new-launch-card:hover { transform: translateY(-2px); box-shadow: 0 16px 40px rgba(109,40,217,0.45); }
+    .new-launch-icon {
+      width: 42px; height: 42px; background: rgba(255,255,255,0.15);
+      border-radius: 10px; display: flex; align-items: center; justify-content: center;
+      font-size: 22px; color: #fff; margin-bottom: 12px;
+    }
+    .new-launch-title { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .new-launch-sub { font-size: 13px; color: rgba(255,255,255,0.6); line-height: 1.4; }
+
+    .launch-list { display: flex; flex-direction: column; gap: 8px; max-height: 72vh; overflow-y: auto; padding-right: 2px; }
+    .launch-list::-webkit-scrollbar { width: 4px; }
+    .launch-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 99px; }
+    .list-empty { font-size: 13px; color: rgba(255,255,255,0.28); padding: 18px 0; text-align: center; font-style: italic; }
+
+    .lc {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      border-left: 3px solid var(--accent); border-radius: var(--radius-sm); padding: 13px 14px;
+    }
+    .lc.lc-done { border-left-color: var(--success); opacity: 0.7; }
+    .lc.lc-clickable { cursor: pointer; transition: all 0.15s; }
+    .lc.lc-clickable:hover { background: rgba(255,255,255,0.07); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.35); }
+    .lc-name { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lc-meta { font-size: 12px; color: rgba(255,255,255,0.35); margin-bottom: 7px; }
+    .lc-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+    .lc-mini-track { height: 3px; background: rgba(255,255,255,0.08); border-radius: 99px; overflow: hidden; margin-bottom: 4px; }
+    .lc-mini-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #a78bfa); border-radius: 99px; transition: width 0.3s; }
+    .lc-mini-label { font-size: 11px; color: rgba(255,255,255,0.3); }
+    .lc-date { font-size: 11px; color: rgba(255,255,255,0.27); margin-top: 3px; }
+    .lc-continue { font-size: 12px; font-weight: 600; color: #a78bfa; margin-top: 7px; }
+
+    /* ── SETUP ───────────────────────────────────── */
+    .setup-container { max-width: 540px; margin: 32px auto; padding: 0 20px 80px; }
+    .setup-header { text-align: center; margin-bottom: 22px; }
+    .setup-header h1 { font-size: 24px; font-weight: 700; color: #fff; margin-bottom: 5px; }
+    .setup-header p { color: rgba(255,255,255,0.35); font-size: 14px; }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: var(--radius); padding: 28px;
+      backdrop-filter: blur(12px);
+    }
+    .section-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.32); margin-bottom: 14px; }
+    .form-group { margin-bottom: 18px; }
+    label.field-label { display: block; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.78); margin-bottom: 6px; }
+    .field-label .req { color: var(--error); margin-left: 2px; }
+    input[type="text"] {
+      width: 100%; padding: 10px 14px;
+      background: rgba(255,255,255,0.07);
+      border: 1.5px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius-sm);
+      font-size: 14px; color: #fff; outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    input[type="text"]::placeholder { color: rgba(255,255,255,0.28); }
+    input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139,92,246,0.2); }
+    input[type="text"].field-err { border-color: var(--error); }
+    .radio-group, .check-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .radio-option, .check-option { flex: 1; min-width: 100px; }
+    .radio-option input, .check-option input { display: none; }
+    .radio-option label, .check-option label {
+      display: flex; align-items: center; justify-content: center;
+      padding: 9px 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1.5px solid rgba(255,255,255,0.1);
+      border-radius: var(--radius-sm);
+      cursor: pointer; font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.48);
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .radio-option input:checked + label, .check-option input:checked + label {
+      border-color: var(--accent); background: rgba(139,92,246,0.15); color: #c4b5fd;
+    }
+    .radio-option label:hover, .check-option label:hover { border-color: rgba(139,92,246,0.45); color: rgba(255,255,255,0.85); }
+    .channel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .divider { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 22px 0; }
+    .field-err-msg { font-size: 12px; color: var(--error); margin-top: 5px; display: none; }
+    .field-err-msg.show { display: block; }
+    .btn-primary {
+      width: 100%; margin-top: 24px; padding: 12px 20px;
+      background: var(--accent); color: #fff; border: none;
+      border-radius: var(--radius-sm); font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .btn-primary:hover { background: var(--accent-dark); }
+
+    /* ── PROGRESS BAR ────────────────────────────── */
+    .progress-wrap {
+      background: rgba(255,255,255,0.025);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 10px 20px 13px;
+      position: sticky; top: 60px; z-index: 40;
+      backdrop-filter: blur(16px);
+    }
+    .progress-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .progress-launch-name { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.45); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; text-align: right; }
+    .progress-meta { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    .progress-lbl { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.4); }
+    .progress-pct { font-size: 13px; font-weight: 700; color: #fff; }
+    .progress-track { height: 5px; background: rgba(255,255,255,0.08); border-radius: 99px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #a78bfa); border-radius: 99px; transition: width 0.3s ease; width: 0%; }
+
+    /* ── CHECKLIST ───────────────────────────────── */
+    .checklist-container { max-width: 680px; margin: 0 auto; padding: 22px 20px 100px; }
+    .meta-card {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: var(--radius); padding: 13px 18px; margin-bottom: 18px;
+      display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+    }
+    .meta-field-label { font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: rgba(255,255,255,0.28); margin-bottom: 3px; }
+    .meta-field-value { font-size: 13px; font-weight: 600; color: #fff; }
+    .channel-tags { display: flex; gap: 5px; flex-wrap: wrap; }
+    .ctag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+    .ctag-smartlead   { background: rgba(59,130,246,0.18);  color: #93c5fd; }
+    .ctag-mail_merge  { background: rgba(16,185,129,0.15);  color: #6ee7b7; }
+    .ctag-meet_alfred { background: rgba(236,72,153,0.15);  color: #f9a8d4; }
+
+    .checklist-items { display: flex; flex-direction: column; gap: 8px; }
+
+    /* ── CHECKLIST ITEM ──────────────────────────── */
+    .cl-item {
+      background: rgba(255,255,255,0.05);
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(255,255,255,0.09);
+      overflow: hidden;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    /* Completed: fade into background */
+    .cl-item.is-done {
+      background: rgba(255,255,255,0.02);
+      border-color: rgba(255,255,255,0.05);
+    }
+
+    .item-row {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 13px 14px; cursor: pointer; user-select: none;
+    }
+
+    /* Parent checkbox — auto, not directly clickable */
+    .item-box {
+      width: 20px; height: 20px;
+      border: 2px solid rgba(255,255,255,0.2); border-radius: 5px;
+      flex-shrink: 0; margin-top: 1px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s; background: rgba(255,255,255,0.06); pointer-events: none;
+    }
+    .cl-item.is-done .item-box { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.18); }
+    .item-box svg { display: none; }
+    .cl-item.is-done .item-box svg { display: block; }
+
+    .item-body { flex: 1; min-width: 0; }
+    .item-title-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 5px; }
+    .item-title { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); }
+    .cl-item.is-done .item-title { color: rgba(255,255,255,0.22); }
+
+
+    .item-sub-count {
+      margin-left: auto;
+      font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.35);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .cl-item.is-done .item-sub-count { color: rgba(255,255,255,0.18); }
+
+    /* Per-item mini progress bar */
+    .item-mini-progress { margin-bottom: 6px; }
+    .item-mini-track {
+      height: 2px; background: rgba(255,255,255,0.1); border-radius: 99px; overflow: hidden;
+    }
+    .item-mini-fill {
+      height: 100%; background: linear-gradient(90deg, var(--accent), #a78bfa);
+      border-radius: 99px; transition: width 0.25s ease; width: 0%;
+    }
+    .cl-item.is-done .item-mini-track { background: rgba(255,255,255,0.06); }
+    .cl-item.is-done .item-mini-fill  { background: rgba(255,255,255,0.1); }
+
+    .item-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+    .cl-item.is-done .ctag { opacity: 0.2; }
+
+    .item-expand {
+      background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.3);
+      padding: 2px; border-radius: 4px; display: flex; align-items: center;
+      flex-shrink: 0; transition: color 0.15s;
+    }
+    .item-expand:hover { color: #a78bfa; }
+    .cl-item.is-done .item-expand { color: rgba(255,255,255,0.14); }
+    .cl-item.is-done .item-expand:hover { color: rgba(255,255,255,0.35); }
+    .item-expand svg { transition: transform 0.2s; }
+    .item-expand.open svg { transform: rotate(180deg); }
+
+    /* ── SUB-STEPS PANEL ─────────────────────────── */
+    .sub-steps-panel { display: none; }
+    .sub-steps-panel.open { display: block; }
+
+    .ss-separator {
+      height: 1px; background: rgba(255,255,255,0.07); margin: 0 14px;
+    }
+    .cl-item.is-done .ss-separator { background: rgba(255,255,255,0.04); }
+
+    .sub-steps-list { background: rgba(0,0,0,0.18); padding: 4px 0; }
+    .cl-item.is-done .sub-steps-list { background: rgba(0,0,0,0.1); }
+
+    .ss-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px 8px 46px;
+      cursor: pointer; transition: background 0.1s;
+      user-select: none;
+    }
+    .ss-item:hover { background: rgba(255,255,255,0.04); }
+    .cl-item.is-done .ss-item { cursor: default; }
+    .cl-item.is-done .ss-item:hover { background: transparent; }
+
+    .ss-box {
+      width: 15px; height: 15px; flex-shrink: 0;
+      border: 2px solid rgba(255,255,255,0.2); border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.05); transition: all 0.15s;
+    }
+    .ss-item.ss-done .ss-box { background: var(--success); border-color: var(--success); }
+    .cl-item.is-done .ss-box { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.1); }
+    .ss-box svg { display: none; }
+    .ss-item.ss-done .ss-box svg { display: block; }
+
+    .ss-content { flex: 1; min-width: 0; }
+    .ss-label { font-size: 13px; color: var(--text); line-height: 1.4; display: block; }
+    .ss-item.ss-done .ss-label { color: var(--text-muted); text-decoration: line-through; text-decoration-color: #94a3b8; }
+    .cl-item.is-done .ss-label { color: rgba(255,255,255,0.28); text-decoration: line-through; text-decoration-color: rgba(255,255,255,0.15); }
+
+    /* Channel tags inside sub-steps */
+    .ss-channel-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+    .ss-channel-tags .ctag { font-size: 11px; font-weight: 700; padding: 2px 9px; }
+    .cl-item.is-done .ss-channel-tags { opacity: 0.3; }
+
+    /* Final approval item */
+    .cl-item.is-final:not(.is-done) {
+      background: rgba(16,185,129,0.07);
+      border-color: rgba(16,185,129,0.28);
+      border-left: 3px solid var(--success);
+    }
+    .cl-item.is-final:not(.is-done) .item-title { color: #6ee7b7; font-size: 15px; }
+    .cl-item.is-final:not(.is-done) .item-mini-track { background: rgba(16,185,129,0.15); }
+    .cl-item.is-final:not(.is-done) .item-sub-count { color: rgba(110,231,183,0.7); }
+    .cl-item.is-final:not(.is-done) .ss-separator { background: rgba(16,185,129,0.15); }
+    .cl-item.is-final:not(.is-done) .sub-steps-list { background: rgba(16,185,129,0.05); }
+    .cl-item.is-final:not(.is-done) .ss-item:hover { background: rgba(16,185,129,0.08); }
+    .cl-item.is-final:not(.is-done) .ss-box { border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.08); }
+    .cl-item.is-final:not(.is-done) .ss-label { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.8); }
+    .cl-item.is-final:not(.is-done) .item-expand { color: rgba(16,185,129,0.5); }
+    .cl-item.is-final:not(.is-done) .item-expand:hover { color: var(--success); }
+    .cl-item.is-final.is-done { border-left: 3px solid var(--success); }
+
+    /* ── SUBMIT FOOTER ───────────────────────────── */
+    .submit-footer {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: rgba(9,9,26,0.88);
+      border-top: 1px solid rgba(255,255,255,0.07);
+      padding: 13px 24px; display: flex; align-items: center;
+      justify-content: space-between; gap: 12px; z-index: 40;
+      backdrop-filter: blur(18px);
+    }
+    .submit-status { font-size: 13px; color: rgba(255,255,255,0.4); }
+    .submit-status strong { color: #fff; }
+    .btn-submit {
+      padding: 10px 22px; background: var(--accent); color: #fff;
+      border: none; border-radius: var(--radius-sm); font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background 0.15s; white-space: nowrap;
+    }
+    .btn-submit:hover:not(:disabled) { background: var(--accent-dark); }
+    .btn-submit:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ── COMPLETE SCREEN ─────────────────────────── */
+    .complete-container { max-width: 520px; margin: 32px auto; padding: 0 20px 60px; text-align: center; }
+    .complete-icon {
+      width: 70px; height: 70px;
+      background: rgba(16,185,129,0.12);
+      border: 2px solid rgba(16,185,129,0.3); border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 22px;
+    }
+    .complete-container h2 { font-size: 24px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+    .complete-container > p { color: rgba(255,255,255,0.38); font-size: 14px; margin-bottom: 28px; }
+    .complete-card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: var(--radius); padding: 22px 24px; text-align: left; margin-bottom: 22px;
+      backdrop-filter: blur(12px);
+    }
+    .complete-card h3 { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.3); margin-bottom: 16px; }
+    .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .summary-lbl { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.05em; }
+    .summary-val { font-size: 14px; font-weight: 600; color: #fff; margin-top: 2px; }
+    .complete-actions { display: flex; gap: 10px; justify-content: center; }
+    .btn-secondary {
+      padding: 10px 18px;
+      background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s;
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    .btn-success { padding: 10px 22px; background: var(--success); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+    .btn-success:hover { background: #059669; }
+
+    /* ── RECORDS MODAL ───────────────────────────── */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 100; backdrop-filter: blur(8px); align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: rgba(18,18,36,0.97); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius); width: 92%; max-width: 980px; max-height: 86vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 60px rgba(0,0,0,0.65); backdrop-filter: blur(20px); }
+    .modal-hd { padding: 18px 22px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .modal-hd h2 { font-size: 16px; font-weight: 700; color: #fff; }
+    .modal-hd-actions { display: flex; align-items: center; gap: 8px; }
+    .btn-export { background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.25); color: #a78bfa; padding: 6px 13px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+    .btn-export:hover { background: rgba(139,92,246,0.22); color: #c4b5fd; }
+    .btn-close { background: rgba(255,255,255,0.08); border: none; color: rgba(255,255,255,0.6); width: 30px; height: 30px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+    .btn-close:hover { background: rgba(255,255,255,0.14); color: #fff; }
+    .modal-body { overflow-y: auto; flex: 1; padding: 18px 22px; }
+    .records-empty { text-align: center; color: rgba(255,255,255,0.3); padding: 56px 0; font-size: 14px; }
+    .rec-table { width: 100%; border-collapse: collapse; }
+    .rec-table th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: rgba(255,255,255,0.36); padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.08); white-space: nowrap; }
+    .rec-table td { padding: 9px 10px; font-size: 13px; color: rgba(255,255,255,0.75); border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; }
+    .rec-table tr:hover td { background: rgba(255,255,255,0.025); }
+    .status-ip   { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: rgba(139,92,246,0.15); color: #a78bfa; }
+    .status-done { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: rgba(16,185,129,0.15); color: #6ee7b7; }
+    .rec-detail-row td { padding: 0; }
+    .rec-detail { padding: 12px 14px; background: rgba(0,0,0,0.2); }
+    .rec-detail-dates { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 8px; }
+    .rec-ddate { font-size: 12px; color: rgba(255,255,255,0.4); }
+    .rec-ddate strong { color: rgba(255,255,255,0.65); }
+    .step-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .step-chip { padding: 3px 9px; border-radius: 99px; background: rgba(139,92,246,0.12); color: #a78bfa; font-size: 11px; font-weight: 500; }
+    .rec-expand-btn { background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.32); padding: 2px; display: flex; align-items: center; transition: color 0.15s; }
+    .rec-expand-btn:hover { color: rgba(255,255,255,0.7); }
+
+    /* ── Responsive ──────────────────────────────── */
+    @media (max-width: 900px) { .home-cols { grid-template-columns: 1fr; } .launch-list { max-height: 50vh; } }
+    @media (max-width: 600px) {
+      .channel-grid { grid-template-columns: 1fr; }
+      .radio-group { flex-direction: column; }
+      .summary-grid { grid-template-columns: 1fr; }
+      .complete-actions { flex-direction: column; }
+      .meta-card { flex-direction: column; gap: 12px; }
+      .submit-footer { flex-direction: column; align-items: stretch; }
+      .btn-submit { text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-logo" onclick="goHome()">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+      <rect width="28" height="28" rx="7" fill="rgba(255,255,255,0.07)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+      <path d="M9 9v7a5 5 0 0010 0V9" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    </svg>
+    Unstuck <span>Launch Checker</span>
+  </div>
+  <button class="btn-header" onclick="openRecords()">All Records</button>
+</header>
+
+<!-- ═══ HOME ═══ -->
+<div id="screen-home" class="screen active">
+  <div class="home-container">
+    <div class="home-cols">
+      <div>
+        <div class="home-col-hd">New Launch</div>
+        <div class="new-launch-card" onclick="startNewLaunch()">
+          <div class="new-launch-icon">+</div>
+          <div class="new-launch-title">Start New Launch</div>
+          <div class="new-launch-sub">Set up a new campaign launch checklist and track every step to go-live.</div>
+        </div>
+      </div>
+      <div>
+        <div class="home-col-hd">In Progress <span class="col-count" id="ip-count"></span></div>
+        <div class="launch-list" id="in-progress-list"><div class="list-empty">No launches in progress.</div></div>
+      </div>
+      <div>
+        <div class="home-col-hd">Previous Launches <span class="col-count" id="prev-count"></span></div>
+        <div class="launch-list" id="previous-list"><div class="list-empty">No completed launches yet.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SETUP ═══ -->
+<div id="screen-setup" class="screen">
+  <div class="setup-container">
+    <div class="screen-nav"><button class="btn-back" onclick="goHome()">← Back</button></div>
+    <div class="setup-header">
+      <h1>New Launch</h1>
+      <p>Configure your campaign launch checklist</p>
+    </div>
+    <div class="card">
+      <div class="section-label">Launch Details</div>
+      <div class="form-group">
+        <label class="field-label" for="f-launch-name">Launch name <span class="req">*</span></label>
+        <input type="text" id="f-launch-name" placeholder="e.g. Acme Corp — SmartLead Q2 2026">
+        <div class="field-err-msg" id="err-launch-name">Please enter a launch name.</div>
+      </div>
+
+      <hr class="divider">
+      <div class="section-label">Your Details</div>
+      <div class="form-group">
+        <label class="field-label" for="f-name">Full name <span class="req">*</span></label>
+        <input type="text" id="f-name" placeholder="e.g. Jane Smith">
+        <div class="field-err-msg" id="err-name">Please enter your name.</div>
+      </div>
+      <div class="form-group">
+        <label class="field-label">Role <span class="req">*</span></label>
+        <div class="radio-group">
+          <div class="radio-option"><input type="radio" id="r-sdr" name="role" value="SDR"><label for="r-sdr">SDR</label></div>
+          <div class="radio-option"><input type="radio" id="r-am"  name="role" value="AM"><label  for="r-am">Account Manager</label></div>
+        </div>
+        <div class="field-err-msg" id="err-role">Please select your role.</div>
+      </div>
+
+      <hr class="divider">
+      <div class="section-label">Campaign Details</div>
+      <div class="form-group">
+        <label class="field-label" for="f-client">Client name <span class="req">*</span></label>
+        <input type="text" id="f-client" placeholder="e.g. Acme Corp">
+        <div class="field-err-msg" id="err-client">Please enter the client name.</div>
+      </div>
+      <div class="form-group">
+        <label class="field-label">Client type <span class="req">*</span></label>
+        <div class="radio-group">
+          <div class="radio-option"><input type="radio" id="ct-new" name="client_type" value="new"><label for="ct-new">New client</label></div>
+          <div class="radio-option"><input type="radio" id="ct-existing" name="client_type" value="existing"><label for="ct-existing">Existing client</label></div>
+        </div>
+        <div class="field-err-msg" id="err-ctype">Please select the client type.</div>
+      </div>
+
+      <hr class="divider">
+      <div class="section-label">Launch Channels</div>
+      <div class="form-group">
+        <label class="field-label">Select all channels being used <span class="req">*</span></label>
+        <div class="channel-grid">
+          <div class="check-option"><input type="checkbox" id="ch-sl" name="channels" value="smartlead"><label for="ch-sl">SmartLead</label></div>
+          <div class="check-option"><input type="checkbox" id="ch-mm" name="channels" value="mail_merge"><label for="ch-mm">Mail Merge</label></div>
+          <div class="check-option"><input type="checkbox" id="ch-ma" name="channels" value="meet_alfred"><label for="ch-ma">Meet Alfred</label></div>
+        </div>
+        <div class="field-err-msg" id="err-channels">Please select at least one channel.</div>
+      </div>
+      <button class="btn-primary" onclick="beginChecklist()">Begin Checklist &rarr;</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ CHECKLIST ═══ -->
+<div id="screen-checklist" class="screen">
+  <div class="progress-wrap">
+    <div class="progress-topbar">
+      <button class="btn-back" onclick="goHome()">← Home</button>
+      <span class="progress-launch-name" id="progress-launch-name"></span>
+    </div>
+    <div class="progress-meta">
+      <span class="progress-lbl">Checklist Progress</span>
+      <span class="progress-pct" id="progress-pct">0%</span>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+  </div>
+  <div class="checklist-container">
+    <div class="meta-card" id="meta-card"></div>
+    <div class="checklist-items" id="checklist-items"></div>
+  </div>
+  <div class="submit-footer">
+    <div class="submit-status" id="submit-status"></div>
+    <button class="btn-submit" id="btn-submit" disabled onclick="completeCheck()">Mark as Complete</button>
+  </div>
+</div>
+
+<!-- ═══ COMPLETE ═══ -->
+<div id="screen-complete" class="screen">
+  <div class="complete-container">
+    <div class="screen-nav"><button class="btn-back" onclick="goHome()">← Home</button></div>
+    <div class="complete-icon">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+    </div>
+    <h2>Launch Complete</h2>
+    <p>All steps verified and recorded. Safe to launch.</p>
+    <div class="complete-card" id="complete-summary"></div>
+    <div class="complete-actions">
+      <button class="btn-secondary" onclick="startNewLaunch()">New Launch</button>
+      <button class="btn-success" onclick="goHome()">Back to Home</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ RECORDS MODAL ═══ -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-hd">
+      <h2>All Records</h2>
+      <div class="modal-hd-actions">
+        <button class="btn-export" onclick="exportCSV()">Export CSV</button>
+        <button class="btn-close" onclick="closeRecords()">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l10 10M11 1L1 11"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ─── CHANNEL LABELS ─────────────────────────────────────────────────────────
+const CHANNEL_LABELS = { smartlead: 'SmartLead', mail_merge: 'Mail Merge', meet_alfred: 'Meet Alfred' };
+
+// ─── CHECKS CONFIG ──────────────────────────────────────────────────────────
+// Each check has subSteps, each with channels + clientTypes filters.
+const CHECKS = [
+  {
+    id: 'dnc_removal', label: 'DNC Removal',
+    channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['new','existing'],     subSteps: [
+      { id:'dnc_sl_profile',   label:'Client profile created in SmartLead',                        channels:['smartlead'],                clientTypes:['new'] },
+      { id:'dnc_sl_list_att',  label:'DNC list attached to the SmartLead client profile',          channels:['smartlead'],                clientTypes:['new'] },
+      { id:'dnc_sl_contacts',  label:'Contacts added to the SmartLead profile',                    channels:['smartlead'],                clientTypes:['new'] },
+      { id:'dnc_sl_domains',   label:'Client domains and contacts added to the DNC list',           channels:['smartlead'],                clientTypes:['new'] },
+      { id:'dnc_sl_existing',  label:'Correct client profile assigned to the campaign',             channels:['smartlead'],                clientTypes:['existing'] },
+      { id:'dnc_ma_salenav',   label:'LinkedIn Sales Navigator subscription confirmed with client', channels:['meet_alfred'],              clientTypes:['new'] },
+      { id:'dnc_mm_ma_tool',   label:'Lead list run through Mail Merge tool',                       channels:['mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'recently_contacted', label: 'Recently Contacted Removal',
+    channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['existing'],     subSteps: [
+      { id:'rc_tool', label:'Lead list run through Mail Merge tool to remove recently contacted contacts', channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['existing'] },
+    ]
+  },
+  {
+    id: 'signature_setup', label: 'Signature Setup',
+    channels: ['smartlead','mail_merge'], clientTypes: ['new','existing'],     subSteps: [
+      { id:'sig_mm_added',    label:'Signature added to each Gmail account',                  channels:['mail_merge'],             clientTypes:['new','existing'] },
+      { id:'sig_mm_identity', label:'Sender name and identity is correct',                    channels:['mail_merge'],             clientTypes:['new','existing'] },
+      { id:'sig_mm_links',    label:'All links in signature tested and working',              channels:['mail_merge'],             clientTypes:['new','existing'] },
+      { id:'sig_mm_format',   label:'Signature formatting is clean and spam-safe',            channels:['mail_merge'],             clientTypes:['new','existing'] },
+      { id:'sig_approved',    label:'Signature approved by the client',                       channels:['smartlead','mail_merge'], clientTypes:['new','existing'] },
+      { id:'sig_sl_added',    label:'Signature added in SmartLead email account settings',    channels:['smartlead'],              clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'targeting_check', label: 'Targeting Check',
+    channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['new','existing'],     subSteps: [
+      { id:'tgt_headcount', label:'Headcount filter is correctly configured',            channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'tgt_territory', label:'Territory / region filter is correct',               channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'tgt_industry',  label:'Industry and niche filters are correct',             channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'tgt_jobrole',   label:'Job role and seniority targeting is correct',        channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'tgt_custom',    label:'Any client-specific targeting variables are applied', channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'campaign_title', label: 'Campaign Title',
+    channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['new','existing'],     subSteps: [
+      { id:'ttl_client',    label:'Title includes the client name',                channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'ttl_audience',  label:'Title includes the target audience or segment', channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'ttl_territory', label:'Title includes the territory or region',        channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'ttl_channel',   label:'Title includes the channel or campaign type',   channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'sequence_checks', label: 'Sequence Checks',
+    channels: ['smartlead','meet_alfred'], clientTypes: ['new','existing'],     subSteps: [
+      { id:'seq_sl_order',     label:'Step order is correct',                                       channels:['smartlead'],  clientTypes:['new','existing'] },
+      { id:'seq_sl_sched',     label:'Email sending schedule and timing is correctly configured',   channels:['smartlead'],  clientTypes:['new','existing'] },
+      { id:'seq_sl_branching', label:'Any branching logic or conditions are correctly set',         channels:['smartlead'],  clientTypes:['new','existing'] },
+      { id:'seq_sl_followups', label:'Number and structure of follow-ups is correct',               channels:['smartlead'],  clientTypes:['new','existing'] },
+      { id:'seq_ma_order',     label:'Step order is correct',                                       channels:['meet_alfred'], clientTypes:['new','existing'] },
+      { id:'seq_ma_delays',    label:'Delays between steps are appropriate (hours / days)',         channels:['meet_alfred'], clientTypes:['new','existing'] },
+      { id:'seq_ma_branching', label:'Any branching logic or conditions are correctly set',         channels:['meet_alfred'], clientTypes:['new','existing'] },
+      { id:'seq_ma_followups', label:'Number and structure of follow-ups is correct',               channels:['meet_alfred'], clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'formatting_qa', label: 'Formatting QA',
+    channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['new','existing'],     subSteps: [
+      { id:'fmt_plain',    label:'All extra formatting and font styling removed (plain text)', channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'fmt_spacing',  label:'Line breaks and spacing are consistent throughout',         channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'fmt_no_html',  label:'No HTML artifacts or broken code visible',                 channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'fmt_readable', label:'Messages read naturally and are easy to follow',            channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'sender_accounts', label: 'Sender Accounts',
+    channels: ['smartlead','mail_merge'], clientTypes: ['new','existing'],     subSteps: [
+      { id:'sa_correct',    label:'Correct sender accounts assigned to this campaign',      channels:['smartlead','mail_merge'], clientTypes:['new','existing'] },
+      { id:'sa_count',      label:'Correct number of sender accounts in use',              channels:['smartlead','mail_merge'], clientTypes:['new','existing'] },
+      { id:'sa_name_match', label:'Sender name in email footer matches the email address', channels:['smartlead','mail_merge'], clientTypes:['new','existing'] },
+      { id:'sa_limits',     label:'Sending limits configured appropriately',               channels:['smartlead'],              clientTypes:['new','existing'] },
+      { id:'sa_warmed',     label:'Accounts are warmed and ready to send',                 channels:['smartlead'],              clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'domain_health', label: 'Domain Health',
+    channels: ['smartlead','mail_merge'], clientTypes: ['new','existing'],     subSteps: [
+      { id:'dh_warmup',    label:'Sending domains warmed for at least 2 weeks',             channels:['smartlead','mail_merge'], clientTypes:['new'] },
+      { id:'dh_mailreach', label:'Domains have passed the MailReach deliverability check',  channels:['smartlead','mail_merge'], clientTypes:['existing'] },
+      { id:'dh_spf',       label:'SPF record is correctly configured',                      channels:['smartlead','mail_merge'], clientTypes:['new','existing'] },
+      { id:'dh_dkim',      label:'DKIM record is correctly configured',                     channels:['smartlead','mail_merge'], clientTypes:['new','existing'] },
+      { id:'dh_dmarc',     label:'DMARC record is correctly configured',                    channels:['smartlead','mail_merge'], clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'copy_check', label: 'Copy Check',
+    channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['new','existing'],     subSteps: [
+      { id:'cp_grammar', label:'Copy has passed grammar and spelling checks',                    channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'cp_client',  label:'Copy approved by the client',                                    channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'cp_team',    label:'Copy signed off internally by the team',                         channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'cp_dates',   label:'Dates and location references are current and accurate',         channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'variable_checks', label: 'Variable Checks',
+    channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['new','existing'],
+    subSteps: [
+      { id:'var_mm_headers',   label:'Variable names match spreadsheet column headers exactly',           channels:['mail_merge'],                             clientTypes:['new','existing'] },
+      { id:'var_mm_spaces',    label:'No extra spaces around variables in copy',                          channels:['mail_merge'],                             clientTypes:['new','existing'] },
+      { id:'var_mm_populated', label:'All contacts have required variables populated in the spreadsheet', channels:['mail_merge'],                             clientTypes:['new','existing'] },
+      { id:'var_sl_ma_test',   label:'Dynamic variables tested and populating correctly',                 channels:['smartlead','meet_alfred'],               clientTypes:['new','existing'] },
+      { id:'var_no_blanks',    label:'No blank or missing variable fields visible in test send',          channels:['smartlead','mail_merge','meet_alfred'],   clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'test_send', label: 'Test Send',
+    channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['new','existing'],     subSteps: [
+      { id:'ts_email_sent', label:'Test email sent to yourself',                      channels:['smartlead','mail_merge'],               clientTypes:['new','existing'] },
+      { id:'ts_linkedin',   label:'Test LinkedIn message reviewed',                   channels:['meet_alfred'],                          clientTypes:['new','existing'] },
+      { id:'ts_signature',  label:'Signature displays correctly in test',             channels:['smartlead','mail_merge'],               clientTypes:['new','existing'] },
+      { id:'ts_variables',  label:'Variables populating correctly in test',           channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'ts_links',      label:'All links are working and correct',                channels:['smartlead','mail_merge'],               clientTypes:['new','existing'] },
+      { id:'ts_formatting', label:'Formatting looks correct and clean',               channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+    ]
+  },
+  {
+    id: 'final_approval', label: 'Final Approval',
+    channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['new','existing'],     cssClass: 'is-final',
+    subSteps: [
+      { id:'final_reviewed', label:'All steps reviewed — approved for launch', channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+    ]
+  }
+];
+
+// ─── STATE ──────────────────────────────────────────────────────────────────
+let state = {
+  record_id: null, launch_name: '', user_name: '', role: '',
+  client_name: '', client_type: '', channels: [],
+  activeChecks: [],
+  checked: new Set()   // sub-step IDs
+};
+
+// ─── HELPERS ────────────────────────────────────────────────────────────────
+function uid()    { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function esc(s)   { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})
+    + ' ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+}
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff/60000), h = Math.floor(diff/3600000), d = Math.floor(diff/86400000);
+  if (m < 1) return 'just now'; if (m < 60) return m+'m ago';
+  if (h < 24) return h+'h ago'; if (d < 7) return d+'d ago';
+  return fmtDate(iso);
+}
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-'+id).classList.add('active');
+  window.scrollTo(0,0);
+}
+function channelTagHtml(ch) { return `<span class="ctag ctag-${ch}">${esc(CHANNEL_LABELS[ch]||ch)}</span>`; }
+
+// Sub-step helpers
+function getActiveSubSteps(check) {
+  return (check.subSteps||[]).filter(ss =>
+    ss.channels.some(ch => state.channels.includes(ch)) &&
+    ss.clientTypes.includes(state.client_type)
+  );
+}
+function getActiveSubStepsForRecord(check, record) {
+  return (check.subSteps||[]).filter(ss =>
+    ss.channels.some(ch => (record.channels||[]).includes(ch)) &&
+    ss.clientTypes.includes(record.client_type||'new')
+  );
+}
+function isCheckComplete(check) {
+  const subs = getActiveSubSteps(check);
+  return subs.length > 0 && subs.every(ss => state.checked.has(ss.id));
+}
+
+// ─── STORAGE ────────────────────────────────────────────────────────────────
+function getRecords()       { try { return JSON.parse(localStorage.getItem('drip_launch_records')||'[]'); } catch { return []; } }
+function saveRecords(r)     { localStorage.setItem('drip_launch_records', JSON.stringify(r)); }
+function updateRecord(id, patch) {
+  const r = getRecords(), i = r.findIndex(x => x.id === id);
+  if (i === -1) return; Object.assign(r[i], patch); saveRecords(r);
+}
+
+// ─── HOME ────────────────────────────────────────────────────────────────────
+function goHome() { renderHome(); showScreen('home'); }
+
+function getCompletedParentCount(record) {
+  const subIds = new Set(record.completed_sub_steps||[]);
+  const active = CHECKS.filter(c =>
+    c.channels.some(ch=>(record.channels||[]).includes(ch)) &&
+    c.clientTypes.includes(record.client_type||'new')
+  );
+  return active.filter(check => {
+    const subs = getActiveSubStepsForRecord(check, record);
+    return subs.length > 0 && subs.every(ss => subIds.has(ss.id));
+  }).length;
+}
+
+function renderHome() {
+  const records = getRecords();
+  const inProgress = records.filter(r=>r.status==='in_progress').sort((a,b)=>new Date(b.timestamp_updated)-new Date(a.timestamp_updated));
+  const completed  = records.filter(r=>r.status==='complete').sort((a,b)=>new Date(b.timestamp_completed)-new Date(a.timestamp_completed));
+
+  const ipC = document.getElementById('ip-count');
+  const prC = document.getElementById('prev-count');
+  if (ipC) ipC.textContent = inProgress.length||'';
+  if (prC) prC.textContent = completed.length||'';
+
+  const ipList = document.getElementById('in-progress-list');
+  if (ipList) ipList.innerHTML = inProgress.length
+    ? inProgress.map(r => {
+        const total = (CHECKS.filter(c=>c.channels.some(ch=>(r.channels||[]).includes(ch))&&c.clientTypes.includes(r.client_type||'new'))).length;
+        const done  = getCompletedParentCount(r);
+        const pct   = total>0 ? Math.round((done/total)*100) : 0;
+        return `<div class="lc lc-clickable" onclick="resumeLaunch('${esc(r.id)}')">
+          <div class="lc-name">${esc(r.launch_name||r.client_name)}</div>
+          <div class="lc-meta">${esc(r.client_name)} &middot; <span style="text-transform:capitalize">${esc(r.client_type)}</span></div>
+          <div class="lc-tags">${(r.channels||[]).map(channelTagHtml).join('')}</div>
+          <div class="lc-mini-track"><div class="lc-mini-fill" style="width:${pct}%"></div></div>
+          <div class="lc-mini-label">${done} / ${total} steps complete</div>
+          <div class="lc-date">Updated ${timeAgo(r.timestamp_updated)}</div>
+          <div class="lc-continue">Continue &rarr;</div>
+        </div>`;
+      }).join('')
+    : '<div class="list-empty">No launches in progress.</div>';
+
+  const prList = document.getElementById('previous-list');
+  if (prList) prList.innerHTML = completed.length
+    ? completed.map(r => `<div class="lc lc-done">
+        <div class="lc-name">${esc(r.launch_name||r.client_name)}</div>
+        <div class="lc-meta">${esc(r.client_name)} &middot; <span style="text-transform:capitalize">${esc(r.client_type)}</span> &middot; ${esc(r.user_name)}</div>
+        <div class="lc-tags">${(r.channels||[]).map(channelTagHtml).join('')}</div>
+        <div class="lc-date">Completed ${fmtDate(r.timestamp_completed)}</div>
+        <div class="lc-date">Started ${fmtDate(r.timestamp_started)}</div>
+      </div>`).join('')
+    : '<div class="list-empty">No completed launches yet.</div>';
+}
+
+// ─── NEW LAUNCH ──────────────────────────────────────────────────────────────
+function startNewLaunch() {
+  ['f-launch-name','f-name','f-client'].forEach(id => document.getElementById(id).value='');
+  document.querySelectorAll('input[name="role"],input[name="client_type"],input[name="channels"]').forEach(el=>el.checked=false);
+  document.querySelectorAll('.field-err-msg').forEach(el=>el.classList.remove('show'));
+  document.querySelectorAll('.field-err').forEach(el=>el.classList.remove('field-err'));
+  showScreen('setup');
+}
+
+function beginChecklist() {
+  let ok = true;
+  const ln  = document.getElementById('f-launch-name').value.trim();
+  const nm  = document.getElementById('f-name').value.trim();
+  const rl  = document.querySelector('input[name="role"]:checked');
+  const cl  = document.getElementById('f-client').value.trim();
+  const ct  = document.querySelector('input[name="client_type"]:checked');
+  const chs = [...document.querySelectorAll('input[name="channels"]:checked')].map(c=>c.value);
+
+  const flag = (iid, eid, bad) => { if(iid)document.getElementById(iid)?.classList.toggle('field-err',bad); document.getElementById(eid).classList.toggle('show',bad); if(bad)ok=false; };
+  flag('f-launch-name','err-launch-name',!ln);
+  flag('f-name','err-name',!nm);
+  flag(null,'err-role',!rl);
+  flag('f-client','err-client',!cl);
+  flag(null,'err-ctype',!ct);
+  flag(null,'err-channels',chs.length===0);
+  if (!ok) return;
+
+  const activeChecks = CHECKS.filter(c=>c.channels.some(ch=>chs.includes(ch))&&c.clientTypes.includes(ct.value));
+  const now = new Date().toISOString();
+  const record = {
+    id: uid(), launch_name: ln, user_name: nm, role: rl.value,
+    client_name: cl, client_type: ct.value, channels: chs,
+    active_checks: activeChecks.map(c=>c.id),
+    completed_sub_steps: [],
+    status: 'in_progress',
+    timestamp_started: now, timestamp_updated: now, timestamp_completed: null
+  };
+  const all = getRecords(); all.unshift(record); saveRecords(all);
+
+  state = { record_id:record.id, launch_name:ln, user_name:nm, role:rl.value, client_name:cl, client_type:ct.value, channels:chs, activeChecks, checked:new Set() };
+  buildChecklistUI();
+  showScreen('checklist');
+}
+
+// ─── RESUME ──────────────────────────────────────────────────────────────────
+function resumeLaunch(id) {
+  const rec = getRecords().find(r=>r.id===id); if(!rec) return;
+  state = {
+    record_id: rec.id, launch_name: rec.launch_name||rec.client_name,
+    user_name: rec.user_name, role: rec.role, client_name: rec.client_name,
+    client_type: rec.client_type, channels: rec.channels||[],
+    activeChecks: CHECKS.filter(c=>(rec.active_checks||[]).includes(c.id)),
+    checked: new Set(rec.completed_sub_steps||[])
+  };
+  buildChecklistUI();
+  showScreen('checklist');
+}
+
+// ─── CHECKLIST UI ────────────────────────────────────────────────────────────
+function buildChecklistUI() {
+  document.getElementById('progress-launch-name').textContent = state.launch_name;
+  document.getElementById('meta-card').innerHTML = `
+    <div class="meta-field"><div class="meta-field-label">Launch</div><div class="meta-field-value">${esc(state.launch_name)}</div></div>
+    <div class="meta-field"><div class="meta-field-label">User</div><div class="meta-field-value">${esc(state.user_name)}</div></div>
+    <div class="meta-field"><div class="meta-field-label">Role</div><div class="meta-field-value">${esc(state.role)}</div></div>
+    <div class="meta-field"><div class="meta-field-label">Client</div><div class="meta-field-value">${esc(state.client_name)}</div></div>
+    <div class="meta-field"><div class="meta-field-label">Type</div><div class="meta-field-value" style="text-transform:capitalize">${esc(state.client_type)}</div></div>
+    <div class="meta-field"><div class="meta-field-label">Channels</div><div class="channel-tags" style="margin-top:3px">${state.channels.map(channelTagHtml).join('')}</div></div>
+  `;
+
+  const container = document.getElementById('checklist-items');
+  container.innerHTML = '';
+
+  state.activeChecks.forEach(check => {
+    const isFinal     = check.cssClass === 'is-final';
+    const activeSubs  = getActiveSubSteps(check);
+    const doneSubs    = activeSubs.filter(ss=>state.checked.has(ss.id)).length;
+    const isDone      = doneSubs === activeSubs.length && activeSubs.length > 0;
+    const pct         = activeSubs.length > 0 ? (doneSubs/activeSubs.length)*100 : 0;
+    const itemChannels = check.channels.filter(ch=>state.channels.includes(ch));
+
+    // Dynamic label: pluralise "Campaign Title" → "Campaign Titles" when multiple channels active
+    const displayLabel = (check.id === 'campaign_title' && itemChannels.length > 1)
+      ? 'Campaign Titles' : check.label;
+
+    const el = document.createElement('div');
+    el.className = 'cl-item'
+      + (isFinal ? ' is-final' : '')
+      + (isDone  ? ' is-done'  : '');
+    el.id = 'item-'+check.id;
+
+    // Sub-step rows HTML — show channel tags when sub-step applies to a subset of active channels
+    const ssHtml = activeSubs.map(ss => {
+      const ssDone      = state.checked.has(ss.id);
+      const ssActiveChs = ss.channels.filter(ch => state.channels.includes(ch));
+      const showChTags  = ssActiveChs.length < itemChannels.length;
+      const chTagsHtml  = showChTags
+        ? `<div class="ss-channel-tags">${ssActiveChs.map(channelTagHtml).join('')}</div>`
+        : '';
+      return `<div class="ss-item${ssDone?' ss-done':''}" id="ss-${ss.id}" onclick="toggleSubStep('${check.id}','${ss.id}')">
+        <div class="ss-box">
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4.5l2.5 2.5L8 1.5"/></svg>
+        </div>
+        <div class="ss-content">
+          <span class="ss-label">${esc(ss.label)}</span>
+          ${chTagsHtml}
+        </div>
+      </div>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div class="item-row" onclick="toggleExpand('${check.id}')">
+        <div class="item-box">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5.5l3 3L10 1.5"/></svg>
+        </div>
+        <div class="item-body">
+          <div class="item-title-row">
+            <span class="item-title">${esc(displayLabel)}</span>
+            <span class="item-sub-count" id="isc-${check.id}">${doneSubs} / ${activeSubs.length}</span>
+          </div>
+          <div class="item-mini-progress">
+            <div class="item-mini-track"><div class="item-mini-fill" id="ipf-${check.id}" style="width:${pct}%"></div></div>
+          </div>
+          ${!isFinal ? `<div class="item-tags">${itemChannels.map(channelTagHtml).join('')}</div>` : ''}
+        </div>
+        <button class="item-expand" id="exp-${check.id}" onclick="event.stopPropagation();toggleExpand('${check.id}')" title="Show sub-steps">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>
+        </button>
+      </div>
+      <div class="sub-steps-panel" id="ssp-${check.id}">
+        <div class="ss-separator"></div>
+        <div class="sub-steps-list">${ssHtml}</div>
+      </div>
+    `;
+    container.appendChild(el);
+  });
+
+  updateProgress();
+}
+
+// ─── INTERACTIONS ────────────────────────────────────────────────────────────
+function toggleExpand(checkId) {
+  const panel = document.getElementById('ssp-'+checkId);
+  const btn   = document.getElementById('exp-'+checkId);
+  const open  = panel.classList.toggle('open');
+  btn.classList.toggle('open', open);
+}
+
+function toggleSubStep(checkId, ssId) {
+  const check = state.activeChecks.find(c=>c.id===checkId); if(!check) return;
+  const item  = document.getElementById('item-'+checkId);
+  // Don't allow unchecking on a complete item? No — allow full editing.
+  state.checked.has(ssId) ? state.checked.delete(ssId) : state.checked.add(ssId);
+
+  // Update sub-step visual
+  document.getElementById('ss-'+ssId)?.classList.toggle('ss-done', state.checked.has(ssId));
+
+  // Update item state
+  const activeSubs = getActiveSubSteps(check);
+  const doneSubs   = activeSubs.filter(ss=>state.checked.has(ss.id)).length;
+  const isDone     = doneSubs === activeSubs.length && activeSubs.length > 0;
+  const pct        = activeSubs.length > 0 ? (doneSubs/activeSubs.length)*100 : 0;
+
+  document.getElementById('isc-'+checkId).textContent = `${doneSubs} / ${activeSubs.length}`;
+  document.getElementById('ipf-'+checkId).style.width = pct+'%';
+  item.classList.toggle('is-done', isDone);
+
+  updateProgress();
+  autoSave();
+}
+
+function updateProgress() {
+  const total = state.activeChecks.length;
+  const done  = state.activeChecks.filter(c=>isCheckComplete(c)).length;
+  const pct   = total===0 ? 0 : Math.round((done/total)*100);
+  document.getElementById('progress-pct').textContent  = pct+'%';
+  document.getElementById('progress-fill').style.width = pct+'%';
+  const rem = total-done;
+  document.getElementById('submit-status').innerHTML = rem===0
+    ? '<strong>All checks complete</strong> — ready to submit'
+    : `<strong>${rem}</strong> step${rem!==1?'s':''} remaining`;
+  document.getElementById('btn-submit').disabled = done < total;
+}
+
+function autoSave() {
+  if (!state.record_id) return;
+  updateRecord(state.record_id, { completed_sub_steps:[...state.checked], timestamp_updated:new Date().toISOString() });
+}
+
+// ─── COMPLETE ────────────────────────────────────────────────────────────────
+function completeCheck() {
+  const now = new Date().toISOString();
+  updateRecord(state.record_id, { completed_sub_steps:[...state.checked], status:'complete', timestamp_updated:now, timestamp_completed:now });
+  const rec = getRecords().find(r=>r.id===state.record_id);
+  document.getElementById('complete-summary').innerHTML = `
+    <h3>Summary</h3>
+    <div class="summary-grid">
+      <div><div class="summary-lbl">Launch</div><div class="summary-val">${esc(state.launch_name)}</div></div>
+      <div><div class="summary-lbl">User</div><div class="summary-val">${esc(state.user_name)}</div></div>
+      <div><div class="summary-lbl">Role</div><div class="summary-val">${esc(state.role)}</div></div>
+      <div><div class="summary-lbl">Client</div><div class="summary-val">${esc(state.client_name)}</div></div>
+      <div><div class="summary-lbl">Client Type</div><div class="summary-val" style="text-transform:capitalize">${esc(state.client_type)}</div></div>
+      <div><div class="summary-lbl">Channels</div><div class="summary-val"><div class="channel-tags" style="margin-top:4px">${state.channels.map(channelTagHtml).join('')}</div></div></div>
+      <div><div class="summary-lbl">Started</div><div class="summary-val">${rec?fmtDate(rec.timestamp_started):'—'}</div></div>
+      <div><div class="summary-lbl">Completed</div><div class="summary-val">${fmtDate(now)}</div></div>
+    </div>`;
+  showScreen('complete');
+}
+
+// ─── RECORDS MODAL ───────────────────────────────────────────────────────────
+function openRecords()  { renderRecordsTable(); document.getElementById('modal-overlay').classList.add('open'); }
+function closeRecords() { document.getElementById('modal-overlay').classList.remove('open'); }
+
+function renderRecordsTable() {
+  const records = getRecords().sort((a,b)=>new Date(b.timestamp_started)-new Date(a.timestamp_started));
+  const body = document.getElementById('modal-body');
+  if (!records.length) { body.innerHTML='<div class="records-empty">No records yet.</div>'; return; }
+
+  let html = `<table class="rec-table"><thead><tr>
+    <th></th><th>Launch</th><th>User</th><th>Role</th><th>Client</th>
+    <th>Type</th><th>Channels</th><th>Steps</th><th>Started</th><th>Status</th>
+  </tr></thead><tbody>`;
+
+  records.forEach((r,i) => {
+    const total = CHECKS.filter(c=>c.channels.some(ch=>(r.channels||[]).includes(ch))&&c.clientTypes.includes(r.client_type||'new')).length;
+    const done  = getCompletedParentCount(r);
+    const badge = r.status==='complete'
+      ? `<span class="status-done">Complete</span>`
+      : `<span class="status-ip">In Progress (${done}/${total})</span>`;
+
+    // Completed parent check labels for expanded row
+    const subIds = new Set(r.completed_sub_steps||[]);
+    const completedChecks = CHECKS.filter(c=>{
+      const subs = getActiveSubStepsForRecord(c,r);
+      return subs.length>0 && subs.every(ss=>subIds.has(ss.id));
+    });
+    const chips = completedChecks.map(c=>`<span class="step-chip">${esc(c.label)}</span>`).join('');
+
+    html += `<tr>
+      <td><button class="rec-expand-btn" onclick="toggleRD('rd-${i}',this)">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5l4.5 4.5 4.5-4.5"/></svg>
+      </button></td>
+      <td><strong style="color:#fff">${esc(r.launch_name||r.client_name)}</strong></td>
+      <td>${esc(r.user_name)}</td><td>${esc(r.role)}</td><td>${esc(r.client_name)}</td>
+      <td style="text-transform:capitalize">${esc(r.client_type)}</td>
+      <td><div class="channel-tags">${(r.channels||[]).map(channelTagHtml).join('')}</div></td>
+      <td>${done} / ${total}</td>
+      <td style="white-space:nowrap">${fmtDate(r.timestamp_started)}</td>
+      <td>${badge}</td>
+    </tr>
+    <tr class="rec-detail-row" id="rd-${i}" style="display:none"><td colspan="10"><div class="rec-detail">
+      <div class="rec-detail-dates">
+        <div class="rec-ddate"><strong>Started:</strong> ${fmtDate(r.timestamp_started)}</div>
+        <div class="rec-ddate"><strong>Last updated:</strong> ${fmtDate(r.timestamp_updated)}</div>
+        ${r.timestamp_completed?`<div class="rec-ddate"><strong>Completed:</strong> ${fmtDate(r.timestamp_completed)}</div>`:''}
+      </div>
+      <div class="step-chips">${chips||'<span style="color:rgba(255,255,255,0.28);font-size:12px">No steps completed yet</span>'}</div>
+    </div></td></tr>`;
+  });
+  body.innerHTML = html + '</tbody></table>';
+}
+
+function toggleRD(id, btn) {
+  const row = document.getElementById(id);
+  const open = row.style.display==='none';
+  row.style.display   = open?'table-row':'none';
+  btn.style.transform = open?'rotate(180deg)':'';
+}
+
+// ─── EXPORT CSV ──────────────────────────────────────────────────────────────
+function exportCSV() {
+  const records = getRecords(); if(!records.length){alert('No records to export.');return;}
+  const hdrs = ['ID','Launch Name','User','Role','Client','Client Type','Channels','Steps Complete','Total Steps','Status','Started','Last Updated','Completed'];
+  const rows = records.map(r=>{
+    const total = CHECKS.filter(c=>c.channels.some(ch=>(r.channels||[]).includes(ch))&&c.clientTypes.includes(r.client_type||'new')).length;
+    const done  = getCompletedParentCount(r);
+    return [r.id, r.launch_name||'', r.user_name, r.role, r.client_name, r.client_type,
+      (r.channels||[]).map(ch=>CHANNEL_LABELS[ch]||ch).join('; '),
+      done, total, r.status, r.timestamp_started||'', r.timestamp_updated||'', r.timestamp_completed||''];
+  });
+  const csv = [hdrs,...rows].map(row=>row.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+  const a = Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'})),download:`launch-records-${new Date().toISOString().slice(0,10)}.csv`});
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+document.getElementById('modal-overlay').addEventListener('click', e=>{ if(e.target===e.currentTarget)closeRecords(); });
+
+// SDR auto-fill: client = Unstuck, type = existing
+document.querySelectorAll('input[name="role"]').forEach(el => {
+  el.addEventListener('change', () => {
+    if (el.value === 'SDR') {
+      document.getElementById('f-client').value = 'Unstuck';
+      document.getElementById('ct-existing').checked = true;
+    }
+  });
+});
+
+renderHome();
+</script>
+</body>
+</html>
