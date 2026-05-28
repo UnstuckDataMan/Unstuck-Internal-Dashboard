@@ -789,16 +789,23 @@ function isCheckComplete(check) {
   return subs.length > 0 && subs.every(ss => state.checked.has(ss.id));
 }
 
-// ─── STORAGE ────────────────────────────────────────────────────────────────
-function getRecords()       { try { return JSON.parse(localStorage.getItem('drip_launch_records')||'[]'); } catch { return []; } }
-function saveRecords(r)     { localStorage.setItem('drip_launch_records', JSON.stringify(r)); }
-function updateRecord(id, patch) {
-  const r = getRecords(), i = r.findIndex(x => x.id === id);
-  if (i === -1) return; Object.assign(r[i], patch); saveRecords(r);
+// ─── API ─────────────────────────────────────────────────────────────────────
+async function apiFetch(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  try {
+    const r = await fetch(path, opts);
+    if (!r.ok) { console.error(`API ${method} ${path} → ${r.status}`); return null; }
+    if (r.status === 204) return null;
+    return r.json();
+  } catch (e) { console.error('API error:', e); return null; }
 }
+async function getRecords()          { return await apiFetch('GET',   '/api/launch-checker/records') || []; }
+async function createRecord(rec)     { return await apiFetch('POST',  '/api/launch-checker/records', rec); }
+async function patchRecord(id, data) { return await apiFetch('PATCH', `/api/launch-checker/records/${id}`, data); }
 
 // ─── HOME ────────────────────────────────────────────────────────────────────
-function goHome() { renderHome(); showScreen('home'); }
+async function goHome() { await renderHome(); showScreen('home'); }
 
 function getCompletedParentCount(record) {
   const subIds = new Set(record.completed_sub_steps||[]);
@@ -812,8 +819,13 @@ function getCompletedParentCount(record) {
   }).length;
 }
 
-function renderHome() {
-  const records = getRecords();
+async function renderHome() {
+  const ipList = document.getElementById('in-progress-list');
+  const prList = document.getElementById('previous-list');
+  if (ipList) ipList.innerHTML = '<div class="list-empty">Loading…</div>';
+  if (prList) prList.innerHTML = '<div class="list-empty">Loading…</div>';
+
+  const records = await getRecords();
   const inProgress = records.filter(r=>r.status==='in_progress').sort((a,b)=>new Date(b.timestamp_updated)-new Date(a.timestamp_updated));
   const completed  = records.filter(r=>r.status==='complete').sort((a,b)=>new Date(b.timestamp_completed)-new Date(a.timestamp_completed));
 
@@ -861,7 +873,7 @@ function startNewLaunch() {
   showScreen('setup');
 }
 
-function beginChecklist() {
+async function beginChecklist() {
   let ok = true;
   const ln  = document.getElementById('f-launch-name').value.trim();
   const nm  = document.getElementById('f-name').value.trim();
@@ -889,22 +901,24 @@ function beginChecklist() {
     status: 'in_progress',
     timestamp_started: now, timestamp_updated: now, timestamp_completed: null
   };
-  const all = getRecords(); all.unshift(record); saveRecords(all);
+  await createRecord(record);
 
-  state = { record_id:record.id, launch_name:ln, user_name:nm, role:rl.value, client_name:cl, client_type:ct.value, channels:chs, activeChecks, checked:new Set() };
+  state = { record_id:record.id, launch_name:ln, user_name:nm, role:rl.value, client_name:cl, client_type:ct.value, channels:chs, activeChecks, checked:new Set(), timestamp_started:now };
   buildChecklistUI();
   showScreen('checklist');
 }
 
 // ─── RESUME ──────────────────────────────────────────────────────────────────
-function resumeLaunch(id) {
-  const rec = getRecords().find(r=>r.id===id); if(!rec) return;
+async function resumeLaunch(id) {
+  const records = await getRecords();
+  const rec = records.find(r=>r.id===id); if(!rec) return;
   state = {
     record_id: rec.id, launch_name: rec.launch_name||rec.client_name,
     user_name: rec.user_name, role: rec.role, client_name: rec.client_name,
     client_type: rec.client_type, channels: rec.channels||[],
     activeChecks: CHECKS.filter(c=>(rec.active_checks||[]).includes(c.id)),
-    checked: new Set(rec.completed_sub_steps||[])
+    checked: new Set(rec.completed_sub_steps||[]),
+    timestamp_started: rec.timestamp_started
   };
   buildChecklistUI();
   showScreen('checklist');
@@ -1036,16 +1050,28 @@ function updateProgress() {
   document.getElementById('btn-submit').disabled = done < total;
 }
 
+let _saveTimer = null;
 function autoSave() {
   if (!state.record_id) return;
-  updateRecord(state.record_id, { completed_sub_steps:[...state.checked], timestamp_updated:new Date().toISOString() });
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(async () => {
+    await patchRecord(state.record_id, {
+      completed_sub_steps: [...state.checked],
+      timestamp_updated:   new Date().toISOString()
+    });
+  }, 600);
 }
 
 // ─── COMPLETE ────────────────────────────────────────────────────────────────
-function completeCheck() {
+async function completeCheck() {
+  if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
   const now = new Date().toISOString();
-  updateRecord(state.record_id, { completed_sub_steps:[...state.checked], status:'complete', timestamp_updated:now, timestamp_completed:now });
-  const rec = getRecords().find(r=>r.id===state.record_id);
+  await patchRecord(state.record_id, {
+    completed_sub_steps: [...state.checked],
+    status:              'complete',
+    timestamp_updated:   now,
+    timestamp_completed: now
+  });
   document.getElementById('complete-summary').innerHTML = `
     <h3>Summary</h3>
     <div class="summary-grid">
@@ -1055,19 +1081,23 @@ function completeCheck() {
       <div><div class="summary-lbl">Client</div><div class="summary-val">${esc(state.client_name)}</div></div>
       <div><div class="summary-lbl">Client Type</div><div class="summary-val" style="text-transform:capitalize">${esc(state.client_type)}</div></div>
       <div><div class="summary-lbl">Channels</div><div class="summary-val"><div class="channel-tags" style="margin-top:4px">${state.channels.map(channelTagHtml).join('')}</div></div></div>
-      <div><div class="summary-lbl">Started</div><div class="summary-val">${rec?fmtDate(rec.timestamp_started):'—'}</div></div>
+      <div><div class="summary-lbl">Started</div><div class="summary-val">${fmtDate(state.timestamp_started)}</div></div>
       <div><div class="summary-lbl">Completed</div><div class="summary-val">${fmtDate(now)}</div></div>
     </div>`;
   showScreen('complete');
 }
 
 // ─── RECORDS MODAL ───────────────────────────────────────────────────────────
-function openRecords()  { renderRecordsTable(); document.getElementById('modal-overlay').classList.add('open'); }
+async function openRecords()  {
+  document.getElementById('modal-overlay').classList.add('open');
+  await renderRecordsTable();
+}
 function closeRecords() { document.getElementById('modal-overlay').classList.remove('open'); }
 
-function renderRecordsTable() {
-  const records = getRecords().sort((a,b)=>new Date(b.timestamp_started)-new Date(a.timestamp_started));
+async function renderRecordsTable() {
   const body = document.getElementById('modal-body');
+  body.innerHTML = '<div class="records-empty">Loading…</div>';
+  const records = (await getRecords()).sort((a,b)=>new Date(b.timestamp_started)-new Date(a.timestamp_started));
   if (!records.length) { body.innerHTML='<div class="records-empty">No records yet.</div>'; return; }
 
   let html = `<table class="rec-table"><thead><tr>
@@ -1122,8 +1152,8 @@ function toggleRD(id, btn) {
 }
 
 // ─── EXPORT CSV ──────────────────────────────────────────────────────────────
-function exportCSV() {
-  const records = getRecords(); if(!records.length){alert('No records to export.');return;}
+async function exportCSV() {
+  const records = await getRecords(); if(!records.length){alert('No records to export.');return;}
   const hdrs = ['ID','Launch Name','User','Role','Client','Client Type','Channels','Steps Complete','Total Steps','Status','Started','Last Updated','Completed'];
   const rows = records.map(r=>{
     const total = CHECKS.filter(c=>c.channels.some(ch=>(r.channels||[]).includes(ch))&&c.clientTypes.includes(r.client_type||'new')).length;
