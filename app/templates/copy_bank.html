@@ -1258,6 +1258,22 @@
       padding: 2px 0;
     }
     .tag-input::placeholder { color: var(--text-3); }
+    .tag-text {
+      cursor: text;
+      border-radius: 3px;
+      transition: background .12s;
+    }
+    .tag-text:hover { background: rgba(139,92,246,.2); }
+    .tag-edit-input {
+      background: transparent;
+      border: none;
+      outline: none;
+      font: inherit;
+      color: inherit;
+      padding: 0;
+      min-width: 24px;
+      width: 4ch;
+    }
 
     /* ════════════════════════════════════════════════════════
        TEMPLATE ADMIN PANEL
@@ -3236,14 +3252,17 @@ function renderPeModalTags() {
   // Territories
   const terEditor = document.getElementById('pe-ter-editor');
   terEditor.innerHTML = p.territories.map(function(t){
-    return '<span class="tag">'+escHtml(t)+
+    return '<span class="tag">' +
+      '<span class="tag-text" data-pe-type="ter" data-pe-val="'+escHtml(t)+'" data-pe-display="'+escHtml(t)+'">'+escHtml(t)+'</span>' +
       '<button type="button" class="tag-x" data-pe-rm-ter="'+escHtml(t)+'">&times;</button></span>';
   }).join('') + '<input class="tag-input" id="pe-ter-input" placeholder="Add territory">';
 
   // Industries
   const indEditor = document.getElementById('pe-ind-editor');
   indEditor.innerHTML = p.industries.map(function(v){
-    return '<span class="tag">'+escHtml(industryLabel(v))+
+    const lbl = industryLabel(v);
+    return '<span class="tag">' +
+      '<span class="tag-text" data-pe-type="ind" data-pe-val="'+escHtml(v)+'" data-pe-display="'+escHtml(lbl)+'">'+escHtml(lbl)+'</span>' +
       '<button type="button" class="tag-x" data-pe-rm-ind="'+escHtml(v)+'">&times;</button></span>';
   }).join('') + '<input class="tag-input" id="pe-ind-input" placeholder="Add industry">';
 
@@ -3254,21 +3273,105 @@ function renderPeModalTags() {
   const chs = p.channels || defaultChs;
   const chEditor = document.getElementById('pe-ch-editor');
   chEditor.innerHTML = chs.map(function(c){
-    return '<span class="tag">'+escHtml(c[1])+
+    return '<span class="tag">' +
+      '<span class="tag-text" data-pe-type="ch" data-pe-val="'+escHtml(c[0])+'" data-pe-display="'+escHtml(c[1])+'">'+escHtml(c[1])+'</span>' +
       '<button type="button" class="tag-x" data-pe-rm-ch="'+escHtml(c[0])+'">&times;</button></span>';
   }).join('') + '<input class="tag-input" id="pe-ch-input" placeholder="Add channel (e.g. Cold Call)">';
 
   // Senders (global)
   const sndEditor = document.getElementById('pe-snd-editor');
   sndEditor.innerHTML = SENDERS.map(function(s){
-    return '<span class="tag">'+escHtml(s)+
+    return '<span class="tag">' +
+      '<span class="tag-text" data-pe-type="snd" data-pe-val="'+escHtml(s)+'" data-pe-display="'+escHtml(s)+'">'+escHtml(s)+'</span>' +
       '<button type="button" class="tag-x" data-pe-rm-snd="'+escHtml(s)+'">&times;</button></span>';
   }).join('') + '<input class="tag-input" id="pe-snd-input" placeholder="Add sender name">';
 
   attachPeModalEvents();
 }
 
+function applyTagEdit(type, origKey, newDisplay) {
+  if (type === 'ter') {
+    const upperNew = newDisplay.toUpperCase();
+    const idx = profiles[peEditIdx].territories.indexOf(origKey);
+    if (idx >= 0 && !profiles[peEditIdx].territories.includes(upperNew)) {
+      profiles[peEditIdx].territories[idx] = upperNew;
+    }
+  } else if (type === 'ind') {
+    const newKey = newDisplay.replace(/\s+/g, '_');
+    const idx = profiles[peEditIdx].industries.indexOf(origKey);
+    if (idx >= 0) {
+      profiles[peEditIdx].industries[idx] = newKey;
+      INDUSTRY_LABELS[newKey] = newDisplay;
+      if (origKey !== newKey) delete INDUSTRY_LABELS[origKey];
+    }
+  } else if (type === 'ch') {
+    // origKey = channel key (e.g. 'email'), newDisplay = new label
+    const p = profiles[peEditIdx];
+    const defaultChs = (p.type === 'bizdev')
+      ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']]
+      : [['email','Email'],['linkedin','LinkedIn']];
+    if (!p.channels) p.channels = defaultChs.slice();
+    const ch = p.channels.find(function(c){ return c[0] === origKey; });
+    if (ch) {
+      const newKey = newDisplay.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');
+      ch[0] = newKey || origKey;
+      ch[1] = newDisplay;
+    }
+  } else if (type === 'snd') {
+    const idx = SENDERS.indexOf(origKey);
+    if (idx >= 0 && !SENDERS.includes(newDisplay)) {
+      SENDERS[idx] = newDisplay;
+    }
+  }
+  renderPeModalTags();
+}
+
 function attachPeModalEvents() {
+  // ── Inline tag editing (click text to edit) ──
+  document.querySelectorAll('.tag-text').forEach(function(textEl) {
+    textEl.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (textEl.querySelector('input')) return; // already in edit mode
+
+      const type    = textEl.dataset.peType;
+      const origKey = textEl.dataset.peVal;
+      const display = textEl.dataset.peDisplay;
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'tag-edit-input';
+      input.value = display;
+      // Size input to content width
+      input.style.width = Math.max(display.length * 8, 32) + 'px';
+
+      textEl.textContent = '';
+      textEl.appendChild(input);
+      input.focus();
+      input.select();
+
+      // Grow as user types
+      input.addEventListener('input', function() {
+        input.style.width = Math.max(input.value.length * 8, 32) + 'px';
+      });
+
+      let committed = false;
+      function commit() {
+        if (committed) return; committed = true;
+        const newVal = input.value.trim();
+        if (newVal && newVal !== display) {
+          applyTagEdit(type, origKey, newVal);
+        } else {
+          renderPeModalTags();
+        }
+      }
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { committed = true; renderPeModalTags(); }
+      });
+      input.addEventListener('blur', commit);
+    });
+  });
+
   // Territories
   document.querySelectorAll('[data-pe-rm-ter]').forEach(function(btn){
     btn.addEventListener('click', function(){
