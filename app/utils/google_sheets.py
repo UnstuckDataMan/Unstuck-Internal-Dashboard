@@ -459,6 +459,45 @@ def _apply_sheet_formatting(
             "index": 0,
         }})
 
+    # 3.5. Lead Status = "Lead" → whole-row grey EXCEPT the LS column (higher than sent-blue).
+    # Ensures a lead row is always grey even when it is also marked as sent.
+    # The LS column is excluded from the two ranges so the green Lead cell colour
+    # (rule 4, highest priority) is never shadowed by this grey.
+    if lead_status_col >= 0:
+        ls_letter  = _col_letter(lead_status_col + 1)
+        lead_formula = f'=${ls_letter}2="Lead"'
+        lead_ranges: list[dict] = []
+        if lead_status_col > 0:
+            lead_ranges.append({
+                "sheetId":          sheet_gid,
+                "startRowIndex":    1,
+                "endRowIndex":      last_row_idx,
+                "startColumnIndex": 0,
+                "endColumnIndex":   lead_status_col,   # up to (not including) LS col
+            })
+        if lead_status_col + 1 < n_cols:
+            lead_ranges.append({
+                "sheetId":          sheet_gid,
+                "startRowIndex":    1,
+                "endRowIndex":      last_row_idx,
+                "startColumnIndex": lead_status_col + 1,  # one after LS col
+                "endColumnIndex":   n_cols,
+            })
+        if lead_ranges:
+            requests.append({"addConditionalFormatRule": {
+                "rule": {
+                    "ranges": lead_ranges,
+                    "booleanRule": {
+                        "condition": {
+                            "type":   "CUSTOM_FORMULA",
+                            "values": [{"userEnteredValue": lead_formula}],
+                        },
+                        "format": {"backgroundColor": _rgb("E0E0E0")},  # same grey as domain-grey
+                    },
+                },
+                "index": 0,
+            }})
+
     # 4. Lead Status cell colours (highest priority — narrow range, LS cell only).
     if lead_status_col >= 0:
         ls_range = {
@@ -794,6 +833,73 @@ def read_leads(sheet_id: str) -> list[dict]:
     return results
 
 
+# ── Lead-grey CF rule helper ──────────────────────────────────────────────────
+
+def _apply_lead_grey_cf(
+    sh: gspread.Spreadsheet,
+    ws: gspread.Worksheet,
+    ls_col_idx: int,   # 1-based
+    n_cols: int,
+) -> None:
+    """
+    Add a conditional-format rule to *sh* that turns the whole row grey (except
+    the Lead Status column) whenever Lead Status = "Lead".
+
+    This is called from mark_email_in_sheet for EXISTING sheets that were
+    created before this rule was added to _apply_sheet_formatting.  It runs
+    inside the background thread so the extra Sheets API round-trip is free
+    from the HTTP response's perspective.
+
+    The rule is inserted at index 0 (highest priority) so it overrides the
+    sent-blue rule.  Because the LS column is excluded from the rule's ranges,
+    the existing green Lead cell colour still shows on that cell.
+
+    Google Sheets allows up to 400 CF rules per sheet; adding this rule once
+    per manual lead-marking event is safe in all realistic usage scenarios.
+    """
+    sheet_gid = ws.id
+    ls_0      = ls_col_idx - 1          # 0-based column index
+    ls_letter = _col_letter(ls_col_idx)
+    formula   = f'=${ls_letter}2="Lead"'
+    row_count = ws.row_count or 1000
+
+    ranges: list[dict] = []
+    if ls_0 > 0:
+        ranges.append({
+            "sheetId":          sheet_gid,
+            "startRowIndex":    1,
+            "endRowIndex":      row_count,
+            "startColumnIndex": 0,
+            "endColumnIndex":   ls_0,
+        })
+    if ls_0 + 1 < n_cols:
+        ranges.append({
+            "sheetId":          sheet_gid,
+            "startRowIndex":    1,
+            "endRowIndex":      row_count,
+            "startColumnIndex": ls_0 + 1,
+            "endColumnIndex":   n_cols,
+        })
+    if not ranges:
+        return
+
+    sh.batch_update({"requests": [{
+        "addConditionalFormatRule": {
+            "rule": {
+                "ranges": ranges,
+                "booleanRule": {
+                    "condition": {
+                        "type":   "CUSTOM_FORMULA",
+                        "values": [{"userEnteredValue": formula}],
+                    },
+                    "format": {"backgroundColor": _rgb("E0E0E0")},
+                },
+            },
+            "index": 0,
+        }
+    }]})
+
+
 # ── DNC reason → Lead Status mapping ─────────────────────────────────────────
 
 _REASON_TO_LEAD_STATUS: dict[str, str] = {
@@ -856,6 +962,16 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
 
     if updates:
         ws.batch_update(updates)
+
+        # For lead rows: ensure the grey-row CF rule exists on this sheet.
+        # This handles sheets that were created before the rule was added to
+        # _apply_sheet_formatting — it runs in the background thread so the
+        # extra batchUpdate call does not block the HTTP response.
+        if lead_status == "Lead":
+            try:
+                _apply_lead_grey_cf(sh, ws, ls_col_idx, len(headers))
+            except Exception:
+                pass   # non-fatal; cell values are correct regardless
 
     return len(updates)
 
