@@ -875,7 +875,6 @@ async function renderHome() {
   if (ipC) ipC.textContent = inProgress.length||'';
   if (prC) prC.textContent = completed.length||'';
 
-  const ipList = document.getElementById('in-progress-list');
   if (ipList) ipList.innerHTML = inProgress.length
     ? inProgress.map(r => {
         const total = (CHECKS.filter(c=>c.channels.some(ch=>(r.channels||[]).includes(ch))&&c.clientTypes.includes(r.client_type||'new'))).length;
@@ -896,7 +895,6 @@ async function renderHome() {
       }).join('')
     : '<div class="list-empty">No launches in progress.</div>';
 
-  const prList = document.getElementById('previous-list');
   if (prList) prList.innerHTML = completed.length
     ? completed.map(r => `<div class="lc lc-done">
         <button class="lc-delete" onclick="confirmDelete('${esc(r.id)}', event)" title="Delete launch">
