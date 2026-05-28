@@ -136,7 +136,18 @@
     .lc {
       background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
       border-left: 3px solid var(--accent); border-radius: var(--radius-sm); padding: 13px 14px;
+      position: relative;
     }
+    .lc-delete {
+      position: absolute; top: 9px; right: 9px;
+      background: none; border: none; cursor: pointer;
+      color: rgba(255,255,255,0.2); padding: 5px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.15s, background 0.15s;
+      opacity: 0; pointer-events: none;
+    }
+    .lc:hover .lc-delete { opacity: 1; pointer-events: auto; }
+    .lc-delete:hover { color: #f87171 !important; background: rgba(248,113,113,0.1); }
     .lc.lc-done { border-left-color: var(--success); opacity: 0.7; }
     .lc.lc-clickable { cursor: pointer; transition: all 0.15s; }
     .lc.lc-clickable:hover { background: rgba(255,255,255,0.07); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.35); }
@@ -822,9 +833,17 @@ async function apiFetch(method, path, body) {
     return r.json();
   } catch (e) { console.error('API error:', e); return null; }
 }
-async function getRecords()          { return await apiFetch('GET',   '/api/launch-checker/records') || []; }
-async function createRecord(rec)     { return await apiFetch('POST',  '/api/launch-checker/records', rec); }
-async function patchRecord(id, data) { return await apiFetch('PATCH', `/api/launch-checker/records/${id}`, data); }
+async function getRecords()          { return await apiFetch('GET',    '/api/launch-checker/records') || []; }
+async function createRecord(rec)     { return await apiFetch('POST',   '/api/launch-checker/records', rec); }
+async function patchRecord(id, data) { return await apiFetch('PATCH',  `/api/launch-checker/records/${id}`, data); }
+async function deleteRecord(id)      { return await apiFetch('DELETE', `/api/launch-checker/records/${id}`); }
+
+async function confirmDelete(id, event) {
+  event.stopPropagation();
+  if (!confirm('Delete this launch? This cannot be undone.')) return;
+  await deleteRecord(id);
+  await renderHome();
+}
 
 // ─── HOME ────────────────────────────────────────────────────────────────────
 async function goHome() { await renderHome(); showScreen('home'); }
@@ -863,6 +882,9 @@ async function renderHome() {
         const done  = getCompletedParentCount(r);
         const pct   = total>0 ? Math.round((done/total)*100) : 0;
         return `<div class="lc lc-clickable" onclick="resumeLaunch('${esc(r.id)}')">
+          <button class="lc-delete" onclick="confirmDelete('${esc(r.id)}', event)" title="Delete launch">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          </button>
           <div class="lc-name">${esc(r.launch_name||r.client_name)}</div>
           <div class="lc-meta">${esc(r.client_name)} &middot; <span style="text-transform:capitalize">${esc(r.client_type)}</span></div>
           <div class="lc-tags">${(r.channels||[]).map(channelTagHtml).join('')}</div>
@@ -877,6 +899,9 @@ async function renderHome() {
   const prList = document.getElementById('previous-list');
   if (prList) prList.innerHTML = completed.length
     ? completed.map(r => `<div class="lc lc-done">
+        <button class="lc-delete" onclick="confirmDelete('${esc(r.id)}', event)" title="Delete launch">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
         <div class="lc-name">${esc(r.launch_name||r.client_name)}</div>
         <div class="lc-meta">${esc(r.client_name)} &middot; <span style="text-transform:capitalize">${esc(r.client_type)}</span> &middot; ${esc(r.user_name)}</div>
         <div class="lc-tags">${(r.channels||[]).map(channelTagHtml).join('')}</div>

@@ -112,6 +112,21 @@ def create_record(body: RecordIn):
     return JSONResponse({"error": resp.text}, status_code=500)
 
 
+@router.delete("/api/launch-checker/records/{record_id}")
+def delete_record(record_id: str):
+    if not _sb_configured():
+        return JSONResponse({"error": "Supabase not configured"}, status_code=503)
+
+    url  = _sb_url()
+    resp = http_req.delete(
+        f"{url}/rest/v1/launch_checker_records",
+        params={"id": f"eq.{record_id}"},
+        headers=_sb_headers(),
+        timeout=10,
+    )
+    return JSONResponse({"ok": resp.ok})
+
+
 @router.patch("/api/launch-checker/records/{record_id}")
 def update_record(record_id: str, body: RecordPatch):
     if not _sb_configured():
