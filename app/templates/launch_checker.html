@@ -101,9 +101,21 @@
     .home-container { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; }
     .home-cols {
       display: grid;
-      grid-template-columns: 1fr 1.25fr 1.25fr;
+      grid-template-columns: 260px 1fr;
       gap: 20px; align-items: start;
     }
+    .home-lists-wrap { display: flex; flex-direction: column; gap: 10px; }
+    .home-lists-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+    .home-filter-bar { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+    .hf-pills { display: flex; gap: 5px; flex-wrap: wrap; }
+    .hf-pill {
+      padding: 4px 12px; border-radius: 99px;
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09);
+      font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.42);
+      cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    }
+    .hf-pill:hover { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.8); }
+    .hf-pill.active { background: rgba(139,92,246,0.18); border-color: rgba(139,92,246,0.4); color: #c4b5fd; }
     .home-col-hd {
       font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
       text-transform: uppercase; color: rgba(255,255,255,0.4);
@@ -535,7 +547,7 @@
     .rec-expand-btn:hover { color: rgba(255,255,255,0.7); }
 
     /* ── Responsive ──────────────────────────────── */
-    @media (max-width: 900px) { .home-cols { grid-template-columns: 1fr; } .launch-list { max-height: 50vh; } }
+    @media (max-width: 900px) { .home-cols { grid-template-columns: 1fr; } .home-lists-inner { grid-template-columns: 1fr; } .launch-list { max-height: 50vh; } }
     @media (max-width: 600px) {
       .channel-grid { grid-template-columns: 1fr; }
       .radio-group { flex-direction: column; }
@@ -579,13 +591,18 @@
           <div class="new-launch-sub">Set up a new campaign launch checklist and track every step to go-live.</div>
         </div>
       </div>
-      <div>
-        <div class="home-col-hd">In Progress <span class="col-count" id="ip-count"></span></div>
-        <div class="launch-list" id="in-progress-list"><div class="list-empty">No launches in progress.</div></div>
-      </div>
-      <div>
-        <div class="home-col-hd">Previous Launches <span class="col-count" id="prev-count"></span></div>
-        <div class="launch-list" id="previous-list"><div class="list-empty">No completed launches yet.</div></div>
+      <div class="home-lists-wrap">
+        <div class="home-filter-bar" id="home-filter-bar"></div>
+        <div class="home-lists-inner">
+          <div>
+            <div class="home-col-hd">In Progress <span class="col-count" id="ip-count"></span></div>
+            <div class="launch-list" id="in-progress-list"><div class="list-empty">No launches in progress.</div></div>
+          </div>
+          <div>
+            <div class="home-col-hd">Previous Launches <span class="col-count" id="prev-count"></span></div>
+            <div class="launch-list" id="previous-list"><div class="list-empty">No completed launches yet.</div></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -928,6 +945,9 @@ async function confirmDelete(id, event) {
 }
 
 // ─── HOME ────────────────────────────────────────────────────────────────────
+let _homeRecords   = [];
+let _homeClientFilter = 'all';
+
 async function goHome() { await renderHome(); showScreen('home'); }
 
 function getCompletedParentCount(record) {
@@ -942,15 +962,43 @@ function getCompletedParentCount(record) {
   }).length;
 }
 
+function setHomeFilter(client) {
+  _homeClientFilter = client;
+  renderHomeCards(_homeRecords);
+}
+
 async function renderHome() {
   const ipList = document.getElementById('in-progress-list');
   const prList = document.getElementById('previous-list');
   if (ipList) ipList.innerHTML = '<div class="list-empty">Loading…</div>';
   if (prList) prList.innerHTML = '<div class="list-empty">Loading…</div>';
 
-  const records = await getRecords();
-  const inProgress = records.filter(r=>r.status==='in_progress').sort((a,b)=>new Date(b.timestamp_updated)-new Date(a.timestamp_updated));
-  const completed  = records.filter(r=>r.status==='complete').sort((a,b)=>new Date(b.timestamp_completed)-new Date(a.timestamp_completed));
+  _homeRecords = await getRecords();
+  renderHomeCards(_homeRecords);
+}
+
+function renderHomeCards(records) {
+  // ── Client filter pills ──────────────────────────────────────────────────
+  const filterBar = document.getElementById('home-filter-bar');
+  const clients = [...new Set(records.map(r => r.client_name).filter(Boolean))].sort();
+  if (filterBar) {
+    if (clients.length > 1) {
+      filterBar.innerHTML = `<div class="hf-pills">
+        <button class="hf-pill${_homeClientFilter==='all'?' active':''}" onclick="setHomeFilter('all')">All clients</button>
+        ${clients.map(c=>`<button class="hf-pill${_homeClientFilter===c?' active':''}" onclick="setHomeFilter('${esc(c)}')">${esc(c)}</button>`).join('')}
+      </div>`;
+    } else {
+      filterBar.innerHTML = '';
+    }
+  }
+
+  // ── Apply filter ─────────────────────────────────────────────────────────
+  const filtered = _homeClientFilter === 'all'
+    ? records
+    : records.filter(r => r.client_name === _homeClientFilter);
+
+  const inProgress = filtered.filter(r=>r.status==='in_progress').sort((a,b)=>new Date(b.timestamp_updated)-new Date(a.timestamp_updated));
+  const completed  = filtered.filter(r=>r.status==='complete').sort((a,b)=>new Date(b.timestamp_completed)-new Date(a.timestamp_completed));
 
   const ipC = document.getElementById('ip-count');
   const prC = document.getElementById('prev-count');
