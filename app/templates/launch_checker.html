@@ -148,6 +148,45 @@
     }
     .lc:hover .lc-delete { opacity: 1; pointer-events: auto; }
     .lc-delete:hover { color: #f87171 !important; background: rgba(248,113,113,0.1); }
+
+    /* ── INFO BUTTON & GUIDANCE PANEL ───────────── */
+    .ss-info-btn {
+      flex-shrink: 0; margin-left: auto;
+      background: none; border: 1.5px solid rgba(255,255,255,0.18);
+      color: rgba(255,255,255,0.35);
+      width: 17px; height: 17px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 10px; font-weight: 700;
+      font-style: italic; font-family: Georgia, serif;
+      transition: all 0.15s; line-height: 1;
+    }
+    .ss-info-btn:hover { color: #a78bfa; border-color: rgba(139,92,246,0.55); background: rgba(139,92,246,0.1); }
+    .ss-info-btn.open  { color: #a78bfa; border-color: rgba(139,92,246,0.5);  background: rgba(139,92,246,0.1); }
+    .cl-item.is-done .ss-info-btn { pointer-events: auto; opacity: 0.4; }
+
+    .ss-guidance {
+      display: none;
+      padding: 10px 16px 12px 46px;
+      background: rgba(139,92,246,0.04);
+      border-top: 1px solid rgba(139,92,246,0.1);
+    }
+    .ss-guidance.open { display: block; }
+    .ss-guidance-inner {
+      font-size: 12px; color: rgba(255,255,255,0.52); line-height: 1.65;
+    }
+    .ss-guidance-inner strong { color: rgba(255,255,255,0.78); }
+    .ss-guidance-inner ul { padding-left: 14px; margin: 5px 0 0; }
+    .ss-guidance-inner li { margin-bottom: 4px; }
+    .sg-eg {
+      margin-top: 8px; border-radius: 5px; padding: 7px 10px;
+      background: rgba(0,0,0,0.25); font-family: monospace;
+      font-size: 11px; color: rgba(255,255,255,0.6); line-height: 1.5;
+    }
+    .sg-eg-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 3px; }
+    .sg-eg.sg-good { border-left: 2px solid var(--success); }
+    .sg-eg.sg-bad  { border-left: 2px solid var(--error); }
+    .sg-eg-label.sg-good { color: var(--success); }
+    .sg-eg-label.sg-bad  { color: var(--error); }
     .lc.lc-done { border-left-color: var(--success); opacity: 0.7; }
     .lc.lc-clickable { cursor: pointer; transition: all 0.15s; }
     .lc.lc-clickable:hover { background: rgba(255,255,255,0.07); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.35); }
@@ -665,10 +704,13 @@ const CHECKS = [
     channels: ['smartlead','mail_merge'], clientTypes: ['new','existing'],     subSteps: [
       { id:'sig_mm_added',    label:'Signature added to each Gmail account',                  channels:['mail_merge'],             clientTypes:['new','existing'] },
       { id:'sig_mm_identity', label:'Sender name and identity is correct',                    channels:['mail_merge'],             clientTypes:['new','existing'] },
-      { id:'sig_mm_links',    label:'All links in signature tested and working',              channels:['mail_merge'],             clientTypes:['new','existing'] },
-      { id:'sig_mm_format',   label:'Signature formatting is clean and spam-safe',            channels:['mail_merge'],             clientTypes:['new','existing'] },
+      { id:'sig_mm_links',    label:'All links in signature tested and working',              channels:['mail_merge'],             clientTypes:['new','existing'],
+        guidance: `<strong>Tracking subdomain warning:</strong><ul><li>If emails send from a <strong>tracking or sending subdomain</strong> (e.g. <em>mail.clientdomain.com</em>), do <strong>not</strong> also hyperlink the root domain (<em>clientdomain.com</em>) in the signature.</li><li>Having the subdomain in the email headers <em>and</em> the root domain as a clickable link creates two different domains in one email — a known spam signal.</li><li>Either remove the website link from the signature entirely, or leave it as plain unlinked text.</li></ul>` },
+      { id:'sig_mm_format',   label:'Signature formatting is clean and spam-safe',            channels:['mail_merge'],             clientTypes:['new','existing'],
+        guidance: `<strong>Signature rules:</strong><ul><li><strong>No logos or images</strong> — images in signatures are one of the fastest ways to land in spam. Plain text only, always.</li><li>Keep it short: name, title, company, and one contact detail (phone or email).</li><li>No HTML styling — no bold names, no coloured text, no hyperlinked social icons.</li></ul><div class="sg-eg-label sg-good">✓ CORRECT</div><div class="sg-eg sg-good">Jane Smith | Account Executive | Unstuck<br>+44 7700 900000</div><div class="sg-eg-label sg-bad" style="margin-top:7px">✗ INCORRECT</div><div class="sg-eg sg-bad">[Company Logo Image]<br>&lt;b&gt;Jane Smith&lt;/b&gt; | &lt;font color="blue"&gt;Account Executive&lt;/font&gt;<br>www.company.com | LinkedIn | Twitter | Facebook</div>` },
       { id:'sig_approved',    label:'Signature approved by the client',                       channels:['smartlead','mail_merge'], clientTypes:['new','existing'] },
-      { id:'sig_sl_added',    label:'Signature added in SmartLead email account settings',    channels:['smartlead'],              clientTypes:['new','existing'] },
+      { id:'sig_sl_added',    label:'Signature added in SmartLead email account settings',    channels:['smartlead'],              clientTypes:['new','existing'],
+        guidance: `<ul><li>After adding the signature in SmartLead, click the <strong>Remove Formatting (Tx icon)</strong> in the editor toolbar to strip any hidden HTML that came in from copy-paste.</li><li><strong>No images or logos</strong> — plain text only. Even a small logo image significantly hurts deliverability.</li><li>Check the preview to confirm the signature renders as clean plain text with no stray styling.</li></ul>` },
     ]
   },
   {
@@ -706,8 +748,10 @@ const CHECKS = [
   {
     id: 'formatting_qa', label: 'Formatting QA',
     channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['new','existing'],     subSteps: [
-      { id:'fmt_plain',    label:'All extra formatting and font styling removed (plain text)', channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
-      { id:'fmt_spacing',  label:'Line breaks and spacing are consistent throughout',         channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'fmt_plain',    label:'All extra formatting and font styling removed (plain text)', channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'],
+        guidance: `<strong>How to remove formatting:</strong><ul><li>In <strong>SmartLead</strong>: select all text in each step and click the <strong>Remove Formatting (Tx icon)</strong> in the editor toolbar. Do this on every sequence step.</li><li>For <strong>Mail Merge / Meet Alfred</strong>: paste copy into Notepad or a plain text editor first to strip all formatting, then copy it into the tool.</li><li>After removing formatting, check the entire email looks consistent — same font, same size, same weight throughout. Any visual difference means hidden formatting is still present.</li></ul>` },
+      { id:'fmt_spacing',  label:'Line breaks and spacing are consistent throughout',         channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'],
+        guidance: `<strong>Spacing issues to check for:</strong><ul><li><strong>Double spaces:</strong> Do a find-and-replace — search for two spaces and replace with one. These are invisible in most editors but cause inconsistent rendering.</li><li><strong>Hidden trailing spaces:</strong> Spaces at the end of a line create invisible line breaks. Paste the copy into a plain text editor (Notepad) and visually check the end of each line.</li><li><strong>Extra blank lines:</strong> No more than one blank line between paragraphs. Multiple consecutive blank lines look unprofessional and can trigger spam filters.</li></ul>` },
       { id:'fmt_no_html',  label:'No HTML artifacts or broken code visible',                 channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
       { id:'fmt_readable', label:'Messages read naturally and are easy to follow',            channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['new','existing'] },
     ]
@@ -1010,6 +1054,12 @@ function buildChecklistUI() {
       const chTagsHtml  = showChTags
         ? `<div class="ss-channel-tags">${ssActiveChs.map(channelTagHtml).join('')}</div>`
         : '';
+      const infoBtn = ss.guidance
+        ? `<button class="ss-info-btn" id="sgb-${ss.id}" onclick="toggleGuidance('${ss.id}',event)" title="Show guidance">i</button>`
+        : '';
+      const guidancePanel = ss.guidance
+        ? `<div class="ss-guidance" id="sg-${ss.id}"><div class="ss-guidance-inner">${ss.guidance}</div></div>`
+        : '';
       return `<div class="ss-item${ssDone?' ss-done':''}" id="ss-${ss.id}" onclick="toggleSubStep('${check.id}','${ss.id}')">
         <div class="ss-box">
           <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4.5l2.5 2.5L8 1.5"/></svg>
@@ -1018,7 +1068,8 @@ function buildChecklistUI() {
           <span class="ss-label">${esc(ss.label)}</span>
           ${chTagsHtml}
         </div>
-      </div>`;
+        ${infoBtn}
+      </div>${guidancePanel}`;
     }).join('');
 
     el.innerHTML = `
@@ -1057,6 +1108,15 @@ function toggleExpand(checkId) {
   const btn   = document.getElementById('exp-'+checkId);
   const open  = panel.classList.toggle('open');
   btn.classList.toggle('open', open);
+}
+
+function toggleGuidance(ssId, event) {
+  event.stopPropagation();
+  const panel = document.getElementById('sg-'+ssId);
+  const btn   = document.getElementById('sgb-'+ssId);
+  if (!panel) return;
+  const open = panel.classList.toggle('open');
+  if (btn) btn.classList.toggle('open', open);
 }
 
 function toggleSubStep(checkId, ssId) {
