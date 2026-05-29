@@ -1410,7 +1410,7 @@ async def campaign_sheet_options(client_id: str = Query("")):
                 "select":    "campaign_name,sheet_id",
                 "client_id": f"eq.{client_id}",
                 "sheet_id":  "not.is.null",
-                "completed": "neq.true",
+                "completed": "not.is.true",
                 "order":     "created_at.desc",
             },
             timeout=10,
@@ -1541,7 +1541,7 @@ async def add_dnc_entry(
                             "select":    "sheet_id",
                             "client_id": f"eq.{client_id}",
                             "sheet_id":  "not.is.null",
-                            "completed": "neq.true",
+                            "completed": "not.is.true",
                         },
                         timeout=10,
                     )
