@@ -2326,7 +2326,7 @@
       <div class="tag-editor" id="pe-ch-editor"></div>
     </div>
     <div class="pe-field">
-      <div class="pe-label">Senders <span style="font-size:10px;font-weight:400;color:var(--text-3);text-transform:none">(shared across all profiles)</span></div>
+      <div class="pe-label">Senders</div>
       <div class="tag-editor" id="pe-snd-editor"></div>
     </div>
     <div class="pe-field">
@@ -2375,9 +2375,9 @@ let   profiles      = [];
 let   allClients    = [];
 let   spellLang     = localStorage.getItem('cb-spell-lang') || 'en-GB';
 
-// Global sender list (persisted to Supabase under SENDERS_KEY)
-let   SENDERS     = ['Robyn','Glen','Leo','Chris','Devlin'];
-const SENDERS_KEY = '__cb_senders__';
+// Senders are now per-profile (stored on profile.senders).
+// Helper to get the active profile's sender list (never null).
+function profileSenders() { return (activeProfile && activeProfile.senders) || []; }
 
 // Territories / industries currently staged in the add-profile form
 let   psFormTerritories = ['US', 'UK'];
@@ -2466,15 +2466,16 @@ function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function populateSenderSelect() {
   const sel = document.getElementById('sender');
   const cur = sel.value;
+  const senders = profileSenders();
   sel.innerHTML = '';
-  SENDERS.forEach(function(s){
+  senders.forEach(function(s){
     const opt = document.createElement('option');
     opt.value = s; opt.textContent = s; sel.appendChild(opt);
   });
   const addOpt = document.createElement('option');
   addOpt.value = '__add_sender__'; addOpt.textContent = '+ Add sender…';
   sel.appendChild(addOpt);
-  if (SENDERS.includes(cur)) sel.value = cur; else sel.value = SENDERS[0] || '';
+  if (senders.includes(cur)) sel.value = cur; else sel.value = senders[0] || '';
 }
 
 async function copyText(text, btn, label) {
@@ -2506,8 +2507,11 @@ async function loadFromSupabase() {
     if (!res.ok) throw new Error('HTTP '+res.status);
     const rows = await res.json();
     rows.forEach(function(row){
-      if (row.key && row.content && row.key !== PROFILES_KEY && row.key !== SENDERS_KEY)
-        TEMPLATES[row.key] = migrateContent(row.content);
+      // Skip meta-rows (profiles list, legacy global senders)
+      if (!row.key || !row.content) return;
+      if (row.key === PROFILES_KEY) return;
+      if (row.key === '__cb_senders__') return;   // legacy global row — ignore
+      TEMPLATES[row.key] = migrateContent(row.content);
     });
     // Snapshot approved content for per-card revert & glow comparison
     Object.keys(TEMPLATES).forEach(function(k){ ORIG_TEMPLATES[k] = JSON.parse(JSON.stringify(TEMPLATES[k])); });
@@ -2526,15 +2530,6 @@ async function loadFromSupabase() {
         });
       }
     } catch(e) { /* non-fatal — pending rows will be fetched per-key as fallback */ }
-
-    // Load or initialise global senders list
-    const sendersRow = rows.find(function(r){ return r.key === SENDERS_KEY; });
-    if (sendersRow && Array.isArray(sendersRow.content)) {
-      SENDERS = sendersRow.content;
-    } else {
-      saveToSupabase(SENDERS_KEY, SENDERS); // first-time: persist defaults
-    }
-    populateSenderSelect();
 
     dataReady = true;
 
@@ -2927,6 +2922,9 @@ function enterProfile(profile) {
   document.getElementById('main-header').style.display = 'flex';
   renderTabs();
   document.getElementById('main-view').style.display = 'flex';
+  // Populate sender dropdown with THIS profile's senders (not another profile's)
+  _prevSender = '';
+  populateSenderSelect();
   setNormalApprovalState();
   render();
   checkPendingForView();
@@ -3192,7 +3190,7 @@ document.getElementById('copy-all-btn').addEventListener('click', async function
 let _prevSender = '';
 document.getElementById('sender').addEventListener('change', function(){
   if (this.value === '__add_sender__') {
-    this.value = _prevSender || SENDERS[0] || '';
+    this.value = _prevSender || profileSenders()[0] || '';
     document.getElementById('sender-add-row').style.display = 'flex';
     document.getElementById('sender-add-input').value = '';
     document.getElementById('sender-add-input').focus();
@@ -3353,9 +3351,10 @@ function renderPeModalTags() {
       '<button type="button" class="tag-x" data-pe-rm-ch="'+escHtml(c[0])+'">&times;</button></span>';
   }).join('') + '<input class="tag-input" id="pe-ch-input" placeholder="Add channel (e.g. Cold Call)">';
 
-  // Senders (global)
+  // Senders — per-profile
+  const profileSndList = p.senders || [];
   const sndEditor = document.getElementById('pe-snd-editor');
-  sndEditor.innerHTML = SENDERS.map(function(s){
+  sndEditor.innerHTML = profileSndList.map(function(s){
     return '<span class="tag">' +
       '<span class="tag-text" data-pe-type="snd" data-pe-val="'+escHtml(s)+'" data-pe-display="'+escHtml(s)+'">'+escHtml(s)+'</span>' +
       '<button type="button" class="tag-x" data-pe-rm-snd="'+escHtml(s)+'">&times;</button></span>';
@@ -3437,9 +3436,11 @@ function applyTagEdit(type, origKey, newDisplay) {
       ch[1] = newDisplay;
     }
   } else if (type === 'snd') {
-    const idx = SENDERS.indexOf(origKey);
-    if (idx >= 0 && !SENDERS.includes(newDisplay)) {
-      SENDERS[idx] = newDisplay;
+    const p = profiles[peEditIdx];
+    if (!p.senders) p.senders = [];
+    const idx = p.senders.indexOf(origKey);
+    if (idx >= 0 && !p.senders.includes(newDisplay)) {
+      p.senders[idx] = newDisplay;
     }
   }
   renderPeModalTags();
@@ -3554,11 +3555,12 @@ function attachPeModalEvents() {
     renderPeModalTags();
   });
 
-  // Senders (global)
+  // Senders — per-profile
   document.querySelectorAll('[data-pe-rm-snd]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const name = btn.dataset.peRmSnd;
-      SENDERS = SENDERS.filter(function(s){ return s !== name; });
+      const p2 = profiles[peEditIdx];
+      if (p2.senders) p2.senders = p2.senders.filter(function(s){ return s !== name; });
       renderPeModalTags();
     });
   });
@@ -3566,7 +3568,9 @@ function attachPeModalEvents() {
   if (sndInput) sndInput.addEventListener('keydown', function(e){
     if (e.key !== 'Enter' && e.key !== ',') return; e.preventDefault();
     const name = this.value.trim(); if (!name) return;
-    if (!SENDERS.includes(name)) SENDERS.push(name);
+    const p2 = profiles[peEditIdx];
+    if (!p2.senders) p2.senders = [];
+    if (!p2.senders.includes(name)) p2.senders.push(name);
     renderPeModalTags();
   });
 }
@@ -3576,7 +3580,6 @@ document.getElementById('pe-save').addEventListener('click', async function(){
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
     await saveProfiles();
-    await saveToSupabase(SENDERS_KEY, SENDERS);
     document.getElementById('profile-edit-modal').style.display = 'none';
     showToast('Profile saved');
     populateSenderSelect();
@@ -4260,9 +4263,12 @@ window.addEventListener('beforeunload', function(e){
 document.getElementById('sender-add-confirm').addEventListener('click', function(){
   const name = document.getElementById('sender-add-input').value.trim();
   document.getElementById('sender-add-row').style.display = 'none';
-  if (name && !SENDERS.includes(name)) {
-    SENDERS.push(name);
-    saveToSupabase(SENDERS_KEY, SENDERS);
+  if (name && activeProfile) {
+    if (!activeProfile.senders) activeProfile.senders = [];
+    if (!activeProfile.senders.includes(name)) {
+      activeProfile.senders.push(name);
+      saveProfiles();
+    }
   }
   populateSenderSelect();
   if (name) { document.getElementById('sender').value = name; _prevSender = name; }
@@ -4364,7 +4370,7 @@ function openExportScreen() {
 
   // Sender
   expState.includeSender = true;
-  expState.senderName    = document.getElementById('sender') ? (document.getElementById('sender').value || SENDERS[0] || '') : '';
+  expState.senderName    = document.getElementById('sender') ? (document.getElementById('sender').value || profileSenders()[0] || '') : '';
 
   // Render toggles
   _renderExpToggles(activeProfile.territories, 'exp-ter-toggles', expState.territories, 'ter');
@@ -4379,8 +4385,9 @@ function openExportScreen() {
 
   // Sender select
   var ss = document.getElementById('exp-sender-sel');
-  ss.innerHTML = SENDERS.map(function(s){ return '<option value="'+escHtml(s)+'">'+escHtml(s)+'</option>'; }).join('');
-  if (SENDERS.includes(expState.senderName)) ss.value = expState.senderName;
+  const expSenders = profileSenders();
+  ss.innerHTML = expSenders.map(function(s){ return '<option value="'+escHtml(s)+'">'+escHtml(s)+'</option>'; }).join('');
+  if (expSenders.includes(expState.senderName)) ss.value = expState.senderName;
   document.getElementById('exp-include-sender').checked = true;
 
   // Show correct tab (reset to settings)
