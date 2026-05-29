@@ -1434,12 +1434,13 @@ async def campaign_sheet_options(client_id: str = Query("")):
 
 @router.post("/api/dnc/entries")
 async def add_dnc_entry(
-    request:   Request,
-    client_id: str = Form(...),
-    email:     str = Form(...),
-    reason:    str = Form("manual"),
-    notes:     str = Form(""),
-    sheet_id:  str = Form(""),   # optional: target a single campaign sheet
+    request:        Request,
+    client_id:      str = Form(...),
+    email:          str = Form(...),
+    reason:         str = Form("manual"),
+    notes:          str = Form(""),
+    sheet_id:       str = Form(""),            # optional: target a single campaign sheet
+    original_email: str = Form(""),            # full email before domain-mode strips it
 ):
     def error(msg: str):
         # Retarget the swap to #add-entry-error so the table is left untouched
@@ -1526,7 +1527,22 @@ async def add_dnc_entry(
     # immediately (the DNC entry is already saved; sheet updates are a bonus).
     should_mark = (not is_domain) or (reason_clean == "lead" and is_domain)
     if should_mark:
-        mark_value = email_norm  # full email OR bare domain
+        # Determine which value to pass to mark_email_in_sheet.
+        # mark_email_in_sheet always uses EXACT email matching — bare domains return 0.
+        #
+        # For domain-mode "lead" entries the JS strips "name@domain.com" → "domain.com"
+        # before posting, so email_norm is a bare domain and would match nothing.
+        # original_email carries the pre-strip full email; use it when available so the
+        # specific prospect row is correctly identified and marked as Lead.
+        #
+        # For email-mode entries email_norm is already the full email — use it directly.
+        # For bare-domain entries with no original_email, mark_value stays as the bare
+        # domain and mark_email_in_sheet will return 0 (acceptable — can't target a row).
+        if reason_clean == "lead" and is_domain:
+            orig_norm  = (original_email or "").lower().strip()
+            mark_value = orig_norm if "@" in orig_norm else email_norm
+        else:
+            mark_value = email_norm
         try:
             from app.utils.google_sheets import is_configured
             if is_configured():

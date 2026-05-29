@@ -935,20 +935,26 @@ _REASON_TO_LEAD_STATUS: dict[str, str] = {
 
 def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manual") -> int:
     """
-    Find every matching row in the sheet and set 'Lead Status' to the value
-    that corresponds to *reason*.
+    Find the row(s) in the sheet where 'Recipient Email' **exactly** matches
+    *email_or_domain* and set 'Lead Status' to the value for *reason*.
 
-    *email_or_domain* can be:
-      • A full email address (``user@company.com``) — only that exact row is updated.
-      • A bare domain (``company.com``, no "@") — ALL rows whose Recipient Email
-        belongs to that domain are updated.  This is used for "lead" reason when
-        a whole company domain should be stamped as "Lead".
+    Always uses exact email matching — a bare domain (no "@") returns 0
+    immediately because it cannot identify a specific prospect row.
 
-    Returns the number of rows updated (0 if no match or required columns absent).
+    Visual greying of other same-domain rows is handled entirely by the
+    domain-grey conditional-format rule that was baked into the sheet at
+    creation time (COUNTIFS formula).  That rule fires automatically once any
+    row in the domain carries Lead Status = "Lead", so we must never set Lead
+    on rows we don't intend to mark — doing so would inflate lead_count stats.
+
+    Returns the number of rows updated.
     """
-    lead_status   = _REASON_TO_LEAD_STATUS.get(reason.lower(), "Unsubscribe")
-    target        = email_or_domain.lower().strip()
-    is_domain_key = "@" not in target   # True → domain-level match
+    lead_status = _REASON_TO_LEAD_STATUS.get(reason.lower(), "Unsubscribe")
+    target      = email_or_domain.lower().strip()
+
+    # A bare domain can't match any specific prospect row — nothing to do.
+    if "@" not in target:
+        return 0
 
     gc = _client()
     sh = gc.open_by_key(sheet_id)
@@ -962,25 +968,16 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
     except ValueError:
         return 0   # sheet doesn't have the expected columns
 
-    # Fetch the entire email column (header included at position 0)
+    # Fetch the entire email column and build exact-match updates
     col_values = ws.col_values(email_col_idx)
 
-    # Collect the A1 ranges that need updating (skip header row 1)
     updates = []
     for row_num, cell_val in enumerate(col_values, start=1):
         if row_num == 1:
             continue   # header
-        cell_email = str(cell_val).lower().strip()
-        if is_domain_key:
-            # Domain-level: match any row whose email belongs to this domain
-            if "@" in cell_email and cell_email.split("@")[1] == target:
-                updates.append({"range": f"{_col_letter(ls_col_idx)}{row_num}",
-                                 "values": [[lead_status]]})
-        else:
-            # Exact email match
-            if cell_email == target:
-                updates.append({"range": f"{_col_letter(ls_col_idx)}{row_num}",
-                                 "values": [[lead_status]]})
+        if str(cell_val).lower().strip() == target:
+            updates.append({"range": f"{_col_letter(ls_col_idx)}{row_num}",
+                             "values": [[lead_status]]})
 
     if updates:
         ws.batch_update(updates)

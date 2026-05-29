@@ -2355,6 +2355,10 @@
       hx-indicator="#add-spinner"
     >
       <input type="hidden" name="client_id" id="add-client-id-input" value="" />
+      <!-- Captures the full email before domain-mode strips it to a bare domain.
+           The server uses this to find the specific sheet row to mark as Lead
+           while still storing only the domain in the DNC table. -->
+      <input type="hidden" name="original_email" id="add-original-email" value="" />
 
       <!-- Campaign sheet selector — shown once a client is chosen -->
       <div class="form-group" id="dnc-campaign-wrap" style="display:none;margin-bottom:14px">
@@ -3123,15 +3127,23 @@
     }
 
     if (addEntryForm) {
-      // On submit in domain mode: strip everything up to and including '@'
+      // On submit in domain mode: capture the original full email (needed by the
+      // server to find the specific sheet row), then strip to a bare domain for DNC.
       addEntryForm.addEventListener('submit', () => {
         const activeBtn = entryTypeToggle
           ? entryTypeToggle.querySelector('.entry-type-btn.active')
           : null;
+        const origField = document.getElementById('add-original-email');
         if (activeBtn && activeBtn.dataset.type === 'domain') {
-          const val = addEntryEmailInput.value;
+          const val = addEntryEmailInput.value.trim();
+          // Save the pre-strip value so the server can target the exact sheet row
+          if (origField) origField.value = val.toLowerCase();
+          // Strip to bare domain for DNC storage
           addEntryEmailInput.value = (val.includes('@') ? val.split('@').pop() : val)
             .trim().toLowerCase();
+        } else {
+          // Email mode — no stripping needed; clear the original_email field
+          if (origField) origField.value = '';
         }
       });
 
