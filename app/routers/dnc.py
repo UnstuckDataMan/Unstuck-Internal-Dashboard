@@ -1492,9 +1492,9 @@ async def add_dnc_entry(
         )
         if r.status_code not in (200, 201, 204, 409):
             r.raise_for_status()
-        # 409 = already exists — silently continue so sheet marking still runs below.
-        # (A domain can already be on DNC from a previous auto-sync but the sheet row
-        #  may still need to be stamped with the correct Lead Status.)
+        # 409 = already exists — continue so sheet marking still runs, then
+        # return an info notification instead of the normal table refresh.
+        already_exists = (r.status_code == 409)
     except Exception as e:
         return error(f"Supabase error: {e}")
 
@@ -1558,6 +1558,74 @@ async def add_dnc_entry(
                     ).start()
         except Exception:
             pass  # non-fatal — DNC entry already saved successfully
+
+    # ── Already-exists notification ───────────────────────────────────────────
+    if already_exists:
+        # Look up the existing entry so we can tell the user the exact level and
+        # reason that was recorded (may differ from what they just submitted, e.g.
+        # a domain block added by auto-sync vs. a manual email-level attempt).
+        _REASON_DISPLAY = {
+            "lead":        "Lead",
+            "interested":  "Interested",
+            "opt_out":     "Opt-out",
+            "manual":      "Manual",
+            "hard_bounce": "Hard bounce",
+            "complaint":   "Complaint",
+            "legal":       "Legal",
+            "bulk_import": "Bulk import",
+            "auto_sync":   "Auto-sync",
+        }
+        existing: dict = {}
+        try:
+            ex_r = http_req.get(
+                f"{SUPABASE_URL}/rest/v1/dnc_entries",
+                headers=_sb_headers(),
+                params={
+                    "select":    "email,reason,created_at",
+                    "client_id": f"eq.{client_id}",
+                    "email":     f"eq.{dnc_value}",
+                    "limit":     "1",
+                },
+                timeout=10,
+            )
+            if ex_r.ok and ex_r.json():
+                existing = ex_r.json()[0]
+        except Exception:
+            pass
+
+        ex_email      = existing.get("email", dnc_value)
+        ex_reason     = existing.get("reason", reason_clean)
+        ex_created    = (existing.get("created_at") or "")[:10]
+        block_level   = "Domain-level block" if "@" not in ex_email else "Email-level block"
+        reason_label  = _REASON_DISPLAY.get(ex_reason, ex_reason)
+        date_chip     = (
+            f'<span class="dnc-exists-chip">{ex_created}</span>' if ex_created else ""
+        )
+
+        notif = (
+            f'<div class="dnc-exists-box">'
+            f'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" '
+            f'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+            f'stroke-linejoin="round" style="flex-shrink:0">'
+            f'<circle cx="12" cy="12" r="10"/>'
+            f'<line x1="12" y1="8" x2="12" y2="12"/>'
+            f'<line x1="12" y1="16" x2="12.01" y2="16"/>'
+            f'</svg>'
+            f'<span>'
+            f'<b>{ex_email}</b> is already on the DNC list. '
+            f'<span class="dnc-exists-chip">{block_level}</span>'
+            f'<span class="dnc-exists-chip">{reason_label}</span>'
+            f'{date_chip}'
+            f'</span>'
+            f'</div>'
+        )
+        return HTMLResponse(
+            content=notif,
+            headers={
+                "HX-Retarget": "#add-entry-error",
+                "HX-Reswap":   "innerHTML",
+            },
+        )
 
     return await get_dnc_entries(request, client_id=client_id, offset=0, search="")
 
