@@ -2340,7 +2340,7 @@
             <option value="lead">Lead</option>
             <option value="interested">Interested</option>
             <option value="manual">Manual</option>
-            <option value="opt_out">Opt-out</option>
+            <option value="opt_out" selected>Opt-out</option>
             <option value="hard_bounce">Hard bounce</option>
             <option value="complaint">Complaint</option>
             <option value="legal">Legal</option>
@@ -3064,12 +3064,18 @@
     let _successTimer = null;
 
     if (entryTypeToggle && addEntryEmailInput) {
-      // Toggle active class only — no live placeholder changes, no live @ stripping
+      const addEntryReason = document.getElementById('add-entry-reason');
+
       entryTypeToggle.querySelectorAll('.entry-type-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           entryTypeToggle.querySelectorAll('.entry-type-btn')
             .forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
+
+          // Default the Reason dropdown to match the selected type
+          if (addEntryReason) {
+            addEntryReason.value = btn.dataset.type === 'domain' ? 'lead' : 'opt_out';
+          }
         });
       });
     }
