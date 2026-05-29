@@ -50,18 +50,22 @@ def _count_contacted(
     date_eq:  str = "",
     date_gte: str = "",
     date_lte: str = "",
+    campaign_names: list[str] | None = None,
 ) -> int:
     """
-    Count contacted_prospects rows for a client, optionally filtered by date.
-    Passes duplicate contacted_at params as a list of tuples so PostgREST receives
-    both gte and lte filters simultaneously (e.g. for a week range).
+    Count contacted_prospects rows for a client, optionally filtered by date
+    and/or a list of campaign names (for tag-filter and drill-down stats).
     """
     base_params: list[tuple[str, str]] = [
-        ("select",        "id"),
-        ("client_id",     f"eq.{client_id}"),
-        ("campaign_name", "not.is.null"),
-        ("limit",         "1"),
+        ("select",    "id"),
+        ("client_id", f"eq.{client_id}"),
+        ("limit",     "1"),
     ]
+    if campaign_names:
+        val = "(" + ",".join(campaign_names) + ")"
+        base_params.append(("campaign_name", f"in.{val}"))
+    else:
+        base_params.append(("campaign_name", "not.is.null"))
     if date_eq:
         base_params.append(("contacted_at", f"eq.{date_eq}"))
     if date_gte:
@@ -80,40 +84,34 @@ def _count_contacted(
         return 0
 
 
-def _fetch_send_counts(client_id: str) -> dict:
-    """
-    Return calendar-accurate send counts from contacted_prospects:
-      today     — rows where contacted_at = today's date exactly
-      week      — rows within the current work week (Mon–Sun)
-      month     — rows within the current calendar month (1st → today)
-      all_time  — all rows for this client (no date filter)
-    Also returns human-readable labels for the week and month ranges.
-    """
+def _time_breakdown(
+    client_id: str,
+    campaign_names: list[str] | None = None,
+) -> dict:
+    """Return today / this-week / this-month / all-time send counts plus labels."""
     today       = _date.today()
-    monday      = today - timedelta(days=today.weekday())   # weekday() 0=Mon
+    monday      = today - timedelta(days=today.weekday())
     sunday      = monday + timedelta(days=6)
     month_start = today.replace(day=1)
-
-    today_str  = today.isoformat()
-    monday_str = monday.isoformat()
-    sunday_str = sunday.isoformat()
-    month_str  = month_start.isoformat()
-
-    # Human-readable range labels shown below the tiles
-    if monday.month == sunday.month:
-        week_label = f"{monday.strftime('%b %-d')}–{sunday.strftime('%-d')}"
-    else:
-        week_label = f"{monday.strftime('%b %-d')}–{sunday.strftime('%b %-d')}"
-    month_label = today.strftime("%B %Y")
-
+    week_label  = (
+        f"{monday.strftime('%b %-d')}–{sunday.strftime('%-d')}"
+        if monday.month == sunday.month
+        else f"{monday.strftime('%b %-d')}–{sunday.strftime('%b %-d')}"
+    )
+    kw = {"campaign_names": campaign_names}
     return {
-        "today":       _count_contacted(client_id, date_eq=today_str),
-        "week":        _count_contacted(client_id, date_gte=monday_str, date_lte=sunday_str),
-        "month":       _count_contacted(client_id, date_gte=month_str,  date_lte=today_str),
-        "all_time":    _count_contacted(client_id),
+        "today":       _count_contacted(client_id, date_eq=today.isoformat(), **kw),
+        "week":        _count_contacted(client_id, date_gte=monday.isoformat(), date_lte=sunday.isoformat(), **kw),
+        "month":       _count_contacted(client_id, date_gte=month_start.isoformat(), date_lte=today.isoformat(), **kw),
+        "all_time":    _count_contacted(client_id, **kw),
         "week_label":  week_label,
-        "month_label": month_label,
+        "month_label": today.strftime("%B %Y"),
     }
+
+
+def _fetch_send_counts(client_id: str) -> dict:
+    """Return calendar-accurate send counts for the initial page load."""
+    return _time_breakdown(client_id)
 
 
 # ── List campaigns + dashboard stats ──────────────────────────────────────────
@@ -133,38 +131,55 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
     stats:  dict = {}
     send_counts: dict = {}
 
+    # Column sets — try with newer optional columns first; fall back if they
+    # don't yet exist in the client's Supabase schema.
+    _SELECT_FULL = (
+        "id,created_at,campaign_name,sender_profile_name,"
+        "client_id,client_name,sheet_id,sheet_url,"
+        "total_prospects,sent_count,completed,completed_at,tags,"
+        "lead_count,reply_count,interested_count,unsubscribe_count,"
+        "paused,chaser_count"
+    )
+    _SELECT_BASE = (
+        "id,created_at,campaign_name,sender_profile_name,"
+        "client_id,client_name,sheet_id,sheet_url,"
+        "total_prospects,sent_count,completed,completed_at,tags,"
+        "lead_count,reply_count,interested_count,unsubscribe_count"
+    )
+
     if _sb_configured():
-        try:
-            r = http_req.get(
-                f"{SUPABASE_URL}/rest/v1/campaigns",
-                headers=_sb_headers(),
-                params={
-                    "select":    "id,created_at,campaign_name,sender_profile_name,"
-                                 "client_id,client_name,sheet_id,sheet_url,"
-                                 "total_prospects,sent_count,completed,completed_at,tags,"
-                                 "lead_count,reply_count,interested_count,unsubscribe_count",
-                    "order":     "created_at.desc",
-                    "client_id": f"eq.{client_id}",
-                },
-                timeout=10,
-            )
-            r.raise_for_status()
-            campaigns = r.json()
-        except Exception as exc:
-            error = str(exc)
+        for _sel in (_SELECT_FULL, _SELECT_BASE):
+            try:
+                r = http_req.get(
+                    f"{SUPABASE_URL}/rest/v1/campaigns",
+                    headers=_sb_headers(),
+                    params={"select": _sel, "order": "created_at.desc",
+                            "client_id": f"eq.{client_id}"},
+                    timeout=10,
+                )
+                r.raise_for_status()
+                campaigns = r.json()
+                break
+            except Exception as exc:
+                if _sel == _SELECT_BASE:
+                    error = str(exc)
+                campaigns = []
 
         if campaigns and not error:
             def _s(key: str) -> int:
                 return sum(c.get(key) or 0 for c in campaigns)
 
             def _is_past(c: dict) -> bool:
+                if c.get("paused"):
+                    return False
                 return bool(c.get("completed")) or (
                     (c.get("total_prospects") or 0) > 0
                     and (c.get("sent_count") or 0) >= (c.get("total_prospects") or 0)
                 )
 
-            active = [c for c in campaigns if not _is_past(c)]
-            past   = [c for c in campaigns if _is_past(c)]
+            active  = [c for c in campaigns if not c.get("paused") and not _is_past(c)]
+            paused_ = [c for c in campaigns if c.get("paused")]
+            past    = [c for c in campaigns if not c.get("paused") and _is_past(c)]
 
             prospects_in_pipeline = sum(
                 max(0, (c.get("total_prospects") or 0) - (c.get("sent_count") or 0))
@@ -174,6 +189,7 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
             stats = {
                 "total_campaigns":       len(campaigns),
                 "active_count":          len(active),
+                "paused_count":          len(paused_),
                 "past_count":            len(past),
                 "prospects_in_pipeline": prospects_in_pipeline,
                 "total_prospects":       _s("total_prospects"),
@@ -199,29 +215,45 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
     )
 
 
-# ── Custom date-range send count ──────────────────────────────────────────────
+# ── Send-stats endpoint (custom range + tag-filter + drill-down) ──────────────
 
 @router.get("/api/campaigns/send-stats")
 async def campaign_send_stats(
-    client_id: str = Query(""),
-    date_from: str = Query(""),
-    date_to:   str = Query(""),
+    client_id:      str = Query(""),
+    date_from:      str = Query(""),
+    date_to:        str = Query(""),
+    campaign_names: str = Query(""),   # comma-separated; empty = all campaigns
 ):
     """
-    Return the count of contacted_prospects for a client within an arbitrary
-    [date_from, date_to] range (ISO date strings, inclusive).
-    Used by the custom date range picker in the campaigns stats panel.
+    Flexible send-stats endpoint used by three features:
+
+    1. Custom date-range picker  → provide date_from + date_to
+       Returns {count, date_from, date_to}
+
+    2. Tag-filter stats update   → provide campaign_names (no dates)
+       Returns full today/week/month/all_time breakdown for those campaigns.
+
+    3. Campaign drill-down       → provide campaign_names (no dates)
+       Same as above but for a single campaign name.
     """
-    if not client_id or not date_from or not date_to:
-        return JSONResponse(
-            {"error": "client_id, date_from, and date_to are all required."},
-            status_code=400,
-        )
+    if not client_id:
+        return JSONResponse({"error": "client_id is required."}, status_code=400)
     if not _sb_configured():
         return JSONResponse({"error": "Supabase not configured."}, status_code=503)
 
-    count = _count_contacted(client_id, date_gte=date_from, date_lte=date_to)
-    return JSONResponse({"count": count, "date_from": date_from, "date_to": date_to})
+    names_list = (
+        [n.strip() for n in campaign_names.split(",") if n.strip()]
+        if campaign_names else None
+    )
+
+    # Custom date range → return a single count
+    if date_from and date_to:
+        count = _count_contacted(client_id, date_gte=date_from, date_lte=date_to,
+                                 campaign_names=names_list)
+        return JSONResponse({"count": count, "date_from": date_from, "date_to": date_to})
+
+    # No date range → return full time breakdown (today / week / month / all-time)
+    return JSONResponse(_time_breakdown(client_id, campaign_names=names_list))
 
 
 # ── Refresh sent count ─────────────────────────────────────────────────────────
@@ -264,7 +296,7 @@ async def refresh_campaign(request: Request, campaign_id: str):
         return JSONResponse({"error": f"Sheet read error: {exc}"}, status_code=500)
 
     # Read Lead Status counts from the sheet so all counter columns stay in sync
-    lead_count = reply_count = interested_count = unsub_count = 0
+    lead_count = reply_count = interested_count = unsub_count = chaser_count = 0
     try:
         leads_data       = read_leads(sheet_id)
         lead_count       = sum(1 for e in leads_data if e["status"] == "Lead")
@@ -275,17 +307,29 @@ async def refresh_campaign(request: Request, campaign_id: str):
         pass   # Non-fatal — sent_count will still be updated below
 
     try:
+        from app.utils.google_sheets import read_sent_with_dates
+        sent_data    = read_sent_with_dates(sheet_id)
+        chaser_count = sum(1 for e in sent_data if e.get("chaser_sent"))
+    except Exception:
+        pass   # Non-fatal — chaser_count column may not exist yet
+
+    patch_body: dict = {
+        "sent_count":        status["sent"],
+        "lead_count":        lead_count,
+        "reply_count":       reply_count,
+        "interested_count":  interested_count,
+        "unsubscribe_count": unsub_count,
+    }
+    # chaser_count requires the column to exist in Supabase; skip gracefully if not
+    if chaser_count:
+        patch_body["chaser_count"] = chaser_count
+
+    try:
         http_req.patch(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers("return=minimal"),
             params={"id": f"eq.{campaign_id}"},
-            json={
-                "sent_count":        status["sent"],
-                "lead_count":        lead_count,
-                "reply_count":       reply_count,
-                "interested_count":  interested_count,
-                "unsubscribe_count": unsub_count,
-            },
+            json=patch_body,
             timeout=10,
         ).raise_for_status()
     except Exception as exc:
@@ -420,6 +464,51 @@ async def campaign_ab_stats(campaign_id: str):
         return JSONResponse({"error": f"Sheet read error: {exc}"}, status_code=500)
 
     return JSONResponse({"variants": variants})
+
+
+# ── Pause / Resume a campaign ─────────────────────────────────────────────────
+# Requires a boolean `paused` column on the campaigns table (default false).
+
+@router.post("/api/campaigns/{campaign_id}/pause")
+async def pause_campaign(
+    request:     Request,
+    campaign_id: str,
+    client_id:   str = Query(""),
+):
+    if not _sb_configured():
+        return JSONResponse({"error": "Supabase not configured."}, status_code=503)
+    try:
+        http_req.patch(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            headers=_sb_headers("return=minimal"),
+            params={"id": f"eq.{campaign_id}"},
+            json={"paused": True},
+            timeout=10,
+        ).raise_for_status()
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return await list_campaigns(request, client_id=client_id)
+
+
+@router.post("/api/campaigns/{campaign_id}/resume")
+async def resume_campaign(
+    request:     Request,
+    campaign_id: str,
+    client_id:   str = Query(""),
+):
+    if not _sb_configured():
+        return JSONResponse({"error": "Supabase not configured."}, status_code=503)
+    try:
+        http_req.patch(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            headers=_sb_headers("return=minimal"),
+            params={"id": f"eq.{campaign_id}"},
+            json={"paused": False},
+            timeout=10,
+        ).raise_for_status()
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return await list_campaigns(request, client_id=client_id)
 
 
 # ── Delete a campaign ─────────────────────────────────────────────────────────

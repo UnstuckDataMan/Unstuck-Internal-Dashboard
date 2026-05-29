@@ -167,7 +167,8 @@ def sync_campaign_core(
                 pass
 
     # ── Update campaign counters ──────────────────────────────────────
-    new_sent = len(sent_data)
+    new_sent     = len(sent_data)
+    chaser_count = sum(1 for e in sent_data if e.get("chaser_sent"))
     patch_body: dict = {
         "sent_count":        new_sent,
         "lead_count":        result["leads_added"],
@@ -175,6 +176,8 @@ def sync_campaign_core(
         "interested_count":  result["interested_added"],
         "unsubscribe_count": result["unsubscribes_added"],
     }
+    if chaser_count:
+        patch_body["chaser_count"] = chaser_count
 
     # Auto-stamp completed_at the first time this campaign hits 100 %
     if total_prospects and new_sent >= total_prospects and not completed_at:

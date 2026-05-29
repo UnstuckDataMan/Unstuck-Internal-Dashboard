@@ -1593,7 +1593,7 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* Campaign progress bar */
+  /* Campaign progress bars */
   .camp-progress-wrap {
     display: flex; align-items: center; gap: 10px; margin: 8px 0 4px;
   }
@@ -1605,6 +1605,24 @@
     height: 100%; background: #4ade80; border-radius: 99px;
     transition: width .4s ease;
   }
+  .camp-progress-fill-chaser { background: #a78bfa; }  /* violet for chasers */
+
+  /* Paused campaign card */
+  .camp-card-paused { border-left: 3px solid #fbbf24; opacity: .9; }
+  .camp-badge-paused { background: rgba(251,191,36,.15); color: #d97706; }
+
+  /* Pause / Resume buttons */
+  .camp-pause-btn, .camp-resume-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    border: 1px solid var(--border); border-radius: 7px;
+    padding: 5px 10px; font-size: .72rem; font-weight: 600;
+    cursor: pointer; transition: background .15s, color .15s;
+    background: transparent; font-family: var(--font);
+  }
+  .camp-pause-btn  { color: #d97706; border-color: rgba(251,191,36,.4); }
+  .camp-pause-btn:hover  { background: rgba(251,191,36,.12); }
+  .camp-resume-btn { color: #4ade80; border-color: rgba(74,222,128,.4); }
+  .camp-resume-btn:hover { background: rgba(74,222,128,.1); }
   .camp-progress-label { font-size: .72rem; color: var(--text-3); white-space: nowrap; }
 
   /* Campaign stat chips */
@@ -4120,6 +4138,12 @@
       // "All" — restore original client-level stats from the stored snapshot
       const s = window._campClientStats;
       if (s) {
+        set('cdash-sn-today',  s.today   || '0');
+        set('cdash-sn-week',   s.week    || '0');
+        set('cdash-sn-month',  s.month   || '0');
+        set('cdash-sn-alltime',s.alltime || '0');
+        var wl = el('cdash-sn-week-label');  if (wl) wl.textContent  = s.weekLabel  || '';
+        var ml = el('cdash-sn-month-label'); if (ml) ml.textContent  = s.monthLabel || '';
         set('cdash-num-campaigns',  s.campNum);
         set('cdash-sub-campaigns',  s.campSub);
         set('cdash-sub2-campaigns', s.campSub2);
@@ -4146,23 +4170,22 @@
       };
     }
 
-    // Sum up stats from currently visible cards
+    // Sum campaign + engagement stats from currently visible cards
     let totalCamps = 0, activeCamps = 0, pipeline = 0;
     let leads = 0, replies = 0, interested = 0, unsubs = 0;
+    var visibleNames = [];
 
     document.querySelectorAll('.camp-card:not(.camp-hidden)').forEach(function (card) {
       totalCamps++;
       const isActive = card.classList.contains('camp-card-active');
-      const total    = parseInt(card.dataset.total    || '0', 10);
-      const sent     = parseInt(card.dataset.sent     || '0', 10);
-      if (isActive) {
-        activeCamps++;
-        pipeline += Math.max(0, total - sent);
-      }
+      const total    = parseInt(card.dataset.total || '0', 10);
+      const sent     = parseInt(card.dataset.sent  || '0', 10);
+      if (isActive) { activeCamps++; pipeline += Math.max(0, total - sent); }
       leads      += parseInt(card.dataset.leads      || '0', 10);
       replies    += parseInt(card.dataset.replies    || '0', 10);
       interested += parseInt(card.dataset.interested || '0', 10);
       unsubs     += parseInt(card.dataset.unsubs     || '0', 10);
+      if (card.dataset.campName) visibleNames.push(card.dataset.campName);
     });
 
     set('cdash-num-campaigns',  activeCamps);
@@ -4173,6 +4196,26 @@
     set('cdash-num-replies',    replies);
     set('cdash-num-interested', interested);
     set('cdash-num-unsubs',     unsubs);
+
+    // Fetch send-timeline stats (Today / Week / Month) for visible campaigns only
+    var tile     = document.querySelector('.cdash-tile-wide[data-client-id]');
+    var clientId = tile ? tile.dataset.clientId : '';
+    if (clientId && visibleNames.length > 0) {
+      set('cdash-sn-today', '…'); set('cdash-sn-week', '…'); set('cdash-sn-month', '…');
+      fetch('/api/campaigns/send-stats?client_id=' + encodeURIComponent(clientId)
+            + '&campaign_names=' + encodeURIComponent(visibleNames.join(',')))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.error) return;
+          set('cdash-sn-today',  d.today    ?? '—');
+          set('cdash-sn-week',   d.week     ?? '—');
+          set('cdash-sn-month',  d.month    ?? '—');
+          set('cdash-sn-alltime',d.all_time ?? '—');
+          var wl = el('cdash-sn-week-label');  if (wl) wl.textContent  = d.week_label  || '';
+          var ml = el('cdash-sn-month-label'); if (ml) ml.textContent  = d.month_label || '';
+        })
+        .catch(function () { set('cdash-sn-today', '—'); set('cdash-sn-week', '—'); set('cdash-sn-month', '—'); });
+    }
   });
 
   // Reset tag snapshot when the campaigns panel is re-rendered (client change / sync)
@@ -4405,13 +4448,32 @@
     const remaining  = Math.max(0, total - sent);
     const name       = card.dataset.campName || 'Campaign';
 
-    _set('cdash-sn-today',        '—');
-    _set('cdash-sn-week',         '—');
+    _set('cdash-sn-today',        '…');
+    _set('cdash-sn-week',         '…');
     _set('cdash-sn-week-label',   '');
-    _set('cdash-sn-month',        '—');
+    _set('cdash-sn-month',        '…');
     _set('cdash-sn-month-label',  '');
     _set('cdash-sn-alltime',      sent);
     _set('cdash-custom-result',   '');
+
+    // Fetch calendar-accurate send counts for this specific campaign
+    (function () {
+      var tile     = document.querySelector('.cdash-tile-wide[data-client-id]');
+      var clientId = tile ? tile.dataset.clientId : '';
+      if (!clientId || !name) return;
+      fetch('/api/campaigns/send-stats?client_id=' + encodeURIComponent(clientId)
+            + '&campaign_names=' + encodeURIComponent(name))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.error) { _set('cdash-sn-today', '—'); _set('cdash-sn-week', '—'); _set('cdash-sn-month', '—'); return; }
+          _set('cdash-sn-today',       d.today  ?? '—');
+          _set('cdash-sn-week',        d.week   ?? '—');
+          _set('cdash-sn-week-label',  d.week_label  || '');
+          _set('cdash-sn-month',       d.month  ?? '—');
+          _set('cdash-sn-month-label', d.month_label || '');
+        })
+        .catch(function () { _set('cdash-sn-today', '—'); _set('cdash-sn-week', '—'); _set('cdash-sn-month', '—'); });
+    }());
 
     _set('cdash-num-campaigns',  '1');
     _set('cdash-sub-campaigns',  'selected');
@@ -4519,7 +4581,12 @@
     result.textContent = 'Loading…';
     result.className   = 'cdash-custom-result';
 
-    const url = `/api/campaigns/send-stats?client_id=${encodeURIComponent(clientId)}&date_from=${from}&date_to=${to}`;
+    // When a campaign is selected (drill-down), scope the range to that campaign
+    const selectedCard = document.querySelector('.camp-card-selected');
+    const campName     = selectedCard ? (selectedCard.dataset.campName || '') : '';
+
+    let url = `/api/campaigns/send-stats?client_id=${encodeURIComponent(clientId)}&date_from=${from}&date_to=${to}`;
+    if (campName) url += `&campaign_names=${encodeURIComponent(campName)}`;
     fetch(url)
       .then(function (r) { return r.json(); })
       .then(function (data) {

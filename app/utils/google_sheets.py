@@ -359,10 +359,21 @@ def _apply_sheet_formatting(
                 "startColumnIndex": send_status_col,
                 "endColumnIndex":   send_status_col + 1,
             },
-            "rule": {
-                "condition":   {"type": "BOOLEAN"},
-                "showCustomUi": True,
+            "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True},
+        }})
+
+    # ── Data validation: Chaser Sent? = checkbox ──────────────────────────
+    chaser_col = col_idx("Chaser Sent?")
+    if chaser_col >= 0:
+        requests.append({"setDataValidation": {
+            "range": {
+                "sheetId":          sheet_gid,
+                "startRowIndex":    1,
+                "endRowIndex":      last_row_idx,
+                "startColumnIndex": chaser_col,
+                "endColumnIndex":   chaser_col + 1,
             },
+            "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True},
         }})
 
     # ── Data validation: Lead Status = dropdown ───────────────────────────
@@ -585,9 +596,18 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     # Append "Sent Date" helper column (tracks the date the prospect was marked sent).
     # Each data row gets an empty cell; the auto_sync will fill in the date when syncing.
     if "Sent Date" not in headers:
-        for row in str_rows:          # modifies all inner lists in-place
+        for row in str_rows:
             row.append("")
-        str_rows[0][-1] = "Sent Date"  # set the header cell
+        str_rows[0][-1] = "Sent Date"
+        headers   = str_rows[0]
+        data_rows = str_rows[1:]
+        all_rows  = str_rows
+
+    # Append "Chaser Sent?" column — checkbox to track follow-up / chaser emails.
+    if "Chaser Sent?" not in headers:
+        for row in str_rows:
+            row.append("")
+        str_rows[0][-1] = "Chaser Sent?"
         headers   = str_rows[0]
         data_rows = str_rows[1:]
         all_rows  = str_rows
@@ -711,8 +731,10 @@ def read_sent_with_dates(sheet_id: str) -> list[dict]:
         email = str(r.get("Recipient Email", "")).strip().lower()
         if not _is_sent(r.get("Send Status", "")) or not email or "@" not in email:
             continue
-        sent_date = str(r.get("Sent Date", "")).strip()
-        results.append({"email": email, "sent_date": sent_date, "row_num": i})
+        sent_date    = str(r.get("Sent Date", "")).strip()
+        chaser_sent  = _is_sent(r.get("Chaser Sent?", ""))
+        results.append({"email": email, "sent_date": sent_date,
+                         "row_num": i, "chaser_sent": chaser_sent})
     return results
 
 
