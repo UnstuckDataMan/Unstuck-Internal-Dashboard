@@ -66,6 +66,10 @@ class RecordPatch(BaseModel):
     timestamp_completed: Optional[str]  = None
 
 
+class NameIn(BaseModel):
+    name: str
+
+
 # ── API endpoints ─────────────────────────────────────────────────────────────
 
 @router.get("/api/launch-checker/records")
@@ -122,6 +126,34 @@ def delete_record(record_id: str):
         f"{url}/rest/v1/launch_checker_records",
         params={"id": f"eq.{record_id}"},
         headers=_sb_headers(),
+        timeout=10,
+    )
+    return JSONResponse({"ok": resp.ok})
+
+
+@router.get("/api/launch-checker/clients")
+def get_clients():
+    if not _sb_configured():
+        return JSONResponse([], status_code=200)
+    url  = _sb_url()
+    resp = http_req.get(
+        f"{url}/rest/v1/lc_clients",
+        params={"select": "name", "order": "name.asc"},
+        headers=_sb_headers(),
+        timeout=10,
+    )
+    return [r["name"] for r in resp.json()] if resp.ok else []
+
+
+@router.post("/api/launch-checker/clients")
+def add_client(body: NameIn):
+    if not _sb_configured():
+        return JSONResponse({"error": "Supabase not configured"}, status_code=503)
+    url  = _sb_url()
+    resp = http_req.post(
+        f"{url}/rest/v1/lc_clients",
+        headers=_sb_headers("return=representation"),
+        json={"name": body.name},
         timeout=10,
     )
     return JSONResponse({"ok": resp.ok})

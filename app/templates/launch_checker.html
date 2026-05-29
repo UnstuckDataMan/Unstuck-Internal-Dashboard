@@ -199,6 +199,43 @@
     .lc-date { font-size: 11px; color: rgba(255,255,255,0.27); margin-top: 3px; }
     .lc-continue { font-size: 12px; font-weight: 600; color: #a78bfa; margin-top: 7px; }
 
+    /* ── CUSTOM SELECT ──────────────────────────── */
+    .cs-wrap { position: relative; }
+    .cs-btn {
+      width: 100%; padding: 10px 14px;
+      background: rgba(255,255,255,0.07);
+      border: 1.5px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius-sm);
+      font-size: 14px; color: #fff; outline: none;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      cursor: pointer; text-align: left;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .cs-btn.cs-placeholder { color: rgba(255,255,255,0.28); }
+    .cs-btn:hover  { border-color: rgba(255,255,255,0.22); }
+    .cs-btn.open   { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139,92,246,0.2); }
+    .cs-btn.field-err { border-color: var(--error); box-shadow: 0 0 0 3px rgba(248,113,113,0.15); }
+    .cs-btn svg { flex-shrink: 0; transition: transform 0.2s; }
+    .cs-btn.open svg { transform: rotate(180deg); }
+    .cs-list {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 200;
+      background: #13132a; border: 1px solid rgba(255,255,255,0.13);
+      border-radius: var(--radius-sm);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+      max-height: 220px; overflow-y: auto; display: none;
+    }
+    .cs-list.open { display: block; }
+    .cs-opt {
+      padding: 9px 14px; font-size: 14px; color: rgba(255,255,255,0.78);
+      cursor: pointer; transition: background 0.1s;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .cs-opt:hover { background: rgba(255,255,255,0.07); color: #fff; }
+    .cs-opt.cs-selected { background: rgba(139,92,246,0.15); color: #c4b5fd; }
+    .cs-opt.cs-add { color: #a78bfa; border-top: 1px solid rgba(255,255,255,0.07); font-weight: 500; }
+    .cs-opt.cs-add:hover { background: rgba(139,92,246,0.1); }
+    .cs-empty { padding: 9px 14px; font-size: 13px; color: rgba(255,255,255,0.3); font-style: italic; }
+
     /* ── SETUP ───────────────────────────────────── */
     .setup-container { max-width: 540px; margin: 32px auto; padding: 0 20px 80px; }
     .setup-header { text-align: center; margin-bottom: 22px; }
@@ -566,7 +603,7 @@
       <div class="section-label">Launch Details</div>
       <div class="form-group">
         <label class="field-label" for="f-launch-name">Launch name <span class="req">*</span></label>
-        <input type="text" id="f-launch-name" placeholder="e.g. Acme Corp — SmartLead Q2 2026">
+        <input type="text" id="f-launch-name" autocomplete="off" placeholder="e.g. Acme Corp — SmartLead Q2 2026">
         <div class="field-err-msg" id="err-launch-name">Please enter a launch name.</div>
       </div>
 
@@ -574,7 +611,7 @@
       <div class="section-label">Your Details</div>
       <div class="form-group">
         <label class="field-label" for="f-name">Full name <span class="req">*</span></label>
-        <input type="text" id="f-name" placeholder="e.g. Jane Smith">
+        <input type="text" id="f-name" autocomplete="off" placeholder="e.g. Jane Smith">
         <div class="field-err-msg" id="err-name">Please enter your name.</div>
       </div>
       <div class="form-group">
@@ -589,9 +626,10 @@
       <hr class="divider">
       <div class="section-label">Campaign Details</div>
       <div class="form-group">
-        <label class="field-label" for="f-client">Client name <span class="req">*</span></label>
-        <input type="text" id="f-client" placeholder="e.g. Acme Corp">
-        <div class="field-err-msg" id="err-client">Please enter the client name.</div>
+        <label class="field-label">Client name <span class="req">*</span></label>
+        <div class="cs-wrap" id="client-dd-wrap"></div>
+        <input type="hidden" id="f-client">
+        <div class="field-err-msg" id="err-client">Please select a client.</div>
       </div>
       <div class="form-group">
         <label class="field-label">Client type <span class="req">*</span></label>
@@ -956,6 +994,8 @@ async function renderHome() {
 // ─── NEW LAUNCH ──────────────────────────────────────────────────────────────
 function startNewLaunch() {
   ['f-launch-name','f-name','f-client'].forEach(id => document.getElementById(id).value='');
+  _selectedClient = '';
+  renderClientDropdown();
   document.querySelectorAll('input[name="role"],input[name="client_type"],input[name="channels"]').forEach(el=>el.checked=false);
   document.querySelectorAll('.field-err-msg').forEach(el=>el.classList.remove('show'));
   document.querySelectorAll('.field-err').forEach(el=>el.classList.remove('field-err'));
@@ -975,7 +1015,10 @@ async function beginChecklist() {
   flag('f-launch-name','err-launch-name',!ln);
   flag('f-name','err-name',!nm);
   flag(null,'err-role',!rl);
-  flag('f-client','err-client',!cl);
+  // Client uses a custom dropdown — flag the button, not the hidden input
+  document.getElementById('client-dd-btn')?.classList.toggle('field-err', !cl);
+  document.getElementById('err-client').classList.toggle('show', !cl);
+  if (!cl) ok = false;
   flag(null,'err-ctype',!ct);
   flag(null,'err-channels',chs.length===0);
   if (!ok) return;
@@ -1272,6 +1315,71 @@ async function exportCSV() {
   a.click(); URL.revokeObjectURL(a.href);
 }
 
+// ─── CLIENT DROPDOWN ─────────────────────────────────────────────────────────
+let _clientList = [];
+let _selectedClient = '';
+
+async function loadClients() {
+  const data = await apiFetch('GET', '/api/launch-checker/clients');
+  _clientList = Array.isArray(data) ? data : [];
+  renderClientDropdown();
+}
+
+function renderClientDropdown() {
+  const wrap = document.getElementById('client-dd-wrap');
+  if (!wrap) return;
+  const val = _selectedClient;
+  const optionsHtml = _clientList.length
+    ? _clientList.map(c => `<div class="cs-opt${c===val?' cs-selected':''}" onclick="selectClient('${esc(c)}')">${esc(c)}</div>`).join('')
+    : '<div class="cs-empty">No clients yet — add one below</div>';
+  wrap.innerHTML = `
+    <button type="button" class="cs-btn${!val?' cs-placeholder':''}" id="client-dd-btn" onclick="toggleClientDD()">
+      <span>${val ? esc(val) : 'Select or add client…'}</span>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5l4 4 4-4"/></svg>
+    </button>
+    <div class="cs-list" id="client-dd-list">
+      ${optionsHtml}
+      <div class="cs-opt cs-add" onclick="addNewClient()">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5.5 1v9M1 5.5h9"/></svg>
+        Add new client…
+      </div>
+    </div>`;
+}
+
+function toggleClientDD() {
+  const list = document.getElementById('client-dd-list');
+  const btn  = document.getElementById('client-dd-btn');
+  if (!list) return;
+  const open = list.classList.toggle('open');
+  btn?.classList.toggle('open', open);
+}
+
+function selectClient(name) {
+  _selectedClient = name;
+  document.getElementById('f-client').value = name;
+  renderClientDropdown(); // re-renders with selection + closed list
+}
+
+async function addNewClient() {
+  const name = prompt('New client name:');
+  if (!name || !name.trim()) return;
+  const trimmed = name.trim();
+  if (!_clientList.includes(trimmed)) {
+    await apiFetch('POST', '/api/launch-checker/clients', { name: trimmed });
+    _clientList.push(trimmed);
+    _clientList.sort((a,b) => a.localeCompare(b));
+  }
+  selectClient(trimmed);
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', e => {
+  if (!e.target.closest('#client-dd-wrap')) {
+    document.getElementById('client-dd-list')?.classList.remove('open');
+    document.getElementById('client-dd-btn')?.classList.remove('open');
+  }
+});
+
 // ─── INIT ────────────────────────────────────────────────────────────────────
 document.getElementById('modal-overlay').addEventListener('click', e=>{ if(e.target===e.currentTarget)closeRecords(); });
 
@@ -1279,13 +1387,14 @@ document.getElementById('modal-overlay').addEventListener('click', e=>{ if(e.tar
 document.querySelectorAll('input[name="role"]').forEach(el => {
   el.addEventListener('change', () => {
     if (el.value === 'SDR') {
-      document.getElementById('f-client').value = 'Unstuck';
+      selectClient('Unstuck');
       document.getElementById('ct-existing').checked = true;
     }
   });
 });
 
 renderHome();
+loadClients();
 </script>
 </body>
 </html>
