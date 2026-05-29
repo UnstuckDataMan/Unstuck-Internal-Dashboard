@@ -2380,8 +2380,9 @@ let   spellLang     = localStorage.getItem('cb-spell-lang') || 'en-GB';
 function profileSenders() { return (activeProfile && activeProfile.senders) || []; }
 
 // Territories / industries currently staged in the add-profile form
-let   psFormTerritories = ['US', 'UK'];
-let   psFormIndustries  = ['PR','Marketing','Media','SaaS','AI','Accounting','Management_Consulting'];
+let   psFormTerritories     = ['US', 'UK'];
+let   psFormIndustries      = ['PR','Marketing','Media','SaaS','AI','Accounting','Management_Consulting'];
+let   psFormIndustryLabels  = {};   // temporary label map for the "new profile" form
 
 const BIZDEV_PROFILE = {
   client_id: 'bizdev', name: 'Unstuck - Business Development',
@@ -2389,10 +2390,31 @@ const BIZDEV_PROFILE = {
   industries: ['PR','Marketing','Media','SaaS','AI','Accounting','Management_Consulting'],
 };
 
-const INDUSTRY_LABELS = {
+// Built-in fallback labels only — custom labels are stored per-profile on profile.industryLabels
+const INDUSTRY_LABELS_DEFAULT = {
   PR:'PR', Marketing:'Marketing', Media:'Media', SaaS:'SaaS',
   AI:'AI', Accounting:'Accounting', Management_Consulting:'Management Consulting',
 };
+
+// Return the display label for an industry key scoped to the active profile
+function industryLabel(v) {
+  const profileLabels = (activeProfile && activeProfile.industryLabels) || {};
+  return profileLabels[v] || INDUSTRY_LABELS_DEFAULT[v] || v.replace(/_/g,' ');
+}
+
+// Write a custom label for the active profile (does not pollute other profiles)
+function setProfileIndustryLabel(key, label) {
+  if (!activeProfile) return;
+  if (!activeProfile.industryLabels) activeProfile.industryLabels = {};
+  activeProfile.industryLabels[key] = label;
+}
+
+// Write a custom label for a specific profile by index (used in edit modal)
+function setProfileIndustryLabelAt(idx, key, label) {
+  if (!profiles[idx]) return;
+  if (!profiles[idx].industryLabels) profiles[idx].industryLabels = {};
+  profiles[idx].industryLabels[key] = label;
+}
 
 function defaultContent() {
   return {
@@ -2495,8 +2517,6 @@ function getChData(key, ch) {
   if (ch==='linkedin') return {steps:(t.linkedin&&t.linkedin.steps)||[]};
   return {subjects:(t[ch]&&t[ch].subjects)||[],variations:(t[ch]&&t[ch].variations)||[]};
 }
-
-function industryLabel(v) { return INDUSTRY_LABELS[v] || v.replace(/_/g,' '); }
 
 // ════════════════════════════════════════════════════════
 //  SUPABASE
@@ -2729,7 +2749,7 @@ document.getElementById('ps-ind-input').addEventListener('keydown', function(e){
   const key = raw.replace(/\s+/g,'_');
   if (!psFormIndustries.includes(key)) {
     psFormIndustries.push(key);
-    if (!INDUSTRY_LABELS[key]) INDUSTRY_LABELS[key] = raw;
+    psFormIndustryLabels[key] = raw;  // store label scoped to this form session
     refreshIndTags();
   }
   this.value = '';
@@ -2792,12 +2812,13 @@ document.getElementById('ps-form-submit').addEventListener('click', async functi
 
     // 3. Create the Copy Bank profile
     profiles.push({ client_id: clientId, name: clientName, type: 'client',
-      territories: psFormTerritories.slice(), industries: psFormIndustries.slice() });
+      territories: psFormTerritories.slice(), industries: psFormIndustries.slice(),
+      industryLabels: Object.assign({}, psFormIndustryLabels) });
     await saveProfiles();
 
     // 4. Reset form and refresh grid
     nameEl.value = '';
-    psFormTerritories = ['US','UK']; psFormIndustries = ['PR','Marketing','Media','SaaS','AI','Accounting','Management_Consulting'];
+    psFormTerritories = ['US','UK']; psFormIndustries = ['PR','Marketing','Media','SaaS','AI','Accounting','Management_Consulting']; psFormIndustryLabels = {};
     refreshTerTags(); refreshIndTags();
     document.getElementById('ps-add-form').style.display = 'none';
     renderProfileScreen();
@@ -3419,8 +3440,11 @@ function applyTagEdit(type, origKey, newDisplay) {
     const idx = profiles[peEditIdx].industries.indexOf(origKey);
     if (idx >= 0) {
       profiles[peEditIdx].industries[idx] = newKey;
-      INDUSTRY_LABELS[newKey] = newDisplay;
-      if (origKey !== newKey) delete INDUSTRY_LABELS[origKey];
+      setProfileIndustryLabelAt(peEditIdx, newKey, newDisplay);
+      // Remove old key from this profile's labels if the key changed
+      if (origKey !== newKey && profiles[peEditIdx].industryLabels) {
+        delete profiles[peEditIdx].industryLabels[origKey];
+      }
     }
   } else if (type === 'ch') {
     // origKey = channel key (e.g. 'email'), newDisplay = new label
@@ -3523,7 +3547,7 @@ function attachPeModalEvents() {
     const key = raw.replace(/\s+/g, '_');
     if (!profiles[peEditIdx].industries.includes(key)) {
       profiles[peEditIdx].industries.push(key);
-      if (!INDUSTRY_LABELS[key]) INDUSTRY_LABELS[key] = raw;
+      setProfileIndustryLabelAt(peEditIdx, key, raw);
     }
     renderPeModalTags();
   });
@@ -4130,8 +4154,12 @@ function showUnsavedModal(onDiscard, onApproval) {
 
   document.getElementById('unsaved-discard').onclick = function() {
     cleanup();
-    // Restore TEMPLATES from last-saved snapshot
-    Object.keys(ORIG_TEMPLATES).forEach(function(k){ TEMPLATES[k] = JSON.parse(JSON.stringify(ORIG_TEMPLATES[k])); });
+    // Restore only this profile's template keys from the last-approved snapshot
+    Object.keys(ORIG_TEMPLATES).forEach(function(k){
+      if (activeProfile && keyBelongsToProfile(k, activeProfile)) {
+        TEMPLATES[k] = JSON.parse(JSON.stringify(ORIG_TEMPLATES[k]));
+      }
+    });
     dirtyContent = false;
     if (onDiscard) onDiscard();
   };
@@ -4292,7 +4320,7 @@ document.getElementById('industry-add-confirm').addEventListener('click', functi
   const key = raw.replace(/\s+/g,'_');
   if (!activeProfile.industries.includes(key)) {
     activeProfile.industries.push(key);
-    if (!INDUSTRY_LABELS[key]) INDUSTRY_LABELS[key] = raw;
+    setProfileIndustryLabel(key, raw);  // store label on this profile only
     saveProfiles();
   }
   // Re-populate dropdown and select the new industry
