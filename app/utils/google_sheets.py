@@ -603,11 +603,19 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
         data_rows = str_rows[1:]
         all_rows  = str_rows
 
-    # Append "Chaser Sent?" column — checkbox to track follow-up / chaser emails.
+    # Insert "Chaser Sent?" checkbox column immediately after "Chaser Body".
+    # Falls back to appending at the end if "Chaser Body" is not present.
     if "Chaser Sent?" not in headers:
-        for row in str_rows:
-            row.append("")
-        str_rows[0][-1] = "Chaser Sent?"
+        chaser_body_idx = headers.index("Chaser Body") if "Chaser Body" in headers else -1
+        if chaser_body_idx >= 0:
+            insert_at = chaser_body_idx + 1
+            for row in str_rows:
+                row.insert(insert_at, "")
+            str_rows[0][insert_at] = "Chaser Sent?"
+        else:
+            for row in str_rows:
+                row.append("")
+            str_rows[0][-1] = "Chaser Sent?"
         headers   = str_rows[0]
         data_rows = str_rows[1:]
         all_rows  = str_rows
