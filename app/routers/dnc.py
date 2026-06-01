@@ -1411,7 +1411,6 @@ async def campaign_sheet_options(client_id: str = Query("")):
                 "client_id": f"eq.{client_id}",
                 "sheet_id":  "not.is.null",
                 "completed": "not.is.true",   # includes NULL (active) and false
-                "paused":    "not.is.true",    # exclude paused campaigns
                 "order":     "created_at.desc",
             },
             timeout=10,
