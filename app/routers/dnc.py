@@ -1410,7 +1410,8 @@ async def campaign_sheet_options(client_id: str = Query("")):
                 "select":    "campaign_name,sheet_id",
                 "client_id": f"eq.{client_id}",
                 "sheet_id":  "not.is.null",
-                "completed": "not.is.true",
+                "completed": "not.is.true",   # includes NULL (active) and false
+                "paused":    "not.is.true",    # exclude paused campaigns
                 "order":     "created_at.desc",
             },
             timeout=10,
@@ -1548,7 +1549,24 @@ async def add_dnc_entry(
             if is_configured():
                 target_sid = sheet_id.strip()
                 if target_sid:
-                    sheet_ids = [target_sid]
+                    # Verify the supplied sheet_id actually belongs to this client
+                    # before using it — guards against crafted POST requests targeting
+                    # another client's sheet.
+                    try:
+                        vr = http_req.get(
+                            f"{SUPABASE_URL}/rest/v1/campaigns",
+                            headers=_sb_headers(),
+                            params={
+                                "select":    "sheet_id",
+                                "client_id": f"eq.{client_id}",
+                                "sheet_id":  f"eq.{target_sid}",
+                                "limit":     "1",
+                            },
+                            timeout=10,
+                        )
+                        sheet_ids = [target_sid] if (vr.ok and vr.json()) else []
+                    except Exception:
+                        sheet_ids = []
                 else:
                     camp_r = http_req.get(
                         f"{SUPABASE_URL}/rest/v1/campaigns",
