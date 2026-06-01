@@ -2634,9 +2634,54 @@ async function autoAddClientProfiles() {
 }
 
 // ════════════════════════════════════════════════════════
+//  PROFILE VIEW STATE — remembers territory/industry/channel per profile
+// ════════════════════════════════════════════════════════
+const profileViewState = {};   // keyed by client_id
+
+function saveProfileViewState() {
+  if (!activeProfile) return;
+  const indSel = document.getElementById('industry');
+  profileViewState[activeProfile.client_id] = {
+    territory:    territory,
+    industry:     indSel ? indSel.value : '',
+    channel:      activeChannel,
+    isEnterprise: isEnterprise,
+  };
+}
+
+// Returns saved state for a profile, or null if none.
+// Validates that saved values still exist in the profile (in case industries/territories were removed).
+function loadProfileViewState(profile) {
+  const saved = profileViewState[profile.client_id];
+  if (!saved) return null;
+
+  const validTer = (profile.territories || []).includes(saved.territory)
+    ? saved.territory
+    : (profile.territories[0] || '');
+
+  // Determine which industries are available given the saved enterprise state
+  const allInds = profile.industries || [];
+  const isEnt   = saved.isEnterprise || false;
+  const filtered = allInds.filter(function(v){
+    const ent = v.toLowerCase().includes('enterprise');
+    return isEnt ? ent : !ent;
+  });
+  const toShow = filtered.length ? filtered : allInds;
+  const validInd = toShow.includes(saved.industry) ? saved.industry : (toShow[0] || '');
+
+  return {
+    territory:    validTer,
+    industry:     validInd,
+    channel:      saved.channel || 'email',
+    isEnterprise: isEnt,
+  };
+}
+
+// ════════════════════════════════════════════════════════
 //  PROFILE SCREEN
 // ════════════════════════════════════════════════════════
 function showProfileScreen() {
+  saveProfileViewState();   // capture current selections before leaving
   activeProfile = null;
   document.getElementById('profile-screen').classList.add('visible');
   document.getElementById('main-header').style.display   = 'none';
@@ -2920,20 +2965,23 @@ function rebuildIndustryDropdown(preserveValue) {
 // ════════════════════════════════════════════════════════
 function enterProfile(profile) {
   activeProfile = profile;
-  territory     = profile.territories[0] || 'US';
-  activeChannel = 'email';
+
+  // Restore last-used territory/industry/channel for this profile, or default to first items
+  const saved   = loadProfileViewState(profile);
+  territory     = saved ? saved.territory    : (profile.territories[0] || 'US');
+  activeChannel = saved ? saved.channel      : 'email';
+  isEnterprise  = saved ? saved.isEnterprise : false;
 
   rebuildTerritoryToggles();
 
-  // Show/hide enterprise segment toggle (bizdev only) and reset state
-  isEnterprise = false;
+  // Show/hide & apply enterprise segment toggle (bizdev only)
   const isBizdev = profile.type === 'bizdev';
   document.getElementById('enterprise-section').style.display = isBizdev ? '' : 'none';
-  document.getElementById('ent-standard-btn').classList.toggle('active', true);
-  document.getElementById('ent-enterprise-btn').classList.toggle('active', false);
+  document.getElementById('ent-standard-btn').classList.toggle('active', !isEnterprise);
+  document.getElementById('ent-enterprise-btn').classList.toggle('active',  isEnterprise);
 
-  // Rebuild industry dropdown
-  rebuildIndustryDropdown();
+  // Rebuild industry dropdown, restoring the previously selected industry
+  rebuildIndustryDropdown(saved ? saved.industry : null);
 
   document.getElementById('edit-profile-btn').style.display  = '';
   document.getElementById('export-open-btn').style.display   = '';
