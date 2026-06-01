@@ -196,7 +196,7 @@ def _apply_sheet_formatting(
     Replicates the Excel writer's formatting:
       - Send Status column    → checkbox (TRUE/FALSE)
       - Lead Status column    → dropdown (Lead / Reply / Unsubscribe)
-      - First-of-sender rows  → pale yellow background (#FFFDE7)
+      - First-of-sender rows  → pale yellow background (#FFFDE7), no bold
       - Separator rows        → merged, orange-tinted, bold brown text
       - Lead Status "Lead"    → green cell
       - Lead Status "Reply"   → orange cell
@@ -290,9 +290,8 @@ def _apply_sheet_formatting(
                         },
                         "cell": {"userEnteredFormat": {
                             "backgroundColor": _rgb("FFFDE7"),
-                            "textFormat": {"bold": True},
                         }},
-                        "fields": "userEnteredFormat(backgroundColor,textFormat.bold)",
+                        "fields": "userEnteredFormat.backgroundColor",
                     }})
                     prev_sender = curr
 
