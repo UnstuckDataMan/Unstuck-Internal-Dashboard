@@ -2912,6 +2912,8 @@
     contactedToggle.addEventListener('change', () => {
       lookbackSection.style.display = contactedToggle.checked ? '' : 'none';
     });
+    // Sync visibility with the initial checked state on page load
+    lookbackSection.style.display = contactedToggle.checked ? '' : 'none';
     lookbackSelect.addEventListener('change', () => {
       const isCustom = lookbackSelect.value === 'custom';
       lookbackCustom.style.display = isCustom ? '' : 'none';
