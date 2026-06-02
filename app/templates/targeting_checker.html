@@ -1,0 +1,2130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Targeting QA / Lead Scrubber</title>
+<style>
+/* ============================================================
+   CUSTOM PROPERTIES
+   ============================================================ */
+:root {
+  --bg:          #0b0b18;
+  --bg-panel:    #10101e;
+  --bg-card:     #14142a;
+  --bg-hdr:      #0f0f1e;
+  --bg-input:    #0c0c1c;
+  --border:      #1e1e38;
+  --border-hi:   #2a2a48;
+  --text:        #e0e0f0;
+  --text-dim:    #8080a8;
+  --text-muted:  #50507a;
+  --accent-a:    #7c3aed;
+  --accent-b:    #6366f1;
+}
+
+/* ============================================================
+   RESET & BASE
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  background-image: radial-gradient(ellipse at 20% 60%, #1a0f2e 0%, transparent 60%),
+                    radial-gradient(ellipse at 80% 20%, #0f1030 0%, transparent 55%);
+  min-height: 100vh;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+
+.app {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 28px 20px 80px;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+header { margin-bottom: 24px; }
+
+.header-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+header h1 { font-size: 20px; font-weight: 700; color: var(--text); }
+header .subtitle { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+
+.home-link {
+  display: flex; align-items: center; gap: 8px;
+  text-decoration: none; flex-shrink: 0;
+}
+.home-mark {
+  width: 32px; height: 32px; border-radius: 9px;
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; box-shadow: 0 2px 10px rgba(124,58,237,0.35);
+  transition: transform 0.22s cubic-bezier(.34,1.56,.64,1), box-shadow 0.22s ease;
+}
+.home-mark svg { display: block; }
+.home-link:hover .home-mark { transform: scale(1.1) rotate(-4deg); box-shadow: 0 4px 18px rgba(124,58,237,0.5); }
+.home-label {
+  font-size: 12px; font-weight: 500; color: var(--text-muted);
+  letter-spacing: 0.01em; transition: color 0.18s ease;
+}
+.home-link:hover .home-label { color: var(--text); }
+
+/* ============================================================
+   STEP NAV
+   ============================================================ */
+.steps-nav {
+  display: flex; align-items: center;
+  margin-bottom: 24px;
+  background: var(--bg-panel);
+  border-radius: 10px;
+  padding: 14px 24px;
+  border: 1px solid var(--border-hi);
+}
+
+.step-item { display: flex; align-items: center; gap: 8px; opacity: 0.35; transition: opacity 0.2s; }
+.step-item.active, .step-item.done { opacity: 1; }
+.step-item.done, .step-item.active { cursor: pointer; }
+.step-item.done:hover .step-num, .step-item.active:hover .step-num { box-shadow: 0 0 0 3px rgba(124,58,237,.25); }
+.step-item.done:hover .step-label { color: var(--text); }
+
+.step-num {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--border-hi);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 11px; color: var(--text-muted);
+  flex-shrink: 0; transition: background 0.2s, color 0.2s;
+}
+.step-item.active .step-num {
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  color: #fff; box-shadow: 0 0 12px rgba(124,58,237,.4);
+}
+.step-item.done .step-num { background: #16a34a; color: #fff; }
+
+.step-label { font-size: 12px; font-weight: 500; white-space: nowrap; color: var(--text-dim); }
+.step-item.active .step-label { color: var(--text); font-weight: 600; }
+
+.step-connector { flex: 1; height: 1px; background: var(--border); margin: 0 12px; min-width: 20px; }
+
+/* ============================================================
+   PANELS
+   ============================================================ */
+.panel {
+  background: var(--bg-card);
+  border-radius: 12px;
+  border: 1px solid var(--border-hi);
+  padding: 28px 32px;
+  overflow: hidden;
+  position: relative;
+}
+.panel::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--accent-a) 0%, #a855f7 50%, var(--accent-b) 100%);
+}
+
+.panel h2 { font-size: 18px; font-weight: 700; margin-bottom: 6px; color: var(--text); }
+.panel-desc { color: var(--text-dim); font-size: 13px; margin-bottom: 24px; }
+
+.panel h3 {
+  font-size: 10px; font-weight: 700; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin-bottom: 14px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hint { color: var(--text-muted); font-size: 11px; margin-top: 4px; }
+
+/* ============================================================
+   UPLOAD ZONE
+   ============================================================ */
+.upload-zone {
+  border: 2px dashed var(--border-hi); border-radius: 10px;
+  padding: 52px 24px; text-align: center; cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  background: var(--bg-input);
+}
+.upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent-a); background: rgba(124,58,237,.06); }
+
+.upload-icon { font-size: 40px; color: var(--text-muted); margin-bottom: 10px; line-height: 1; }
+.upload-zone p { color: var(--text-dim); margin-bottom: 4px; font-size: 14px; }
+.upload-hint { color: var(--text-muted); font-size: 12px; margin-bottom: 14px; }
+
+.file-info {
+  margin-top: 14px; padding: 11px 16px;
+  background: rgba(16,185,129,.1); border: 1px solid rgba(16,185,129,.25);
+  border-radius: 8px; color: #34d399; font-size: 13px;
+}
+
+/* ============================================================
+   COLUMN MAPPING GRID
+   ============================================================ */
+.column-mapping { margin-bottom: 20px; }
+
+.col-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+.col-badge.detected { background: rgba(16,185,129,.15); color: #34d399; }
+
+.col-map-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 8px; }
+@media (max-width: 640px) { .col-map-grid { grid-template-columns: 1fr; } }
+
+.col-map-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-input); font-size: 12px;
+}
+.col-map-row.col-map-key { background: rgba(99,102,241,.06); border-color: rgba(99,102,241,.25); }
+
+.col-map-label { flex: 0 0 150px; font-weight: 600; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.col-map-required { color: #f87171; }
+
+.col-map-select {
+  flex: 1; min-width: 0; padding: 4px 6px;
+  border: 1px solid var(--border-hi); border-radius: 5px;
+  font-size: 12px; color: var(--text); background: var(--bg-panel); cursor: pointer;
+}
+.col-map-select:focus { border-color: var(--accent-a); outline: none; box-shadow: 0 0 0 3px rgba(124,58,237,.15); }
+.col-map-select option { background: #1a1a30; }
+
+.col-map-status {
+  flex: 0 0 52px; text-align: center; padding: 2px 5px; border-radius: 4px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap;
+}
+.col-map-status.auto    { background: rgba(16,185,129,.15); color: #34d399; }
+.col-map-status.manual  { background: rgba(99,102,241,.18); color: #818cf8; }
+.col-map-status.missing { background: rgba(255,255,255,.05); color: var(--text-muted); }
+
+.col-map-section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin: 10px 0 5px; }
+.col-map-section-label:first-child { margin-top: 0; }
+.col-map-section-warn { color: #fbbf24; }
+
+.col-map-grid-undetected .col-map-row { border-color: rgba(245,158,11,.3); background: rgba(245,158,11,.05); }
+.col-map-grid-undetected .col-map-row.col-map-key { border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.08); }
+
+/* ============================================================
+   TABLE
+   ============================================================ */
+.table-wrapper { overflow-x: auto; border: 1px solid var(--border-hi); border-radius: 8px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead tr { background: var(--bg-hdr); }
+
+th {
+  padding: 10px 12px; text-align: left; font-weight: 700; color: var(--text-dim);
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+td {
+  padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text-dim);
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; vertical-align: top;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: rgba(255,255,255,.02); }
+
+/* ============================================================
+   FORM LAYOUT
+   ============================================================ */
+.panel > form { display: flex; flex-direction: column; gap: 16px; }
+
+.form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+@media (max-width: 820px) { .form-grid-3 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .form-grid-3 { grid-template-columns: 1fr; } }
+
+.form-section {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.seniority-bar { padding: 14px 20px; }
+.seniority-note { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-muted); margin-left: 4px; }
+
+.checkbox-group-horizontal { display: flex; flex-wrap: wrap; gap: 6px 22px; }
+
+/* ============================================================
+   ROLE GROUPS
+   ============================================================ */
+.role-groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.role-group { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-card); }
+
+.role-group-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 12px; background: var(--bg-hdr);
+  cursor: pointer; user-select: none; gap: 8px; transition: background 0.15s;
+}
+.role-group-header:hover { background: rgba(255,255,255,.04); }
+.role-group-header .checkbox-label { font-size: 12px; font-weight: 700; color: var(--text); flex: 1; gap: 6px; }
+.role-group-header .checkbox-label input[type="checkbox"] { flex-shrink: 0; }
+
+.expand-icon { color: var(--text-muted); font-size: 9px; flex-shrink: 0; }
+
+.role-group-body {
+  padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 5px;
+  border-top: 1px solid var(--border); background: var(--bg-input);
+}
+.role-group-body .checkbox-label { font-size: 12px; color: var(--text-dim); padding-left: 2px; }
+
+.role-level-header {
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); padding: 7px 0 3px; margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.role-level-header.first-level { border-top: none; margin-top: 0; padding-top: 2px; }
+
+/* Custom role / area add UI */
+.add-role-row { padding-top: 6px; margin-top: 4px; border-top: 1px solid var(--border); }
+.btn-add-inline { background: none; border: none; color: var(--accent-b); font-size: 11px; font-weight: 600; cursor: pointer; padding: 2px 0; letter-spacing: 0.02em; opacity: 0.8; }
+.btn-add-inline:hover { opacity: 1; color: var(--text); }
+
+.add-inline-form { display: flex; align-items: center; gap: 5px; margin-top: 5px; }
+.add-inline-input { flex: 1; background: var(--bg-input); border: 1px solid var(--border-hi); border-radius: 4px; color: var(--text); font-size: 12px; padding: 4px 8px; outline: none; min-width: 0; }
+.add-inline-input:focus { border-color: var(--accent-a); box-shadow: 0 0 0 2px rgba(124,58,237,.12); }
+.btn-add-confirm { background: none; border: none; cursor: pointer; color: #34d399; font-size: 14px; padding: 2px 4px; line-height: 1; }
+.btn-add-cancel  { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 2px 4px; line-height: 1; }
+.btn-add-confirm:hover { color: #6ee7b7; }
+.btn-add-cancel:hover  { color: var(--text-dim); }
+
+.custom-role-item { display: flex; align-items: center; justify-content: space-between; }
+.remove-custom { margin-left: auto; background: none; border: none; color: var(--text-muted); font-size: 14px; cursor: pointer; padding: 0 2px; line-height: 1; opacity: 0.5; }
+.remove-custom:hover { opacity: 1; color: #f87171; }
+
+.add-area-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 8px 0 2px; }
+.btn-add-area { background: none; border: 1px dashed var(--border-hi); border-radius: 8px; color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer; padding: 8px 16px; width: 100%; text-align: left; transition: border-color 0.15s, color 0.15s; }
+.btn-add-area:hover { border-color: var(--accent-b); color: var(--accent-b); }
+
+/* PA/EA toggle */
+.pa-ea-toggle-row { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.pa-ea-toggle-row .checkbox-label { align-items: flex-start; gap: 10px; }
+
+/* ============================================================
+   FORM GROUPS
+   ============================================================ */
+.form-group { margin-bottom: 18px; }
+.form-group:last-child { margin-bottom: 0; }
+.form-group > label { display: block; font-weight: 700; font-size: 10px; margin-bottom: 6px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+.optional { font-weight: 400; color: var(--text-muted); font-size: 10px; text-transform: none; letter-spacing: 0; }
+
+/* ============================================================
+   TAG INPUT
+   ============================================================ */
+.tag-input-wrapper {
+  min-height: 38px; border: 1px solid var(--border-hi); border-radius: 6px;
+  padding: 5px 8px; background: var(--bg-input);
+  display: flex; flex-wrap: wrap; gap: 4px; cursor: text; transition: border-color 0.15s;
+}
+.tag-input-wrapper:focus-within { border-color: var(--accent-a); box-shadow: 0 0 0 3px rgba(124,58,237,.12); }
+
+.tag {
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px 2px 9px;
+  background: rgba(99,102,241,.2); color: #a78bfa;
+  border: 1px solid rgba(99,102,241,.3);
+  border-radius: 4px; font-size: 12px; font-weight: 500; line-height: 1.6;
+}
+.tag-remove { background: none; border: none; cursor: pointer; color: #a78bfa; padding: 0 1px; line-height: 1; font-size: 15px; opacity: 0.6; display: flex; align-items: center; }
+.tag-remove:hover { opacity: 1; }
+
+.tag-input { border: none; outline: none; font-size: 12px; flex: 1; min-width: 100px; padding: 3px 0; background: transparent; color: var(--text); }
+.tag-input::placeholder { color: var(--text-muted); }
+
+.tag-enter-hint {
+  display: none; align-self: center; flex-shrink: 0;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--accent-b); opacity: 0.7; pointer-events: none;
+  border: 1px solid var(--accent-b); border-radius: 3px; padding: 1px 5px; margin-left: 2px;
+}
+.tag-input-wrapper:focus-within .tag-enter-hint.visible { display: flex; }
+
+/* ============================================================
+   CHECKBOXES
+   ============================================================ */
+.checkbox-group { display: flex; flex-direction: column; gap: 7px; }
+
+.checkbox-label { display: flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; color: var(--text-dim); user-select: none; }
+.checkbox-label input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent-a); flex-shrink: 0; }
+
+/* ============================================================
+   RANGE INPUTS
+   ============================================================ */
+.range-inputs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.range-inputs input[type="number"] {
+  width: 90px; padding: 7px 10px;
+  border: 1px solid var(--border-hi); border-radius: 6px;
+  font-size: 13px; color: var(--text); background: var(--bg-input);
+}
+.range-inputs input[type="number"]:focus { border-color: var(--accent-a); outline: none; box-shadow: 0 0 0 3px rgba(124,58,237,.12); }
+.range-inputs span { color: var(--text-muted); font-size: 13px; }
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 18px; border-radius: 7px;
+  font-size: 13px; font-weight: 600; cursor: pointer; border: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  text-decoration: none; white-space: nowrap; line-height: 1;
+}
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btn-primary { background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); color: #fff; }
+.btn-primary:hover:not(:disabled) { opacity: .88; }
+
+.btn-outline { background: transparent; color: var(--text-dim); border: 1px solid var(--border-hi); }
+.btn-outline:hover:not(:disabled) { border-color: var(--accent-a); color: #a78bfa; background: rgba(124,58,237,.08); }
+
+.btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid transparent; }
+.btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,.04); color: var(--text-dim); }
+
+.btn-filter {
+  padding: 5px 14px; border-radius: 20px; font-size: 11px; font-weight: 700;
+  background: transparent; color: var(--text-muted); border: 1px solid var(--border-hi); letter-spacing: 0.02em; cursor: pointer;
+}
+.btn-filter.active { background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); color: #fff; border-color: transparent; }
+.btn-filter:hover:not(.active) { background: rgba(255,255,255,.05); color: var(--text-dim); }
+
+.btn-sm { padding: 4px 10px; font-size: 11px; border-radius: 6px; }
+
+.step-actions {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);
+}
+
+/* ============================================================
+   QA SUMMARY CARDS
+   ============================================================ */
+.qa-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px; margin-bottom: 24px;
+}
+
+.summary-card { background: var(--bg-hdr); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; text-align: center; transition: border-color 0.15s, background 0.15s; }
+.summary-card .value { font-size: 28px; font-weight: 800; line-height: 1; margin-bottom: 5px; }
+.summary-card .label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; transition: color 0.15s; }
+
+.summary-card[data-filter] { cursor: pointer; }
+.summary-card[data-filter]:hover { background: var(--bg-card); border-color: var(--border-hi); }
+.summary-card[data-filter]:hover .label { color: var(--text-dim); }
+.summary-card[data-filter].active { border-color: var(--accent-a); background: rgba(124,58,237,.08); }
+.summary-card[data-filter].active .label { color: var(--accent-b); }
+
+.summary-card.match .value   { color: #34d399; }
+.summary-card.warning .value { color: #fbbf24; }
+.summary-card.fail .value    { color: #f87171; }
+.summary-card.total .value   { color: #818cf8; }
+.summary-card.pct .value     { color: #a78bfa; }
+.summary-card.removed .value { color: var(--text-muted); }
+
+/* ============================================================
+   STATUS BADGES
+   ============================================================ */
+.badge {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+}
+.badge-match    { background: rgba(16,185,129,.15); color: #34d399; }
+.badge-warning  { background: rgba(245,158,11,.15);  color: #fbbf24; }
+.badge-fail     { background: rgba(239,68,68,.15);   color: #f87171; }
+.badge-approved { background: rgba(99,102,241,.18);  color: #818cf8; }
+.badge-removed  { background: rgba(255,255,255,.06); color: var(--text-muted); }
+
+/* ============================================================
+   REVIEW CONTROLS
+   ============================================================ */
+.review-controls {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; flex-wrap: wrap; gap: 10px;
+}
+.filter-buttons { display: flex; gap: 5px; flex-wrap: wrap; }
+.scrub-controls { display: flex; align-items: center; gap: 14px; }
+
+.col-check { width: 40px; text-align: center; padding: 9px 8px !important; }
+th.col-check { padding: 10px 8px !important; }
+
+tbody tr.row-match td    { background: rgba(16,185,129,.05); }
+tbody tr.row-match:hover td { background: rgba(16,185,129,.09); }
+tbody tr.row-fail td     { background: rgba(239,68,68,.07); }
+tbody tr.row-fail:hover td { background: rgba(239,68,68,.11); }
+tbody tr.row-warning td  { background: rgba(245,158,11,.06); }
+tbody tr.row-warning:hover td { background: rgba(245,158,11,.10); }
+tbody tr.row-approved td { background: rgba(99,102,241,.07); }
+tbody tr.row-approved:hover td { background: rgba(99,102,241,.11); }
+
+.row-check { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent-a); flex-shrink: 0; }
+
+.th-status { width: 80px; }
+.th-issues { width: 260px; }
+.td-status { width: 80px; vertical-align: top; padding-top: 10px !important; }
+
+.issues-cell { width: 260px; white-space: normal; font-size: 11px; line-height: 1.5; vertical-align: top; }
+.issue-line { display: flex; align-items: baseline; gap: 4px; margin-bottom: 3px; }
+.issue-line.issue-fail { color: #f87171; }
+.issue-line.issue-warn { color: #fbbf24; }
+.issue-field { font-weight: 700; font-size: 10px; text-transform: uppercase; flex-shrink: 0; opacity: 0.7; }
+
+/* Field sub-filter bar */
+.field-filter-bar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 8px 0 4px; margin-bottom: 6px;
+}
+.field-filter-label { font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 2px; white-space: nowrap; }
+
+/* Approve button */
+.btn-approve {
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  color: #fff;
+}
+.btn-approve:hover { opacity: .88; }
+
+/* ============================================================
+   EXPORT CARDS
+   ============================================================ */
+.export-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 8px 0 4px; }
+
+.export-card { border: 1px solid var(--border-hi); border-radius: 10px; padding: 22px; background: var(--bg-hdr); }
+.export-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--text); text-transform: none; letter-spacing: 0; border-bottom: none; padding-bottom: 0; }
+.export-card p  { color: var(--text-dim); font-size: 12px; margin-bottom: 16px; line-height: 1.5; }
+
+/* ============================================================
+   UTILITY
+   ============================================================ */
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="header-main">
+      <div>
+        <h1>Targeting QA</h1>
+        <p class="subtitle">Lead Scrubber &mdash; Unstuck Operations</p>
+      </div>
+      <a href="/" class="home-link" title="Back to Dashboard">
+        <div class="home-mark">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+               stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12L12 3l9 9"/>
+            <path d="M9 21V12h6v9"/>
+          </svg>
+        </div>
+        <span class="home-label">Dashboard</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Step nav -->
+  <div class="steps-nav">
+    <div class="step-item active" data-step="1"><span class="step-num">1</span><span class="step-label">Upload</span></div>
+    <div class="step-connector"></div>
+    <div class="step-item" data-step="2"><span class="step-num">2</span><span class="step-label">Targeting</span></div>
+    <div class="step-connector"></div>
+    <div class="step-item" data-step="3"><span class="step-num">3</span><span class="step-label">Review</span></div>
+    <div class="step-connector"></div>
+    <div class="step-item" data-step="4"><span class="step-num">4</span><span class="step-label">Export</span></div>
+  </div>
+
+  <!-- ================================================ STEP 1: UPLOAD ================================================ -->
+  <div class="panel" id="panel-1">
+    <h2>Upload Lead List</h2>
+    <p class="panel-desc">Upload your Excel or CSV lead list. Accepted formats: .xlsx, .csv</p>
+
+    <div class="upload-zone" id="upload-zone">
+      <div class="upload-icon">&#8679;</div>
+      <p>Drag and drop your file here</p>
+      <p class="upload-hint">or</p>
+      <label class="btn btn-outline" for="file-input">Browse Files</label>
+      <input type="file" id="file-input" accept=".xlsx,.csv" hidden>
+    </div>
+
+    <div id="file-info" class="file-info hidden"></div>
+
+    <div id="preview-section" class="hidden">
+      <h3 style="margin-top:24px">Column Mapping <span id="preview-count" style="font-weight:400;color:#6b7280;text-transform:none;letter-spacing:0"></span></h3>
+      <p class="hint" style="margin-bottom:12px">Columns detected automatically are marked <strong style="color:#166534">Auto</strong>. Use the dropdowns to manually map any column the tool didn&rsquo;t recognise. QA fields are highlighted in blue.</p>
+      <div id="column-mapping" class="column-mapping"></div>
+      <h3 style="margin-top:20px;margin-bottom:8px">Data Preview <span style="font-weight:400;color:#6b7280;text-transform:none;letter-spacing:0;font-size:11px">(first 5 rows)</span></h3>
+      <div class="table-wrapper"><table id="preview-table"></table></div>
+      <div class="step-actions">
+        <button class="btn btn-primary" id="btn-to-targeting">Continue to Targeting Criteria &rarr;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================ STEP 2: TARGETING ================================================ -->
+  <div class="panel hidden" id="panel-2">
+    <h2>Targeting Criteria</h2>
+    <p class="panel-desc">Define the agreed targeting profile for this campaign. Leave any section blank to skip that check.</p>
+
+    <form id="targeting-form">
+
+      <!-- Job Roles -->
+      <div class="form-section">
+        <h3>Job Roles</h3>
+        <p class="hint" style="margin-bottom:14px">Select the role umbrellas and specific roles you are targeting. Uses semantic matching &mdash; selecting &ldquo;CEO&rdquo; also matches &ldquo;Chief Executive Officer&rdquo;, &ldquo;CEO of [Company]&rdquo;, &ldquo;CEO &amp; Founder&rdquo;, etc. Click a group to expand it.</p>
+        <div id="role-groups-container" class="role-groups-grid"></div>
+        <div class="form-group" style="margin-top:14px;margin-bottom:0">
+          <label>Custom Role Keywords <span class="optional">(anything not covered above)</span></label>
+          <div class="tag-input-wrapper" id="tags-job-titles">
+            <input type="text" class="tag-input" placeholder="Type and press Enter or comma&hellip;">
+          </div>
+        </div>
+        <div class="pa-ea-toggle-row">
+          <label class="checkbox-label">
+            <input type="checkbox" id="toggle-pa-ea" style="margin-top:2px;flex-shrink:0">
+            <span>
+              <strong style="font-size:13px;color:#1f2937">Include PAs, EAs &amp; &ldquo;assistant to&rdquo; roles</strong><br>
+              <span class="hint" style="margin-top:2px;display:block">When <em>unchecked</em> (default), titles like &ldquo;Executive Assistant&rdquo;, &ldquo;PA to CEO&rdquo; and &ldquo;Assistant to the MD&rdquo; are flagged as Fail. <strong>Note:</strong> &ldquo;Assistant Director&rdquo; or &ldquo;Assistant Marketing Manager&rdquo; (sub-level roles, not assistants <em>to</em> someone) are unaffected by this toggle.</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Seniority -->
+      <div class="form-section seniority-bar">
+        <h3>Seniority Filter <span class="seniority-note">optional &mdash; applies on top of role selection above</span></h3>
+        <div class="checkbox-group-horizontal">
+          <label class="checkbox-label"><input type="checkbox" name="seniority" value="c-level"> C-Suite</label>
+          <label class="checkbox-label"><input type="checkbox" name="seniority" value="founder"> Founder / Owner</label>
+          <label class="checkbox-label"><input type="checkbox" name="seniority" value="vp"> VP / Vice President</label>
+          <label class="checkbox-label"><input type="checkbox" name="seniority" value="director"> Director</label>
+          <label class="checkbox-label"><input type="checkbox" name="seniority" value="manager"> Manager / Head of</label>
+          <label class="checkbox-label"><input type="checkbox" name="seniority" value="senior"> Senior / Lead / Principal</label>
+          <label class="checkbox-label"><input type="checkbox" name="seniority" value="individual"> Entry Level</label>
+        </div>
+      </div>
+
+      <!-- Company Profile | Geography | Exclusions -->
+      <div class="form-grid-3">
+
+        <div class="form-section">
+          <h3>Company Profile</h3>
+          <div class="form-group">
+            <label>Accepted Industries</label>
+            <div class="tag-input-wrapper" id="tags-industries">
+              <input type="text" class="tag-input" placeholder="Type and press Enter &mdash; e.g. SaaS, FinTech&hellip;">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Accepted Niches / Sub-niches</label>
+            <div class="tag-input-wrapper" id="tags-niches">
+              <input type="text" class="tag-input" placeholder="Type and press Enter &mdash; e.g. HR Tech, Payments&hellip;">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Headcount Range</label>
+            <div class="range-inputs">
+              <input type="number" id="headcount-min" placeholder="Min" min="0">
+              <span>to</span>
+              <input type="number" id="headcount-max" placeholder="Max" min="0">
+              <span>employees</span>
+            </div>
+            <p class="hint">Leave blank to skip.</p>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Geography</h3>
+          <div class="form-group">
+            <label>Accepted Countries</label>
+            <div class="tag-input-wrapper" id="tags-countries">
+              <input type="text" class="tag-input" placeholder="Type and press Enter &mdash; e.g. United Kingdom&hellip;">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Accepted Cities <span class="optional">(optional)</span></label>
+            <div class="tag-input-wrapper" id="tags-cities">
+              <input type="text" class="tag-input" placeholder="Type and press Enter &mdash; e.g. London&hellip;">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h3>Exclusions</h3>
+          <div class="form-group">
+            <label>Exclude if Job Title Contains</label>
+            <div class="tag-input-wrapper" id="tags-excl-titles">
+              <input type="text" class="tag-input" placeholder="Type and press Enter &mdash; e.g. Intern, Assistant&hellip;">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Exclude if Company Name Contains</label>
+            <div class="tag-input-wrapper" id="tags-excl-companies">
+              <input type="text" class="tag-input" placeholder="Type and press Enter &mdash; e.g. competitor names&hellip;">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Exclude if Industry Contains</label>
+            <div class="tag-input-wrapper" id="tags-excl-industries">
+              <input type="text" class="tag-input" placeholder="Type and press Enter &mdash; e.g. Non-profit&hellip;">
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /form-grid-3 -->
+
+      <div class="step-actions">
+        <button type="button" class="btn btn-ghost" id="btn-back-1">&larr; Back</button>
+        <button type="button" class="btn btn-primary" id="btn-scan">Scan List &rarr;</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ================================================ STEP 3: REVIEW ================================================ -->
+  <div class="panel hidden" id="panel-3">
+    <h2>Scan Results</h2>
+    <div id="qa-summary" class="qa-summary"></div>
+
+    <div class="review-controls">
+      <div class="scrub-controls">
+        <button class="btn btn-approve btn-sm" id="btn-approve-selected">&#10003; Approve selected</button>
+        <button class="btn btn-outline btn-sm" id="btn-select-all-visible">Select all visible</button>
+        <button class="btn btn-ghost btn-sm" id="btn-deselect-all-visible">&#10005; Deselect all</button>
+      </div>
+    </div>
+
+    <div id="field-filter-bar" class="field-filter-bar hidden"></div>
+
+    <div class="table-wrapper">
+      <table id="results-table">
+        <thead id="results-thead"></thead>
+        <tbody id="results-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="step-actions">
+      <button class="btn btn-ghost" id="btn-back-2">&larr; Back to Criteria</button>
+      <button class="btn btn-primary" id="btn-to-export">Continue to Export &rarr;</button>
+    </div>
+  </div>
+
+  <!-- ================================================ STEP 4: EXPORT ================================================ -->
+  <div class="panel hidden" id="panel-4">
+    <h2>Export</h2>
+    <p class="panel-desc">Download your cleaned list, flagged leads, or a QA summary report.</p>
+    <div id="export-summary" class="qa-summary"></div>
+
+    <div class="export-options">
+      <div class="export-card">
+        <h3>Cleaned Lead List</h3>
+        <p>Match rows, plus warnings if &ldquo;Keep warnings&rdquo; was checked. Manually approved rows included; removed rows excluded.</p>
+        <button class="btn btn-primary" id="btn-export-clean">Download Cleaned List (.xlsx)</button>
+      </div>
+      <div class="export-card">
+        <h3>Flagged Leads</h3>
+        <p>Only Unclear and Fail rows, with a QA Status and QA Issues column added for reference.</p>
+        <button class="btn btn-outline" id="btn-export-flagged">Download Flagged List (.xlsx)</button>
+      </div>
+      <div class="export-card">
+        <h3>QA Summary Report</h3>
+        <p>Plain-text scan summary with totals, targeting criteria used, and top failure reasons.</p>
+        <button class="btn btn-outline" id="btn-export-summary">Download QA Report (.txt)</button>
+      </div>
+    </div>
+
+    <div class="step-actions">
+      <button class="btn btn-ghost" id="btn-back-3">&larr; Back to Review</button>
+      <button class="btn btn-ghost" id="btn-new-scan">Start New Scan</button>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+<script>
+// ============================================================
+// STATE
+// ============================================================
+const state = {
+  rawData: [], headers: [], columnMap: {}, criteria: {}, results: [],
+  currentStep: 1, currentFilter: 'all', fieldFilter: null, fileName: ''
+};
+
+// ============================================================
+// ROLE GROUPS
+// ============================================================
+// level: 'senior' = C-suite / Head of / VP / Director
+//        'manager' = Manager / Lead
+//        'executive' = Practitioner / Executive / Coordinator (UK "executive" = junior/mid practitioner)
+const ROLE_GROUPS = [
+  {
+    id: 'general-csuite', label: 'General C-Suite',
+    roles: [
+      { id: 'ceo',            label: 'CEO',                       level: 'senior',  keywords: ['ceo', 'chief executive officer', 'chief exec', 'chief executive'] },
+      { id: 'md',             label: 'Managing Director (MD)',    level: 'senior',  keywords: ['managing director', ' md '] },
+      { id: 'founder',        label: 'Founder / Co-Founder',     level: 'senior',  keywords: ['founder', 'co-founder', 'cofounder'] },
+      { id: 'founding-dir',   label: 'Founding Director',        level: 'senior',  keywords: ['founding director'] },
+      { id: 'owner',          label: 'Owner / Business Owner',   level: 'senior',  keywords: ['owner', 'business owner', 'proprietor'] },
+      { id: 'president',      label: 'President',                level: 'senior',  keywords: ['president'] },
+      { id: 'chairman',       label: 'Chairman / Chairperson',   level: 'senior',  keywords: ['chairman', 'chairwoman', 'chairperson', 'chair of'] },
+    ]
+  },
+  {
+    id: 'operations', label: 'Operations',
+    roles: [
+      { id: 'coo',      label: 'COO',                   level: 'senior',    keywords: ['coo', 'chief operating officer', 'chief operations officer'] },
+      { id: 'head-ops', label: 'Head of Operations',    level: 'senior',    keywords: ['head of operations', 'head of ops'] },
+      { id: 'ops-dir',  label: 'Operations Director',   level: 'senior',    keywords: ['operations director', 'director of operations', 'director of ops'] },
+      { id: 'vp-ops',   label: 'VP Operations',         level: 'senior',    keywords: ['vp operations', 'vp of operations', 'vice president operations'] },
+      { id: 'gm',       label: 'General Manager',       level: 'senior',    keywords: ['general manager'] },
+      { id: 'ops-mgr',  label: 'Operations Manager',    level: 'manager',   keywords: ['operations manager', 'ops manager'] },
+      { id: 'ops-exec', label: 'Operations Executive',  level: 'executive', keywords: ['operations executive', 'ops executive', 'operations coordinator'] },
+    ]
+  },
+  {
+    id: 'marketing', label: 'Marketing',
+    roles: [
+      { id: 'cmo',          label: 'CMO',                                 level: 'senior',    keywords: ['cmo', 'chief marketing officer'] },
+      { id: 'head-mktg',    label: 'Head of Marketing',                  level: 'senior',    keywords: ['head of marketing'] },
+      { id: 'mktg-dir',     label: 'Marketing Director',                 level: 'senior',    keywords: ['marketing director', 'director of marketing'] },
+      { id: 'vp-mktg',      label: 'VP Marketing',                       level: 'senior',    keywords: ['vp marketing', 'vp of marketing', 'vice president marketing'] },
+      { id: 'growth',       label: 'Head of Growth / Growth Director',   level: 'senior',    keywords: ['head of growth', 'growth director', 'director of growth', 'vp growth'] },
+      { id: 'digital-mktg', label: 'Head of Digital / Digital Director', level: 'senior',    keywords: ['head of digital', 'digital director', 'director of digital', 'digital marketing director'] },
+      { id: 'demand-dir',   label: 'Head of Demand Generation',          level: 'senior',    keywords: ['head of demand generation', 'demand generation director', 'vp demand generation'] },
+      { id: 'brand',        label: 'Brand Director / Head of Brand',     level: 'senior',    keywords: ['brand director', 'head of brand', 'director of brand'] },
+      { id: 'mktg-mgr',     label: 'Marketing Manager',                  level: 'manager',   keywords: ['marketing manager'] },
+      { id: 'growth-mgr',   label: 'Growth Manager',                     level: 'manager',   keywords: ['growth manager'] },
+      { id: 'digital-mgr',  label: 'Digital Marketing Manager',          level: 'manager',   keywords: ['digital marketing manager', 'digital manager'] },
+      { id: 'brand-mgr',    label: 'Brand Manager',                      level: 'manager',   keywords: ['brand manager'] },
+      { id: 'demand-mgr',   label: 'Demand Generation Manager',          level: 'manager',   keywords: ['demand generation manager', 'demand gen manager'] },
+      { id: 'mktg-exec',    label: 'Marketing Executive',                level: 'executive', keywords: ['marketing executive'] },
+      { id: 'digital-exec', label: 'Digital Marketing Executive',        level: 'executive', keywords: ['digital marketing executive', 'digital executive'] },
+      { id: 'demand-exec',  label: 'Demand Generation Executive',        level: 'executive', keywords: ['demand generation executive', 'demand gen executive'] },
+    ]
+  },
+  {
+    id: 'sales', label: 'Sales & Revenue',
+    roles: [
+      { id: 'cro',         label: 'CRO',                              level: 'senior',    keywords: ['cro', 'chief revenue officer'] },
+      { id: 'head-sales',  label: 'Head of Sales',                   level: 'senior',    keywords: ['head of sales'] },
+      { id: 'sales-dir',   label: 'Sales Director',                  level: 'senior',    keywords: ['sales director', 'director of sales'] },
+      { id: 'vp-sales',    label: 'VP Sales',                        level: 'senior',    keywords: ['vp sales', 'vp of sales', 'vice president sales'] },
+      { id: 'bd-dir',      label: 'Business Development Director',   level: 'senior',    keywords: ['business development director', 'head of business development', 'bd director'] },
+      { id: 'vp-bd',       label: 'VP Business Development',         level: 'senior',    keywords: ['vp business development', 'vp of business development'] },
+      { id: 'account-dir', label: 'Account Director',                level: 'senior',    keywords: ['account director', 'head of accounts', 'director of accounts'] },
+      { id: 'sales-mgr',   label: 'Sales Manager',                   level: 'manager',   keywords: ['sales manager'] },
+      { id: 'bd-mgr',      label: 'Business Development Manager',    level: 'manager',   keywords: ['business development manager', 'bd manager'] },
+      { id: 'account-mgr', label: 'Account Manager',                 level: 'manager',   keywords: ['account manager'] },
+      { id: 'sales-exec',  label: 'Sales Executive',                 level: 'executive', keywords: ['sales executive'] },
+      { id: 'bd-exec',     label: 'Business Development Executive',  level: 'executive', keywords: ['business development executive', 'bd executive'] },
+      { id: 'account-exec',label: 'Account Executive',               level: 'executive', keywords: ['account executive'] },
+    ]
+  },
+  {
+    id: 'technology', label: 'Technology & Engineering',
+    roles: [
+      { id: 'cto',       label: 'CTO',                              level: 'senior',  keywords: ['cto', 'chief technology officer', 'chief technical officer'] },
+      { id: 'cio',       label: 'CIO',                              level: 'senior',  keywords: ['cio', 'chief information officer'] },
+      { id: 'vp-eng',    label: 'VP Engineering',                   level: 'senior',  keywords: ['vp engineering', 'vp of engineering', 'vice president engineering'] },
+      { id: 'head-tech', label: 'Head of Technology / Engineering', level: 'senior',  keywords: ['head of technology', 'head of engineering', 'head of tech', 'head of it'] },
+      { id: 'tech-dir',  label: 'Technology / IT Director',        level: 'senior',  keywords: ['technology director', 'it director', 'director of technology', 'technical director'] },
+      { id: 'eng-mgr',   label: 'Engineering Manager',             level: 'manager', keywords: ['engineering manager', 'software engineering manager'] },
+      { id: 'it-mgr',    label: 'IT Manager',                      level: 'manager', keywords: ['it manager', 'technology manager'] },
+    ]
+  },
+  {
+    id: 'finance', label: 'Finance',
+    roles: [
+      { id: 'cfo',          label: 'CFO',                        level: 'senior',    keywords: ['cfo', 'chief financial officer'] },
+      { id: 'finance-dir',  label: 'Finance Director',           level: 'senior',    keywords: ['finance director', 'director of finance', 'financial director'] },
+      { id: 'head-finance', label: 'Head of Finance',            level: 'senior',    keywords: ['head of finance'] },
+      { id: 'vp-finance',   label: 'VP Finance',                 level: 'senior',    keywords: ['vp finance', 'vp of finance', 'vice president finance'] },
+      { id: 'controller',   label: 'Financial Controller',       level: 'manager',   keywords: ['financial controller', 'controller'] },
+      { id: 'finance-mgr',  label: 'Finance Manager',            level: 'manager',   keywords: ['finance manager', 'financial manager'] },
+      { id: 'finance-exec', label: 'Finance / Accounts Executive', level: 'executive', keywords: ['finance executive', 'accounts executive', 'financial executive'] },
+    ]
+  },
+  {
+    id: 'people', label: 'HR & People',
+    roles: [
+      { id: 'chro',        label: 'CHRO / Chief People Officer',       level: 'senior',    keywords: ['chro', 'chief human resources officer', 'chief people officer', 'chief hr officer'] },
+      { id: 'head-hr',     label: 'Head of HR / Head of People',       level: 'senior',    keywords: ['head of hr', 'head of people', 'head of human resources'] },
+      { id: 'hr-dir',      label: 'HR Director / People Director',     level: 'senior',    keywords: ['hr director', 'people director', 'director of hr', 'director of people', 'human resources director'] },
+      { id: 'vp-hr',       label: 'VP HR / VP People',                 level: 'senior',    keywords: ['vp hr', 'vp people', 'vp of hr', 'vp of people', 'vice president hr'] },
+      { id: 'hr-mgr',      label: 'HR Manager / People Manager',       level: 'manager',   keywords: ['hr manager', 'people manager', 'human resources manager'] },
+      { id: 'talent-mgr',  label: 'Talent Manager / Talent Acquisition Manager', level: 'manager', keywords: ['talent manager', 'talent acquisition manager', 'head of talent'] },
+      { id: 'hr-exec',     label: 'HR Executive / People Executive',   level: 'executive', keywords: ['hr executive', 'people executive', 'human resources executive'] },
+      { id: 'recruiter',   label: 'Recruiter / Talent Acquisition',    level: 'executive', keywords: ['recruiter', 'talent acquisition', 'internal recruiter'] },
+    ]
+  },
+  {
+    id: 'product', label: 'Product',
+    roles: [
+      { id: 'cpo',        label: 'CPO',              level: 'senior',    keywords: ['cpo', 'chief product officer'] },
+      { id: 'head-prod',  label: 'Head of Product',  level: 'senior',    keywords: ['head of product'] },
+      { id: 'prod-dir',   label: 'Product Director', level: 'senior',    keywords: ['product director', 'director of product'] },
+      { id: 'vp-prod',    label: 'VP Product',       level: 'senior',    keywords: ['vp product', 'vp of product', 'vice president product'] },
+      { id: 'prod-mgr',   label: 'Product Manager',  level: 'manager',   keywords: ['product manager'] },
+      { id: 'prod-owner', label: 'Product Owner',    level: 'executive', keywords: ['product owner'] },
+    ]
+  },
+  {
+    id: 'ecommerce', label: 'E-commerce & Retail',
+    roles: [
+      { id: 'head-ecom',  label: 'Head of E-commerce',    level: 'senior',    keywords: ['head of ecommerce', 'head of e-commerce', 'head of ecom'] },
+      { id: 'ecom-dir',   label: 'E-commerce Director',   level: 'senior',    keywords: ['ecommerce director', 'e-commerce director', 'director of ecommerce'] },
+      { id: 'retail-dir', label: 'Retail Director',       level: 'senior',    keywords: ['retail director', 'director of retail', 'head of retail'] },
+      { id: 'ecom-mgr',   label: 'E-commerce Manager',    level: 'manager',   keywords: ['ecommerce manager', 'e-commerce manager'] },
+      { id: 'ecom-exec',  label: 'E-commerce Executive',  level: 'executive', keywords: ['ecommerce executive', 'e-commerce executive'] },
+    ]
+  },
+  {
+    id: 'customer', label: 'Customer Success & CX',
+    roles: [
+      { id: 'cco',     label: 'CCO',                                level: 'senior',    keywords: ['cco', 'chief customer officer', 'chief experience officer'] },
+      { id: 'head-cs', label: 'Head of Customer Success',          level: 'senior',    keywords: ['head of customer success', 'head of cs'] },
+      { id: 'vp-cs',   label: 'VP Customer Success',               level: 'senior',    keywords: ['vp customer success', 'vp of customer success'] },
+      { id: 'head-cx', label: 'Head of CX / Customer Experience',  level: 'senior',    keywords: ['head of cx', 'head of customer experience', 'director of customer experience', 'cx director'] },
+      { id: 'cs-dir',  label: 'Customer Success Director',         level: 'senior',    keywords: ['customer success director', 'director of customer success'] },
+      { id: 'cs-mgr',  label: 'Customer Success Manager',          level: 'manager',   keywords: ['customer success manager', 'cs manager'] },
+      { id: 'cx-mgr',  label: 'CX Manager',                        level: 'manager',   keywords: ['cx manager', 'customer experience manager'] },
+      { id: 'cs-exec', label: 'Customer Success Executive',        level: 'executive', keywords: ['customer success executive'] },
+    ]
+  },
+  {
+    id: 'procurement', label: 'Procurement & Supply Chain',
+    roles: [
+      { id: 'head-proc',    label: 'Head of Procurement',              level: 'senior',  keywords: ['head of procurement', 'head of purchasing', 'chief procurement officer'] },
+      { id: 'proc-dir',     label: 'Procurement Director',            level: 'senior',  keywords: ['procurement director', 'director of procurement', 'purchasing director'] },
+      { id: 'supply-chain', label: 'Supply Chain Director',           level: 'senior',  keywords: ['supply chain director', 'head of supply chain', 'director of supply chain'] },
+      { id: 'proc-mgr',     label: 'Procurement Manager',             level: 'manager', keywords: ['procurement manager', 'purchasing manager'] },
+      { id: 'sc-mgr',       label: 'Supply Chain Manager',            level: 'manager', keywords: ['supply chain manager'] },
+      { id: 'proc-exec',    label: 'Procurement Executive',           level: 'executive', keywords: ['procurement executive', 'purchasing executive'] },
+    ]
+  },
+  {
+    id: 'legal', label: 'Legal & Compliance',
+    roles: [
+      { id: 'clo',            label: 'CLO / General Counsel',            level: 'senior',  keywords: ['clo', 'chief legal officer', 'general counsel'] },
+      { id: 'head-legal',     label: 'Head of Legal / Legal Director',   level: 'senior',  keywords: ['head of legal', 'legal director', 'director of legal'] },
+      { id: 'compliance-dir', label: 'Head of Compliance',              level: 'senior',  keywords: ['head of compliance', 'compliance director', 'chief compliance officer'] },
+      { id: 'legal-mgr',      label: 'Legal Manager',                   level: 'manager', keywords: ['legal manager'] },
+      { id: 'compliance-mgr', label: 'Compliance Manager',              level: 'manager', keywords: ['compliance manager'] },
+    ]
+  },
+  {
+    id: 'pr-comms', label: 'PR & Communications',
+    roles: [
+      { id: 'cco',        label: 'Chief Communications Officer', level: 'senior',    keywords: ['chief communications officer', 'cco', 'chief pr officer'] },
+      { id: 'head-pr',    label: 'Head of PR / Head of Comms',   level: 'senior',    keywords: ['head of pr', 'head of public relations', 'head of communications', 'head of comms'] },
+      { id: 'pr-dir',     label: 'PR Director / Comms Director', level: 'senior',    keywords: ['pr director', 'public relations director', 'communications director', 'comms director', 'director of pr', 'director of communications'] },
+      { id: 'vp-pr',      label: 'VP PR / VP Communications',    level: 'senior',    keywords: ['vp pr', 'vp public relations', 'vp communications', 'vice president pr', 'vice president communications'] },
+      { id: 'pr-mgr',     label: 'PR Manager',                   level: 'manager',   keywords: ['pr manager', 'public relations manager', 'communications manager', 'comms manager'] },
+      { id: 'pr-exec',    label: 'PR Executive',                 level: 'executive', keywords: ['pr executive', 'public relations executive', 'communications executive'] },
+    ]
+  },
+  {
+    id: 'director-generic', label: 'Any Director', system: true,
+    roles: [
+      // Matches any "[Dept] Director" or "Director of [Dept]" not covered by a specific group above.
+      // Uses a custom matcher flag rather than a keyword list — evaluated in titleMatchesKeywords.
+      { id: 'dir-any', label: 'Any [Department] Director', level: 'senior', keywords: ['__director_pattern__'] },
+    ]
+  },
+];
+
+// ============================================================
+// ROLE GROUP UI
+// ============================================================
+const LEVEL_LABELS = { senior: 'Senior Leadership', manager: 'Management', executive: 'Executive' };
+
+function renderRoleGroups() {
+  const container = document.getElementById('role-groups-container');
+  const groupsHtml = ROLE_GROUPS.map(group => {
+    // Bucket roles by level
+    const byLevel = { senior: [], manager: [], executive: [] };
+    group.roles.forEach(r => { (byLevel[r.level] || byLevel.senior).push(r); });
+
+    // Count how many distinct levels have roles (to decide whether to show sub-headers)
+    const activeLevels = ['senior', 'manager', 'executive'].filter(l => byLevel[l].length > 0);
+    const showHeaders  = activeLevels.length > 1;
+
+    const bodyHtml = activeLevels.map((level, idx) => {
+      const header = showHeaders
+        ? `<div class="role-level-header ${idx === 0 ? 'first-level' : ''}">${LEVEL_LABELS[level]}</div>`
+        : '';
+      const checkboxes = byLevel[level].map(role => `
+        <label class="checkbox-label${role.custom ? ' custom-role-item' : ''}">
+          <input type="checkbox" name="role" value="${role.id}" data-group="${group.id}"
+            onchange="updateGroupMaster('${group.id}')">
+          ${role.label}
+          ${role.custom ? `<button type="button" class="remove-custom" onclick="removeCustomRole('${group.id}','${role.id}',this)" title="Remove">&times;</button>` : ''}
+        </label>`).join('');
+      return header + checkboxes;
+    }).join('');
+
+    // "+ Add role" section — not shown on system groups
+    const addSection = group.system ? '' : `
+      <div class="add-role-row" id="add-role-row-${group.id}">
+        <button type="button" class="btn-add-inline" onclick="toggleAddRoleForm('${group.id}')">＋ Add role</button>
+        <div class="add-inline-form hidden" id="add-role-form-${group.id}">
+          <input type="text" class="add-inline-input" id="add-role-input-${group.id}" placeholder="e.g. Content Director…"
+            onkeydown="if(event.key==='Enter')confirmAddRole('${group.id}');else if(event.key==='Escape')cancelAddRole('${group.id}')">
+          <button type="button" class="btn-add-confirm" onclick="confirmAddRole('${group.id}')" title="Add">&#10003;</button>
+          <button type="button" class="btn-add-cancel"  onclick="cancelAddRole('${group.id}')"  title="Cancel">&#10005;</button>
+        </div>
+      </div>`;
+
+    return `
+      <div class="role-group" id="rg-${group.id}">
+        <div class="role-group-header" onclick="toggleRoleGroup('${group.id}')">
+          <label class="checkbox-label" onclick="event.stopPropagation()">
+            <input type="checkbox" id="rgm-${group.id}" onchange="toggleGroupAll('${group.id}', this.checked)">
+            ${group.label}
+          </label>
+          <span class="expand-icon" id="rgx-${group.id}">&#9654;</span>
+        </div>
+        <div class="role-group-body hidden" id="rgb-${group.id}">${bodyHtml}${addSection}</div>
+      </div>`;
+  }).join('');
+
+  // Full-width "+ Add job area" row
+  const addAreaRow = `
+    <div class="add-area-row" id="add-area-row">
+      <div style="width:100%">
+        <button type="button" class="btn-add-area" onclick="toggleAddAreaForm()" id="btn-add-area">＋ Add job area</button>
+        <div class="add-inline-form hidden" id="add-area-form" style="margin-top:8px">
+          <input type="text" class="add-inline-input" id="add-area-input" placeholder="e.g. Events, Strategy, Partnerships…"
+            onkeydown="if(event.key==='Enter')confirmAddArea();else if(event.key==='Escape')cancelAddArea()">
+          <button type="button" class="btn-add-confirm" onclick="confirmAddArea()" title="Add">&#10003;</button>
+          <button type="button" class="btn-add-cancel"  onclick="cancelAddArea()"  title="Cancel">&#10005;</button>
+        </div>
+      </div>
+    </div>`;
+
+  container.innerHTML = groupsHtml + addAreaRow;
+}
+
+function toggleRoleGroup(groupId) {
+  const body = document.getElementById(`rgb-${groupId}`);
+  const icon = document.getElementById(`rgx-${groupId}`);
+  const isHidden = body.classList.toggle('hidden');
+  icon.innerHTML = isHidden ? '&#9654;' : '&#9660;';
+}
+
+function toggleGroupAll(groupId, checked) {
+  document.querySelectorAll(`input[name="role"][data-group="${groupId}"]`)
+    .forEach(cb => { cb.checked = checked; });
+  if (checked) {
+    const body = document.getElementById(`rgb-${groupId}`);
+    const icon = document.getElementById(`rgx-${groupId}`);
+    if (body.classList.contains('hidden')) { body.classList.remove('hidden'); icon.innerHTML = '&#9660;'; }
+  }
+  updateGroupMaster(groupId);
+}
+
+function updateGroupMaster(groupId) {
+  const all     = document.querySelectorAll(`input[name="role"][data-group="${groupId}"]`);
+  const checked = document.querySelectorAll(`input[name="role"][data-group="${groupId}"]:checked`);
+  const master  = document.getElementById(`rgm-${groupId}`);
+  master.checked       = all.length > 0 && checked.length === all.length;
+  master.indeterminate = checked.length > 0 && checked.length < all.length;
+}
+
+// ============================================================
+// CUSTOM ROLE / AREA MANAGEMENT
+// ============================================================
+function toggleAddRoleForm(groupId) {
+  const form = document.getElementById(`add-role-form-${groupId}`);
+  const isHidden = form.classList.toggle('hidden');
+  if (!isHidden) document.getElementById(`add-role-input-${groupId}`).focus();
+}
+function cancelAddRole(groupId) {
+  document.getElementById(`add-role-form-${groupId}`).classList.add('hidden');
+  document.getElementById(`add-role-input-${groupId}`).value = '';
+}
+function confirmAddRole(groupId) {
+  const input = document.getElementById(`add-role-input-${groupId}`);
+  const label = input.value.trim();
+  if (!label) return;
+
+  const id = `custom-${groupId}-${Date.now()}`;
+  const role = { id, label, level: 'senior', keywords: [label.toLowerCase()], custom: true };
+
+  // Add to ROLE_GROUPS data
+  const group = ROLE_GROUPS.find(g => g.id === groupId);
+  if (group) group.roles.push(role);
+
+  // Inject checkbox into DOM (before the add-role-row so no re-render needed)
+  const addRow = document.getElementById(`add-role-row-${groupId}`);
+  const lbl = document.createElement('label');
+  lbl.className = 'checkbox-label custom-role-item';
+  lbl.innerHTML = `
+    <input type="checkbox" name="role" value="${id}" data-group="${groupId}" onchange="updateGroupMaster('${groupId}')" checked>
+    ${label}
+    <button type="button" class="remove-custom" onclick="removeCustomRole('${groupId}','${id}',this)" title="Remove">&times;</button>`;
+  addRow.parentNode.insertBefore(lbl, addRow);
+
+  updateGroupMaster(groupId);
+  cancelAddRole(groupId);
+}
+function removeCustomRole(groupId, roleId, btn) {
+  const group = ROLE_GROUPS.find(g => g.id === groupId);
+  if (group) group.roles = group.roles.filter(r => r.id !== roleId);
+  btn.closest('.checkbox-label').remove();
+  updateGroupMaster(groupId);
+}
+
+function toggleAddAreaForm() {
+  const form = document.getElementById('add-area-form');
+  const isHidden = form.classList.toggle('hidden');
+  if (!isHidden) document.getElementById('add-area-input').focus();
+  document.getElementById('btn-add-area').textContent = isHidden ? '＋ Add job area' : '▲ Cancel';
+}
+function cancelAddArea() {
+  document.getElementById('add-area-form').classList.add('hidden');
+  document.getElementById('add-area-input').value = '';
+  document.getElementById('btn-add-area').textContent = '＋ Add job area';
+}
+function generateRolesForArea(areaName) {
+  const n  = areaName.trim();
+  const nL = n.toLowerCase();
+  const ts = Date.now();
+  return [
+    { id:`${ts}-chief`, label:`Chief ${n} Officer`,  level:'senior',    keywords:[`chief ${nL} officer`],                                               custom:true },
+    { id:`${ts}-dir`,   label:`${n} Director`,       level:'senior',    keywords:[`${nL} director`, `director of ${nL}`],                               custom:true },
+    { id:`${ts}-head`,  label:`Head of ${n}`,        level:'senior',    keywords:[`head of ${nL}`],                                                     custom:true },
+    { id:`${ts}-vp`,    label:`VP ${n}`,             level:'senior',    keywords:[`vp ${nL}`, `vp of ${nL}`, `vice president ${nL}`],                   custom:true },
+    { id:`${ts}-mgr`,   label:`${n} Manager`,        level:'manager',   keywords:[`${nL} manager`, `manager of ${nL}`],                                 custom:true },
+    { id:`${ts}-exec`,  label:`${n} Executive`,      level:'executive', keywords:[`${nL} executive`],                                                   custom:true },
+  ];
+}
+
+function confirmAddArea() {
+  const input = document.getElementById('add-area-input');
+  const areaName = input.value.trim();
+  if (!areaName) return;
+
+  const id    = `custom-area-${Date.now()}`;
+  const roles = generateRolesForArea(areaName);
+  ROLE_GROUPS.push({ id, label: areaName, roles, custom: true });
+
+  // Build checkbox HTML for auto-generated roles, bucketed by level
+  const byLevel = { senior: [], manager: [], executive: [] };
+  roles.forEach(r => (byLevel[r.level] || byLevel.senior).push(r));
+  const activeLevels = ['senior','manager','executive'].filter(l => byLevel[l].length);
+  const showHeaders  = activeLevels.length > 1;
+
+  const rolesHtml = activeLevels.map((level, idx) => {
+    const header = showHeaders
+      ? `<div class="role-level-header ${idx===0?'first-level':''}">${LEVEL_LABELS[level]}</div>`
+      : '';
+    const cbs = byLevel[level].map(r => `
+      <label class="checkbox-label custom-role-item">
+        <input type="checkbox" name="role" value="${r.id}" data-group="${id}" onchange="updateGroupMaster('${id}')" checked>
+        ${r.label}
+        <button type="button" class="remove-custom" onclick="removeCustomRole('${id}','${r.id}',this)" title="Remove">&times;</button>
+      </label>`).join('');
+    return header + cbs;
+  }).join('');
+
+  // Inject new group card before the add-area-row
+  const addAreaRow = document.getElementById('add-area-row');
+  const div = document.createElement('div');
+  div.className = 'role-group';
+  div.id = `rg-${id}`;
+  div.innerHTML = `
+    <div class="role-group-header" onclick="toggleRoleGroup('${id}')">
+      <label class="checkbox-label" onclick="event.stopPropagation()">
+        <input type="checkbox" id="rgm-${id}" onchange="toggleGroupAll('${id}', this.checked)">
+        ${areaName}
+      </label>
+      <span class="expand-icon" id="rgx-${id}">&#9660;</span>
+    </div>
+    <div class="role-group-body" id="rgb-${id}">
+      ${rolesHtml}
+      <div class="add-role-row" id="add-role-row-${id}">
+        <button type="button" class="btn-add-inline" onclick="toggleAddRoleForm('${id}')">＋ Add role</button>
+        <div class="add-inline-form hidden" id="add-role-form-${id}">
+          <input type="text" class="add-inline-input" id="add-role-input-${id}" placeholder="e.g. ${areaName} Specialist…"
+            onkeydown="if(event.key==='Enter')confirmAddRole('${id}');else if(event.key==='Escape')cancelAddRole('${id}')">
+          <button type="button" class="btn-add-confirm" onclick="confirmAddRole('${id}')" title="Add">&#10003;</button>
+          <button type="button" class="btn-add-cancel"  onclick="cancelAddRole('${id}')"  title="Cancel">&#10005;</button>
+        </div>
+      </div>
+    </div>`;
+  addAreaRow.parentNode.insertBefore(div, addAreaRow);
+  updateGroupMaster(id);
+  cancelAddArea();
+}
+
+function getSelectedRoleKeywords() {
+  const selected = new Set(Array.from(document.querySelectorAll('input[name="role"]:checked')).map(el => el.value));
+  const keywords = [];
+  ROLE_GROUPS.forEach(g => g.roles.forEach(r => { if (selected.has(r.id)) keywords.push(...r.keywords); }));
+  keywords.push(...getTags('tags-job-titles'));
+  return keywords;
+}
+
+function getSelectedRoleLabels() {
+  const selected = new Set(Array.from(document.querySelectorAll('input[name="role"]:checked')).map(el => el.value));
+  const labels = [];
+  ROLE_GROUPS.forEach(g => g.roles.forEach(r => { if (selected.has(r.id)) labels.push(r.label); }));
+  const custom = getTags('tags-job-titles');
+  if (custom.length) labels.push(...custom.map(k => `"${k}" (custom)`));
+  return labels;
+}
+
+// ============================================================
+// COLUMN DETECTION
+// ============================================================
+const COLUMN_PATTERNS = {
+  firstName:  [/first[\s_-]?name/i, /fname/i, /given[\s_-]?name/i, /^first$/i],
+  lastName:   [/last[\s_-]?name/i, /lname/i, /surname/i, /family[\s_-]?name/i, /^last$/i],
+  company:    [/company/i, /organisation/i, /organization/i, /^account$/i, /employer/i, /^firm$/i],
+  jobTitle:   [/job[\s_-]?title/i, /^title$/i, /^position$/i, /^role$/i, /^job$/i, /job[\s_-]?role/i, /function/i],
+  industry:   [/industry/i, /^sector$/i, /vertical(?!.*niche)/i],
+  headcount:  [
+    /headcount/i,                          // headcount, head count, head-count
+    /head[\s_-]?count/i,
+    /company[\s_-]?size/i,                 // company size, company-size
+    /org(?:anisation|anization)?[\s_-]?size/i, // org size, organisation size
+    /^#\s*(?:of\s*)?employees?$/i,         // #employees, # employees, #of employees
+    /^no\.?\s*(?:of\s*)?employees?/i,      // no. of employees, no of employees
+    /^num(?:ber)?\s*(?:of\s*)?employees?/i,// num employees, number of employees
+    /^total\s*(?:no\.\s*)?employees?/i,    // total employees, total no. employees
+    /employee[\s_-]?count/i,               // employee count
+    /^employees?$/i,                       // employees (exact)
+    /^staff(?:\s*count|\s*size)?$/i,       // staff, staff count, staff size
+    /^workforce(?:\s*size)?$/i,            // workforce, workforce size
+    /^team[\s_-]?size/i,                   // team size
+    /^fte/i,                               // FTE, FTEs
+    /^size$/i,                             // size (only exact to avoid false matches)
+  ],
+  country:    [/^country$/i, /^nation$/i, /^country[\s_-]?name$/i],
+  city:       [/^city$/i, /^town$/i, /^municipality$/i, /^city[\s_-]?state$/i, /^location$/i],
+  linkedin:   [/linkedin/i, /profile[\s_-]?url/i, /^li[\s_-]?url$/i],
+  seniority:  [/seniority/i, /^level$/i, /^grade$/i, /^tier$/i, /job[\s_-]?level/i, /^management[\s_-]?level$/i],
+  niche:      [/niche/i, /sub[\s_-]?niche/i, /sub[\s_-]?vertical/i, /specialty/i, /speciality/i],
+};
+
+function detectColumns(headers) {
+  const map = {};
+  for (const [field, patterns] of Object.entries(COLUMN_PATTERNS)) {
+    for (const col of headers) {
+      if (patterns.some(p => p.test(col.trim()))) { if (!map[field]) map[field] = col; break; }
+    }
+  }
+  return map;
+}
+
+// ============================================================
+// TAG INPUT SYSTEM
+// ============================================================
+const tagStores = {};
+
+function initTagInput(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  tagStores[containerId] = [];
+  const input = container.querySelector('.tag-input');
+
+  // Inject Enter hint badge
+  const hint = document.createElement('span');
+  hint.className = 'tag-enter-hint';
+  hint.textContent = '↵ Enter';
+  container.appendChild(hint);
+
+  const updateHint = () => hint.classList.toggle('visible', input.value.trim().length > 0);
+
+  container.addEventListener('click', () => input.focus());
+  input.addEventListener('input', updateHint);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const v = input.value.trim().replace(/,$/, '');
+      if (v) addTag(containerId, v);
+      input.value = '';
+      updateHint();
+    }
+    if (e.key === 'Backspace' && input.value === '') removeLastTag(containerId);
+  });
+  input.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    text.split(/[,\n]+/).map(v => v.trim()).filter(Boolean).forEach(v => addTag(containerId, v));
+    input.value = '';
+    updateHint();
+  });
+}
+
+function addTag(id, value) {
+  const display = value.trim();
+  if (!display) return;
+  const lower = display.toLowerCase();
+  if (tagStores[id].some(v => v.toLowerCase() === lower)) return; // case-insensitive dedup
+  tagStores[id].push(display); renderTags(id);
+}
+function removeTag(id, value) { tagStores[id] = tagStores[id].filter(v => v !== value); renderTags(id); }
+function removeLastTag(id)    { if (tagStores[id].length) { tagStores[id].pop(); renderTags(id); } }
+function getTags(id)          { return tagStores[id] || []; }
+
+function renderTags(id) {
+  const container = document.getElementById(id);
+  const input = container.querySelector('.tag-input');
+  container.querySelectorAll('.tag').forEach(t => t.remove());
+  tagStores[id].forEach(val => {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.innerHTML = `${val}<button class="tag-remove" data-val="${val}">&times;</button>`;
+    tag.querySelector('.tag-remove').addEventListener('click', (e) => {
+      e.stopPropagation(); removeTag(id, e.target.closest('.tag-remove').dataset.val);
+    });
+    container.insertBefore(tag, input);
+  });
+}
+
+// ============================================================
+// SENIORITY INFERENCE
+// ============================================================
+const SENIORITY_PATTERNS = {
+  'c-level':    ['ceo', 'cto', 'cfo', 'coo', 'cmo', 'ciso', 'cso', 'cro', 'chief ', 'c-suite', 'president', 'managing director', ' md ', 'founding director'],
+  'founder':    ['founder', 'co-founder', 'cofounder', 'founding partner', 'founding member', 'owner', 'proprietor'],
+  'vp':         ['vp ', 'vp,', 'vp-', 'v.p.', 'vice president', 'vice-president'],
+  'director':   ['director', ' dir '],
+  'manager':    ['manager', ' mgr', 'head of ', 'head,'],
+  'senior':     ['senior ', ' sr.', ' sr ', 'lead ', 'principal ', 'staff engineer'],
+  'individual': ['analyst', 'associate', 'coordinator', 'specialist', 'consultant', 'intern', 'junior', 'assistant', 'entry level'],
+};
+
+function inferSeniority(raw) {
+  if (!raw) return null;
+  // Normalise separators (/, |, &, comma) → spaces so "EP/MD", "CEO & Founder" etc. split cleanly
+  const t = ` ${raw.toLowerCase().replace(/[\/|,&]+/g, ' ').replace(/\s+/g, ' ').trim()} `;
+  for (const [level, kws] of Object.entries(SENIORITY_PATTERNS)) {
+    if (kws.some(k => t.includes(k))) return level;
+  }
+  return null;
+}
+
+// ============================================================
+// HEADCOUNT PARSING
+// ============================================================
+function parseHeadcount(val) {
+  if (val === null || val === undefined || val === '') return null;
+  const s = String(val).toLowerCase().replace(/,/g, '').trim();
+  const range = s.match(/(\d+)\s*[-–]\s*(\d+)/);
+  if (range) return (parseInt(range[1]) + parseInt(range[2])) / 2;
+  const plus  = s.match(/(\d+)\s*\+/);
+  if (plus) return parseInt(plus[1]);
+  const to = s.match(/(\d+)\s+to\s+(\d+)/i);
+  if (to) return (parseInt(to[1]) + parseInt(to[2])) / 2;
+  const num = s.match(/^(\d+)$/);
+  if (num) return parseInt(num[1]);
+  const bands = { '2-10':6,'11-50':30,'51-200':125,'201-500':350,'501-1000':750,'1001-5000':3000,'5001-10000':7500,'10001+':10001,'enterprise':5000,'smb':100,'small':50,'medium':350,'large':5000 };
+  for (const [k, v] of Object.entries(bands)) { if (s.includes(k)) return v; }
+  const any = s.match(/(\d+)/);
+  return any ? parseInt(any[1]) : null;
+}
+
+// ============================================================
+// COUNTRY MATCHING
+// ============================================================
+const COUNTRY_ALIASES = {
+  'uk':['united kingdom','great britain','england','scotland','wales','britain','gb'],
+  'united kingdom':['uk','gb','great britain','england','britain'],
+  'us':['united states','usa','u.s.a.','u.s.','america'],
+  'usa':['united states','us','america','u.s.'],
+  'united states':['us','usa','america','u.s.','u.s.a.'],
+  'uae':['united arab emirates','emirates'],
+  'united arab emirates':['uae','emirates'],
+  'australia':['aus','au'],
+  'germany':['deutschland','de'],
+  'netherlands':['the netherlands','holland','nl'],
+  'new zealand':['nz'],
+  'south africa':['sa','rsa'],
+  'canada':['ca','cdn'],
+  'ireland':['roi','republic of ireland'],
+  'singapore':['sg'],
+};
+
+function countryMatches(rowValue, acceptedList) {
+  if (!rowValue || acceptedList.length === 0) return true;
+  const v = rowValue.toLowerCase().trim();
+  for (const a of acceptedList) {
+    const al = a.toLowerCase().trim();
+    if (v === al || v.includes(al) || al.includes(v)) return true;
+    const aAliases = COUNTRY_ALIASES[al] || [];
+    if (aAliases.some(alias => v === alias || v.includes(alias) || alias.includes(v))) return true;
+    const vAliases = COUNTRY_ALIASES[v] || [];
+    if (vAliases.some(alias => al === alias || al.includes(alias) || alias.includes(al))) return true;
+  }
+  return false;
+}
+
+// ============================================================
+// FUZZY MATCHING
+// ============================================================
+// Common department/role abbreviations expanded before token-matching.
+// Keeps matching loose for real-world scraped titles.
+const ABBREV_MAP = {
+  'mktg':'marketing', 'mkt':'marketing', 'mrktg':'marketing',
+  'mgr':'manager',    'mgmt':'management',
+  'dir':'director',   'dirs':'directors',
+  'ops':'operations', 'op':'operations',
+  'hr':'human resources', 'h/r':'human resources',
+  'biz':'business',   'bd':'business development',
+  'eng':'engineering','engg':'engineering',
+  'tech':'technology','it':'information technology',
+  'fin':'finance',    'acct':'accounting',
+  'prod':'product',   'pdt':'product',
+  'cx':'customer experience', 'cs':'customer success',
+  'comms':'communications', 'comm':'communications',
+  'pr':'public relations',
+  'ecom':'ecommerce', 'ecomm':'ecommerce',
+  'proc':'procurement',
+  'strat':'strategy', 'svp':'senior vice president',
+  'evp':'executive vice president',
+};
+
+function expandAbbrevs(str) {
+  return str.replace(/\b(\w+)\b/g, w => ABBREV_MAP[w] || w);
+}
+
+function fuzzyIncludes(value, keywords, threshold = 0.38) {
+  if (!value || !keywords || keywords.length === 0) return false;
+  const v     = value.toLowerCase().trim();
+  // Normalise separators (-  /  ,  &  @  •) to spaces so that
+  // "Co-CEO", "CEO/Founder", "CEO & Founder", "CEO, Acme" all resolve to clean word tokens.
+  const vNorm    = v.replace(/[-\/,&@•]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const vNormExp = expandAbbrevs(vNorm); // abbrev-expanded for token matching
+  const padV     = ` ${vNorm} `;
+  const padVExp  = ` ${vNormExp} `;
+
+  // Stop-words ignored during multi-token matching
+  const STOP = new Set(['of', 'the', 'a', 'an', 'and', 'for', 'in', 'at', 'to', 'by']);
+
+  for (const kw of keywords) {
+    const k     = kw.toLowerCase().trim();
+    const kNorm = k.replace(/[-\/,&@•]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (kNorm.length <= 4) {
+      // Short tokens (ceo, coo, vp, md…): strict word-boundary check on normalised string
+      if (padV.includes(` ${kNorm} `)) return true;
+    } else {
+      // Long phrases: substring check on normalised strings both ways
+      if (vNorm.includes(kNorm)) return true;
+      // Allow keyword to contain value only when value is ≥2 words (prevents "head" matching "head of marketing")
+      if (kNorm.includes(vNorm) && vNorm.split(' ').length >= 2) return true;
+      // Multi-token match: every meaningful word in keyword must appear as a word in the title.
+      // Allows "Marketing Director" to match "Marketing Operations Director",
+      // "Director of Marketing" to match "Group Marketing & Operations Director", etc.
+      const kNormExp = expandAbbrevs(kNorm);
+      const kTokens  = kNormExp.split(/\s+/).filter(w => w.length > 1 && !STOP.has(w));
+      // Token-set match on both original and abbrev-expanded title.
+      // "Mktg Ops Director" → expanded "marketing operations director" → matches "marketing director" ✓
+      if (kTokens.length >= 2 && kTokens.every(w => padV.includes(` ${w} `) || padVExp.includes(` ${w} `))) return true;
+    }
+  }
+
+  // Fuse.js fuzzy fallback for partial / misspelled matches
+  const fuse = new Fuse(keywords, { includeScore: true, threshold, minMatchCharLength: 3 });
+  const results = fuse.search(v);
+  return results.length > 0 && results[0].score <= threshold;
+}
+
+// ============================================================
+// PA / EA DETECTION
+// Catches "assistant TO [role]", "EA to", "PA to", "executive assistant",
+// "personal assistant" — but NOT "Assistant Director" or "Assistant Manager"
+// (those are legitimate sub-level roles where "assistant" modifies the title,
+//  not a support role for someone else).
+// ============================================================
+const PA_EA_PATTERNS = [
+  /executive\s+assistant/i,
+  /personal\s+assistant/i,
+  /\bea\s+to\b/i,
+  /\bpa\s+to\b/i,
+  /assistant\s+to\s+(the\s+)?\w/i,   // "assistant to the CEO", "assistant to MD"
+  /\bpa\b(?!\s*\w+\s+(?:director|manager|head|lead|officer))/i, // "PA" not followed by a senior title
+];
+
+function isPA_EA(title) {
+  if (!title) return false;
+  return PA_EA_PATTERNS.some(p => p.test(title));
+}
+
+// ============================================================
+// TITLE NORMALISATION
+// Handles compound titles ("CEO & Founder", "CEO / President") and
+// contextual noise ("CEO of the Company", "MD at Acme Corp").
+// Returns an array of clean title parts — each is checked independently.
+// ============================================================
+function normalizeTitleParts(title) {
+  if (!title) return [];
+  // Split compound titles on common separators: "CEO & Founder", "CEO / President", "CEO | Founder"
+  // Do NOT strip "of [Dept]" — that breaks "Head of Marketing", "Director of Sales" etc.
+  const raw = title.split(/\s+[&\/]\s+|\s+and\s+|\s*\|\s*/i);
+  return raw.map(p => p.trim()).filter(Boolean);
+}
+
+// Common org-qualifier prefixes that can precede a real job title
+const TITLE_QUALIFIER_RE = /^(?:group|global|regional|national|international|senior|junior|deputy|associate|uk|us|emea|apac|latam)\s+/i;
+
+// Matches any "[Dept] Director" or "Director of [Dept]" title.
+// Deliberately excludes "Assistant Director" to avoid false positives.
+const DIRECTOR_PATTERN_RE = /(?<!\bassistant\s)\bdirector\b/i;
+function matchesDirectorPattern(title) {
+  if (!title) return false;
+  const t = title.toLowerCase().trim();
+  // Must contain 'director' but NOT be just a bare 'assistant director'
+  if (!DIRECTOR_PATTERN_RE.test(t)) return false;
+  // Exclude: "assistant director" where 'assistant' directly precedes 'director'
+  if (/\bassistant\s+director\b/i.test(t)) return false;
+  return true;
+}
+
+// Check a job title against keywords — tries the full title first, then
+// each normalised part so compound/contextual titles all match correctly.
+function titleMatchesKeywords(title, keywords, threshold) {
+  if (!title || !keywords || !keywords.length) return false;
+  // Handle special sentinel for the generic director pattern
+  if (keywords.includes('__director_pattern__')) {
+    if (matchesDirectorPattern(title)) return true;
+    const otherKws = keywords.filter(k => k !== '__director_pattern__');
+    if (otherKws.length && fuzzyIncludes(title, otherKws, threshold)) return true;
+    const parts = normalizeTitleParts(title);
+    return parts.some(part => part.toLowerCase() !== title.toLowerCase().trim() &&
+      (matchesDirectorPattern(part) || (otherKws.length && fuzzyIncludes(part, otherKws, threshold))));
+  }
+  if (fuzzyIncludes(title, keywords, threshold)) return true;
+
+  // Try stripping a leading org qualifier ("Group Head of Marketing" → "Head of Marketing")
+  const stripped = title.replace(TITLE_QUALIFIER_RE, '');
+  if (stripped !== title && fuzzyIncludes(stripped, keywords, threshold)) return true;
+
+  // Try each part of a compound title ("CEO & Founder" → ["CEO", "Founder"])
+  const parts = normalizeTitleParts(title);
+  if (parts.some(part => part.toLowerCase() !== title.toLowerCase().trim() && fuzzyIncludes(part, keywords, threshold))) return true;
+
+  return false;
+}
+
+// ============================================================
+// ROW EVALUATION
+// ============================================================
+function evaluateRow(row) {
+  const { columnMap, criteria } = state;
+  const issues = [];
+  let hardFail = false;
+  const get = (field) => { const col = columnMap[field]; return col ? String(row[col] !== undefined ? row[col] : '').trim() : ''; };
+
+  const jobTitle = get('jobTitle');
+  const industry = get('industry');
+  const company  = get('company');
+
+  // ---- PA / EA exclusion (checked before anything else) ----
+  if (!criteria.includePaEa && isPA_EA(jobTitle)) {
+    issues.push({ field: 'Job Title', reason: 'Title appears to be a PA, EA or "assistant to" role — not a decision-maker', severity: 'fail' });
+    hardFail = true;
+  }
+
+  // ---- Exclusions ----
+  if (criteria.exclTitles.length     && fuzzyIncludes(jobTitle, criteria.exclTitles, 0.25)) { issues.push({ field: 'Job Title', reason: 'Job title matches an exclusion keyword', severity: 'fail' }); hardFail = true; }
+  if (criteria.exclIndustries.length && fuzzyIncludes(industry, criteria.exclIndustries, 0.25)) { issues.push({ field: 'Industry', reason: 'Industry matches an exclusion keyword', severity: 'fail' }); hardFail = true; }
+  if (criteria.exclCompanies.length  && fuzzyIncludes(company,  criteria.exclCompanies, 0.2))  { issues.push({ field: 'Company',  reason: 'Company name matches an exclusion keyword', severity: 'fail' }); hardFail = true; }
+
+  // ---- Job Title ----
+  // Uses titleMatchesKeywords which:
+  //   1. Checks the full title (catches "Marketing Director")
+  //   2. Splits compound titles ("CEO & Founder" → ["CEO", "Founder"])
+  //   3. Strips context noise ("CEO of the Company" → "CEO")
+  //   so "Chief Executive Officer", "CEO of Acme", "Founder & CEO" all match "CEO".
+  if (criteria.jobTitles.length) {
+    if (!jobTitle) {
+      issues.push({ field: 'Job Title', reason: 'Job title is missing', severity: 'warning' });
+    } else if (!titleMatchesKeywords(jobTitle, criteria.jobTitles, 0.25)) {
+      const roleLabels = criteria.jobRoleLabels || [];
+      const preview    = roleLabels.slice(0, 4).join(', ');
+      const hint       = preview ? ` — targeting: ${preview}${roleLabels.length > 4 ? '…' : ''}` : '';
+      // Second pass with looser threshold — similar but unconfirmed titles → Unclear
+      if (titleMatchesKeywords(jobTitle, criteria.jobTitles, 0.45)) {
+        issues.push({ field: 'Job Title', reason: `Job title may be related to accepted roles but couldn't be confirmed${hint}`, severity: 'warning' });
+      } else {
+        issues.push({ field: 'Job Title', reason: `Job title does not appear to match accepted roles${hint}`, severity: 'fail' });
+        hardFail = true;
+      }
+    }
+  }
+
+  // Seniority
+  if (criteria.seniorities.length) {
+    const rawSen = get('seniority');
+    let detected = rawSen ? inferSeniority(rawSen) || rawSen.toLowerCase() : null;
+    if (!detected) detected = inferSeniority(jobTitle);
+    if (!detected) {
+      issues.push({ field: 'Seniority', reason: 'Seniority could not be determined', severity: 'warning' });
+    } else if (!criteria.seniorities.includes(detected)) {
+      const labels = { 'c-level':'C-Suite','founder':'Founder','vp':'VP','director':'Director','manager':'Manager','senior':'Senior','individual':'Entry Level' };
+      issues.push({ field: 'Seniority', reason: `Seniority appears outside accepted levels (detected: ${labels[detected] || detected})`, severity: 'fail' }); hardFail = true;
+    }
+  }
+
+  // Industry
+  if (criteria.industries.length) {
+    if (!industry) { issues.push({ field: 'Industry', reason: 'Industry is missing', severity: 'warning' }); }
+    else if (!fuzzyIncludes(industry, criteria.industries, 0.42)) { issues.push({ field: 'Industry', reason: 'Industry does not match target industries', severity: 'fail' }); hardFail = true; }
+  }
+
+  // Niche
+  const niche = get('niche');
+  if (criteria.niches.length) {
+    if (!niche) { issues.push({ field: 'Niche', reason: 'Niche column not found or empty — could not verify', severity: 'warning' }); }
+    else if (!fuzzyIncludes(niche, criteria.niches, 0.42)) { issues.push({ field: 'Niche', reason: 'Niche does not match target niches', severity: 'warning' }); }
+  }
+
+  // Headcount
+  const hasMinMax = criteria.headcountMin !== '' || criteria.headcountMax !== '';
+  if (hasMinMax) {
+    const raw = get('headcount');
+    if (!raw) { issues.push({ field: 'Headcount', reason: 'Company size is missing', severity: 'warning' }); }
+    else {
+      const hc = parseHeadcount(raw);
+      if (hc === null) { issues.push({ field: 'Headcount', reason: `Company size could not be parsed: "${raw}"`, severity: 'warning' }); }
+      else {
+        const min = criteria.headcountMin !== '' ? Number(criteria.headcountMin) : null;
+        const max = criteria.headcountMax !== '' ? Number(criteria.headcountMax) : null;
+        if (min !== null && hc < min) { issues.push({ field: 'Headcount', reason: `Company too small (approx. ${hc} employees; min is ${min})`, severity: 'fail' }); hardFail = true; }
+        else if (max !== null && hc > max) { issues.push({ field: 'Headcount', reason: `Company too large (approx. ${hc} employees; max is ${max})`, severity: 'fail' }); hardFail = true; }
+      }
+    }
+  }
+
+  // Country
+  const country = get('country');
+  if (criteria.countries.length) {
+    if (!country) { issues.push({ field: 'Country', reason: 'Country is missing', severity: 'warning' }); }
+    else if (!countryMatches(country, criteria.countries)) { issues.push({ field: 'Country', reason: `Country is outside target geography ("${country}")`, severity: 'fail' }); hardFail = true; }
+  }
+
+  // City
+  const city = get('city');
+  if (criteria.cities.length) {
+    if (!city) { issues.push({ field: 'City', reason: 'City is missing', severity: 'warning' }); }
+    else if (!fuzzyIncludes(city, criteria.cities, 0.35)) { issues.push({ field: 'City', reason: `City is outside target locations ("${city}")`, severity: 'warning' }); }
+  }
+
+  const status = hardFail || issues.some(i => i.severity === 'fail') ? 'fail'
+               : issues.some(i => i.severity === 'warning') ? 'warning' : 'match';
+  return { status, issues };
+}
+
+// ============================================================
+// SCAN
+// ============================================================
+function collectCriteria() {
+  return {
+    jobTitles:      getSelectedRoleKeywords(),
+    jobRoleLabels:  getSelectedRoleLabels(),
+    includePaEa:    document.getElementById('toggle-pa-ea').checked,
+    seniorities:    Array.from(document.querySelectorAll('input[name="seniority"]:checked')).map(el => el.value),
+    industries:     getTags('tags-industries'),
+    niches:         getTags('tags-niches'),
+    headcountMin:   document.getElementById('headcount-min').value.trim(),
+    headcountMax:   document.getElementById('headcount-max').value.trim(),
+    countries:      getTags('tags-countries'),
+    cities:         getTags('tags-cities'),
+    exclTitles:     getTags('tags-excl-titles'),
+    exclCompanies:  getTags('tags-excl-companies'),
+    exclIndustries: getTags('tags-excl-industries'),
+  };
+}
+
+function scanList() {
+  state.criteria = collectCriteria();
+  state.results  = state.rawData.map(row => {
+    const { status, issues } = evaluateRow(row);
+    return { row, status, issues, selected: status === 'match' };
+  });
+}
+
+// ============================================================
+// RESULTS TABLE
+// ============================================================
+function effectiveStatus(r) { return r.override || r.status; }
+
+function getVisibleResults() {
+  const f = state.currentFilter;
+  let rows = state.results.filter(r => {
+    if (f === 'all')      return true;
+    if (f === 'approved') return r.status === 'match' || r.override === 'approved';
+    if (f === 'warning')  return !r.override && r.status === 'warning';
+    if (f === 'fail')     return !r.override && r.status === 'fail';
+    return true;
+  });
+  if (state.fieldFilter) rows = rows.filter(r => r.issues.some(i => i.field === state.fieldFilter));
+  return rows;
+}
+
+function renderResultsTable(filter) {
+  state.currentFilter = filter;
+  const thead = document.getElementById('results-thead');
+  const tbody = document.getElementById('results-tbody');
+
+  const displayResults = getVisibleResults();
+  const allSelected  = displayResults.length > 0 && displayResults.every(r => r.selected);
+  const someSelected = displayResults.some(r => r.selected);
+
+  thead.innerHTML = `<tr>
+    <th class="col-check"><input type="checkbox" class="row-check" id="master-check" title="Select / deselect all visible" ${allSelected ? 'checked' : ''} ${(!allSelected && someSelected) ? 'data-indeterminate="true"' : ''}></th>
+    <th class="th-status">Status</th>
+    <th class="th-issues">Issue</th>
+    ${state.headers.map(h => `<th>${h}</th>`).join('')}
+  </tr>`;
+
+  const masterCb = document.getElementById('master-check');
+  if (masterCb) masterCb.indeterminate = !allSelected && someSelected;
+  masterCb && masterCb.addEventListener('change', () => {
+    getVisibleResults().forEach(r => { r.selected = masterCb.checked; });
+    renderResultsTable(state.currentFilter);
+    renderSummary('qa-summary');
+  });
+
+  tbody.innerHTML = '';
+  if (!displayResults.length) {
+    tbody.innerHTML = `<tr><td colspan="${state.headers.length + 3}" style="text-align:center;color:var(--text-muted);padding:32px;font-size:13px">No rows match this filter.</td></tr>`;
+    renderFieldFilters();
+    return;
+  }
+
+  const badgeMap = { match:'badge-match', warning:'badge-warning', fail:'badge-fail', approved:'badge-approved' };
+  const labelMap = { match:'Match', warning:'Unclear', fail:'Fail', approved:'Approved' };
+
+  displayResults.forEach(result => {
+    const trueIdx = state.results.indexOf(result);
+    const es = effectiveStatus(result);
+    const tr = document.createElement('tr');
+    if      (es === 'approved') tr.classList.add('row-approved');
+    else if (es === 'fail')     tr.classList.add('row-fail');
+    else if (es === 'warning')  tr.classList.add('row-warning');
+    else if (es === 'match')    tr.classList.add('row-match');
+
+    // Checkbox
+    const checkTd = document.createElement('td');
+    checkTd.className = 'col-check';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.className = 'row-check';
+    cb.checked = result.selected;
+    cb.addEventListener('change', () => toggleSelection(trueIdx, cb.checked));
+    checkTd.appendChild(cb);
+    tr.appendChild(checkTd);
+
+    // Status — first data column
+    const statusTd = document.createElement('td');
+    statusTd.className = 'td-status';
+    statusTd.innerHTML = `<span class="badge ${badgeMap[es] || 'badge-match'}">${labelMap[es] || es}</span>`;
+    tr.appendChild(statusTd);
+
+    // Issues — second data column
+    const issuesTd = document.createElement('td');
+    issuesTd.className = 'issues-cell';
+    issuesTd.innerHTML = result.issues.length
+      ? result.issues.map(i => {
+          const cls = i.severity === 'fail' ? 'issue-fail' : 'issue-warn';
+          return `<div class="issue-line ${cls}"><span class="issue-field">${i.field}:</span> ${i.reason}</div>`;
+        }).join('')
+      : '<span style="color:var(--text-muted)">—</span>';
+    tr.appendChild(issuesTd);
+
+    // Original data columns
+    state.headers.forEach(h => {
+      const td = document.createElement('td');
+      td.textContent = result.row[h] !== undefined ? result.row[h] : '';
+      td.title = td.textContent; tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+
+  renderFieldFilters();
+}
+
+function toggleSelection(idx, selected) {
+  state.results[idx].selected = selected;
+  // Update master checkbox
+  const visible = getVisibleResults();
+  const allSel  = visible.length > 0 && visible.every(r => r.selected);
+  const someSel = visible.some(r => r.selected);
+  const master  = document.getElementById('master-check');
+  if (master) { master.checked = allSel; master.indeterminate = !allSel && someSel; }
+  renderSummary('qa-summary');
+}
+
+function approveSelected() {
+  const toApprove = getVisibleResults().filter(r => r.selected);
+  if (!toApprove.length) return;
+  toApprove.forEach(r => { r.override = 'approved'; r.selected = true; });
+  renderResultsTable(state.currentFilter);
+  renderSummary('qa-summary');
+}
+
+function renderFieldFilters() {
+  const bar = document.getElementById('field-filter-bar');
+  const f   = state.currentFilter;
+  // Only show field sub-filters when there are issues to filter by
+  const hasIssues = ['all', 'warning', 'fail'].includes(f);
+  if (!hasIssues) { bar.classList.add('hidden'); return; }
+
+  // Collect distinct fields from all base results (ignoring fieldFilter)
+  const baseResults = state.results.filter(r => {
+    if (f === 'all')     return r.issues.length > 0;
+    if (f === 'warning') return !r.override && r.status === 'warning';
+    if (f === 'fail')    return !r.override && r.status === 'fail';
+    return false;
+  });
+  const fields = [...new Set(baseResults.flatMap(r => r.issues.map(i => i.field)))];
+
+  if (fields.length < 2) { bar.classList.add('hidden'); return; }
+
+  bar.classList.remove('hidden');
+  bar.innerHTML = `
+    <span class="field-filter-label">Filter by:</span>
+    <button class="btn btn-filter btn-sm ${!state.fieldFilter ? 'active' : ''}" onclick="setFieldFilter(null)">All issues</button>
+    ${fields.map(field => `
+      <button class="btn btn-filter btn-sm ${state.fieldFilter === field ? 'active' : ''}" onclick="setFieldFilter('${field}')">${field}</button>
+    `).join('')}
+  `;
+}
+
+function setFieldFilter(field) {
+  state.fieldFilter = field;
+  renderResultsTable(state.currentFilter);
+}
+
+// ============================================================
+// QA SUMMARY
+// ============================================================
+function renderSummary(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const total    = state.results.length;
+  const approved = state.results.filter(r => r.status === 'match' || r.override === 'approved').length;
+  const warned   = state.results.filter(r => !r.override && r.status === 'warning').length;
+  const failed   = state.results.filter(r => !r.override && r.status === 'fail').length;
+  const selected = state.results.filter(r => r.selected).length;
+  const pct      = total > 0 ? Math.round((approved / total) * 100) : 0;
+  const f = state.currentFilter;
+  el.innerHTML = `
+    <div class="summary-card total   ${f==='all'      ?'active':''}" data-filter="all">      <div class="value">${total}</div>    <div class="label">Total Leads</div></div>
+    <div class="summary-card match   ${f==='approved' ?'active':''}" data-filter="approved"> <div class="value">${approved}</div> <div class="label">Approved</div></div>
+    <div class="summary-card warning ${f==='warning'  ?'active':''}" data-filter="warning">  <div class="value">${warned}</div>  <div class="label">Unclear</div></div>
+    <div class="summary-card fail    ${f==='fail'     ?'active':''}" data-filter="fail">     <div class="value">${failed}</div>  <div class="label">Failed</div></div>
+    <div class="summary-card pct">    <div class="value">${selected}</div>  <div class="label">Selected for Export</div></div>
+    <div class="summary-card">        <div class="value" style="color:#8b5cf6">${pct}%</div> <div class="label">List Approved</div></div>
+  `;
+  // Wire up click handlers on the freshly rendered cards
+  el.querySelectorAll('.summary-card[data-filter]').forEach(card => {
+    card.addEventListener('click', () => {
+      state.fieldFilter = null;
+      state.currentFilter = card.dataset.filter;
+      renderSummary(containerId);
+      renderResultsTable(state.currentFilter);
+    });
+  });
+}
+
+// ============================================================
+// COLUMN MAPPING DISPLAY + MANUAL OVERRIDE
+// ============================================================
+
+// Fields shown in the mapper, in display order.
+// key = true → highlighted as a QA field (affects scan results)
+const FIELD_META = {
+  jobTitle:  { label: 'Job Title',              key: true  },
+  company:   { label: 'Company',                key: false },
+  industry:  { label: 'Industry',               key: true  },
+  headcount: { label: 'Headcount / Company Size', key: true },
+  country:   { label: 'Country',                key: true  },
+  city:      { label: 'City',                   key: true  },
+  seniority: { label: 'Seniority',              key: true  },
+  niche:     { label: 'Niche / Sub-niche',      key: true  },
+  firstName: { label: 'First Name',             key: false },
+  lastName:  { label: 'Last Name',              key: false },
+  linkedin:  { label: 'LinkedIn URL',           key: false },
+};
+
+function buildColMapRow(field, meta) {
+  const current     = state.columnMap[field] || '';
+  const wasAuto     = !!state._autoDetected[field];
+  const isManual    = current && !wasAuto;
+  const statusClass = current ? (isManual ? 'manual' : 'auto') : 'missing';
+  const statusText  = current ? (isManual ? 'Manual' : 'Auto')  : 'Not found';
+  const opts = `<option value="">— not mapped —</option>${state.headers.map(h =>
+    `<option value="${h}"${h === current ? ' selected' : ''}>${h}</option>`
+  ).join('')}`;
+  return `<div class="col-map-row${meta.key ? ' col-map-key' : ''}">
+    <span class="col-map-label">${meta.label}${meta.key ? ' <span class="col-map-required">*</span>' : ''}</span>
+    <select class="col-map-select" data-field="${field}" onchange="updateColumnMap('${field}',this.value)">${opts}</select>
+    <span class="col-map-status ${statusClass}" id="cms-${field}">${statusText}</span>
+  </div>`;
+}
+
+function renderColumnMapping() {
+  const container = document.getElementById('column-mapping');
+
+  // Snapshot auto-detected state on first render after a file load
+  if (!state._autoDetected) state._autoDetected = { ...state.columnMap };
+
+  // Split fields into detected and not-detected
+  const detected    = Object.entries(FIELD_META).filter(([f]) =>  state.columnMap[f]);
+  const notDetected = Object.entries(FIELD_META).filter(([f]) => !state.columnMap[f]);
+
+  const detectedHtml = detected.length ? `
+    <div class="col-map-section-label">Auto-detected (${detected.length})</div>
+    <div class="col-map-grid">${detected.map(([f, m]) => buildColMapRow(f, m)).join('')}</div>
+  ` : '';
+
+  const notDetectedHtml = notDetected.length ? `
+    <div class="col-map-section-label col-map-section-warn">
+      Not detected — map manually if present in your file (${notDetected.length})
+    </div>
+    <div class="col-map-grid col-map-grid-undetected">${notDetected.map(([f, m]) => buildColMapRow(f, m)).join('')}</div>
+  ` : `<p style="font-size:12px;color:#10b981;margin-top:8px">&#10003; All fields detected automatically.</p>`;
+
+  // Columns in the file not assigned to any field
+  const usedCols  = new Set(Object.values(state.columnMap).filter(Boolean));
+  const extraCols = state.headers.filter(h => !usedCols.has(h));
+  const extraHtml = extraCols.length
+    ? `<p style="font-size:11px;color:#6b7280;margin-top:8px">${extraCols.length} other column(s) not mapped to a QA field — preserved in exports: ${extraCols.map(c => `<em>${c}</em>`).join(', ')}</p>`
+    : '';
+
+  container.innerHTML = detectedHtml + notDetectedHtml + extraHtml;
+}
+
+function updateColumnMap(field, colName) {
+  // If this column is already assigned to a different field, clear that first
+  if (colName) {
+    for (const [f, col] of Object.entries(state.columnMap)) {
+      if (col === colName && f !== field) {
+        delete state.columnMap[f];
+        // Update the other field's badge + select to "not mapped"
+        const otherSelect = document.querySelector(`select[data-field="${f}"]`);
+        if (otherSelect) otherSelect.value = '';
+        const otherBadge = document.getElementById(`cms-${f}`);
+        if (otherBadge) { otherBadge.className = 'col-map-status missing'; otherBadge.textContent = 'Not found'; }
+      }
+    }
+    state.columnMap[field] = colName;
+  } else {
+    delete state.columnMap[field];
+  }
+
+  // Re-render the whole mapping panel — this keeps the detected/not-detected
+  // sections in sync whenever a manual mapping moves a field between sections.
+  renderColumnMapping();
+}
+
+// ============================================================
+// PREVIEW TABLE
+// ============================================================
+function renderPreviewTable() {
+  const table = document.getElementById('preview-table');
+  const rows  = state.rawData.slice(0, 5);
+  table.innerHTML = `<thead><tr>${state.headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${state.headers.map(h=>`<td>${r[h]!==undefined?r[h]:''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  document.getElementById('preview-count').textContent = `— ${state.rawData.length} rows`;
+}
+
+// ============================================================
+// FILE PARSING
+// ============================================================
+function parseFile(file) {
+  state.fileName = file.name;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb   = XLSX.read(data, { type: 'array' });
+      const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+      if (!json.length) { alert('The file appears to be empty or could not be read.'); return; }
+      state.rawData        = json;
+      state.headers        = Object.keys(json[0]);
+      state.columnMap      = detectColumns(state.headers);
+      state._autoDetected  = { ...state.columnMap }; // snapshot for badge tracking
+      const info = document.getElementById('file-info');
+      info.textContent = `✓ Loaded: ${file.name} — ${json.length} rows, ${state.headers.length} columns`;
+      info.classList.remove('hidden');
+      renderColumnMapping();
+      renderPreviewTable();
+      document.getElementById('preview-section').classList.remove('hidden');
+    } catch (err) { alert('Could not read the file. Please ensure it is a valid .xlsx or .csv file.'); console.error(err); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ============================================================
+// EXPORT
+// ============================================================
+function getCleanedRows() {
+  return state.results.filter(r => r.selected).map(r => r.row);
+}
+
+function getFlaggedRows() {
+  return state.results
+    .filter(r => r.status === 'warning' || r.status === 'fail')
+    .map(r => ({ ...r.row, 'QA Status': r.status.toUpperCase(), 'Included in Export': r.selected ? 'Yes' : 'No', 'QA Issues': r.issues.map(i=>`[${i.field}] ${i.reason}`).join(' | ') }));
+}
+
+function exportXlsx(rows, filename) {
+  if (!rows.length) { alert('No rows to export with current settings.'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Leads');
+  XLSX.writeFile(wb, filename);
+}
+
+function exportQASummary() {
+  const total   = state.results.length;
+  const matched = state.results.filter(r => { const s=effectiveStatus(r); return s==='match'||s==='approved'; }).length;
+  const warned  = state.results.filter(r => effectiveStatus(r)==='warning').length;
+  const failed  = state.results.filter(r => effectiveStatus(r)==='fail').length;
+  const removed = state.results.filter(r => effectiveStatus(r)==='removed').length;
+  const pct     = total > 0 ? Math.round((matched/total)*100) : 0;
+  const counts  = {};
+  state.results.forEach(r => r.issues.forEach(i => { counts[i.reason] = (counts[i.reason]||0)+1; }));
+  const topReasons = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const c = state.criteria;
+  const lines = [
+    'TARGETING QA — SCAN REPORT',
+    `Generated : ${new Date().toLocaleString()}`,
+    `File      : ${state.fileName}`,
+    '',
+    '='.repeat(52), 'SUMMARY', '='.repeat(52),
+    `Total Leads Uploaded : ${total}`,
+    `Matched              : ${matched} (${pct}%)`,
+    `Unclear              : ${warned}`,
+    `Failed               : ${failed}`,
+    `Manually Removed     : ${removed}`,
+    `Approved (%)         : ${pct}%`,
+    '',
+    '='.repeat(52), 'TARGETING CRITERIA USED', '='.repeat(52),
+    `Job Roles Targeted   : ${(c.jobRoleLabels||[]).join(', ')||'Not specified'}`,
+    `Seniority Levels     : ${c.seniorities.join(', ')   ||'Not specified'}`,
+    `Industries           : ${c.industries.join(', ')    ||'Not specified'}`,
+    `Niches               : ${c.niches.join(', ')        ||'Not specified'}`,
+    `Countries            : ${c.countries.join(', ')     ||'Not specified'}`,
+    `Cities               : ${c.cities.join(', ')        ||'Not specified'}`,
+    `Headcount Range      : ${c.headcountMin||'Any'} – ${c.headcountMax||'Any'} employees`,
+    '',
+    '='.repeat(52), 'TOP FAILURE / WARNING REASONS', '='.repeat(52),
+    ...(topReasons.length ? topReasons.map(([r,n]) => `${String(n).padStart(4)}x  ${r}`) : ['None']),
+    '', '-'.repeat(52),
+    'Generated by Targeting QA / Lead Scrubber — Unstuck Operations',
+  ];
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a'); a.href = url;
+  a.download = `QA_Report_${new Date().toISOString().slice(0,10)}.txt`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// STEP NAVIGATION
+// ============================================================
+function goToStep(step) {
+  for (let i = 1; i <= 4; i++) document.getElementById(`panel-${i}`).classList.toggle('hidden', i !== step);
+  document.querySelectorAll('.step-item').forEach(el => {
+    const s = parseInt(el.dataset.step);
+    el.classList.remove('active','done');
+    if (s === step) el.classList.add('active');
+    if (s < step)  el.classList.add('done');
+  });
+  state.currentStep = step;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function canNavigateTo(step) {
+  if (step === 1) return true;
+  if (step === 2) return state.rawData.length > 0;
+  if (step === 3) return state.results.length > 0;
+  if (step === 4) return state.results.length > 0;
+  return false;
+}
+
+// Wire up step nav clicks — only navigates to steps that have been reached
+document.querySelectorAll('.step-item').forEach(el => {
+  el.addEventListener('click', () => {
+    const step = parseInt(el.dataset.step);
+    if (canNavigateTo(step)) {
+      if (step === 3) renderSummary('qa-summary');
+      if (step === 4) renderSummary('export-summary');
+      goToStep(step);
+    }
+  });
+});
+
+// ============================================================
+// INIT
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+
+  // Upload
+  const zone  = document.getElementById('upload-zone');
+  const input = document.getElementById('file-input');
+  zone.addEventListener('click',     () => input.click());
+  zone.addEventListener('dragover',  (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', ()  => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('drag-over'); if (e.dataTransfer.files[0]) parseFile(e.dataTransfer.files[0]); });
+  input.addEventListener('change', () => { if (input.files[0]) { parseFile(input.files[0]); input.value = ''; } });
+  document.getElementById('btn-to-targeting').addEventListener('click', () => { if (!state.rawData.length) { alert('Please upload a file first.'); return; } goToStep(2); });
+
+  // Targeting
+  renderRoleGroups();
+  ['tags-job-titles','tags-industries','tags-niches','tags-countries','tags-cities','tags-excl-titles','tags-excl-companies','tags-excl-industries'].forEach(initTagInput);
+  document.getElementById('btn-back-1').addEventListener('click', () => goToStep(1));
+  document.getElementById('btn-scan').addEventListener('click', () => { state.currentFilter = 'all'; state.fieldFilter = null; scanList(); renderSummary('qa-summary'); renderResultsTable('all'); goToStep(3); });
+
+  // Review
+  document.getElementById('btn-approve-selected').addEventListener('click', approveSelected);
+  document.getElementById('btn-back-2').addEventListener('click', () => goToStep(2));
+  document.getElementById('btn-to-export').addEventListener('click', () => { renderSummary('export-summary'); goToStep(4); });
+
+  document.getElementById('btn-select-all-visible').addEventListener('click', () => {
+    getVisibleResults().forEach(r => { r.selected = true; });
+    renderResultsTable(state.currentFilter);
+    renderSummary('qa-summary');
+  });
+  document.getElementById('btn-deselect-all-visible').addEventListener('click', () => {
+    getVisibleResults().forEach(r => { r.selected = false; });
+    renderResultsTable(state.currentFilter);
+    renderSummary('qa-summary');
+  });
+
+  // Export
+  document.getElementById('btn-export-clean').addEventListener('click',   () => exportXlsx(getCleanedRows(), `Cleaned_Leads_${new Date().toISOString().slice(0,10)}.xlsx`));
+  document.getElementById('btn-export-flagged').addEventListener('click', () => exportXlsx(getFlaggedRows(), `Flagged_Leads_${new Date().toISOString().slice(0,10)}.xlsx`));
+  document.getElementById('btn-export-summary').addEventListener('click', exportQASummary);
+  document.getElementById('btn-back-3').addEventListener('click', () => goToStep(3));
+  document.getElementById('btn-new-scan').addEventListener('click', () => {
+    if (!confirm('Start a new scan? This will clear all current data.')) return;
+    Object.assign(state, { rawData:[], headers:[], columnMap:{}, criteria:{}, results:[], currentStep:1, currentFilter:'all', fileName:'' });
+    document.getElementById('file-info').classList.add('hidden');
+    document.getElementById('preview-section').classList.add('hidden');
+    document.getElementById('file-input').value = '';
+    goToStep(1);
+  });
+
+  goToStep(1);
+});
+</script>
+</body>
+</html>
