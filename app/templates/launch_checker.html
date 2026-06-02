@@ -745,13 +745,13 @@ const CHECKS = [
       { id:'dnc_sl_domains',   label:'Client domains and contacts added to the DNC list',           channels:['smartlead'],                clientTypes:['new'] },
       { id:'dnc_sl_existing',  label:'Correct client profile assigned to the campaign',             channels:['smartlead'],                clientTypes:['existing'] },
       { id:'dnc_ma_salenav',   label:'LinkedIn Sales Navigator subscription confirmed with client', channels:['meet_alfred'],              clientTypes:['new'] },
-      { id:'dnc_mm_ma_tool',   label:'Lead list run through Mail Merge tool',                       channels:['mail_merge','meet_alfred'], clientTypes:['new','existing'] },
+      { id:'dnc_mm_ma_tool',   label:'Lead list run through the Scrubber tool',                    channels:['mail_merge','meet_alfred'], clientTypes:['new','existing'] },
     ]
   },
   {
     id: 'recently_contacted', label: 'Recently Contacted Removal',
     channels: ['smartlead','mail_merge','meet_alfred'], clientTypes: ['existing'],     subSteps: [
-      { id:'rc_tool', label:'Lead list run through Mail Merge tool to remove recently contacted contacts', channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['existing'] },
+      { id:'rc_tool', label:'Lead list run through the Scrubber tool to remove recently contacted contacts', channels:['smartlead','mail_merge','meet_alfred'], clientTypes:['existing'] },
     ]
   },
   {
