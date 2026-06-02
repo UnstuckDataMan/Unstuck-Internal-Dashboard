@@ -3165,7 +3165,12 @@
         const errDiv = document.getElementById('add-entry-error');
         if (errDiv) errDiv.innerHTML = '';
 
+        // Preserve the user's chosen reason across the reset so the dropdown
+        // doesn't visually snap back to the HTML default (opt_out).
+        const reasonEl     = document.getElementById('add-entry-reason');
+        const savedReason  = reasonEl ? reasonEl.value : null;
         addEntryForm.reset();
+        if (reasonEl && savedReason) reasonEl.value = savedReason;
 
         if (addEntrySuccess && addEntrySuccessMsg) {
           if (_successTimer) clearTimeout(_successTimer);
@@ -3264,14 +3269,23 @@
     const fnameEl  = $('mm-upload-filename');
     if (!zone || !fileInput) return;
 
-    zone.addEventListener('click', () => fileInput.click());
+    function _scrubWarningOk() {
+      return confirm(
+        '⚠️  Have you scrubbed this list?\n\n' +
+        'All prospect lists must be run through the DNC Scrub tool before ' +
+        'uploading to Mail Merge to ensure compliance.\n\n' +
+        'Click OK to continue with your upload, or Cancel to scrub the list first.'
+      );
+    }
+
+    zone.addEventListener('click', () => { if (_scrubWarningOk()) fileInput.click(); });
     zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
     zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
     zone.addEventListener('drop', e => {
       e.preventDefault();
       zone.classList.remove('dragover');
       const f = e.dataTransfer.files[0];
-      if (f) doUpload(f);
+      if (f && _scrubWarningOk()) doUpload(f);
     });
     fileInput.addEventListener('change', () => {
       const f = fileInput.files[0];
