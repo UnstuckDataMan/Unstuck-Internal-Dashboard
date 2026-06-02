@@ -270,7 +270,7 @@ async def refresh_campaign(request: Request, campaign_id: str):
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers(),
             params={"id": f"eq.{campaign_id}",
-                    "select": "id,sheet_id,client_id,total_prospects"},
+                    "select": "id,sheet_id,client_id,campaign_name,total_prospects"},
             timeout=10,
         )
         r.raise_for_status()
@@ -281,9 +281,10 @@ async def refresh_campaign(request: Request, campaign_id: str):
     if not rows:
         return JSONResponse({"error": "Campaign not found."}, status_code=404)
 
-    campaign  = rows[0]
-    sheet_id  = campaign.get("sheet_id", "")
-    client_id = campaign.get("client_id", "")
+    campaign      = rows[0]
+    sheet_id      = campaign.get("sheet_id", "")
+    client_id     = campaign.get("client_id", "")
+    campaign_name = campaign.get("campaign_name", "") or ""
 
     if not sheet_id:
         return JSONResponse({"error": "No sheet linked."}, status_code=400)
@@ -306,12 +307,54 @@ async def refresh_campaign(request: Request, campaign_id: str):
     except Exception:
         pass   # Non-fatal — sent_count will still be updated below
 
+    sent_data: list[dict] = []
+    chaser_count = 0
     try:
-        from app.utils.google_sheets import read_sent_with_dates
+        from app.utils.google_sheets import read_sent_with_dates, write_sent_dates
         sent_data    = read_sent_with_dates(sheet_id)
         chaser_count = sum(1 for e in sent_data if e.get("chaser_sent"))
+
+        # ── Back-fill missing Sent Date cells ────────────────────────────
+        # Mirror the same logic as auto_sync so Refresh gives an accurate
+        # contacted_at date for the Today stat rather than always writing today.
+        today_str  = _date.today().isoformat()
+        to_write: list[tuple[int, str]] = []
+        for entry in sent_data:
+            if not entry["sent_date"]:
+                entry["sent_date"] = today_str
+                to_write.append((entry["row_num"], today_str))
+        if to_write:
+            try:
+                write_sent_dates(sheet_id, to_write)
+            except Exception:
+                pass
+
+        # ── Sync contacted_prospects so the Today stat is current ─────────
+        # The auto-sync runs twice daily; clicking Refresh brings the count
+        # up to date immediately so users don't wait for the next scheduled run.
+        if sent_data:
+            cp_rows = [
+                {
+                    "client_id":    client_id,
+                    "email":        e["email"],
+                    "contacted_at": e["sent_date"],
+                    "source":       "auto_sync",
+                    **({"campaign_name": campaign_name} if campaign_name else {}),
+                }
+                for e in sent_data
+            ]
+            for i in range(0, len(cp_rows), CHUNK_SIZE):
+                try:
+                    http_req.post(
+                        f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                        headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                        json=cp_rows[i : i + CHUNK_SIZE],
+                        timeout=30,
+                    )
+                except Exception:
+                    pass
     except Exception:
-        pass   # Non-fatal — chaser_count column may not exist yet
+        pass   # Non-fatal — counters below will still update
 
     patch_body: dict = {
         "sent_count":        status["sent"],
