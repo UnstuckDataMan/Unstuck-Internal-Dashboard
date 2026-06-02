@@ -3270,12 +3270,18 @@
     if (!zone || !fileInput) return;
 
     function _scrubWarningOk() {
-      return confirm(
+      const ok = confirm(
         '⚠️  Have you scrubbed this list?\n\n' +
         'All prospect lists must be run through the DNC Scrub tool before ' +
         'uploading to Mail Merge to ensure compliance.\n\n' +
-        'Click OK to continue with your upload, or Cancel to scrub the list first.'
+        'Click OK to continue with your upload, or Cancel to go to the Scrubber.'
       );
+      if (!ok) {
+        // Take the user directly to the Scrub Prospects tab
+        const scrubTabBtn = document.querySelector('[data-tab="tab-scrub"]');
+        if (scrubTabBtn) scrubTabBtn.click();
+      }
+      return ok;
     }
 
     zone.addEventListener('click', () => { if (_scrubWarningOk()) fileInput.click(); });
