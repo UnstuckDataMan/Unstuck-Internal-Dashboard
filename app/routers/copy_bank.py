@@ -447,3 +447,86 @@ def merge_unstuck_profiles():
         "industries":  merged_industries,
         "status":      patch_resp.status_code,
     }
+
+
+# ── Apostrophe normalisation ───────────────────────────────────────────────────
+
+_CURLY_APOS_TABLE = str.maketrans({
+    "‘": "'",   # LEFT  SINGLE QUOTATION MARK  →  straight apostrophe
+    "’": "'",   # RIGHT SINGLE QUOTATION MARK  →  straight apostrophe
+    "‚": "'",   # SINGLE LOW-9 QUOTATION MARK  →  straight apostrophe
+    "‛": "'",   # SINGLE HIGH-REVERSED-9       →  straight apostrophe
+})
+
+
+def _normalise_str(s: str) -> str:
+    return s.translate(_CURLY_APOS_TABLE) if isinstance(s, str) else s
+
+
+def _normalise_value(v):
+    """Recursively normalise apostrophes in any JSON-compatible value."""
+    if isinstance(v, str):
+        return v.translate(_CURLY_APOS_TABLE)
+    if isinstance(v, dict):
+        return {k: _normalise_value(val) for k, val in v.items()}
+    if isinstance(v, list):
+        return [_normalise_value(item) for item in v]
+    return v
+
+
+@router.post("/api/copy-bank/normalize-apostrophes")
+def normalize_apostrophes():
+    """
+    One-time (idempotent) migration: replace curly/smart apostrophes with
+    straight apostrophes in every copy_bank_templates row that contains them.
+    Returns counts of rows inspected, changed, and any errors.
+    """
+    url = os.environ.get("SUPABASE_URL", "")
+
+    # Fetch all template rows (skip meta keys — profiles list, etc.)
+    resp = http_req.get(
+        f"{url}/rest/v1/copy_bank_templates",
+        params={"select": "key,content"},
+        headers=_sb_headers(),
+        timeout=30,
+    )
+    if not resp.ok:
+        return JSONResponse({"ok": False, "error": resp.text}, status_code=500)
+
+    rows      = resp.json()
+    inspected = 0
+    changed   = 0
+    errors    = []
+
+    for row in rows:
+        key     = row.get("key", "")
+        content = row.get("content")
+        if content is None:
+            continue
+
+        inspected += 1
+        normalised = _normalise_value(content)
+
+        # Only write back if something actually changed (cheap json round-trip comparison)
+        if json.dumps(normalised, ensure_ascii=False) == json.dumps(content, ensure_ascii=False):
+            continue
+
+        patch = http_req.patch(
+            f"{url}/rest/v1/copy_bank_templates",
+            params={"key": f"eq.{key}"},
+            headers=_sb_write_headers("return=minimal"),
+            json={"content": normalised},
+            timeout=10,
+        )
+        if patch.ok:
+            changed += 1
+        else:
+            errors.append({"key": key, "status": patch.status_code, "body": patch.text[:200]})
+            log.error("normalize_apostrophes: failed to patch %s — %s", key, patch.text[:200])
+
+    return JSONResponse({
+        "ok":        len(errors) == 0,
+        "inspected": inspected,
+        "changed":   changed,
+        "errors":    errors,
+    })

@@ -2424,8 +2424,24 @@ function defaultContent() {
   };
 }
 
+// Recursively normalise apostrophes in all string values of a content object.
+// Runs on every load so display is always consistent even before the
+// one-time backend migration has been triggered.
+function normaliseContentApostrophes(obj) {
+  if (typeof obj === 'string') return normaliseApostrophes(obj);
+  if (Array.isArray(obj))  return obj.map(normaliseContentApostrophes);
+  if (obj && typeof obj === 'object') {
+    const out = {};
+    Object.keys(obj).forEach(function(k){ out[k] = normaliseContentApostrophes(obj[k]); });
+    return out;
+  }
+  return obj;
+}
+
 function migrateContent(c) {
   if (!c) return defaultContent();
+  // Normalise apostrophes first so all downstream code sees clean strings
+  c = normaliseContentApostrophes(c);
   if (Array.isArray(c.email)) {
     c.email = { subjects: c.email.map(function(i){return i.subject||'';}).filter(Boolean), variations: c.email.map(function(i){return{body:i.body||''};}) };
   }
@@ -2556,6 +2572,13 @@ async function loadFromSupabase() {
     await Promise.all([loadProfiles(), loadAllClients()]);
     await autoAddClientProfiles();
     renderProfileScreen();
+
+    // Run apostrophe normalisation in the background on every load.
+    // The endpoint is idempotent — it only patches rows that actually contain curly apostrophes.
+    fetch('/api/copy-bank/normalize-apostrophes', { method: 'POST' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d.changed) log('Apostrophe normalisation: '+d.changed+' row(s) updated in Supabase.'); })
+      .catch(function(){}); // non-fatal
   } catch(e) {
     document.getElementById('profile-screen').classList.remove('visible');
     document.getElementById('main-header').style.display = 'flex';
@@ -3363,8 +3386,15 @@ function deleteEntry(editInfo) {
 // ════════════════════════════════════════════════════════
 //  PROFILES ADMIN — begin (remove formatting kept inline)
 // ════════════════════════════════════════════════════════
+// Replace curly/smart apostrophes with straight apostrophe ' (U+0027).
+// Applied to all copy on paste and on save so content is always consistent.
+function normaliseApostrophes(text) {
+  // ‘ = '  ’ = '  ‚ = ‚  ‛ = ‛
+  return (text || '').replace(/[‘’‚‛]/g, "'");
+}
+
 function stripFormatting(text) {
-  return text
+  return normaliseApostrophes(text)
     .replace(/\r\n/g, '\n')          // Windows → Unix line endings
     .replace(/\r/g, '\n')            // old Mac → Unix
     .replace(/[​‌‍﻿]/g, '')  // zero-width & BOM chars
@@ -4114,6 +4144,8 @@ function enterCardEditMode(card, editInfo) {
 }
 
 function commitCardEdit(card, editInfo, val) {
+  // Normalise apostrophes at commit time so stored value is always clean
+  val = normaliseApostrophes(val);
   if (!TEMPLATES[editInfo.key]) TEMPLATES[editInfo.key] = defaultContent();
   const d = TEMPLATES[editInfo.key];
   if (editInfo.type === 'subject') {
