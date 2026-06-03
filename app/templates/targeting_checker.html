@@ -1444,6 +1444,100 @@ function fuzzyIncludes(value, keywords, threshold = 0.38) {
 }
 
 // ============================================================
+// INDUSTRY MATCHING  (three-tier)
+//
+//   'pass'    – industry closely matches a target keyword
+//   'warning' – industry is a compound of multiple domains and
+//               one component matches; route to manual review
+//   'fail'    – no meaningful match
+//
+// Design goals:
+//   • "Marketing"         vs target "Marketing"          → pass
+//   • "Digital Marketing" vs target "Marketing"          → pass
+//   • "Marketing Agency"  vs target "Marketing"          → pass
+//   • "Marketing and Comms" vs target "Marketing"        → warning
+//   • "Marketing & PR"    vs target "Marketing"          → warning
+//   • "Financial Services" vs target "Finance"           → pass
+//   • "Technology"        vs target "Tech"               → pass
+//   • User types "Marketting" (typo) → still matches "Marketing" data → pass
+//   • "Financial Services" vs target "Marketing"         → fail
+// ============================================================
+function evaluateIndustryMatch(industry, targets) {
+  if (!industry || !targets || !targets.length) return 'fail';
+
+  const STOP = new Set(['of', 'the', 'a', 'an', 'or', 'for', 'in', 'at', 'to', 'by']);
+
+  // Normalise: lowercase, hyphens → spaces, collapse whitespace
+  function normI(s) {
+    return s.toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  // Split a normalised string on conjunction/separator characters.
+  // "marketing and comms" → ["marketing", "comms"]
+  // "marketing & pr"       → ["marketing", "pr"]
+  // "b2b marketing"        → ["b2b marketing"]  (no split)
+  function splitComponents(s) {
+    return s.split(/\s*[&\/|,;+]\s*|\s+(?:and|or)\s+/i)
+      .map(p => p.trim()).filter(Boolean);
+  }
+
+  // Are two normalised strings a close match?
+  //   val = normalised prospect industry value (or component of it)
+  //   kw  = normalised user-supplied target keyword (may contain typos)
+  function isClose(val, kw) {
+    if (val === kw) return true;
+
+    // Short tokens ≤4 chars (hr, pr, it, ai…) — require whole-word match
+    // to avoid "pr" matching inside "marketing practices"
+    if (kw.length <= 4) {
+      return ` ${val} `.includes(` ${kw} `);
+    }
+
+    // val contains kw as a substring ("digital marketing" contains "marketing")
+    if (val.includes(kw)) return true;
+
+    // kw contains val — only allowed when val has ≥2 meaningful words
+    // (prevents single word "marketing" matching target "digital marketing")
+    const valWords = val.split(/\s+/).filter(w => w.length > 1 && !STOP.has(w));
+    if (kw.includes(val) && valWords.length >= 2) return true;
+
+    // Token-set: every meaningful word of kw must appear as a whole word in val
+    // ("financial services" matches target "finance services")
+    const kwWords = kw.split(/\s+/).filter(w => w.length > 1 && !STOP.has(w));
+    if (kwWords.length > 0 && kwWords.every(w => ` ${val} `.includes(` ${w} `))) return true;
+
+    // Fuse.js spell-check: catches typos in user-entered target keywords.
+    // e.g. user types "Marketting" as target → still matches "Marketing" in data.
+    const fuse = new Fuse([kw], { includeScore: true, threshold: 0.25, minMatchCharLength: 3 });
+    const res = fuse.search(val);
+    return res.length > 0 && res[0].score <= 0.25;
+  }
+
+  const iNorm = normI(industry);
+  const components = splitComponents(iNorm);
+  const isCompound = components.length > 1;
+  let bestResult = 'fail';
+
+  for (const target of targets) {
+    const tNorm = normI(target);
+
+    if (isCompound) {
+      // Multi-domain industry (joined by "and", "&", "/", "," etc.).
+      // A matching component means the company spans this industry PLUS others
+      // → flag for manual review rather than auto-approving.
+      if (components.some(c => isClose(c, tNorm))) {
+        bestResult = 'warning';  // keep searching; a later target might still give pass
+      }
+    } else {
+      // Single-domain industry: the whole field must match the target → immediate pass.
+      if (isClose(iNorm, tNorm)) return 'pass';
+    }
+  }
+
+  return bestResult;
+}
+
+// ============================================================
 // PA / EA DETECTION
 // Catches "assistant TO [role]", "EA to", "PA to", "executive assistant",
 // "personal assistant" — but NOT "Assistant Director" or "Assistant Manager"
@@ -1582,8 +1676,18 @@ function evaluateRow(row) {
 
   // Industry
   if (criteria.industries.length) {
-    if (!industry) { issues.push({ field: 'Industry', reason: 'Industry is missing', severity: 'warning' }); }
-    else if (!fuzzyIncludes(industry, criteria.industries, 0.42)) { issues.push({ field: 'Industry', reason: 'Industry does not match target industries', severity: 'fail' }); hardFail = true; }
+    if (!industry) {
+      issues.push({ field: 'Industry', reason: 'Industry is missing', severity: 'warning' });
+    } else {
+      const indResult = evaluateIndustryMatch(industry, criteria.industries);
+      if (indResult === 'warning') {
+        issues.push({ field: 'Industry', reason: `Industry "${industry}" spans multiple sectors — includes a target industry but also covers other areas`, severity: 'warning' });
+      } else if (indResult === 'fail') {
+        issues.push({ field: 'Industry', reason: 'Industry does not match target industries', severity: 'fail' });
+        hardFail = true;
+      }
+      // 'pass' → no issue logged
+    }
   }
 
   // Niche
