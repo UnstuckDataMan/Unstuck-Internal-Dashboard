@@ -282,25 +282,39 @@ async def bd_targeting_data(request: Request):
     if not _sb_configured():
         return _error("Supabase is not configured.")
 
-    # ── 1. Fetch all Unstuck Agency campaigns ──────────────────────
-    try:
-        r = http_req.get(
-            f"{SUPABASE_URL}/rest/v1/campaigns",
-            headers=_sb_headers(),
-            params={
-                "select":      "id,created_at,campaign_name,tags,"
-                               "total_prospects,sent_count,"
-                               "lead_count,reply_count,interested_count,unsubscribe_count,"
-                               "completed,completed_at,paused",
-                "client_name": "ilike.*Unstuck*",
-                "order":       "created_at.desc",
-            },
-            timeout=15,
-        )
-        r.raise_for_status()
-        raw = r.json()
-    except Exception as exc:
-        return _error(f"Could not load campaigns: {exc}")
+    # ── 1. Fetch campaigns (include client_name; filter for Unstuck in Python)
+    # Try with `paused` column first; fall back without it if the column is
+    # absent from this Supabase deployment.  Client-name filtering is done in
+    # Python to avoid ilike encoding issues with the PostgREST REST layer.
+    _BASE_SELECT = (
+        "id,created_at,campaign_name,tags,client_name,"
+        "total_prospects,sent_count,"
+        "lead_count,reply_count,interested_count,unsubscribe_count,"
+        "completed,completed_at"
+    )
+    raw: list[dict] = []
+    last_exc: Exception | None = None
+    for select_cols in [_BASE_SELECT + ",paused", _BASE_SELECT]:
+        try:
+            r = http_req.get(
+                f"{SUPABASE_URL}/rest/v1/campaigns",
+                headers=_sb_headers(),
+                params={"select": select_cols, "order": "created_at.desc"},
+                timeout=15,
+            )
+            r.raise_for_status()
+            all_camps = r.json()
+            # Filter to Unstuck Agency in Python
+            raw = [
+                c for c in all_camps
+                if "unstuck" in (c.get("client_name") or "").lower()
+            ]
+            break
+        except Exception as exc:
+            last_exc = exc
+            if ",paused" not in select_cols:
+                return _error(f"Could not load campaigns: {exc}")
+            # else retry without paused column
 
     # ── 2. Parse + annotate ────────────────────────────────────────
     campaigns: list[dict] = []
