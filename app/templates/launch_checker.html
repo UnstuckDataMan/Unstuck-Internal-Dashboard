@@ -978,6 +978,9 @@ async function renderHome() {
 }
 
 function renderHomeCards(records) {
+  const ipList = document.getElementById('in-progress-list');
+  const prList = document.getElementById('previous-list');
+
   // ── Client filter pills ──────────────────────────────────────────────────
   const filterBar = document.getElementById('home-filter-bar');
   const clients = [...new Set(records.map(r => r.client_name).filter(Boolean))].sort();
