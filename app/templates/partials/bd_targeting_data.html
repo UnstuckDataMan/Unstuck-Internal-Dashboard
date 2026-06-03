@@ -74,7 +74,9 @@
 
           {% if row.campaigns %}
             {% for camp in row.campaigns %}
-            <tr>
+            <tr class="bdt-clickable-row"
+                data-camp-name="{{ camp.campaign_name or '' }}"
+                title="Click to open this campaign">
               {% if loop.first %}
               <td class="bdt-person-cell" rowspan="{{ row.campaigns | length }}">
                 <span class="bdt-person-tag">
