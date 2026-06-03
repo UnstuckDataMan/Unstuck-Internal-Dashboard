@@ -287,7 +287,7 @@ async def bd_targeting_data(request: Request):
     # absent from this Supabase deployment.  Client-name filtering is done in
     # Python to avoid ilike encoding issues with the PostgREST REST layer.
     _BASE_SELECT = (
-        "id,created_at,campaign_name,tags,client_name,"
+        "id,created_at,campaign_name,tags,client_name,client_id,"
         "total_prospects,sent_count,"
         "lead_count,reply_count,interested_count,unsubscribe_count,"
         "completed,completed_at"

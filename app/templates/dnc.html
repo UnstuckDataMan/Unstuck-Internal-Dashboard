@@ -2818,12 +2818,54 @@
       });
     });
 
-    // ── Auto-activate tab from URL hash (e.g. /dnc-removal#campaigns) ── //
+    // ── Auto-activate tab + client + campaign from URL params ────────── //
+    // Supports: /dnc-removal#campaigns
+    //           /dnc-removal?goto_client=UUID&goto_campaign=UUID#campaigns
     (function() {
-      const hash = window.location.hash.replace('#', '');
+      const hash         = window.location.hash.replace('#', '');
+      const params       = new URLSearchParams(window.location.search);
+      const gotoClient   = params.get('goto_client');
+      const gotoCampaign = params.get('goto_campaign');
+
       if (!hash) return;
-      const target = document.querySelector('.dnc-tab-btn[data-tab="tab-' + hash + '"]');
-      if (target) target.click();
+
+      // Step 1: click the right tab
+      const tabBtn = document.querySelector('.dnc-tab-btn[data-tab="tab-' + hash + '"]');
+      if (tabBtn) tabBtn.click();
+
+      // Step 2: if we have a client + campaign to land on, auto-select + highlight
+      if (!gotoClient || !gotoCampaign || hash !== 'campaigns') return;
+
+      // Poll until the client <select> has real options loaded via HTMX
+      function trySelectClient(tries) {
+        if (tries <= 0) return;
+        const sel = document.getElementById('camp-client-filter-sel');
+        if (!sel) { setTimeout(() => trySelectClient(tries - 1), 250); return; }
+        // Options not yet populated (just the placeholder)
+        const hasOptions = Array.from(sel.options).some(o => o.value && o.value !== '');
+        if (!hasOptions) { setTimeout(() => trySelectClient(tries - 1), 250); return; }
+
+        // Select the right client
+        sel.value = gotoClient;
+        if (!sel.value) return;  // client not found in list, give up
+
+        // Trigger the change handler that loads campaigns
+        sel.dispatchEvent(new Event('change'));
+
+        // Poll until the campaign card appears in the DOM, then select it
+        function tryHighlight(tries) {
+          if (tries <= 0) return;
+          const card = document.querySelector('.camp-card[data-camp-id="' + gotoCampaign + '"]');
+          if (!card) { setTimeout(() => tryHighlight(tries - 1), 250); return; }
+
+          // Simulate click to open campaign stats (same as manual click)
+          card.click();
+          // Scroll to card after the stats panel has rendered
+          setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
+        }
+        setTimeout(() => tryHighlight(24), 600);  // wait for campaigns to render
+      }
+      setTimeout(() => trySelectClient(20), 400);  // wait for options HTMX load
     })();
 
     // ── Scrub button — enable only when file + client both set ───── //

@@ -374,12 +374,16 @@
 
 <script>
 // ── Campaign goto modal ────────────────────────────────────────
-var _bdtOverlay  = document.getElementById('bdt-goto-overlay');
-var _bdtGotoName = document.getElementById('bdt-goto-name');
+var _bdtOverlay    = document.getElementById('bdt-goto-overlay');
+var _bdtGotoName   = document.getElementById('bdt-goto-name');
+var _bdtGotoCampId = '';
+var _bdtGotoClientId = '';
 
-function _bdtShowGoto(name) {
-  _bdtGotoName.textContent = name;
-  _bdtOverlay.style.display = 'flex';
+function _bdtShowGoto(name, campId, clientId) {
+  _bdtGotoName.textContent   = name;
+  _bdtGotoCampId             = campId   || '';
+  _bdtGotoClientId           = clientId || '';
+  _bdtOverlay.style.display  = 'flex';
 }
 function _bdtHideGoto() {
   _bdtOverlay.style.display = 'none';
@@ -391,13 +395,23 @@ _bdtOverlay.addEventListener('click', function(e) {
 });
 document.getElementById('bdt-goto-confirm').addEventListener('click', function() {
   _bdtHideGoto();
-  window.location.href = '/dnc-removal#campaigns';
+  var url = '/dnc-removal';
+  var params = [];
+  if (_bdtGotoClientId)  params.push('goto_client='   + encodeURIComponent(_bdtGotoClientId));
+  if (_bdtGotoCampId)    params.push('goto_campaign='  + encodeURIComponent(_bdtGotoCampId));
+  if (params.length) url += '?' + params.join('&');
+  url += '#campaigns';
+  window.location.href = url;
 });
 // Campaign row click (event-delegated so it works after HTMX swaps)
 document.body.addEventListener('click', function(e) {
   var row = e.target.closest('.bdt-clickable-row');
   if (!row) return;
-  _bdtShowGoto(row.dataset.campName || '');
+  _bdtShowGoto(
+    row.dataset.campName   || '',
+    row.dataset.campId     || '',
+    row.dataset.clientId   || ''
+  );
 });
 
 // ── Tab switching ──────────────────────────────────────────────
