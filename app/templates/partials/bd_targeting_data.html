@@ -1,0 +1,265 @@
+{% if no_client %}
+<div class="bdt-placeholder">
+  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,.4)"
+       stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 11l19-9-9 19-2-8-8-2z"/>
+  </svg>
+  <p>Select a client above to view BD targeting data.</p>
+</div>
+
+{% elif error %}
+<div class="err-box" style="margin-top:0">{{ error }}</div>
+
+{% elif not sdr_cards and not sdr_tabs %}
+<div class="bdt-placeholder">
+  <p>No campaigns found for this client.</p>
+</div>
+
+{% else %}
+
+{# ── Tab bar ─────────────────────────────────────────────────── #}
+<div class="bdt-tabs" role="tablist">
+  <button class="bdt-tab-btn active" data-tab="bdt-tab-team" role="tab">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"
+         style="display:inline;vertical-align:-1px;margin-right:5px">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+    Team
+  </button>
+  {% for st in sdr_tabs %}
+  <button class="bdt-tab-btn" data-tab="{{ st.tab_id }}" role="tab">{{ st.sdr }}</button>
+  {% endfor %}
+  <button class="bdt-tab-btn" data-tab="bdt-tab-map" role="tab">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"
+         style="display:inline;vertical-align:-1px;margin-right:5px">
+      <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/>
+      <line x1="8" y1="2" x2="8" y2="18"/>
+      <line x1="16" y1="6" x2="16" y2="22"/>
+    </svg>
+    Map
+  </button>
+</div>
+
+{# ══════════════════════════════════════════════════════════════
+   TEAM TAB
+══════════════════════════════════════════════════════════════ #}
+<div id="bdt-tab-team" class="bdt-tab-panel">
+
+  {% if sdr_cards %}
+  <div class="bdt-cards-grid">
+    {% for card in sdr_cards %}
+    <div class="bdt-person-card">
+      <div class="bdt-card-header">
+        <div class="bdt-card-avatar">{{ card.sdr[0] | upper }}</div>
+        <span class="bdt-card-name">{{ card.sdr }}</span>
+        <span class="bdt-card-count">{{ card.rows | length }} campaign{{ 's' if card.rows | length != 1 else '' }}</span>
+      </div>
+      <div class="bdt-card-rows">
+        {% for row in card.rows %}
+        <div class="bdt-campaign-row{% if row.paused %} bdt-row-paused{% endif %}">
+          <div class="bdt-row-top">
+            <span class="bdt-status-dot{% if row.paused %} bdt-dot-paused{% endif %}"></span>
+            <span class="bdt-row-targeting">
+              {{ row.territory or '—' }}
+              {% if row.industry %} · <span>{{ row.industry }}</span>{% endif %}
+              {% if row.headcount %} · <span class="bdt-headcount">{{ row.headcount }}</span>{% endif %}
+            </span>
+            {% if row.sender %}
+            <span class="bdt-via">via {{ row.sender }}</span>
+            {% endif %}
+          </div>
+          <div class="bdt-row-meta">
+            {% if row.total_prospects and row.total_prospects | int > 0 %}
+              <span>{{ row.sent_count or 0 | int }} / {{ row.total_prospects | int }} sent</span>
+            {% else %}
+              <span>{{ row.sent_count or 0 | int }} sent</span>
+            {% endif %}
+            {% if row.lead_rate is not none %}
+              <span class="bdt-lead-rate">{{ "%.1f" | format(row.lead_rate * 100) }}% lead rate</span>
+            {% endif %}
+            {% if row.paused %}
+              <span class="bdt-badge-paused">Paused</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="bdt-empty">No active campaigns right now.</p>
+  {% endif %}
+
+</div>{# /team tab #}
+
+{# ══════════════════════════════════════════════════════════════
+   INDIVIDUAL SDR TABS
+══════════════════════════════════════════════════════════════ #}
+{% for st in sdr_tabs %}
+<div id="{{ st.tab_id }}" class="bdt-tab-panel" style="display:none">
+
+  {# Currently targeting #}
+  {% if st.current %}
+  <h3 class="bdt-section-heading">Currently Targeting</h3>
+  <div class="bdt-cards-grid" style="margin-bottom:32px">
+    <div class="bdt-person-card">
+      <div class="bdt-card-rows">
+        {% for row in st.current %}
+        <div class="bdt-campaign-row{% if row.paused %} bdt-row-paused{% endif %}">
+          <div class="bdt-row-top">
+            <span class="bdt-status-dot{% if row.paused %} bdt-dot-paused{% endif %}"></span>
+            <span class="bdt-row-targeting">
+              {{ row.territory or '—' }}
+              {% if row.industry %} · {{ row.industry }}{% endif %}
+              {% if row.headcount %} · <span class="bdt-headcount">{{ row.headcount }}</span>{% endif %}
+            </span>
+            {% if row.sender %}
+            <span class="bdt-via">via {{ row.sender }}</span>
+            {% endif %}
+          </div>
+          <div class="bdt-row-meta">
+            {% if row.total_prospects and row.total_prospects | int > 0 %}
+              <span>{{ row.sent_count or 0 | int }} / {{ row.total_prospects | int }} sent</span>
+            {% else %}
+              <span>{{ row.sent_count or 0 | int }} sent</span>
+            {% endif %}
+            {% if row.lead_rate is not none %}
+              <span class="bdt-lead-rate">{{ "%.1f" | format(row.lead_rate * 100) }}% lead rate</span>
+            {% endif %}
+            {% if row.paused %}
+              <span class="bdt-badge-paused">Paused</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# History table #}
+  <h3 class="bdt-section-heading">Targeting History</h3>
+  {% if st.history_groups %}
+  <div class="bdt-tbl-wrap">
+    <table class="bdt-table">
+      <thead>
+        <tr>
+          <th>Territory</th>
+          <th>Industry / Role Level</th>
+          <th>Headcount</th>
+          <th>Last Run</th>
+          <th>Lead Rate</th>
+          <th>Campaigns</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in st.history_groups %}
+        <tr>
+          <td><span class="bdt-territory-chip">{{ g.territory }}</span></td>
+          <td>{{ g.industry }}</td>
+          <td class="bdt-muted">{{ g.headcounts }}</td>
+          <td>
+            <span class="bdt-recency bdt-recency-{{ g.recency_class }}">{{ g.human_recency }}</span>
+          </td>
+          <td>
+            {% if g.aggregate_lead_rate is not none %}
+              <span class="bdt-lead-chip">{{ "%.1f" | format(g.aggregate_lead_rate * 100) }}%</span>
+            {% else %}
+              <span class="bdt-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="bdt-muted">{{ g.campaign_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="bdt-empty">No completed campaigns yet.</p>
+  {% endif %}
+
+</div>{# /sdr tab #}
+{% endfor %}
+
+{# ══════════════════════════════════════════════════════════════
+   MAP TAB
+══════════════════════════════════════════════════════════════ #}
+<div id="bdt-tab-map" class="bdt-tab-panel" style="display:none">
+
+  {# Legend #}
+  <div class="bdt-map-legend">
+    <span class="bdt-legend-item">
+      <span class="bdt-legend-dot bdt-legend-active"></span> Live campaign
+    </span>
+    <span class="bdt-legend-item">
+      <span class="bdt-legend-dot bdt-legend-recent"></span> Stopped &lt; 14 days ago
+    </span>
+    <span class="bdt-legend-item">
+      <span class="bdt-legend-dot bdt-legend-available"></span> Not recently targeted
+    </span>
+  </div>
+
+  {% if map_rows %}
+  <div class="bdt-map-scroll">
+    <table class="bdt-map-table">
+      <thead>
+        <tr>
+          <th class="bdt-map-corner"></th>
+          {% for ih in map_industry_headers %}
+          <th class="bdt-map-col-header" title="{{ ih.display }}">
+            <div class="bdt-map-col-label">{{ ih.display }}</div>
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in map_rows %}
+        <tr>
+          <td class="bdt-map-row-header">{{ row.territory }}</td>
+          {% for cell in row.cells %}
+          <td class="bdt-map-cell bdt-cell-{{ cell.status }}"
+              {% if cell.sub %}title="{{ cell.status | title }}: {{ cell.sub }}"{% endif %}>
+            {% if cell.status == 'active' %}
+            <span class="bdt-cell-label">LIVE</span>
+            {% if cell.sub %}<span class="bdt-cell-sub">{{ cell.sub }}</span>{% endif %}
+            {% elif cell.status == 'recent' %}
+            <span class="bdt-cell-label">{{ cell.label }}</span>
+            {% if cell.sub %}<span class="bdt-cell-sub">{{ cell.sub }}</span>{% endif %}
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="bdt-empty">
+    No targeting data available.
+    {% if not map_rows %}
+      Add territories and industries to this client's Copy Bank profile to populate the map.
+    {% endif %}
+  </p>
+  {% endif %}
+
+</div>{# /map tab #}
+
+{# ── Unparseable notice ──────────────────────────────────────── #}
+{% if unparseable %}
+<details class="bdt-unparse" style="margin-top:24px">
+  <summary>{{ unparseable | length }} campaign name{{ 's' if unparseable | length != 1 else '' }} couldn't be parsed</summary>
+  <ul class="bdt-unparse-list">
+    {% for c in unparseable %}
+    <li><code>{{ c.campaign_name or '(no name)' }}</code></li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
+
+{% endif %}{# /main else #}
