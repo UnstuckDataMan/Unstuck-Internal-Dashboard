@@ -47,7 +47,7 @@
 ═══════════════════════════════════════════════════════════════ #}
 <div id="bdt-tab-team" class="bdt-tab-panel" style="display:none">
 
-  {% if not team_rows or team_rows | selectattr('campaigns') | list | length == 0 %}
+  {% if not team_rows %}
   <div class="bdt-empty">No active Unstuck campaigns found.</div>
 
   {% else %}
@@ -55,7 +55,6 @@
     <table class="bdt-team-table">
       <thead>
         <tr>
-          <th style="width:110px">Person</th>
           <th>Territory</th>
           <th>Industry / Role Level</th>
           <th>Size</th>
@@ -68,25 +67,31 @@
         {% for row in team_rows %}
           {% set person_colour = team_colours.get(row.sdr, '#8b5cf6') %}
 
-          {% if not loop.first %}
-          <tr class="bdt-group-sep"><td colspan="7"></td></tr>
-          {% endif %}
+          {# ── Person section header ────────────────────────────── #}
+          <tr class="bdt-person-header-row">
+            <td colspan="6" style="border-left: 4px solid {{ person_colour }}">
+              <span class="bdt-person-badge">
+                <span class="bdt-person-dot" style="background:{{ person_colour }};
+                     box-shadow: 0 0 8px {{ person_colour }}88"></span>
+                <span class="bdt-person-name">{{ row.sdr }}</span>
+                {% if row.campaigns %}
+                <span class="bdt-person-camp-count">
+                  · {{ row.campaigns | length }} active campaign{{ 's' if row.campaigns | length != 1 else '' }}
+                </span>
+                {% endif %}
+              </span>
+            </td>
+          </tr>
 
+          {# ── Campaign rows ────────────────────────────────────── #}
           {% if row.campaigns %}
             {% for camp in row.campaigns %}
-            <tr class="bdt-clickable-row"
+            <tr class="bdt-campaign-data-row bdt-clickable-row"
                 data-camp-name="{{ camp.campaign_name or '' }}"
                 data-camp-id="{{ camp.id or '' }}"
                 data-client-id="{{ camp.client_id or '' }}"
-                title="Click to open this campaign">
-              {% if loop.first %}
-              <td class="bdt-person-cell" rowspan="{{ row.campaigns | length }}">
-                <span class="bdt-person-tag">
-                  <span class="bdt-person-dot" style="background:{{ person_colour }}"></span>
-                  <span class="bdt-person-name">{{ row.sdr }}</span>
-                </span>
-              </td>
-              {% endif %}
+                title="Click to open this campaign"
+                style="border-left: 4px solid {{ person_colour }}22">
               <td>
                 {% if camp.territory %}
                 <span class="bdt-territory-chip">{{ camp.territory }}</span>
@@ -96,7 +101,7 @@
               </td>
               <td>{{ camp.industry or '—' }}</td>
               <td class="bdt-headcount">{{ camp.headcount or '—' }}</td>
-              <td class="bdt-muted">
+              <td class="bdt-progress">
                 {% if camp.total_prospects and camp.total_prospects | int > 0 %}
                   {{ camp.sent_count or 0 | int }} / {{ camp.total_prospects | int }}
                 {% else %}
@@ -121,14 +126,10 @@
             {% endfor %}
 
           {% else %}
-          <tr class="bdt-empty-row">
-            <td class="bdt-person-cell">
-              <span class="bdt-person-tag">
-                <span class="bdt-person-dot" style="background:{{ person_colour }};opacity:.4"></span>
-                <span class="bdt-person-name" style="opacity:.45">{{ row.sdr }}</span>
-              </span>
+          <tr class="bdt-empty-person-row">
+            <td colspan="6" style="border-left: 4px solid {{ person_colour }}22">
+              No active campaigns
             </td>
-            <td colspan="6" class="bdt-muted">No active campaigns</td>
           </tr>
           {% endif %}
 
