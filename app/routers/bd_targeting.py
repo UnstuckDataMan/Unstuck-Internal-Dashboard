@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import requests as http_req
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Request
 
 from app.deps import templates
 
@@ -15,6 +15,34 @@ router = APIRouter()
 
 SUPABASE_URL      = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+
+# ── Team members ───────────────────────────────────────────────────────────────
+# Maps lowercase tag → display name (add/remove as team grows)
+TEAM_MEMBERS: dict[str, str] = {
+    "chris":  "Chris",
+    "robyn":  "Robyn",
+    "glen":   "Glen",
+    "leo":    "Leo",
+    "devlin": "Devlin",
+}
+# Display order in Tab 1 and toggles
+TEAM_ORDER = ["Chris", "Robyn", "Glen", "Leo", "Devlin"]
+
+# Colour hex per person (used in heatmap chips and history table)
+TEAM_COLOURS: dict[str, str] = {
+    "Chris":  "#3b82f6",   # blue
+    "Robyn":  "#f472b6",   # pink
+    "Glen":   "#22c55e",   # green
+    "Leo":    "#a78bfa",   # purple
+    "Devlin": "#fb923c",   # orange
+}
+
+# ── Territory constants ────────────────────────────────────────────────────────
+KNOWN_TERRITORIES = {
+    "UK", "US", "AU", "NZ", "CA", "IE", "ZA", "SG",
+    "UAE", "SA", "IN", "DE", "FR", "EU",
+}
+TERRITORY_ALIASES = {"AUS": "AU", "USA": "US"}
 
 
 # ── Supabase helpers ───────────────────────────────────────────────────────────
@@ -34,62 +62,78 @@ def _sb_configured() -> bool:
     return bool(SUPABASE_URL and SUPABASE_ANON_KEY)
 
 
-# ── Campaign name parser ───────────────────────────────────────────────────────
+# ── SDR from tags ──────────────────────────────────────────────────────────────
 
-KNOWN_TERRITORIES = {
-    "UK", "US", "AU", "NZ", "CA", "IE", "ZA", "SG",
-    "UAE", "SA", "IN", "DE", "FR", "EU",
-}
-TERRITORY_ALIASES = {"AUS": "AU", "USA": "US"}
-_HEADCOUNT_RE = re.compile(r"^\d+\s*[-–—]\s*\d+$")
+def _sdr_from_tags(tags) -> Optional[str]:
+    """Find the first tag that matches a known team member."""
+    if not tags:
+        return None
+    for tag in (tags if isinstance(tags, list) else []):
+        key = str(tag).strip().lower()
+        if key in TEAM_MEMBERS:
+            return TEAM_MEMBERS[key]
+    return None
+
+
+# ── Campaign name parser ───────────────────────────────────────────────────────
+# Handles both:
+#   "Leo – Accounting – Founder & Marketing Roles – 4 – 200 – UK"  (en-dash, space-padded)
+#   "Chris (Devlin Sender) - PR - CSuite-Marketing - 8-200 - UK"   (legacy hyphen format)
+#
+# Strategy: split on dash/en-dash/em-dash that is SURROUNDED by spaces.
+# This preserves "CSuite-Marketing" (no surrounding spaces) and "8-200" as single tokens,
+# while correctly splitting on " – " and " - ".
+_SPLIT_RE      = re.compile(r" [–—\-] ")
+_LONE_INT_RE   = re.compile(r"^\d+$")
+_RANGE_RE      = re.compile(r"^\d+\s*[-–—]\s*\d+$")
 
 
 def _parse_campaign_name(name: str) -> dict:
     """
-    Parse a campaign name like:
-      'Chris (Devlin Sender) - PR - CSuite-Marketing - 8-200 - UK'
-    into structured fields: sdr, sender, territory, headcount, industry.
+    Returns {territory, headcount, industry, parse_ok}.
+    SDR is resolved separately from tags — not from the name.
     """
     result: dict = {
-        "sdr": None, "sender": None, "territory": None,
-        "headcount": None, "industry": None, "parse_ok": False,
+        "territory": None, "headcount": None,
+        "industry": None, "parse_ok": False,
     }
     if not name:
         return result
 
-    paren_open = name.find("(")
-    if paren_open == -1:
-        return result
+    segments = [s.strip() for s in _SPLIT_RE.split(name) if s.strip()]
 
-    sdr_raw = name[:paren_open].strip().rstrip("-").strip()
-    result["sdr"] = sdr_raw or None
-
-    paren_close = name.find(")", paren_open)
-    if paren_close == -1:
-        return result
-
-    inner = name[paren_open + 1: paren_close].strip()
-    m = re.match(r"^(.*?)\s+[Ss]enders?$", inner)
-    if m:
-        result["sender"] = m.group(1).strip() or None
-
-    payload = name[paren_close + 1:].lstrip().lstrip("-–—").lstrip()
-    segments = [s.strip() for s in re.split(r"\s*[-–—]\s*", payload) if s.strip()]
-
+    numbers:        list[str] = []
     industry_parts: list[str] = []
+
     for seg in segments:
-        upper = seg.upper().strip()
+        upper = seg.upper()
         normalised = TERRITORY_ALIASES.get(upper, upper)
+
         if normalised in KNOWN_TERRITORIES:
             if result["territory"] is None:
                 result["territory"] = normalised
-        elif _HEADCOUNT_RE.match(seg):
-            if result["headcount"] is None:
-                result["headcount"] = seg
-        else:
-            industry_parts.append(seg)
 
-    result["industry"]  = " / ".join(industry_parts) if industry_parts else None
+        elif _RANGE_RE.match(seg):
+            # Already a combined range like "8-200" or "50–200"
+            if result["headcount"] is None:
+                result["headcount"] = re.sub(r"\s*[–—]\s*", "-", seg)
+
+        elif _LONE_INT_RE.match(seg):
+            numbers.append(seg)
+
+        else:
+            # Skip segments that are just a team member's name
+            if seg.lower() not in TEAM_MEMBERS:
+                industry_parts.append(seg)
+
+    # Combine lone integers into headcount (e.g. "4" + "200" → "4-200")
+    if result["headcount"] is None:
+        if len(numbers) >= 2:
+            result["headcount"] = f"{numbers[0]}-{numbers[1]}"
+        elif len(numbers) == 1:
+            result["headcount"] = numbers[0]
+
+    result["industry"]  = " · ".join(industry_parts) if industry_parts else None
     result["parse_ok"]  = bool(result["territory"] or industry_parts)
     return result
 
@@ -108,8 +152,7 @@ def _recency_class(iso: Optional[str]) -> str:
             return "green"
         elif weeks < 12:
             return "amber"
-        else:
-            return "red"
+        return "red"
     except Exception:
         return "red"
 
@@ -129,11 +172,11 @@ def _human_recency(iso: Optional[str]) -> str:
         elif days < 7:
             return f"{days}d ago"
         elif days < 30:
-            weeks = days // 7
-            return f"{weeks} week{'s' if weeks != 1 else ''} ago"
+            w = days // 7
+            return f"{w} week{'s' if w != 1 else ''} ago"
         else:
-            months = days // 30
-            return f"{months} month{'s' if months != 1 else ''} ago"
+            mo = days // 30
+            return f"{mo} month{'s' if mo != 1 else ''} ago"
     except Exception:
         return "Unknown"
 
@@ -149,26 +192,19 @@ def _lead_rate(lead_count, sent_count) -> Optional[float]:
 
 
 def _best_date(row: dict) -> Optional[str]:
-    """Prefer completed_at, fall back to created_at."""
     return row.get("completed_at") or row.get("created_at") or None
 
 
-# ── String normalisation for fuzzy matching ────────────────────────────────────
-
 def _norm(s: str) -> str:
-    """Lower-case, collapse whitespace/underscores/dashes/slashes to a single space."""
-    return re.sub(r"[\s_\-/]+", " ", (s or "")).strip().lower()
+    return re.sub(r"[\s_\-/·]+", " ", (s or "")).strip().lower()
 
 
 # ── Copy Bank profile fetch ────────────────────────────────────────────────────
 
-def _fetch_cb_profiles(
-    client_id: str,
-) -> tuple[list[str], list[str], dict[str, str]]:
+def _fetch_cb_profiles_for_unstuck() -> tuple[list[str], list[str], dict[str, str]]:
     """
-    Returns (territories, industries, industry_labels) for the given client_id.
-    Industries are the raw profile keys; industry_labels maps key → display name.
-    Falls back to empty lists on any error.
+    Pull the BizDev profile territories and industries from Copy Bank profiles.
+    Returns (territories, industries, industry_labels).
     """
     try:
         r = http_req.get(
@@ -183,9 +219,10 @@ def _fetch_cb_profiles(
         if not data or not isinstance(data[0].get("content"), list):
             return [], [], {}
 
+        # Use all bizdev profiles (type == 'bizdev')
         profiles = [
             p for p in data[0]["content"]
-            if isinstance(p, dict) and p.get("client_id") == client_id
+            if isinstance(p, dict) and p.get("type") == "bizdev"
         ]
 
         territories: set[str] = set()
@@ -224,73 +261,39 @@ async def bd_targeting_page(request: Request):
     )
 
 
-@router.get("/api/bd-targeting/clients")
-async def bd_targeting_clients(request: Request):
-    if not _sb_configured():
-        return templates.TemplateResponse(
-            "partials/bd_targeting_clients_options.html",
-            {"request": request, "clients": [], "error": "Supabase not configured."},
-        )
-    try:
-        r = http_req.get(
-            f"{SUPABASE_URL}/rest/v1/clients",
-            headers=_sb_headers(),
-            params={"select": "id,name", "order": "name.asc"},
-            timeout=10,
-        )
-        r.raise_for_status()
-        clients = r.json()
-    except Exception:
-        clients = []
-    return templates.TemplateResponse(
-        "partials/bd_targeting_clients_options.html",
-        {"request": request, "clients": clients},
-    )
-
-
 @router.get("/api/bd-targeting/data")
-async def bd_targeting_data(
-    request:   Request,
-    client_id: str = Query(""),
-):
-    _EMPTY_CTX = {
-        "request":              request,
-        "no_client":            False,
-        "error":                None,
-        "sdr_cards":            [],
-        "sdr_tabs":             [],
-        "map_rows":             [],
-        "map_industry_headers": [],
-        "unparseable":          [],
-    }
-
+async def bd_targeting_data(request: Request):
     def _error(msg: str):
         return templates.TemplateResponse(
             "partials/bd_targeting_data.html",
-            {**_EMPTY_CTX, "error": msg},
-        )
-
-    if not client_id:
-        return templates.TemplateResponse(
-            "partials/bd_targeting_data.html",
-            {**_EMPTY_CTX, "no_client": True},
+            {
+                "request":              request,
+                "error":                msg,
+                "team_rows":            [],
+                "team_order":           TEAM_ORDER,
+                "team_colours":         TEAM_COLOURS,
+                "map_rows":             [],
+                "map_industry_headers": [],
+                "sdr_tabs":             [],
+                "unparseable":          [],
+            },
         )
 
     if not _sb_configured():
         return _error("Supabase is not configured.")
 
-    # ── 1. Fetch campaigns ─────────────────────────────────────────
+    # ── 1. Fetch all Unstuck Agency campaigns ──────────────────────
     try:
         r = http_req.get(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers(),
             params={
-                "select":    "id,created_at,campaign_name,sender_profile_name,"
-                             "total_prospects,sent_count,"
-                             "lead_count,reply_count,interested_count,unsubscribe_count,"
-                             "completed,completed_at,paused",
-                "client_id": f"eq.{client_id}",
-                "order":     "created_at.desc",
+                "select":      "id,created_at,campaign_name,tags,"
+                               "total_prospects,sent_count,"
+                               "lead_count,reply_count,interested_count,unsubscribe_count,"
+                               "completed,completed_at,paused",
+                "client_name": "ilike.*Unstuck*",
+                "order":       "created_at.desc",
             },
             timeout=15,
         )
@@ -303,7 +306,8 @@ async def bd_targeting_data(
     campaigns: list[dict] = []
     for c in raw:
         parsed = _parse_campaign_name(c.get("campaign_name") or "")
-        row = {**c, **parsed}
+        sdr    = _sdr_from_tags(c.get("tags"))
+        row = {**c, **parsed, "sdr": sdr}
         row["lead_rate"] = _lead_rate(c.get("lead_count"), c.get("sent_count"))
         campaigns.append(row)
 
@@ -316,42 +320,110 @@ async def bd_targeting_data(
             int(c.get("sent_count") or 0) >= int(c.get("total_prospects") or 1) > 0
         )
     ]
-    live_and_paused = active_camps + paused_camps
+    live = active_camps + paused_camps
 
-    # ── 4. SDR cards (Team tab) ────────────────────────────────────
-    sdr_card_map: dict[str, list] = defaultdict(list)
-    for c in live_and_paused:
-        sdr_card_map[c.get("sdr") or "Unassigned"].append(c)
+    # ── 4. Tab 1 — Team table ──────────────────────────────────────
+    # For each person in TEAM_ORDER, list their live campaigns.
+    # Include any person found in campaign tags who isn't in TEAM_ORDER.
+    extra_sdrs = sorted({
+        c["sdr"] for c in live if c["sdr"] and c["sdr"] not in TEAM_ORDER
+    })
+    ordered_sdrs = [s for s in TEAM_ORDER if s in TEAM_MEMBERS.values()] + extra_sdrs
 
-    sdr_cards = [
-        {
-            "sdr":  sdr,
-            "rows": sorted(rows, key=lambda x: (x.get("territory") or "", x.get("industry") or "")),
-        }
-        for sdr, rows in sorted(sdr_card_map.items())
+    team_rows: list[dict] = []
+    for person in ordered_sdrs:
+        person_live = sorted(
+            [c for c in live if c.get("sdr") == person],
+            key=lambda x: (x.get("territory") or "", x.get("industry") or ""),
+        )
+        team_rows.append({"sdr": person, "campaigns": person_live})
+
+    # ── 5. Tab 2 — Heatmap ────────────────────────────────────────
+    map_territories, map_industries, ind_labels = _fetch_cb_profiles_for_unstuck()
+
+    # Fallback: derive from campaign data if no CB profiles
+    if not map_territories:
+        map_territories = sorted({c.get("territory") for c in campaigns if c.get("territory")})
+    if not map_industries:
+        map_industries  = sorted({c.get("industry") for c in campaigns if c.get("industry")})
+
+    today     = datetime.now(timezone.utc)
+    cutoff_14 = today - timedelta(days=14)
+
+    map_rows: list[dict] = []
+    for ter in map_territories:
+        cells: list[dict] = []
+        for ind_key in map_industries:
+            ind_disp = _industry_display(ind_key, ind_labels)
+            n_ter    = _norm(ter)
+            n_ind    = _norm(ind_disp)
+
+            # Active persons
+            active_persons = sorted({
+                c.get("sdr") or "?"
+                for c in live
+                if _norm(c.get("territory") or "") == n_ter
+                and _norm(c.get("industry")  or "") == n_ind
+            })
+
+            # Recent persons (completed within 14 days)
+            recent_persons: list[str] = []
+            if not active_persons:
+                for c in completed_camps:
+                    if (
+                        _norm(c.get("territory") or "") != n_ter
+                        or _norm(c.get("industry")  or "") != n_ind
+                    ):
+                        continue
+                    d = _best_date(c)
+                    if not d:
+                        continue
+                    try:
+                        dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        if dt >= cutoff_14:
+                            p = c.get("sdr") or "?"
+                            if p not in recent_persons:
+                                recent_persons.append(p)
+                    except Exception:
+                        pass
+
+            status = "active" if active_persons else ("recent" if recent_persons else "available")
+            cells.append({
+                "industry_key":     ind_key,
+                "industry_display": ind_disp,
+                "status":           status,
+                "active_persons":   active_persons,
+                "recent_persons":   sorted(recent_persons),
+            })
+
+        map_rows.append({"territory": ter, "cells": cells})
+
+    map_industry_headers = [
+        {"key": k, "display": _industry_display(k, ind_labels)}
+        for k in map_industries
     ]
 
-    # ── 5. Individual SDR tabs ─────────────────────────────────────
-    all_sdrs = sorted({c.get("sdr") for c in campaigns if c.get("sdr")})
+    # ── 6. Tab 3 — Individual breakdowns ──────────────────────────
     sdr_tabs: list[dict] = []
+    all_sdrs = [s for s in TEAM_ORDER if s in TEAM_MEMBERS.values()] + sorted({
+        c["sdr"] for c in campaigns if c["sdr"] and c["sdr"] not in TEAM_ORDER
+    })
 
     for sdr in all_sdrs:
         sdr_camps     = [c for c in campaigns if c.get("sdr") == sdr]
-        sdr_live      = [c for c in sdr_camps if c in live_and_paused]
+        sdr_live      = [c for c in sdr_camps if c in live]
         sdr_completed = [c for c in sdr_camps if c in completed_camps]
 
-        # Build per-SDR history groups
+        # History groups
         grp_map: dict[tuple, dict] = {}
         for c in sdr_completed:
             key = (c.get("territory") or "Unknown", c.get("industry") or "Uncategorised")
             g = grp_map.setdefault(key, {
-                "territory":      key[0],
-                "industry":       key[1],
-                "campaign_count": 0,
-                "total_sent":     0,
-                "total_leads":    0,
-                "_dates":         [],
-                "headcounts":     set(),
+                "territory": key[0], "industry": key[1],
+                "campaign_count": 0, "total_sent": 0,
+                "total_leads": 0, "_dates": [], "headcounts": set(),
             })
             g["campaign_count"] += 1
             g["total_sent"]     += int(c.get("sent_count") or 0)
@@ -374,7 +446,6 @@ async def bd_targeting_data(
                 "territory":           g["territory"],
                 "industry":            g["industry"],
                 "headcounts":          ", ".join(sorted(g["headcounts"])) or "—",
-                "last_targeted":       last,
                 "human_recency":       _human_recency(last),
                 "recency_class":       _recency_class(last),
                 "aggregate_lead_rate": agg_rate,
@@ -383,91 +454,12 @@ async def bd_targeting_data(
 
         sdr_tabs.append({
             "sdr":            sdr,
-            "tab_id":         "bdt-tab-" + re.sub(r"[^a-z0-9]", "-", sdr.lower()),
+            "tab_id":         re.sub(r"[^a-z0-9]", "-", sdr.lower()),
+            "colour":         TEAM_COLOURS.get(sdr, "#8b5cf6"),
             "current":        sdr_live,
             "history_groups": history_groups,
+            "any_data":       bool(sdr_live or history_groups),
         })
-
-    # ── 6. Targeting map ───────────────────────────────────────────
-    map_territories, map_industries, ind_labels = _fetch_cb_profiles(client_id)
-
-    # Fallback: derive universe from campaign data if no CB profiles found
-    if not map_territories:
-        map_territories = sorted({c.get("territory") for c in campaigns if c.get("territory")})
-    if not map_industries:
-        map_industries = sorted({c.get("industry") for c in campaigns if c.get("industry")})
-
-    today      = datetime.now(timezone.utc)
-    cutoff_14  = today - timedelta(days=14)
-
-    map_rows: list[dict] = []
-    for ter in map_territories:
-        cells: list[dict] = []
-        for ind_key in map_industries:
-            ind_disp = _industry_display(ind_key, ind_labels)
-            n_ter    = _norm(ter)
-            n_ind    = _norm(ind_disp)
-
-            # Active: live/paused campaign whose territory+industry match
-            active_sdrs = [
-                c.get("sdr") or "?"
-                for c in live_and_paused
-                if _norm(c.get("territory") or "") == n_ter
-                and _norm(c.get("industry")  or "") == n_ind
-            ]
-
-            # Recent: completed within 14 days
-            recent_info: list[dict] = []
-            if not active_sdrs:
-                for c in completed_camps:
-                    if (
-                        _norm(c.get("territory") or "") != n_ter
-                        or _norm(c.get("industry")  or "") != n_ind
-                    ):
-                        continue
-                    d = _best_date(c)
-                    if not d:
-                        continue
-                    try:
-                        dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
-                        if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=timezone.utc)
-                        if dt >= cutoff_14:
-                            recent_info.append({
-                                "sdr":      c.get("sdr") or "?",
-                                "days_ago": (today - dt).days,
-                            })
-                    except Exception:
-                        pass
-
-            if active_sdrs:
-                status = "active"
-                label  = "LIVE"
-                sub    = ", ".join(sorted(set(active_sdrs)))
-            elif recent_info:
-                min_d  = min(x["days_ago"] for x in recent_info)
-                status = "recent"
-                label  = f"{min_d}d ago"
-                sub    = ", ".join(sorted({x["sdr"] for x in recent_info}))
-            else:
-                status = "available"
-                label  = ""
-                sub    = ""
-
-            cells.append({
-                "industry_key":     ind_key,
-                "industry_display": ind_disp,
-                "status":           status,
-                "label":            label,
-                "sub":              sub,
-            })
-
-        map_rows.append({"territory": ter, "cells": cells})
-
-    map_industry_headers = [
-        {"key": k, "display": _industry_display(k, ind_labels)}
-        for k in map_industries
-    ]
 
     unparseable = [c for c in campaigns if not c.get("parse_ok")]
 
@@ -475,12 +467,13 @@ async def bd_targeting_data(
         "partials/bd_targeting_data.html",
         {
             "request":              request,
-            "no_client":            False,
             "error":                None,
-            "sdr_cards":            sdr_cards,
-            "sdr_tabs":             sdr_tabs,
+            "team_rows":            team_rows,
+            "team_order":           TEAM_ORDER,
+            "team_colours":         TEAM_COLOURS,
             "map_rows":             map_rows,
             "map_industry_headers": map_industry_headers,
+            "sdr_tabs":             sdr_tabs,
             "unparseable":          unparseable,
         },
     )

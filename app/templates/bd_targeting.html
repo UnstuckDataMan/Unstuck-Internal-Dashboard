@@ -5,12 +5,11 @@
 
 {% block content %}
 <style>
-  .page-inner { max-width: 1040px; }
+  .page-inner { max-width: 1060px; }
 
-  /* ── Tab bar ──────────────────────────────────────────────── */
+  /* ── Tab bar ───────────────────────────────────────────────── */
   .bdt-tabs {
     display: flex;
-    flex-wrap: wrap;
     gap: 4px;
     background: var(--surface);
     border: 1px solid var(--border);
@@ -19,7 +18,8 @@
     margin-bottom: 24px;
   }
   .bdt-tab-btn {
-    padding: 8px 16px;
+    flex: 1;
+    padding: 9px 18px;
     border: none;
     border-radius: 10px;
     background: transparent;
@@ -28,9 +28,10 @@
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: background .18s var(--ease), color .18s var(--ease), box-shadow .18s var(--ease);
+    transition: background .18s, color .18s, box-shadow .18s;
     outline: none;
     white-space: nowrap;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
   }
   .bdt-tab-btn.active {
     background: var(--gradient-vivid);
@@ -42,126 +43,65 @@
     color: var(--text);
   }
 
-  /* ── Person cards (Team + SDR tabs) ──────────────────────── */
-  .bdt-cards-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: 16px;
-  }
-  .bdt-person-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
+  /* ── Team table (Tab 1) ────────────────────────────────────── */
+  .bdt-team-wrap {
     border-radius: 16px;
-    overflow: hidden;
-    box-shadow: var(--sh-sm);
-  }
-  .bdt-card-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 18px 12px;
-    border-bottom: 1px solid var(--border);
-    background: rgba(139,92,246,.07);
-  }
-  .bdt-card-avatar {
-    width: 30px; height: 30px;
-    border-radius: 50%;
-    background: var(--gradient-vivid);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 700; color: white;
-    flex-shrink: 0;
-  }
-  .bdt-card-name {
-    font-size: 14px; font-weight: 700; color: var(--text);
-    flex: 1;
-  }
-  .bdt-card-count {
-    font-size: 11px; color: var(--text-3);
-  }
-  .bdt-card-rows { padding: 4px 0; }
-  .bdt-campaign-row {
-    padding: 10px 18px;
-    border-bottom: 1px solid rgba(255,255,255,.05);
-    transition: background .12s;
-  }
-  .bdt-campaign-row:last-child { border-bottom: none; }
-  .bdt-campaign-row:hover { background: rgba(255,255,255,.03); }
-  .bdt-campaign-row.bdt-row-paused { opacity: .72; }
-  .bdt-row-top {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin-bottom: 4px;
-  }
-  .bdt-status-dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: #4ade80;
-    flex-shrink: 0;
-    box-shadow: 0 0 5px rgba(74,222,128,.5);
-  }
-  .bdt-status-dot.bdt-dot-paused {
-    background: #fbbf24;
-    box-shadow: 0 0 5px rgba(251,191,36,.4);
-  }
-  .bdt-row-targeting {
-    font-size: 13px; color: var(--text); font-weight: 500; flex: 1;
-  }
-  .bdt-headcount {
-    font-size: 12px; color: var(--text-2);
-  }
-  .bdt-via {
-    font-size: 11.5px; color: var(--text-3); white-space: nowrap;
-  }
-  .bdt-row-meta {
-    display: flex; align-items: center; gap: 10px;
-    padding-left: 14px;
-    font-size: 11.5px; color: var(--text-3);
-  }
-  .bdt-lead-rate { color: #a78bfa; }
-  .bdt-badge-paused {
-    padding: 2px 7px; border-radius: 5px;
-    background: rgba(251,191,36,.15); color: #fbbf24;
-    border: 1px solid rgba(251,191,36,.25);
-    font-size: 10.5px; font-weight: 600;
-  }
-
-  /* ── Section headings in SDR tabs ────────────────────────── */
-  .bdt-section-heading {
-    font-family: var(--font-display);
-    font-size: 14px; font-weight: 600;
-    color: var(--text-2);
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    margin-bottom: 12px;
-  }
-
-  /* ── History table ────────────────────────────────────────── */
-  .bdt-tbl-wrap {
-    overflow-x: auto;
-    border-radius: 14px;
     border: 1px solid var(--border);
-    background: var(--surface);
+    overflow: hidden;
   }
-  .bdt-table {
+  .bdt-team-table {
     width: 100%; border-collapse: collapse;
-    font-size: 13px; color: var(--text);
+    font-size: 13px;
   }
-  .bdt-table thead th {
+  .bdt-team-table thead th {
     padding: 11px 16px;
     text-align: left;
     font-size: 10.5px; font-weight: 600;
     text-transform: uppercase; letter-spacing: .07em;
     color: var(--text-3);
+    background: rgba(255,255,255,.04);
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
   }
-  .bdt-table tbody td {
+  .bdt-team-table tbody td {
     padding: 11px 16px;
     border-bottom: 1px solid rgba(255,255,255,.05);
     vertical-align: middle;
+    color: var(--text);
   }
-  .bdt-table tbody tr:last-child td { border-bottom: none; }
-  .bdt-table tbody tr:hover td { background: rgba(255,255,255,.03); }
+  .bdt-team-table tbody tr:last-child td { border-bottom: none; }
+  .bdt-team-table tbody tr:hover td { background: rgba(255,255,255,.025); }
+
+  /* Person name cell */
+  .bdt-person-cell {
+    vertical-align: top !important;
+    padding-top: 14px !important;
+    width: 110px;
+    white-space: nowrap;
+    border-right: 1px solid rgba(255,255,255,.07);
+  }
+  .bdt-person-tag {
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .bdt-person-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .bdt-person-name {
+    font-weight: 700; font-size: 13.5px; color: var(--text);
+  }
+
+  /* Group separator row */
+  .bdt-group-sep td {
+    padding: 0 !important;
+    height: 1px;
+    background: rgba(255,255,255,.07);
+  }
+
+  /* Empty person row */
+  .bdt-empty-row td { color: var(--text-3) !important; font-style: italic; }
+
+  /* Campaign data cells */
   .bdt-territory-chip {
     display: inline-block;
     padding: 2px 8px; border-radius: 5px;
@@ -169,32 +109,43 @@
     border: 1px solid rgba(139,92,246,.25);
     font-size: 11.5px; font-weight: 600;
   }
-  .bdt-recency { font-weight: 500; }
-  .bdt-recency-green  { color: #4ade80; }
-  .bdt-recency-amber  { color: #fbbf24; }
-  .bdt-recency-red    { color: #f87171; }
-  .bdt-lead-chip {
+  .bdt-status-dot {
     display: inline-block;
-    padding: 2px 8px; border-radius: 5px;
-    background: rgba(139,92,246,.12); color: #a78bfa;
-    font-size: 12px; font-weight: 600;
+    width: 7px; height: 7px; border-radius: 50%;
+    margin-right: 5px;
+    vertical-align: middle;
   }
-  .bdt-muted { color: var(--text-3); }
+  .bdt-dot-active { background: #4ade80; box-shadow: 0 0 5px rgba(74,222,128,.5); }
+  .bdt-dot-paused { background: #fbbf24; }
+  .bdt-lead-rate  { color: #a78bfa; font-weight: 600; }
+  .bdt-muted      { color: var(--text-3); }
+  .bdt-headcount  { font-size: 12px; color: var(--text-2); }
+  .bdt-badge-paused {
+    padding: 2px 7px; border-radius: 5px;
+    background: rgba(251,191,36,.12); color: #fbbf24;
+    border: 1px solid rgba(251,191,36,.22);
+    font-size: 10.5px; font-weight: 600;
+  }
+  .bdt-badge-active {
+    padding: 2px 7px; border-radius: 5px;
+    background: rgba(74,222,128,.1); color: #4ade80;
+    border: 1px solid rgba(74,222,128,.2);
+    font-size: 10.5px; font-weight: 600;
+  }
 
-  /* ── Targeting map ────────────────────────────────────────── */
+  /* ── Heatmap (Tab 2) ───────────────────────────────────────── */
   .bdt-map-legend {
-    display: flex; flex-wrap: wrap; gap: 16px;
-    margin-bottom: 18px;
+    display: flex; flex-wrap: wrap; gap: 18px;
+    margin-bottom: 16px;
     font-size: 12px; color: var(--text-2);
+    align-items: center;
   }
-  .bdt-legend-item { display: flex; align-items: center; gap: 6px; }
+  .bdt-legend-swatch {
+    display: flex; align-items: center; gap: 6px;
+  }
   .bdt-legend-dot {
-    width: 10px; height: 10px; border-radius: 3px;
+    width: 10px; height: 10px; border-radius: 50%;
   }
-  .bdt-legend-active    { background: rgba(74,222,128,.7); }
-  .bdt-legend-recent    { background: rgba(251,191,36,.7); }
-  .bdt-legend-available { background: rgba(255,255,255,.1); border: 1px solid var(--border); }
-
   .bdt-map-scroll {
     overflow-x: auto;
     border-radius: 14px;
@@ -203,102 +154,172 @@
   .bdt-map-table {
     border-collapse: collapse;
     min-width: 100%;
+    font-size: 12px;
   }
-  .bdt-map-corner { width: 70px; min-width: 70px; }
+  .bdt-map-corner {
+    min-width: 120px; width: 120px;
+    background: rgba(255,255,255,.03);
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid rgba(255,255,255,.08);
+  }
   .bdt-map-col-header {
-    padding: 10px 6px 8px;
+    padding: 10px 8px 12px;
     text-align: center;
-    min-width: 110px; max-width: 150px;
+    min-width: 95px;
     border-left: 1px solid rgba(255,255,255,.06);
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,.03);
     vertical-align: bottom;
   }
   .bdt-map-col-label {
-    font-size: 11px; font-weight: 600;
+    font-size: 10.5px; font-weight: 700;
     color: var(--text-2);
     text-transform: uppercase; letter-spacing: .05em;
     writing-mode: vertical-lr;
     transform: rotate(180deg);
-    max-height: 110px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-height: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     margin: 0 auto;
   }
   .bdt-map-row-header {
-    padding: 10px 12px;
+    padding: 10px 14px;
     font-size: 12px; font-weight: 700; color: var(--text-2);
     white-space: nowrap;
     border-right: 1px solid rgba(255,255,255,.08);
-    border-bottom: 1px solid rgba(255,255,255,.06);
-    background: rgba(255,255,255,.03);
+    border-bottom: 1px solid rgba(255,255,255,.05);
+    background: rgba(255,255,255,.025);
+    text-align: right;
   }
   .bdt-map-cell {
     padding: 8px 6px;
     text-align: center;
     vertical-align: middle;
-    border-left: 1px solid rgba(255,255,255,.05);
-    border-bottom: 1px solid rgba(255,255,255,.05);
-    min-width: 110px;
-    cursor: default;
+    border-left: 1px solid rgba(255,255,255,.04);
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    min-width: 95px;
     transition: filter .12s;
   }
-  .bdt-map-cell:hover { filter: brightness(1.15); }
-  .bdt-cell-active {
-    background: rgba(74,222,128,.18);
-    border-color: rgba(74,222,128,.2);
+  .bdt-map-cell:hover { filter: brightness(1.2); }
+  .bdt-cell-active   { background: rgba(74,222,128,.12); }
+  .bdt-cell-recent   { background: rgba(251,191,36,.09); }
+  .bdt-cell-available { background: rgba(255,255,255,.02); }
+
+  .bdt-person-chips {
+    display: flex; flex-wrap: wrap;
+    gap: 3px; justify-content: center;
   }
-  .bdt-cell-recent {
-    background: rgba(251,191,36,.14);
-    border-color: rgba(251,191,36,.2);
+  .bdt-person-chip {
+    padding: 2px 7px; border-radius: 20px;
+    font-size: 10.5px; font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
   }
-  .bdt-cell-available {
-    background: rgba(255,255,255,.03);
-  }
-  .bdt-cell-label {
-    display: block;
-    font-size: 11px; font-weight: 700;
-    letter-spacing: .04em;
-  }
-  .bdt-cell-active   .bdt-cell-label { color: #4ade80; }
-  .bdt-cell-recent   .bdt-cell-label { color: #fbbf24; }
-  .bdt-cell-available .bdt-cell-label { color: transparent; }
-  .bdt-cell-sub {
-    display: block;
-    font-size: 10px; color: var(--text-3);
-    margin-top: 2px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    max-width: 100px; margin-inline: auto;
+  .bdt-person-chip-recent {
+    opacity: .6;
+    border: 1px solid currentColor;
+    background: transparent !important;
   }
 
-  /* ── Unparseable notice ───────────────────────────────────── */
+  /* ── Breakdown tab (Tab 3) ──────────────────────────────────── */
+  .bdt-toggle-bar {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 24px;
+  }
+  .bdt-toggle-btn {
+    padding: 8px 18px;
+    border-radius: 24px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-2);
+    font-family: var(--font);
+    font-size: 13px; font-weight: 500;
+    cursor: pointer;
+    transition: all .15s;
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .bdt-toggle-btn.active {
+    border-color: transparent;
+    color: #fff;
+  }
+  .bdt-toggle-btn:not(.active):hover {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+  .bdt-toggle-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .bdt-breakdown-panel { display: none; }
+  .bdt-breakdown-panel.active { display: block; }
+
+  .bdt-section-heading {
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .07em;
+    color: var(--text-3);
+    margin-bottom: 12px; margin-top: 0;
+  }
+
+  /* Current targeting mini-table within breakdown */
+  .bdt-tbl-wrap {
+    overflow-x: auto;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,.03);
+    margin-bottom: 28px;
+  }
+  .bdt-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px; color: var(--text);
+  }
+  .bdt-table thead th {
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .07em;
+    color: var(--text-3);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .bdt-table tbody td {
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    vertical-align: middle;
+  }
+  .bdt-table tbody tr:last-child td { border-bottom: none; }
+  .bdt-table tbody tr:hover td { background: rgba(255,255,255,.03); }
+
+  .bdt-recency { font-weight: 500; }
+  .bdt-recency-green  { color: #4ade80; }
+  .bdt-recency-amber  { color: #fbbf24; }
+  .bdt-recency-red    { color: #f87171; }
+  .bdt-lead-chip {
+    padding: 2px 8px; border-radius: 5px;
+    background: rgba(139,92,246,.12); color: #a78bfa;
+    font-size: 12px; font-weight: 600;
+  }
+  .bdt-no-history { color: var(--text-3); font-size: 13px; padding: 16px 0; text-align: center; }
+
+  /* ── Shared ─────────────────────────────────────────────────── */
+  .bdt-empty {
+    text-align: center; padding: 32px; color: var(--text-3); font-size: 13px;
+  }
   .bdt-unparse {
+    margin-top: 24px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 12px 16px;
-    font-size: 12.5px; color: var(--text-3);
+    font-size: 12px; color: var(--text-3);
   }
   .bdt-unparse summary { cursor: pointer; user-select: none; }
-  .bdt-unparse-list {
-    margin-top: 8px; padding-left: 16px;
-    list-style: disc;
-  }
+  .bdt-unparse-list { margin-top: 8px; padding-left: 16px; list-style: disc; }
   .bdt-unparse-list li { margin-top: 4px; }
   .bdt-unparse-list code {
-    font-size: 11.5px;
-    background: rgba(255,255,255,.06); border-radius: 4px;
-    padding: 1px 5px;
-  }
-
-  /* ── Placeholder + empty states ──────────────────────────── */
-  .bdt-placeholder {
-    text-align: center;
-    padding: 48px 24px;
-    color: var(--text-3);
-    font-size: 13.5px;
-    display: flex; flex-direction: column; align-items: center; gap: 12px;
-  }
-  .bdt-empty {
-    color: var(--text-3); font-size: 13px;
-    padding: 24px 0; text-align: center;
+    font-size: 11px;
+    background: rgba(255,255,255,.06); border-radius: 4px; padding: 1px 5px;
   }
 </style>
 
@@ -311,74 +332,70 @@
     Business Development
   </div>
   <p class="page-sub">
-    See who is targeting which territory and industry right now — and where gaps exist across the full targeting universe.
+    Live view of who is targeting where — updated from campaign data in real time.
   </p>
 </div>
 
-{# ── Client selector ────────────────────────────────────────── #}
-<div class="form-card" style="margin-bottom:28px">
-  <form style="padding:20px 28px 20px">
-    <div class="form-group" style="margin-bottom:0">
-      <label for="bdt-client">Client</label>
-      <select id="bdt-client" name="client_id"
-              hx-get="/api/bd-targeting/clients"
-              hx-trigger="load"
-              hx-target="#bdt-client"
-              hx-swap="innerHTML">
-        <option value="">Loading clients…</option>
-      </select>
-    </div>
-  </form>
-</div>
-
-{# Wrapper: listens for change on the select and loads data #}
-<div hx-get="/api/bd-targeting/data"
-     hx-trigger="change from:#bdt-client"
-     hx-target="#bdt-data"
-     hx-swap="innerHTML"
-     hx-include="#bdt-client">
-</div>
-
-{# Data target #}
-<div id="bdt-data">
-  <div class="bdt-placeholder">
-    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,.4)"
-         stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 11l19-9-9 19-2-8-8-2z"/>
-    </svg>
-    <p>Select a client above to view BD targeting data.</p>
-  </div>
+{# Data loads automatically on page load #}
+<div id="bdt-data"
+     hx-get="/api/bd-targeting/data"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+  <div style="padding:40px;text-align:center;color:var(--text-3);font-size:13px">Loading…</div>
 </div>
 
 <script>
-// Wire up tabs whenever HTMX swaps the #bdt-data content
+// ── Tab switching ──────────────────────────────────────────────
 function _bdtInitTabs() {
   var container = document.getElementById('bdt-data');
   if (!container) return;
-  var tabs   = Array.from(container.querySelectorAll('.bdt-tab-btn'));
+  var btns   = Array.from(container.querySelectorAll('.bdt-tab-btn'));
   var panels = Array.from(container.querySelectorAll('.bdt-tab-panel'));
-  if (!tabs.length) return;
+  if (!btns.length) return;
 
-  function switchTab(tabId) {
-    tabs.forEach(function(b) { b.classList.remove('active'); });
+  function switchTab(id) {
+    btns.forEach(function(b) { b.classList.remove('active'); });
     panels.forEach(function(p) { p.style.display = 'none'; });
-    var active = tabs.find(function(b) { return b.dataset.tab === tabId; });
-    var panel  = document.getElementById(tabId);
-    if (active) active.classList.add('active');
-    if (panel)  panel.style.display = 'block';
+    var btn   = btns.find(function(b) { return b.dataset.tab === id; });
+    var panel = document.getElementById(id);
+    if (btn)   btn.classList.add('active');
+    if (panel) panel.style.display = 'block';
   }
 
-  tabs.forEach(function(btn) {
-    btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
+  btns.forEach(function(b) {
+    b.addEventListener('click', function() { switchTab(b.dataset.tab); });
   });
+  switchTab(btns[0].dataset.tab);
+}
 
-  // Show Team tab by default
-  switchTab(tabs[0].dataset.tab);
+// ── Breakdown toggles ──────────────────────────────────────────
+function _bdtInitToggles() {
+  var container = document.getElementById('bdt-data');
+  if (!container) return;
+  var toggles  = Array.from(container.querySelectorAll('.bdt-toggle-btn'));
+  var panels   = Array.from(container.querySelectorAll('.bdt-breakdown-panel'));
+  if (!toggles.length) return;
+
+  function selectPerson(id) {
+    toggles.forEach(function(t) { t.classList.remove('active'); });
+    panels.forEach(function(p)  { p.classList.remove('active'); });
+    var btn   = toggles.find(function(t) { return t.dataset.person === id; });
+    var panel = document.getElementById('bdt-breakdown-' + id);
+    if (btn)   btn.classList.add('active');
+    if (panel) panel.classList.add('active');
+  }
+
+  toggles.forEach(function(t) {
+    t.addEventListener('click', function() { selectPerson(t.dataset.person); });
+  });
+  // Default: first person
+  if (toggles[0]) selectPerson(toggles[0].dataset.person);
 }
 
 document.body.addEventListener('htmx:afterSettle', function(evt) {
   if (evt.detail && evt.detail.elt && evt.detail.elt.id === 'bdt-data') {
     _bdtInitTabs();
+    _bdtInitToggles();
   }
 });
 </script>
