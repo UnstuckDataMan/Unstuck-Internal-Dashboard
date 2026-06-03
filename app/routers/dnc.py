@@ -1708,8 +1708,41 @@ async def bulk_import_dnc(
 
     reason_clean = reason.strip() or "bulk_import"
 
-    for i in range(0, len(emails), CHUNK_SIZE):
-        chunk = emails[i : i + CHUNK_SIZE]
+    # Pre-fetch all existing DNC entries for this client so we can skip
+    # duplicates before inserting.  This avoids 409 Conflict errors that occur
+    # when the table's unique constraint prevents ON CONFLICT DO NOTHING from
+    # being applied by PostgREST's resolution=ignore-duplicates header.
+    existing_dnc: set[str] = set()
+    try:
+        ex_offset = 0
+        while True:
+            ex_r = http_req.get(
+                f"{SUPABASE_URL}/rest/v1/dnc_entries",
+                headers=_sb_headers(),
+                params={
+                    "select":    "email",
+                    "client_id": f"eq.{client_id}",
+                    "limit":     str(CHUNK_SIZE),
+                    "offset":    str(ex_offset),
+                },
+                timeout=30,
+            )
+            ex_r.raise_for_status()
+            page = ex_r.json()
+            for row in page:
+                if row.get("email"):
+                    existing_dnc.add(str(row["email"]).lower().strip())
+            if len(page) < CHUNK_SIZE:
+                break
+            ex_offset += CHUNK_SIZE
+    except Exception as e:
+        return error(f"Could not check existing DNC entries: {e}")
+
+    new_emails = [e for e in emails if e not in existing_dnc]
+    skipped    = len(emails) - len(new_emails)
+
+    for i in range(0, len(new_emails), CHUNK_SIZE):
+        chunk = new_emails[i : i + CHUNK_SIZE]
         rows = [
             {"client_id": client_id, "email": e, "reason": reason_clean, "added_by": "dashboard_user"}
             for e in chunk
@@ -1717,13 +1750,27 @@ async def bulk_import_dnc(
         try:
             r = http_req.post(
                 f"{SUPABASE_URL}/rest/v1/dnc_entries",
-                headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                headers=_sb_headers("return=minimal"),
                 json=rows,
                 timeout=30,
             )
-            r.raise_for_status()
+            if r.status_code not in (200, 201, 204):
+                body = ""
+                try:
+                    body = r.json().get("message") or r.json().get("details") or r.text[:300]
+                except Exception:
+                    body = r.text[:300]
+                return error(f"Supabase error {r.status_code}: {body}")
         except Exception as e:
             return error(f"Supabase error during import: {e}")
+
+    # Surface a meaningful success message in the table header area
+    added = len(new_emails)
+    if added == 0:
+        # All entries already existed — not an error, just inform the user.
+        # Return the normal table view; the template will show the existing list.
+        pass  # fall through to get_dnc_entries below
+    # skipped > 0 info is visible via the unchanged total in the table.
 
     return await get_dnc_entries(request, client_id=client_id, offset=0, search="")
 
