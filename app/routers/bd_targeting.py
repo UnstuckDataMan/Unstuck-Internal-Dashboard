@@ -325,15 +325,17 @@ async def bd_targeting_data(request: Request):
         row["lead_rate"] = _lead_rate(c.get("lead_count"), c.get("sent_count"))
         campaigns.append(row)
 
-    # ── 3. Partition ───────────────────────────────────────────────
-    active_camps = [c for c in campaigns if not c.get("completed") and not c.get("paused")]
-    paused_camps = [c for c in campaigns if c.get("paused")]
-    completed_camps = [
-        c for c in campaigns
-        if c.get("completed") or (
-            int(c.get("sent_count") or 0) >= int(c.get("total_prospects") or 1) > 0
-        )
-    ]
+    # ── 3. Partition  (mirrors campaigns_list.html logic exactly) ────
+    # A campaign is "done" if explicitly completed OR fully sent (sent >= total > 0).
+    # Paused campaigns are their own bucket and excluded from both active and past.
+    def _is_done(c: dict) -> bool:
+        total = int(c.get("total_prospects") or 0)
+        sent  = int(c.get("sent_count") or 0)
+        return bool(c.get("completed")) or (total > 0 and sent >= total)
+
+    active_camps    = [c for c in campaigns if not _is_done(c) and not c.get("paused")]
+    paused_camps    = [c for c in campaigns if c.get("paused")]
+    completed_camps = [c for c in campaigns if _is_done(c) and not c.get("paused")]
     live = active_camps + paused_camps
 
     # ── 4. Tab 1 — Team table ──────────────────────────────────────
