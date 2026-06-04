@@ -2111,14 +2111,44 @@
         <div class="form-group" style="margin-bottom:0">
           <label>Recipient Timezone</label>
           <select id="mm-recipient-tz">
-            <option value="Europe/London">UK (GMT / BST)</option>
-            <option value="Europe/Paris">Central Europe — FR/DE/NL (CET / CEST)</option>
-            <option value="America/New_York">US Eastern (ET)</option>
-            <option value="America/Chicago">US Central (CT)</option>
-            <option value="America/Denver">US Mountain (MT)</option>
-            <option value="America/Los_Angeles">US Pacific (PT)</option>
-            <option value="America/Anchorage">US Alaska (AKT)</option>
-            <option value="Pacific/Honolulu">US Hawaii (HT)</option>
+            <optgroup label="Europe">
+              <option value="Europe/London">UK (GMT / BST)</option>
+              <option value="Europe/Paris">Central Europe — FR/DE/NL/CH (CET / CEST)</option>
+              <option value="Europe/Helsinki">Eastern Europe — FI/EE/LV/LT (EET / EEST)</option>
+              <option value="Europe/Moscow">Russia — Moscow (MSK)</option>
+            </optgroup>
+            <optgroup label="North America">
+              <option value="America/New_York">US Eastern (ET)</option>
+              <option value="America/Chicago">US Central (CT)</option>
+              <option value="America/Denver">US Mountain (MT)</option>
+              <option value="America/Los_Angeles">US Pacific (PT)</option>
+              <option value="America/Anchorage">US Alaska (AKT)</option>
+              <option value="Pacific/Honolulu">US Hawaii (HT)</option>
+              <option value="America/Toronto">Canada Eastern (ET)</option>
+              <option value="America/Vancouver">Canada Pacific (PT)</option>
+            </optgroup>
+            <optgroup label="Latin America">
+              <option value="America/Sao_Paulo">Brazil — São Paulo (BRT)</option>
+              <option value="America/Argentina/Buenos_Aires">Argentina (ART)</option>
+              <option value="America/Bogota">Colombia (COT)</option>
+              <option value="America/Lima">Peru (PET)</option>
+              <option value="America/Santiago">Chile (CLT)</option>
+              <option value="America/Mexico_City">Mexico (CST / CDT)</option>
+            </optgroup>
+            <optgroup label="Africa">
+              <option value="Africa/Johannesburg">South Africa (SAST)</option>
+              <option value="Africa/Lagos">West Africa — NG/GH/SN (WAT)</option>
+              <option value="Africa/Nairobi">East Africa — KE/TZ/UG (EAT)</option>
+              <option value="Africa/Cairo">Egypt (EET)</option>
+              <option value="Africa/Casablanca">Morocco (WET / WEST)</option>
+            </optgroup>
+            <optgroup label="Middle East &amp; Asia">
+              <option value="Asia/Dubai">UAE / Gulf (GST)</option>
+              <option value="Asia/Kolkata">India (IST)</option>
+              <option value="Asia/Singapore">Singapore / Malaysia (SGT)</option>
+              <option value="Asia/Tokyo">Japan (JST)</option>
+              <option value="Australia/Sydney">Australia Eastern (AEST / AEDT)</option>
+            </optgroup>
           </select>
           <p class="mm-hint">Send window applies in this timezone.</p>
         </div>
