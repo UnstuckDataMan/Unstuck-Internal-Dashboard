@@ -409,17 +409,39 @@ def _apply_sheet_formatting(
     #   2. Send Status  whole-row blue  (middle)
     #   3. Lead Status  cell colours    (highest — narrow range, always wins)
 
-    # 1. Domain-grey (lowest priority — added first).
-    # When any row has Lead Status="Lead", ALL rows sharing the same email
-    # domain are highlighted grey.  The formula extracts the domain from the
-    # Recipient Email column directly via RIGHT/FIND and matches it with a
-    # wildcard COUNTIFS — no helper column required.
+    # 1. Send Status checked → whole-row light BLUE (lowest priority — added first).
+    # Domain-grey is added after (higher priority) so blocked-domain rows stay
+    # grey even when they have been marked as sent.
+    if send_status_col >= 0:
+        ss_letter = _col_letter(send_status_col + 1)
+        requests.append({"addConditionalFormatRule": {
+            "rule": {
+                "ranges": [{
+                    "sheetId":          sheet_gid,
+                    "startRowIndex":    1,
+                    "endRowIndex":      last_row_idx,
+                    "startColumnIndex": 0,
+                    "endColumnIndex":   n_cols,
+                }],
+                "booleanRule": {
+                    "condition": {
+                        "type":   "CUSTOM_FORMULA",
+                        "values": [{"userEnteredValue": f"=${ss_letter}2=TRUE"}],
+                    },
+                    "format": {"backgroundColor": _rgb("E3F2FD")},  # light blue
+                },
+            },
+            "index": 0,
+        }})
+
+    # 2. Domain-grey — higher priority than sent-blue so blocked-domain rows stay
+    # grey even when the prospect has been marked as sent (blue).
+    # Formula: if this row is NOT already Lead AND its email domain appears on any
+    # Lead row in the sheet, grey the whole row.
     if lead_status_col >= 0 and email_col >= 0:
         ls_letter = _col_letter(lead_status_col + 1)
         em_letter = _col_letter(email_col + 1)
-        # Formula anchors the column ($) but leaves the row relative so it
-        # shifts correctly as Sheets evaluates it for each row in the range.
-        formula = (
+        domain_formula = (
             f'=AND(${ls_letter}2<>"Lead",'
             f'ISNUMBER(FIND("@",${em_letter}2)),'
             f'COUNTIFS(${ls_letter}$2:${ls_letter}${last_row_idx},"Lead",'
@@ -438,32 +460,9 @@ def _apply_sheet_formatting(
                 "booleanRule": {
                     "condition": {
                         "type":   "CUSTOM_FORMULA",
-                        "values": [{"userEnteredValue": formula}],
+                        "values": [{"userEnteredValue": domain_formula}],
                     },
-                    "format": {"backgroundColor": _rgb("E0E0E0")},  # medium grey
-                },
-            },
-            "index": 0,
-        }})
-
-    # 3. Send Status checked → whole-row light BLUE  (medium priority)
-    if send_status_col >= 0:
-        ss_letter = _col_letter(send_status_col + 1)
-        requests.append({"addConditionalFormatRule": {
-            "rule": {
-                "ranges": [{
-                    "sheetId":          sheet_gid,
-                    "startRowIndex":    1,
-                    "endRowIndex":      last_row_idx,
-                    "startColumnIndex": 0,
-                    "endColumnIndex":   n_cols,
-                }],
-                "booleanRule": {
-                    "condition": {
-                        "type":   "CUSTOM_FORMULA",
-                        "values": [{"userEnteredValue": f"=${ss_letter}2=TRUE"}],
-                    },
-                    "format": {"backgroundColor": _rgb("E3F2FD")},  # light blue
+                    "format": {"backgroundColor": _rgb("E0E0E0")},
                 },
             },
             "index": 0,
@@ -908,6 +907,65 @@ def read_leads(sheet_id: str) -> list[dict]:
 
 # ── Lead-grey CF rule helper ──────────────────────────────────────────────────
 
+def _apply_domain_grey_cf(
+    sheet_id:   str,
+    ws_id:      int,   # Google Sheets GID of the worksheet
+    ls_col_idx: int,   # 1-based column index of "Lead Status"
+    em_col_idx: int,   # 1-based column index of "Recipient Email"
+    n_cols:     int,
+) -> None:
+    """
+    Add the domain-grey CF rule to an existing sheet via direct REST call.
+
+    Greys ALL rows that share the email domain of any Lead row (excluding the
+    Lead row itself, which is handled by _apply_lead_grey_cf).
+
+    Added at index=0 (highest priority) so the grey overrides the sent-blue
+    fill — ensuring blocked-domain prospects appear grey even after being sent.
+
+    Called from mark_email_in_sheet for both Email+Lead and Domain+Lead DNC
+    entries so old sheets (created before the rule was baked into
+    _apply_sheet_formatting) get the rule retroactively.
+    """
+    ls_letter = _col_letter(ls_col_idx)
+    em_letter = _col_letter(em_col_idx)
+    row_count = 3000
+    formula = (
+        f'=AND(${ls_letter}2<>"Lead",'
+        f'ISNUMBER(FIND("@",${em_letter}2)),'
+        f'COUNTIFS(${ls_letter}$2:${ls_letter}{row_count},"Lead",'
+        f'${em_letter}$2:${em_letter}{row_count},'
+        f'"*@"&RIGHT(${em_letter}2,LEN(${em_letter}2)-FIND("@",${em_letter}2)))>0)'
+    )
+    session = _authed_session()
+    resp = session.post(
+        f"{_SHEETS_BASE_URL}/{sheet_id}:batchUpdate",
+        json={"requests": [{
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [{
+                        "sheetId":          ws_id,
+                        "startRowIndex":    1,
+                        "endRowIndex":      row_count,
+                        "startColumnIndex": 0,
+                        "endColumnIndex":   n_cols,
+                    }],
+                    "booleanRule": {
+                        "condition": {
+                            "type":   "CUSTOM_FORMULA",
+                            "values": [{"userEnteredValue": formula}],
+                        },
+                        "format": {"backgroundColor": _rgb("E0E0E0")},
+                    },
+                },
+                "index": 0,
+            }
+        }]},
+    )
+    if not resp.ok:
+        print(f"[google_sheets] _apply_domain_grey_cf FAILED {resp.status_code}: {resp.text[:300]}")
+
+
 def _apply_lead_grey_cf(
     sheet_id:  str,
     ws_id:     int,   # Google Sheets GID of the worksheet
@@ -1038,16 +1096,21 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
     if updates:
         ws.batch_update(updates)
 
-        # For lead rows: ensure the grey-row CF rule exists on this sheet.
-        # This handles sheets created before the rule was added to
-        # _apply_sheet_formatting, and also ensures the rule has the correct
-        # priority even on newer sheets.  Runs in the background thread so the
-        # extra REST call does not block the HTTP response.
+        # For lead rows: ensure both grey CF rules are present on this sheet.
+        # - lead-row-grey: greys the specific Lead row (non-LS columns)
+        # - domain-grey:   greys all other same-domain rows (overrides sent-blue)
+        # Both are applied retroactively so old sheets without the rules get them.
         if lead_status == "Lead":
             try:
                 _apply_lead_grey_cf(sheet_id, ws.id, ls_col_idx, len(headers))
             except Exception as _cf_err:
-                print(f"[google_sheets] lead grey CF apply error: {_cf_err}")
+                print(f"[google_sheets] lead-grey CF apply error: {_cf_err}")
+            try:
+                _apply_domain_grey_cf(
+                    sheet_id, ws.id, ls_col_idx, email_col_idx, len(headers)
+                )
+            except Exception as _cf_err:
+                print(f"[google_sheets] domain-grey CF apply error: {_cf_err}")
 
     return len(updates)
 
