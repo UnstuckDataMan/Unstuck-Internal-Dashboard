@@ -53,19 +53,29 @@ def _count_contacted(
     campaign_names: list[str] | None = None,
 ) -> int:
     """
-    Count contacted_prospects rows for a client, optionally filtered by date
-    and/or a list of campaign names (for tag-filter and drill-down stats).
+    Count contacted_prospects rows that represent actual sends (source = auto_sync),
+    optionally filtered by date and/or a list of campaign names.
+
+    Only rows with source = 'auto_sync' are counted.  This excludes:
+      • scrub_upload  — prospects saved when a list is scrubbed
+      • manual        — manually added contacted entries
+      • csv_upload    — bulk-uploaded contacted lists
+      • dnc_manual    — auto-logged contacts from DNC entries
+
+    Scrub uploads deliberately share the same table so the "recently contacted"
+    removal feature in the scrubber still works; they must not appear in the
+    campaign send stats or they would show 804 sends the moment a list is scrubbed.
     """
     base_params: list[tuple[str, str]] = [
         ("select",    "id"),
         ("client_id", f"eq.{client_id}"),
+        ("source",    "eq.auto_sync"),   # ← only count genuine sheet sends
         ("limit",     "1"),
     ]
     if campaign_names:
         val = "(" + ",".join(campaign_names) + ")"
         base_params.append(("campaign_name", f"in.{val}"))
-    else:
-        base_params.append(("campaign_name", "not.is.null"))
+    # (no fallback filter needed — source=auto_sync already excludes non-send rows)
     if date_eq:
         base_params.append(("contacted_at", f"eq.{date_eq}"))
     if date_gte:
