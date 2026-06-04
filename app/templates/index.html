@@ -430,7 +430,7 @@
               </svg>
             </div>
             <div class="cat-card-title">Campaign Management</div>
-            <div class="cat-card-count">4 tools</div>
+            <div class="cat-card-count">5 tools</div>
             <div class="cat-card-cta">
               Explore tools
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -566,7 +566,7 @@
           </div>
         </a>
 
-        <a href="/zerobounce" class="card-link anim" style="--d:0.46s">
+        <a href="https://www.zerobounce.net/members/validate/results" target="_blank" rel="noopener noreferrer" class="card-link anim" style="--d:0.46s">
           <div class="tool-card">
             <div class="card-bar"></div>
             <div class="card-body">
@@ -667,6 +667,21 @@
           </div>
         </a>
 
+        <a href="https://app.smartlead.ai/app/email-campaign/all" target="_blank" rel="noopener noreferrer" class="card-link anim" style="--d:0.32s">
+          <div class="tool-card">
+            <div class="card-bar"></div>
+            <div class="card-body">
+              <div class="card-icon">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                </svg>
+              </div>
+              <h2>Smartlead</h2>
+              <p>Manage and monitor all email campaigns — sequences, inboxes, and delivery across your sending accounts.</p>
+            </div>
+          </div>
+        </a>
+
       </div>
     </div>
   </div>
@@ -681,6 +696,10 @@
     const from = document.getElementById(_current);
     const to   = document.getElementById(targetId);
     if (!from || !to || from === to) return;
+
+    // Freeze .anim elements BEFORE the screen becomes visible so the CSS
+    // animation doesn't fire on its own (would cause a double-play).
+    to.querySelectorAll('.anim').forEach(el => el.style.animation = 'none');
 
     // Place target off-screen right, make visible
     to.style.cssText = 'display:flex; opacity:0; transform:translateX(56px); pointer-events:none; transition:none;';
@@ -711,6 +730,9 @@
     const from = document.getElementById(_current);
     const to   = document.getElementById('screen-home');
     if (!from || !to) return;
+
+    // Freeze .anim elements before the screen becomes visible
+    to.querySelectorAll('.anim').forEach(el => el.style.animation = 'none');
 
     // Place home off-screen left, make visible
     to.style.cssText = 'display:flex; opacity:0; transform:translateX(-56px); pointer-events:none; transition:none;';
