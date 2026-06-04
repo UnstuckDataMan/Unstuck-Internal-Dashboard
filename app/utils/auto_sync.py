@@ -191,6 +191,7 @@ def sync_campaign_core(
                 }
                 for entry in chunk
             ]
+            inserted = False
             try:
                 r = http_req.post(
                     f"{SUPABASE_URL}/rest/v1/contacted_prospects",
@@ -200,9 +201,34 @@ def sync_campaign_core(
                 )
                 if r.status_code not in (200, 201, 204, 409):
                     r.raise_for_status()
-                result["contacted_added"] += len(chunk)
+                inserted = True
             except Exception:
                 pass
+
+            if not inserted:
+                # Retry without chaser_contacted_at — the column may not exist yet
+                # (requires: ALTER TABLE contacted_prospects ADD COLUMN IF NOT EXISTS
+                # chaser_contacted_at date).  Base columns always exist so this
+                # fallback guarantees the send data is stored regardless.
+                try:
+                    base_rows = [
+                        {k: v for k, v in row.items() if k != "chaser_contacted_at"}
+                        for row in rows_to_insert
+                    ]
+                    r2 = http_req.post(
+                        f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                        headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                        json=base_rows,
+                        timeout=30,
+                    )
+                    if r2.status_code not in (200, 201, 204, 409):
+                        r2.raise_for_status()
+                    inserted = True
+                except Exception:
+                    pass
+
+            if inserted:
+                result["contacted_added"] += len(chunk)
 
     # ── Update campaign counters ──────────────────────────────────────
     new_sent     = len(sent_data)
