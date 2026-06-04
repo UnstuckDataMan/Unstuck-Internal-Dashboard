@@ -342,6 +342,9 @@ async def refresh_campaign(request: Request, campaign_id: str):
         # ── Sync contacted_prospects so the Today stat is current ─────────
         # The auto-sync runs twice daily; clicking Refresh brings the count
         # up to date immediately so users don't wait for the next scheduled run.
+        # DELETE existing scrub_upload rows first — they block the insert and
+        # merge-duplicates doesn't reliably overwrite them (PostgREST defaults
+        # to conflicting on the PK/UUID, not the email-level unique constraint).
         if sent_data:
             cp_rows = [
                 {
@@ -354,11 +357,26 @@ async def refresh_campaign(request: Request, campaign_id: str):
                 for e in sent_data
             ]
             for i in range(0, len(cp_rows), CHUNK_SIZE):
+                chunk = cp_rows[i : i + CHUNK_SIZE]
+                email_list = "(" + ",".join(r["email"] for r in chunk) + ")"
+                try:
+                    http_req.delete(
+                        f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                        headers=_sb_headers(),
+                        params={
+                            "client_id": f"eq.{client_id}",
+                            "source":    "eq.scrub_upload",
+                            "email":     f"in.{email_list}",
+                        },
+                        timeout=30,
+                    )
+                except Exception:
+                    pass
                 try:
                     http_req.post(
                         f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                        headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
-                        json=cp_rows[i : i + CHUNK_SIZE],
+                        headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                        json=chunk,
                         timeout=30,
                     )
                 except Exception:

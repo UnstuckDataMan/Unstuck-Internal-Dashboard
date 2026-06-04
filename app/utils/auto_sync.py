@@ -140,9 +140,35 @@ def sync_campaign_core(
     # ── Add sent rows to contacted_prospects ──────────────────────────
     # Use the actual Sent Date from the sheet so the date-bucketed stats
     # (Today / This Week / This Month) accurately reflect when emails were sent.
+    #
+    # Strategy: DELETE any existing scrub_upload rows for these emails first,
+    # then INSERT fresh auto_sync rows.  scrub_upload rows are created when a
+    # list is scrubbed with "Save to contacted history" and would otherwise
+    # block the auto_sync insert (unique constraint on client_id + email).
+    # Using merge-duplicates is unreliable because PostgREST defaults to
+    # conflicting on the primary key (UUID), not the email-level unique
+    # constraint, so new rows are appended rather than replacing existing ones.
     if sent_data:
         for i in range(0, len(sent_data), CHUNK_SIZE):
             chunk = sent_data[i : i + CHUNK_SIZE]
+            email_list = "(" + ",".join(e["email"] for e in chunk) + ")"
+
+            # Remove scrub_upload rows so the authoritative auto_sync rows can
+            # be inserted with the correct contacted_at date.
+            try:
+                http_req.delete(
+                    f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                    headers=_sb_headers(),
+                    params={
+                        "client_id": f"eq.{client_id}",
+                        "source":    "eq.scrub_upload",
+                        "email":     f"in.{email_list}",
+                    },
+                    timeout=30,
+                )
+            except Exception:
+                pass   # Non-fatal — insert below uses ignore-duplicates as fallback
+
             rows_to_insert = [
                 {
                     "client_id":    client_id,
@@ -156,7 +182,7 @@ def sync_campaign_core(
             try:
                 r = http_req.post(
                     f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                    headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
+                    headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
                     json=rows_to_insert,
                     timeout=30,
                 )
