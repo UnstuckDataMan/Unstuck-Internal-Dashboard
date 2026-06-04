@@ -141,9 +141,30 @@ def _send_slack_approval_notification(client_name: str, territory: str, industry
         return {"ok": False, "error": str(exc)}
 
 
+def _slack_mention(val: str) -> str:
+    """Return a Slack <@ID> mention if val looks like a member ID, else plain name."""
+    return f"<@{val}>" if val.startswith("U") and len(val) >= 9 else val
+
+
 def _send_slack_notification(client_name: str, territory: str, industry: str) -> dict:
-    """Fire a Slack incoming-webhook message tagging the three reviewers.
-    Returns {"ok": True} on success or {"ok": False, "error": "..."} on failure."""
+    """Legacy single-change notification — kept for backward compatibility / test-slack."""
+    return _send_slack_batch_notification(
+        client_name=client_name,
+        requested_by="",
+        changes=[{"territory": territory, "industry": industry, "count": 1}],
+    )
+
+
+def _send_slack_batch_notification(
+    client_name: str,
+    requested_by: str,
+    changes: list,
+) -> dict:
+    """Send ONE Slack message summarising all changed territory+industry combinations.
+
+    Each entry in *changes* is a dict with keys:
+        territory (str), industry (str), count (int)
+    """
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
     if not webhook_url:
         msg = "SLACK_WEBHOOK_URL not set"
@@ -154,24 +175,29 @@ def _send_slack_notification(client_name: str, territory: str, industry: str) ->
     chris = os.environ.get("SLACK_CHRIS_ID", "Chris")
     leo   = os.environ.get("SLACK_LEO_ID", "Leo")
 
-    # Format mentions: if the value looks like a Slack member ID use <@ID>, else plain name
-    def mention(val: str) -> str:
-        return f"<@{val}>" if val.startswith("U") and len(val) >= 9 else val
+    lines: list[str] = [f"📋 *Copy Approval Request — {client_name}*"]
+    if requested_by:
+        lines.append(f"Requested by *{requested_by}*")
+    lines.append("")
 
-    payload = {
-        "text": (
-            f"📋 *Copy Approval Request*\n"
-            f"*Client:* {client_name}  |  *Territory:* {territory}  |  *Industry:* {industry}\n"
-            f"{mention(ollie)} {mention(chris)} {mention(leo)} — "
-            f"please review in the Copy Bank admin panel."
-        )
-    }
+    for ch in changes:
+        territory = (ch.get("territory") or "—").strip()
+        industry  = (ch.get("industry")  or "—").strip()
+        count     = int(ch.get("count") or 1)
+        suffix    = f" ×{count}" if count > 1 else ""
+        lines.append(f"• *{territory}* | {industry}{suffix}")
+
+    lines.append("")
+    mentions = f"{_slack_mention(ollie)} {_slack_mention(chris)} {_slack_mention(leo)}"
+    lines.append(f"{mentions} — please review in the Copy Bank admin panel.")
+
+    payload = {"text": "\n".join(lines)}
     try:
         r = http_req.post(webhook_url, json=payload, timeout=8)
         r.raise_for_status()
         return {"ok": True}
     except Exception as exc:
-        log.error("Slack notification failed: %s", exc)
+        log.error("Slack batch notification failed: %s", exc)
         return {"ok": False, "error": str(exc)}
 
 
@@ -208,6 +234,12 @@ class ApproveBody(BaseModel):
     key:         str
     approved_by: str   # 'Ollie' | 'Chris' | 'Leo'
     content:     dict  # final published content (reviewer may have edited before approving)
+
+
+class ApprovalNotifyBody(BaseModel):
+    client_name:  str
+    requested_by: str = ""
+    changes:      list  # [{territory, industry, count}, ...]
 
 
 # ── Approval endpoints ─────────────────────────────────────────────────────────
@@ -249,7 +281,23 @@ def request_approval(body: ApprovalRequestBody):
         log.error("copy_bank_pending insert failed %s: %s", resp.status_code, err_body)
         return JSONResponse({"ok": False, "error": err_body}, status_code=500)
 
-    slack = _send_slack_notification(body.client_name, body.territory, body.industry)
+    # Slack notification is now sent separately via /notify-approval after
+    # ALL keys for this approval batch have been saved, so we only fire once.
+    return JSONResponse({"ok": True})
+
+
+@router.post("/api/copy-bank/notify-approval")
+def notify_approval(body: ApprovalNotifyBody):
+    """Send a single Slack message summarising all changes in one approval request.
+
+    Called once by the frontend after every /request-approval save in the batch
+    has succeeded, so reviewers receive exactly one notification per submission.
+    """
+    slack = _send_slack_batch_notification(
+        client_name=body.client_name,
+        requested_by=body.requested_by,
+        changes=body.changes,
+    )
     return JSONResponse({"ok": True, "slack": slack})
 
 

@@ -4265,6 +4265,36 @@ function autoCommitOpenEdits() {
   });
 }
 
+// Count how many copy items (subjects, variations, steps) changed between two
+// content objects.  Used to produce the "x N" count in the Slack summary.
+function _countCopyChanges(content, previous) {
+  var count = 0;
+  var prev  = previous || {};
+  ['email', 'flyout', 'linkedin'].forEach(function(ch) {
+    var c  = content[ch] || {};
+    var p  = prev[ch]    || {};
+    // Subjects
+    var cS = c.subjects || [], pS = p.subjects || [];
+    var sLen = Math.max(cS.length, pS.length);
+    for (var i = 0; i < sLen; i++) {
+      if ((cS[i] || '') !== (pS[i] || '')) count++;
+    }
+    // Variations
+    var cV = c.variations || [], pV = p.variations || [];
+    var vLen = Math.max(cV.length, pV.length);
+    for (var i = 0; i < vLen; i++) {
+      if (((cV[i]||{}).body||'') !== ((pV[i]||{}).body||'')) count++;
+    }
+    // LinkedIn steps
+    var cSt = c.steps || [], pSt = p.steps || [];
+    var stLen = Math.max(cSt.length, pSt.length);
+    for (var i = 0; i < stLen; i++) {
+      if (((cSt[i]||{}).body||'') !== ((pSt[i]||{}).body||'')) count++;
+    }
+  });
+  return count || 1;   // always at least 1 if the entry is dirty
+}
+
 async function submitInlineApprovalRequest(afterCallback, requestedBy) {
   if (!activeProfile) { if (afterCallback) afterCallback(); return; }
   autoCommitOpenEdits();
@@ -4325,6 +4355,27 @@ async function submitInlineApprovalRequest(afterCallback, requestedBy) {
   }
 
   if (anyFailed) return;
+
+  // All saves succeeded — send ONE Slack notification summarising every change.
+  // Build the changes list, counting how many copy items differ per combination.
+  try {
+    var changes = dirtyEntries.map(function(e) {
+      return {
+        territory: e.territory,
+        industry:  e.industry,
+        count:     _countCopyChanges(e.content, e.previousContent),
+      };
+    });
+    await fetch('/api/copy-bank/notify-approval', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        client_name:  activeProfile.name,
+        requested_by: requestedBy || '',
+        changes:      changes,
+      }),
+    });
+  } catch(e) { /* non-fatal — saves already succeeded */ }
 
   dirtyContent = false;
   render();
