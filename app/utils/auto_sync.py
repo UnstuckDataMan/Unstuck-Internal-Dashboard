@@ -53,7 +53,9 @@ def sync_campaign_core(
     completed_at the first time sent_count reaches total_prospects.
     Does NOT raise — errors are returned in the dict so callers can log/continue.
     """
-    from app.utils.google_sheets import read_leads, read_sent_with_dates, write_sent_dates
+    from app.utils.google_sheets import (
+        read_leads, read_sent_with_dates, write_sent_dates, write_chaser_dates,
+    )
 
     result = {
         "leads_added": 0, "interested_added": 0,
@@ -73,22 +75,31 @@ def sync_campaign_core(
     except Exception:
         sent_data = []
 
-    # ── Back-fill missing Sent Date cells in the sheet ────────────────
+    # ── Back-fill missing Sent Date and Chaser Date cells ────────────
     # For every sent row that has no Sent Date yet, stamp today.
-    # Rows with an existing date keep it, so contacted_at always reflects
-    # the real send date rather than the date the sync job happened to run.
+    # For every chased row (Chaser Sent? = TRUE) with no Chaser Date, stamp today.
+    # Existing dates are kept so contacted_at always reflects the real send date.
     if sent_data:
         today_str = _date.today().isoformat()
-        to_write: list[tuple[int, str]] = []
+        sent_to_write:   list[tuple[int, str]] = []
+        chaser_to_write: list[tuple[int, str]] = []
         for entry in sent_data:
             if not entry["sent_date"]:
                 entry["sent_date"] = today_str
-                to_write.append((entry["row_num"], today_str))
-        if to_write:
+                sent_to_write.append((entry["row_num"], today_str))
+            if entry.get("chaser_sent") and not entry.get("chaser_date"):
+                entry["chaser_date"] = today_str
+                chaser_to_write.append((entry["row_num"], today_str))
+        if sent_to_write:
             try:
-                write_sent_dates(sheet_id, to_write)
+                write_sent_dates(sheet_id, sent_to_write)
             except Exception:
-                pass   # Non-fatal — stats will still be correct
+                pass   # Non-fatal
+        if chaser_to_write:
+            try:
+                write_chaser_dates(sheet_id, chaser_to_write)
+            except Exception:
+                pass   # Non-fatal
 
     # ── Build DNC rows ────────────────────────────────────────────────
     if leads:
@@ -185,6 +196,11 @@ def sync_campaign_core(
                     "email":        entry["email"],
                     "contacted_at": entry["sent_date"],
                     "source":       "auto_sync",
+                    # chaser_contacted_at tracks when the follow-up email was sent;
+                    # included only when a Chaser Date is known so existing rows
+                    # with a chaser date are not cleared by rows that haven't been chased.
+                    **({"chaser_contacted_at": entry["chaser_date"]}
+                       if entry.get("chaser_date") else {}),
                     **({"campaign_name": campaign_name} if campaign_name else {}),
                 }
                 for entry in chunk

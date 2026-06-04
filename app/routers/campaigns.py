@@ -94,11 +94,59 @@ def _count_contacted(
         return 0
 
 
+def _count_chaser_contacted(
+    client_id: str,
+    date_eq:  str = "",
+    date_gte: str = "",
+    date_lte: str = "",
+    campaign_names: list[str] | None = None,
+) -> int:
+    """
+    Count contacted_prospects rows by chaser_contacted_at date — i.e. the number
+    of chaser emails sent in the given period.
+
+    Returns 0 gracefully if the chaser_contacted_at column does not yet exist
+    (Supabase returns HTTP 400 for unknown column names).
+    """
+    base_params: list[tuple[str, str]] = [
+        ("select",              "id"),
+        ("client_id",           f"eq.{client_id}"),
+        ("source",              "eq.auto_sync"),
+        ("chaser_contacted_at", "not.is.null"),   # only rows that have been chased
+        ("limit",               "1"),
+    ]
+    if campaign_names:
+        val = "(" + ",".join(campaign_names) + ")"
+        base_params.append(("campaign_name", f"in.{val}"))
+    if date_eq:
+        base_params.append(("chaser_contacted_at", f"eq.{date_eq}"))
+    if date_gte:
+        base_params.append(("chaser_contacted_at", f"gte.{date_gte}"))
+    if date_lte:
+        base_params.append(("chaser_contacted_at", f"lte.{date_lte}"))
+    try:
+        r = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+            headers={**_sb_headers(), "Prefer": "count=exact"},
+            params=base_params,
+            timeout=10,
+        )
+        if r.status_code >= 400:
+            return 0   # column doesn't exist yet — graceful zero
+        return _parse_total(r.headers)
+    except Exception:
+        return 0
+
+
 def _time_breakdown(
     client_id: str,
     campaign_names: list[str] | None = None,
 ) -> dict:
-    """Return today / this-week / this-month / all-time send counts plus labels."""
+    """Return today / this-week / this-month / all-time send counts plus labels.
+
+    Each bucket includes both initial sends (contacted_at) and chaser sends
+    (chaser_contacted_at) so the stats reflect total email touches per period.
+    """
     today       = _date.today()
     monday      = today - timedelta(days=today.weekday())
     sunday      = monday + timedelta(days=6)
@@ -109,11 +157,20 @@ def _time_breakdown(
         else f"{monday.strftime('%b %-d')}–{sunday.strftime('%b %-d')}"
     )
     kw = {"campaign_names": campaign_names}
+
+    def _total(date_eq: str = "", date_gte: str = "", date_lte: str = "") -> int:
+        """Sum initial sends and chaser sends for the given date window."""
+        initial = _count_contacted(client_id, date_eq=date_eq,
+                                   date_gte=date_gte, date_lte=date_lte, **kw)
+        chasers = _count_chaser_contacted(client_id, date_eq=date_eq,
+                                          date_gte=date_gte, date_lte=date_lte, **kw)
+        return initial + chasers
+
     return {
-        "today":       _count_contacted(client_id, date_eq=today.isoformat(), **kw),
-        "week":        _count_contacted(client_id, date_gte=monday.isoformat(), date_lte=sunday.isoformat(), **kw),
-        "month":       _count_contacted(client_id, date_gte=month_start.isoformat(), date_lte=today.isoformat(), **kw),
-        "all_time":    _count_contacted(client_id, **kw),
+        "today":       _total(date_eq=today.isoformat()),
+        "week":        _total(date_gte=monday.isoformat(), date_lte=sunday.isoformat()),
+        "month":       _total(date_gte=month_start.isoformat(), date_lte=today.isoformat()),
+        "all_time":    _total(),
         "week_label":  week_label,
         "month_label": today.strftime("%B %Y"),
     }
@@ -256,10 +313,14 @@ async def campaign_send_stats(
         if campaign_names else None
     )
 
-    # Custom date range → return a single count
+    # Custom date range → return a single count (initial sends + chasers)
     if date_from and date_to:
-        count = _count_contacted(client_id, date_gte=date_from, date_lte=date_to,
-                                 campaign_names=names_list)
+        count = (
+            _count_contacted(client_id, date_gte=date_from, date_lte=date_to,
+                             campaign_names=names_list)
+            + _count_chaser_contacted(client_id, date_gte=date_from, date_lte=date_to,
+                                      campaign_names=names_list)
+        )
         return JSONResponse({"count": count, "date_from": date_from, "date_to": date_to})
 
     # No date range → return full time breakdown (today / week / month / all-time)

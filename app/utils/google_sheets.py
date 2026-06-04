@@ -622,6 +622,26 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
         data_rows = str_rows[1:]
         all_rows  = str_rows
 
+    # Insert "Chaser Date" column immediately after "Chaser Sent?".
+    # Tracks the date the chaser was sent (back-filled by auto_sync / Sync button)
+    # so chaser sends can be counted in the Today/Week/Month stats.
+    if "Chaser Date" not in headers:
+        chaser_sent_idx = (
+            headers.index("Chaser Sent?") if "Chaser Sent?" in headers else -1
+        )
+        if chaser_sent_idx >= 0:
+            insert_at = chaser_sent_idx + 1
+            for row in str_rows:
+                row.insert(insert_at, "")
+            str_rows[0][insert_at] = "Chaser Date"
+        else:
+            for row in str_rows:
+                row.append("")
+            str_rows[0][-1] = "Chaser Date"
+        headers   = str_rows[0]
+        data_rows = str_rows[1:]
+        all_rows  = str_rows
+
     # ── Create spreadsheet in Shared Drive ───────────────────────────────
     file_id, sheet_url = _create_spreadsheet(title)
 
@@ -741,18 +761,24 @@ def read_sent_with_dates(sheet_id: str) -> list[dict]:
         email = str(r.get("Recipient Email", "")).strip().lower()
         if not _is_sent(r.get("Send Status", "")) or not email or "@" not in email:
             continue
-        sent_date    = str(r.get("Sent Date", "")).strip()
+        sent_date    = str(r.get("Sent Date",   "")).strip()
         chaser_sent  = _is_sent(r.get("Chaser Sent?", ""))
+        chaser_date  = str(r.get("Chaser Date", "")).strip()
         results.append({"email": email, "sent_date": sent_date,
-                         "row_num": i, "chaser_sent": chaser_sent})
+                         "row_num": i, "chaser_sent": chaser_sent,
+                         "chaser_date": chaser_date})
     return results
 
 
-def write_sent_dates(sheet_id: str, row_date_pairs: list[tuple[int, str]]) -> None:
+def _write_date_column(
+    sheet_id: str,
+    row_date_pairs: list[tuple[int, str]],
+    col_name: str,
+) -> None:
     """
-    Batch-write (row_num, date_str) pairs to the 'Sent Date' column.
+    Batch-write (row_num, date_str) pairs to a named date column.
 
-    If 'Sent Date' doesn't exist in the header row it is appended automatically.
+    If the column doesn't exist in the header row it is appended automatically.
     row_num values are 1-based sheet row numbers (1 = header).
     """
     if not row_date_pairs:
@@ -763,19 +789,34 @@ def write_sent_dates(sheet_id: str, row_date_pairs: list[tuple[int, str]]) -> No
     ws = sh.sheet1
 
     headers = ws.row_values(1)
-    if "Sent Date" not in headers:
+    if col_name not in headers:
         new_col_idx = len(headers) + 1          # 1-based
-        ws.update_cell(1, new_col_idx, "Sent Date")
-        sent_date_col = new_col_idx
+        ws.update_cell(1, new_col_idx, col_name)
+        date_col = new_col_idx
     else:
-        sent_date_col = headers.index("Sent Date") + 1   # 1-based
+        date_col = headers.index(col_name) + 1   # 1-based
 
     updates = [
-        {"range": f"{_col_letter(sent_date_col)}{row_num}", "values": [[date_str]]}
+        {"range": f"{_col_letter(date_col)}{row_num}", "values": [[date_str]]}
         for row_num, date_str in row_date_pairs
     ]
     if updates:
         ws.batch_update(updates)
+
+
+def write_sent_dates(sheet_id: str, row_date_pairs: list[tuple[int, str]]) -> None:
+    """Batch-write to the 'Sent Date' helper column (auto-creates if missing)."""
+    _write_date_column(sheet_id, row_date_pairs, "Sent Date")
+
+
+def write_chaser_dates(sheet_id: str, row_date_pairs: list[tuple[int, str]]) -> None:
+    """Batch-write to the 'Chaser Date' helper column (auto-creates if missing).
+
+    Called during sync for every row where 'Chaser Sent?' is TRUE but 'Chaser Date'
+    is still empty — stamps today's date so chaser sends are date-trackable for
+    the Today/Week/Month stats.
+    """
+    _write_date_column(sheet_id, row_date_pairs, "Chaser Date")
 
 
 def read_ab_stats(sheet_id: str) -> list[dict]:
