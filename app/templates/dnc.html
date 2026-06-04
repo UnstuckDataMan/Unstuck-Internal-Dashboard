@@ -4249,9 +4249,20 @@
       return;
     }
 
-    // Snapshot full stats the first time a tag filter is applied
+    // Snapshot full stats the first time a tag filter is applied.
+    // Must include the send-timeline tiles (today/week/month/alltime) so
+    // clicking "All" can restore them — without these keys the restore falls
+    // back to '0' and the stats appear blank.
     if (!window._campClientStats) {
       window._campClientStats = {
+        // Send timeline — read from the tiles the server rendered
+        today:     el('cdash-sn-today')       ? el('cdash-sn-today').textContent       : '0',
+        week:      el('cdash-sn-week')        ? el('cdash-sn-week').textContent        : '0',
+        weekLabel: el('cdash-sn-week-label')  ? el('cdash-sn-week-label').textContent  : '',
+        month:     el('cdash-sn-month')       ? el('cdash-sn-month').textContent       : '0',
+        monthLabel:el('cdash-sn-month-label') ? el('cdash-sn-month-label').textContent : '',
+        alltime:   el('cdash-sn-alltime')     ? el('cdash-sn-alltime').textContent     : '0',
+        // Campaign & engagement tiles
         campNum:   el('cdash-num-campaigns')  ? el('cdash-num-campaigns').textContent  : '0',
         campSub:   el('cdash-sub-campaigns')  ? el('cdash-sub-campaigns').textContent  : 'active',
         campSub2:  el('cdash-sub2-campaigns') ? el('cdash-sub2-campaigns').textContent : '',
