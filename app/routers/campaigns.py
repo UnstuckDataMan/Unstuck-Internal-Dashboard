@@ -357,7 +357,7 @@ async def refresh_campaign(request: Request, campaign_id: str):
                 try:
                     http_req.post(
                         f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                        headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                        headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
                         json=cp_rows[i : i + CHUNK_SIZE],
                         timeout=30,
                     )

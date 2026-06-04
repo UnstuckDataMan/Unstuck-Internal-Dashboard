@@ -156,7 +156,7 @@ def sync_campaign_core(
             try:
                 r = http_req.post(
                     f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                    headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                    headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
                     json=rows_to_insert,
                     timeout=30,
                 )
