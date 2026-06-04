@@ -168,8 +168,11 @@
 <div style="display:flex;align-items:center;justify-content:space-between;margin-top:24px;margin-bottom:6px">
   <p class="camp-section-label" style="margin:0">Active Campaigns</p>
   <button class="camp-sync-btn" id="camp-sync-all-btn"
-          data-campaign-ids="{{ ns.ids | join(',') }}"
-          onclick="openSyncAllModal(this)">
+          hx-post="/api/campaigns/sync-all?client_id={{ client_id }}"
+          hx-target="#campaigns-panel-inner"
+          hx-swap="innerHTML"
+          hx-confirm="Sync all campaigns? This will update the DNC list and campaign stats for every campaign with a linked sheet."
+          hx-indicator="#camp-spinner">
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <polyline points="17 1 21 5 17 9"/>
@@ -180,7 +183,6 @@
     Sync All
   </button>
 </div>
-<div id="camp-sync-all-result" style="font-size:.78rem;margin-bottom:8px"></div>
 <div class="camp-grid">
   {% for c in campaigns %}
   {% if not (c.completed or (c.total_prospects > 0 and c.sent_count >= c.total_prospects)) %}
@@ -314,20 +316,12 @@
         Open Sheet
       </a>
       {% endif %}
-      <button class="camp-refresh-btn"
-              hx-post="/api/campaigns/{{ c.id }}/refresh"
+      <button class="camp-sync-btn"
+              hx-post="/api/campaigns/{{ c.id }}/refresh?client_id={{ client_id }}"
               hx-target="#campaigns-panel-inner"
               hx-swap="innerHTML"
+              hx-confirm="Sync '{{ c.campaign_name or 'this campaign' }}'? This will update the DNC list and campaign stats."
               hx-indicator="#camp-spinner">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="1 4 1 10 7 10"/>
-          <path d="M3.51 15a9 9 0 1 0 .49-3.37"/>
-        </svg>
-        Refresh
-      </button>
-      <button class="camp-sync-btn"
-              onclick="openSyncModal('{{ c.id }}', '{{ client_id }}')">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="17 1 21 5 17 9"/>
@@ -376,7 +370,6 @@
         Remove
       </button>
     </div>
-    <div id="camp-sync-result-{{ c.id }}" class="camp-sync-result"></div>
   </div>
   {% endif %}
   {% endfor %}
@@ -449,6 +442,21 @@
           <polygon points="5 3 19 12 5 21 5 3"/>
         </svg>
         Resume
+      </button>
+      <button class="camp-sync-btn"
+              hx-post="/api/campaigns/{{ c.id }}/refresh?client_id={{ client_id }}"
+              hx-target="#campaigns-panel-inner"
+              hx-swap="innerHTML"
+              hx-confirm="Sync '{{ c.campaign_name or 'this campaign' }}'? This will update the DNC list and campaign stats."
+              hx-indicator="#camp-spinner">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="17 1 21 5 17 9"/>
+          <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+          <polyline points="7 23 3 19 7 15"/>
+          <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+        </svg>
+        Sync
       </button>
       <button class="camp-delete-btn"
               hx-delete="/api/campaigns/{{ c.id }}?client_id={{ client_id }}"
@@ -582,7 +590,11 @@
       </a>
       {% endif %}
       <button class="camp-sync-btn"
-              onclick="openSyncModal('{{ c.id }}', '{{ client_id }}')">
+              hx-post="/api/campaigns/{{ c.id }}/refresh?client_id={{ client_id }}"
+              hx-target="#campaigns-panel-inner"
+              hx-swap="innerHTML"
+              hx-confirm="Sync '{{ c.campaign_name or 'this campaign' }}'? This will update the DNC list and campaign stats."
+              hx-indicator="#camp-spinner">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="17 1 21 5 17 9"/>
@@ -608,7 +620,6 @@
         Remove
       </button>
     </div>
-    <div id="camp-sync-result-{{ c.id }}" class="camp-sync-result"></div>
   </div>
   {% endif %}
   {% endfor %}

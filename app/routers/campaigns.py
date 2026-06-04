@@ -266,11 +266,15 @@ async def campaign_send_stats(
     return JSONResponse(_time_breakdown(client_id, campaign_names=names_list))
 
 
-# ── Refresh sent count ─────────────────────────────────────────────────────────
+# ── Sync + refresh (combined) ──────────────────────────────────────────────────
+# Single endpoint used by the per-campaign "Sync" button.  Runs the full
+# sync pipeline (DNC blocking, contacted_prospects sync, stat update) via
+# sync_campaign_core, then returns the refreshed campaigns panel HTML.
 
 @router.post("/api/campaigns/{campaign_id}/refresh")
 async def refresh_campaign(request: Request, campaign_id: str):
-    from app.utils.google_sheets import is_configured, read_sheet_status, read_leads
+    from app.utils.google_sheets import is_configured
+    from app.utils.auto_sync import sync_campaign_core
 
     if not _sb_configured():
         return JSONResponse({"error": "Supabase not configured."}, status_code=503)
@@ -280,7 +284,7 @@ async def refresh_campaign(request: Request, campaign_id: str):
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers(),
             params={"id": f"eq.{campaign_id}",
-                    "select": "id,sheet_id,client_id,campaign_name,total_prospects"},
+                    "select": "id,sheet_id,client_id,campaign_name,total_prospects,completed_at"},
             timeout=10,
         )
         r.raise_for_status()
@@ -291,120 +295,83 @@ async def refresh_campaign(request: Request, campaign_id: str):
     if not rows:
         return JSONResponse({"error": "Campaign not found."}, status_code=404)
 
-    campaign      = rows[0]
-    sheet_id      = campaign.get("sheet_id", "")
-    client_id     = campaign.get("client_id", "")
-    campaign_name = campaign.get("campaign_name", "") or ""
+    campaign         = rows[0]
+    sheet_id         = campaign.get("sheet_id", "")
+    client_id        = campaign.get("client_id", "")
+    campaign_name    = campaign.get("campaign_name", "") or ""
+    total_prospects  = campaign.get("total_prospects") or 0
+    completed_at     = campaign.get("completed_at")
 
     if not sheet_id:
         return JSONResponse({"error": "No sheet linked."}, status_code=400)
     if not is_configured():
         return JSONResponse({"error": "Google Sheets not configured."}, status_code=503)
 
-    try:
-        status = read_sheet_status(sheet_id)
-    except Exception as exc:
-        return JSONResponse({"error": f"Sheet read error: {exc}"}, status_code=500)
+    # Run the full sync pipeline:
+    #   • Back-fills Sent Date column for any rows missing it
+    #   • Updates contacted_prospects (deletes old rows, inserts fresh auto_sync rows
+    #     with the correct contacted_at dates so Today/Week/Month stats stay accurate)
+    #   • Adds new DNC entries for leads / interested / unsubscribes
+    #   • Updates campaign counters in Supabase
+    result = sync_campaign_core(
+        campaign_id, sheet_id, client_id, campaign_name,
+        total_prospects=total_prospects,
+        completed_at=completed_at,
+    )
 
-    # Read Lead Status counts from the sheet so all counter columns stay in sync
-    lead_count = reply_count = interested_count = unsub_count = chaser_count = 0
-    try:
-        leads_data       = read_leads(sheet_id)
-        lead_count       = sum(1 for e in leads_data if e["status"] == "Lead")
-        reply_count      = sum(1 for e in leads_data if e["status"] == "Reply")
-        interested_count = sum(1 for e in leads_data if e["status"] == "Interested")
-        unsub_count      = sum(1 for e in leads_data if e["status"] == "Unsubscribe")
-    except Exception:
-        pass   # Non-fatal — sent_count will still be updated below
+    if result["error"]:
+        return JSONResponse({"error": result["error"]}, status_code=500)
 
-    sent_data: list[dict] = []
-    chaser_count = 0
-    try:
-        from app.utils.google_sheets import read_sent_with_dates, write_sent_dates
-        sent_data    = read_sent_with_dates(sheet_id)
-        chaser_count = sum(1 for e in sent_data if e.get("chaser_sent"))
+    return await list_campaigns(request, client_id=client_id)
 
-        # ── Back-fill missing Sent Date cells ────────────────────────────
-        # Mirror the same logic as auto_sync so Refresh gives an accurate
-        # contacted_at date for the Today stat rather than always writing today.
-        today_str  = _date.today().isoformat()
-        to_write: list[tuple[int, str]] = []
-        for entry in sent_data:
-            if not entry["sent_date"]:
-                entry["sent_date"] = today_str
-                to_write.append((entry["row_num"], today_str))
-        if to_write:
-            try:
-                write_sent_dates(sheet_id, to_write)
-            except Exception:
-                pass
 
-        # ── Sync contacted_prospects so the Today stat is current ─────────
-        # The auto-sync runs twice daily; clicking Refresh brings the count
-        # up to date immediately so users don't wait for the next scheduled run.
-        # DELETE existing scrub_upload rows first — they block the insert and
-        # merge-duplicates doesn't reliably overwrite them (PostgREST defaults
-        # to conflicting on the PK/UUID, not the email-level unique constraint).
-        if sent_data:
-            cp_rows = [
-                {
-                    "client_id":    client_id,
-                    "email":        e["email"],
-                    "contacted_at": e["sent_date"],
-                    "source":       "auto_sync",
-                    **({"campaign_name": campaign_name} if campaign_name else {}),
-                }
-                for e in sent_data
-            ]
-            for i in range(0, len(cp_rows), CHUNK_SIZE):
-                chunk = cp_rows[i : i + CHUNK_SIZE]
-                email_list = "(" + ",".join(r["email"] for r in chunk) + ")"
-                try:
-                    http_req.delete(
-                        f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                        headers=_sb_headers(),
-                        params={
-                            "client_id": f"eq.{client_id}",
-                            "source":    "eq.scrub_upload",
-                            "email":     f"in.{email_list}",
-                        },
-                        timeout=30,
-                    )
-                except Exception:
-                    pass
-                try:
-                    http_req.post(
-                        f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                        headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
-                        json=chunk,
-                        timeout=30,
-                    )
-                except Exception:
-                    pass
-    except Exception:
-        pass   # Non-fatal — counters below will still update
+# ── Sync All campaigns for a client ───────────────────────────────────────────
 
-    patch_body: dict = {
-        "sent_count":        status["sent"],
-        "lead_count":        lead_count,
-        "reply_count":       reply_count,
-        "interested_count":  interested_count,
-        "unsubscribe_count": unsub_count,
-    }
-    # chaser_count requires the column to exist in Supabase; skip gracefully if not
-    if chaser_count:
-        patch_body["chaser_count"] = chaser_count
+@router.post("/api/campaigns/sync-all")
+async def sync_all_campaigns(request: Request, client_id: str = Query("")):
+    """
+    Sync every campaign with a linked sheet for the given client.
+    Runs sync_campaign_core for each campaign (sequentially) then returns the
+    refreshed campaigns panel HTML.  Per-campaign errors are non-fatal.
+    """
+    from app.utils.google_sheets import is_configured
+    from app.utils.auto_sync import sync_campaign_core
+
+    if not client_id:
+        return JSONResponse({"error": "client_id is required."}, status_code=400)
+    if not _sb_configured():
+        return JSONResponse({"error": "Supabase not configured."}, status_code=503)
+    if not is_configured():
+        return JSONResponse({"error": "Google Sheets not configured."}, status_code=503)
 
     try:
-        http_req.patch(
+        r = http_req.get(
             f"{SUPABASE_URL}/rest/v1/campaigns",
-            headers=_sb_headers("return=minimal"),
-            params={"id": f"eq.{campaign_id}"},
-            json=patch_body,
+            headers=_sb_headers(),
+            params={
+                "select":    "id,sheet_id,client_id,campaign_name,total_prospects,completed_at",
+                "client_id": f"eq.{client_id}",
+                "sheet_id":  "not.is.null",
+            },
             timeout=10,
-        ).raise_for_status()
+        )
+        r.raise_for_status()
+        campaigns = [c for c in r.json() if (c.get("sheet_id") or "").strip()]
     except Exception as exc:
-        return JSONResponse({"error": f"Supabase update failed: {exc}"}, status_code=500)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+    for c in campaigns:
+        try:
+            sync_campaign_core(
+                c["id"],
+                c["sheet_id"],
+                c.get("client_id", ""),
+                c.get("campaign_name", "") or "",
+                total_prospects=c.get("total_prospects") or 0,
+                completed_at=c.get("completed_at"),
+            )
+        except Exception:
+            pass   # Non-fatal — continue with remaining campaigns
 
     return await list_campaigns(request, client_id=client_id)
 

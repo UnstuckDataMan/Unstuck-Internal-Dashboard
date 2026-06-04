@@ -153,15 +153,18 @@ def sync_campaign_core(
             chunk = sent_data[i : i + CHUNK_SIZE]
             email_list = "(" + ",".join(e["email"] for e in chunk) + ")"
 
-            # Remove scrub_upload rows so the authoritative auto_sync rows can
-            # be inserted with the correct contacted_at date.
+            # Remove ALL existing rows for these emails (any source) so the fresh
+            # auto_sync rows always carry the correct contacted_at date.
+            # If we kept existing rows and used ignore-duplicates, the original
+            # contacted_at would never be updated (e.g. a second sync after more
+            # sends are marked would leave the old date unchanged, breaking the
+            # Today/Week/Month stats for newly sent rows).
             try:
                 http_req.delete(
                     f"{SUPABASE_URL}/rest/v1/contacted_prospects",
                     headers=_sb_headers(),
                     params={
                         "client_id": f"eq.{client_id}",
-                        "source":    "eq.scrub_upload",
                         "email":     f"in.{email_list}",
                     },
                     timeout=30,

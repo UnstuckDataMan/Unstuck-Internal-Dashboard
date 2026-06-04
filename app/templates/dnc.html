@@ -4108,34 +4108,13 @@
 </script>
 {% endraw %}
 
-<!-- ── Sync confirmation modal ──────────────────────────────────────── -->
-<div id="camp-sync-modal" class="camp-modal-overlay" style="display:none"
-     aria-modal="true" role="dialog" aria-labelledby="camp-modal-title">
-  <div class="camp-modal">
-    <div class="camp-modal-header">
-      <span class="camp-modal-icon">⚠</span>
-      <h3 id="camp-modal-title">Confirm Sync</h3>
-    </div>
-    <p>Before syncing leads to DNC, please confirm:</p>
-    <ul>
-      <li>All <strong>Leads</strong> and <strong>Interested</strong> prospects have been
-          removed from your email sending platform (Instantly / Smartlead / etc.)</li>
-      <li>All <strong>Unsubscribes</strong> have been removed from your sending platform</li>
-      <li>The statuses in the Google Sheet are correct and up to date</li>
-    </ul>
-    <div class="camp-modal-actions">
-      <button class="btn-modal-cancel" onclick="closeSyncModal()">Cancel</button>
-      <button class="btn-modal-confirm" id="camp-sync-confirm-btn" onclick="confirmCampSync()">
-        Confirm &amp; Sync
-      </button>
-    </div>
-  </div>
-</div>
+<!-- Sync modal removed — per-campaign and Sync All buttons now use
+     hx-confirm (native browser dialog) and post directly to the combined
+     /api/campaigns/{id}/refresh endpoint which does DNC blocking + stat
+     updates in one step. -->
 
 <script>
 (function () {
-  let _pendingCampaignId  = null;   // single campaign sync
-  let _pendingCampaignIds = null;   // sync-all mode (array)
 
   // ── Campaign tags ──────────────────────────────────────────────────── //
 
@@ -4309,83 +4288,6 @@
     }
   });
 
-  // Single campaign sync (per-card button)
-  window.openSyncModal = function (campaignId) {
-    _pendingCampaignId  = campaignId;
-    _pendingCampaignIds = null;
-    document.getElementById('camp-sync-modal').style.display = 'flex';
-  };
-
-  // Sync All button — reads IDs from data-campaign-ids attribute
-  window.openSyncAllModal = function (btn) {
-    const raw = (btn.dataset.campaignIds || '').trim();
-    const ids = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
-    if (!ids.length) return;
-    _pendingCampaignIds = ids;
-    _pendingCampaignId  = null;
-    document.getElementById('camp-sync-modal').style.display = 'flex';
-  };
-
-  window.closeSyncModal = function () {
-    document.getElementById('camp-sync-modal').style.display = 'none';
-    _pendingCampaignId  = null;
-    _pendingCampaignIds = null;
-  };
-
-  window.confirmCampSync = async function () {
-    const singleId = _pendingCampaignId;
-    const allIds   = _pendingCampaignIds;
-    closeSyncModal();
-
-    if (singleId) {
-      // ── Single campaign sync (existing behaviour) ────────────────── //
-      const resultEl = document.getElementById(`camp-sync-result-${singleId}`);
-      if (resultEl) resultEl.innerHTML = '<span style="color:var(--text-3);font-size:.78rem">Syncing…</span>';
-      htmx.ajax('POST', `/api/campaigns/${singleId}/sync`, {
-        target:    `#camp-sync-result-${singleId}`,
-        swap:      'innerHTML',
-        indicator: '#camp-spinner',
-      });
-      return;
-    }
-
-    if (!allIds || !allIds.length) return;
-
-    // ── Sync All — run campaigns sequentially ────────────────────────── //
-    const allResultEl = document.getElementById('camp-sync-all-result');
-    if (allResultEl) allResultEl.innerHTML =
-      '<span style="color:var(--text-3)">Syncing ' + allIds.length + ' campaign(s)…</span>';
-
-    let succeeded = 0, failed = 0;
-    for (const id of allIds) {
-      const resultEl = document.getElementById(`camp-sync-result-${id}`);
-      if (resultEl) resultEl.innerHTML = '<span style="color:var(--text-3);font-size:.78rem">Syncing…</span>';
-      try {
-        const resp = await fetch(`/api/campaigns/${id}/sync`, { method: 'POST' });
-        const html = await resp.text();
-        if (resultEl) resultEl.innerHTML = html;
-        if (resp.ok) succeeded++; else failed++;
-      } catch (e) {
-        if (resultEl) resultEl.innerHTML = '<span style="color:#fca5a5;font-size:.78rem">Network error</span>';
-        failed++;
-      }
-    }
-
-    if (allResultEl) {
-      if (failed === 0) {
-        allResultEl.innerHTML =
-          '<span style="color:#6ee7b7">✓ All ' + succeeded + ' campaign(s) synced successfully.</span>';
-      } else {
-        allResultEl.innerHTML =
-          '<span style="color:#fcd34d">⚠ ' + succeeded + ' synced, ' + failed + ' failed — check individual campaigns above.</span>';
-      }
-    }
-  };
-
-  // Close modal on backdrop click
-  document.getElementById('camp-sync-modal').addEventListener('click', function (e) {
-    if (e.target === this) closeSyncModal();
-  });
 })();
 
 // ── Campaign detail / restore ────────────────────────────────────────────────
