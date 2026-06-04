@@ -153,25 +153,32 @@ def sync_campaign_core(
             chunk = sent_data[i : i + CHUNK_SIZE]
             email_list = "(" + ",".join(e["email"] for e in chunk) + ")"
 
-            # Remove ALL existing rows for these emails (any source) so the fresh
-            # auto_sync rows always carry the correct contacted_at date.
-            # If we kept existing rows and used ignore-duplicates, the original
-            # contacted_at would never be updated (e.g. a second sync after more
-            # sends are marked would leave the old date unchanged, breaking the
-            # Today/Week/Month stats for newly sent rows).
+            # Step 1: Remove any scrub_upload rows for these emails.
+            # Scrub uploads block the upsert because the unique constraint
+            # (client_id, email) would conflict, and merge-duplicates can't
+            # overwrite a scrub_upload row with an auto_sync row via a simple
+            # POST — we must explicitly delete them first.
             try:
                 http_req.delete(
                     f"{SUPABASE_URL}/rest/v1/contacted_prospects",
                     headers=_sb_headers(),
                     params={
                         "client_id": f"eq.{client_id}",
+                        "source":    "eq.scrub_upload",
                         "email":     f"in.{email_list}",
                     },
                     timeout=30,
                 )
             except Exception:
-                pass   # Non-fatal — insert below uses ignore-duplicates as fallback
+                pass   # Non-fatal
 
+            # Step 2: Upsert auto_sync rows using PostgREST's on_conflict param.
+            # ?on_conflict=client_id,email tells PostgREST to use the (client_id,
+            # email) unique constraint for conflict detection — NOT the PK UUID.
+            # merge-duplicates then updates existing rows (so contacted_at is
+            # refreshed on every sync), and inserts new rows for emails not yet
+            # present.  This correctly handles re-syncs: each sent email ends up
+            # with the date from the sheet's Sent Date column, updated in-place.
             rows_to_insert = [
                 {
                     "client_id":    client_id,
@@ -184,8 +191,9 @@ def sync_campaign_core(
             ]
             try:
                 r = http_req.post(
-                    f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                    headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                    f"{SUPABASE_URL}/rest/v1/contacted_prospects"
+                    f"?on_conflict=client_id,email",
+                    headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
                     json=rows_to_insert,
                     timeout=30,
                 )
