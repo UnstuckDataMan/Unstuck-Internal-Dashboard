@@ -3364,7 +3364,14 @@
       return ok;
     }
 
-    zone.addEventListener('click', () => { if (_scrubWarningOk()) fileInput.click(); });
+    // Stop the file input's own click from bubbling back up to the zone and
+    // re-triggering the warning (fileInput is a child of zone, so its programmatic
+    // .click() would otherwise bubble and fire this listener in a loop).
+    fileInput.addEventListener('click', e => e.stopPropagation());
+    zone.addEventListener('click', e => {
+      if (e.target === fileInput) return;   // belt-and-suspenders guard
+      if (_scrubWarningOk()) fileInput.click();
+    });
     zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
     zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
     zone.addEventListener('drop', e => {
