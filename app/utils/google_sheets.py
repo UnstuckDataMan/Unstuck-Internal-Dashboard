@@ -545,6 +545,36 @@ def _apply_sheet_formatting(
                 "index": 0,
             }})
 
+    # 5. First-of-sender yellow stripe (absolute highest priority — added last).
+    # The per-row yellow applied as direct cell formatting during sheet creation
+    # is overridden by CF rules (sent-blue, domain-grey, lead-row-grey).  This
+    # CF rule re-applies yellow to the Sender Account cell only for the first
+    # row of each sender group, so the yellow persists regardless of sent/lead
+    # status.  Scoped to the Sender Account column only so the rest of the row
+    # still reflects the correct sent/lead colour.
+    if sender_col >= 0:
+        sa_letter     = _col_letter(sender_col + 1)
+        sender_formula = f'=AND(${sa_letter}2<>"",${sa_letter}2<>${sa_letter}1)'
+        requests.append({"addConditionalFormatRule": {
+            "rule": {
+                "ranges": [{
+                    "sheetId":          sheet_gid,
+                    "startRowIndex":    1,
+                    "endRowIndex":      last_row_idx,
+                    "startColumnIndex": sender_col,
+                    "endColumnIndex":   sender_col + 1,   # Sender Account column only
+                }],
+                "booleanRule": {
+                    "condition": {
+                        "type":   "CUSTOM_FORMULA",
+                        "values": [{"userEnteredValue": sender_formula}],
+                    },
+                    "format": {"backgroundColor": _rgb("FFFDE7")},  # pale yellow
+                },
+            },
+            "index": 0,
+        }})
+
     if not requests:
         return
 
@@ -966,6 +996,52 @@ def _apply_domain_grey_cf(
         print(f"[google_sheets] _apply_domain_grey_cf FAILED {resp.status_code}: {resp.text[:300]}")
 
 
+def _apply_sender_stripe_cf(
+    sheet_id:       str,
+    ws_id:          int,   # Google Sheets GID
+    sender_col_idx: int,   # 1-based column index of "Sender Account"
+) -> None:
+    """
+    Add the first-of-sender yellow stripe CF rule to an existing sheet.
+
+    Scoped to the Sender Account column only — applies pale yellow (#FFFDE7)
+    whenever the Sender Account value differs from the row above (= first row
+    of a new sender group).  Added at index=0 (highest priority) so it
+    persists over sent-blue and lead/domain-grey fills.
+    """
+    sa_0      = sender_col_idx - 1         # 0-based
+    sa_letter = _col_letter(sender_col_idx)
+    formula   = f'=AND(${sa_letter}2<>"",${sa_letter}2<>${sa_letter}1)'
+
+    session = _authed_session()
+    resp = session.post(
+        f"{_SHEETS_BASE_URL}/{sheet_id}:batchUpdate",
+        json={"requests": [{
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [{
+                        "sheetId":          ws_id,
+                        "startRowIndex":    1,
+                        "endRowIndex":      3000,
+                        "startColumnIndex": sa_0,
+                        "endColumnIndex":   sa_0 + 1,
+                    }],
+                    "booleanRule": {
+                        "condition": {
+                            "type":   "CUSTOM_FORMULA",
+                            "values": [{"userEnteredValue": formula}],
+                        },
+                        "format": {"backgroundColor": _rgb("FFFDE7")},
+                    },
+                },
+                "index": 0,
+            }
+        }]},
+    )
+    if not resp.ok:
+        print(f"[google_sheets] _apply_sender_stripe_cf FAILED {resp.status_code}: {resp.text[:300]}")
+
+
 def _apply_lead_grey_cf(
     sheet_id:  str,
     ws_id:     int,   # Google Sheets GID of the worksheet
@@ -1096,10 +1172,11 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
     if updates:
         ws.batch_update(updates)
 
-        # For lead rows: ensure both grey CF rules are present on this sheet.
-        # - lead-row-grey: greys the specific Lead row (non-LS columns)
-        # - domain-grey:   greys all other same-domain rows (overrides sent-blue)
-        # Both are applied retroactively so old sheets without the rules get them.
+        # For lead rows: ensure all three CF rules are present on this sheet.
+        # - lead-row-grey:     greys the specific Lead row (non-LS columns)
+        # - domain-grey:       greys all other same-domain rows (overrides sent-blue)
+        # - sender-stripe:     keeps Sender Account cell yellow (overrides everything)
+        # All applied retroactively so old sheets without the rules get them.
         if lead_status == "Lead":
             try:
                 _apply_lead_grey_cf(sheet_id, ws.id, ls_col_idx, len(headers))
@@ -1111,6 +1188,15 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
                 )
             except Exception as _cf_err:
                 print(f"[google_sheets] domain-grey CF apply error: {_cf_err}")
+            sender_col_idx = (
+                headers.index("Sender Account") + 1
+                if "Sender Account" in headers else -1
+            )
+            if sender_col_idx > 0:
+                try:
+                    _apply_sender_stripe_cf(sheet_id, ws.id, sender_col_idx)
+                except Exception as _cf_err:
+                    print(f"[google_sheets] sender-stripe CF apply error: {_cf_err}")
 
     return len(updates)
 
