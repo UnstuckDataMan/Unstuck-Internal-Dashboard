@@ -1078,6 +1078,25 @@
       flex-shrink: 0;
     }
 
+    /* Emoji picker */
+    .pe-emoji-row {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    }
+    .pe-emoji-btn {
+      width: 34px; height: 34px; border-radius: 8px; border: 2px solid transparent;
+      background: var(--surface); cursor: pointer; font-size: 18px;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color .12s, background .12s;
+    }
+    .pe-emoji-btn:hover { background: var(--surface-hover); }
+    .pe-emoji-btn.selected { border-color: #a78bfa; background: rgba(139,92,246,.15); }
+    .pe-emoji-custom {
+      padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text); font-family: var(--font);
+      font-size: 15px; outline: none; width: 52px; text-align: center;
+    }
+    .pe-emoji-custom:focus { border-color: var(--border-focus); }
+
     /* Profile edit modal */
     .pe-dialog {
       position: relative;
@@ -2333,6 +2352,10 @@
       <div class="pe-label">Card Colour</div>
       <div class="pe-color-swatches" id="pe-color-swatches"></div>
     </div>
+    <div class="pe-field">
+      <div class="pe-label">Icon</div>
+      <div class="pe-emoji-row" id="pe-emoji-row"></div>
+    </div>
     <div class="pe-actions">
       <button id="pe-remove" style="display:none">&times; Remove Client</button>
       <div class="pe-actions-right">
@@ -2539,16 +2562,28 @@ function getChData(key, ch) {
 // ════════════════════════════════════════════════════════
 async function loadFromSupabase() {
   try {
-    const res = await fetch(SUPABASE_URL+'/rest/v1/'+SB_TABLE+'?select=key,content', { headers: sbHeaders() });
-    if (!res.ok) throw new Error('HTTP '+res.status);
-    const rows = await res.json();
-    rows.forEach(function(row){
-      // Skip meta-rows (profiles list, legacy global senders)
-      if (!row.key || !row.content) return;
-      if (row.key === PROFILES_KEY) return;
-      if (row.key === '__cb_senders__') return;   // legacy global row — ignore
-      TEMPLATES[row.key] = migrateContent(row.content);
-    });
+    // Paginate through ALL template rows in 1 000-row pages to avoid PostgREST's
+    // default row cap silently truncating results when many clients are present.
+    const PAGE = 1000;
+    let offset = 0;
+    while (true) {
+      const res = await fetch(
+        SUPABASE_URL + '/rest/v1/' + SB_TABLE +
+          '?select=key,content&limit=' + PAGE + '&offset=' + offset,
+        { headers: sbHeaders() }
+      );
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const rows = await res.json();
+      rows.forEach(function(row){
+        if (!row.key) return;                       // no key — skip
+        if (row.key === PROFILES_KEY) return;       // profiles handled by loadProfiles()
+        if (row.key === '__cb_senders__') return;   // legacy global row — ignore
+        // Load even rows with null content (migrateContent returns defaultContent() for null)
+        TEMPLATES[row.key] = migrateContent(row.content);
+      });
+      if (rows.length < PAGE) break;               // last page
+      offset += PAGE;
+    }
     // Snapshot approved content for per-card revert & glow comparison
     Object.keys(TEMPLATES).forEach(function(k){ ORIG_TEMPLATES[k] = JSON.parse(JSON.stringify(TEMPLATES[k])); });
 
@@ -2749,9 +2784,10 @@ function renderProfileScreen() {
     const card = document.createElement('div');
     card.className = 'profile-card';
     applyCardColor(card, color);
+    const icon = p.emoji || (isBizdev ? '🏢' : '👤');
     card.innerHTML =
       '<div class="profile-card-banner">' +
-        '<div class="profile-card-icon">'+(isBizdev?'🏢':'👤')+'</div>' +
+        '<div class="profile-card-icon">'+icon+'</div>' +
       '</div>' +
       '<div class="profile-card-body">' +
         '<div class="profile-card-name">'+escHtml(p.name)+'</div>'+
@@ -3502,6 +3538,46 @@ function renderPeModalTags() {
   });
   swatchContainer.appendChild(customInput);
   swatchContainer.appendChild(previewSwatch);
+
+  // ── Emoji / icon picker ───────────────────────────────────
+  const QUICK_EMOJIS = [
+    '🏢','👤','💼','📊','🚀','🎯','💡','🌍','🇬🇧','🇺🇸','🇦🇺','🇳🇿',
+    '🏦','🏥','🎨','📱','🖥','🔬','⚡','🌱','💰','🤝','📈','🔑',
+  ];
+  const currentEmoji = p.emoji || (p.type === 'bizdev' ? '🏢' : '👤');
+  const emojiContainer = document.getElementById('pe-emoji-row');
+  emojiContainer.innerHTML = '';
+
+  QUICK_EMOJIS.forEach(function(em) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pe-emoji-btn' + (em === currentEmoji ? ' selected' : '');
+    btn.textContent = em;
+    btn.title = em;
+    btn.addEventListener('click', function() {
+      profiles[peEditIdx].emoji = em;
+      emojiContainer.querySelectorAll('.pe-emoji-btn').forEach(function(b){ b.classList.remove('selected'); });
+      btn.classList.add('selected');
+      customEmojiInput.value = em;
+    });
+    emojiContainer.appendChild(btn);
+  });
+
+  // Custom emoji input (type/paste any emoji)
+  const customEmojiInput = document.createElement('input');
+  customEmojiInput.type = 'text';
+  customEmojiInput.className = 'pe-emoji-custom';
+  customEmojiInput.placeholder = '✏️';
+  customEmojiInput.value = QUICK_EMOJIS.includes(currentEmoji) ? '' : currentEmoji;
+  customEmojiInput.maxLength = 4;
+  customEmojiInput.title = 'Type or paste any emoji';
+  customEmojiInput.addEventListener('input', function() {
+    const val = customEmojiInput.value.trim();
+    if (!val) return;
+    profiles[peEditIdx].emoji = val;
+    emojiContainer.querySelectorAll('.pe-emoji-btn').forEach(function(b){ b.classList.remove('selected'); });
+  });
+  emojiContainer.appendChild(customEmojiInput);
 
   attachPeModalEvents();
 }
