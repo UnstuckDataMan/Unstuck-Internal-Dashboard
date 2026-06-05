@@ -530,3 +530,183 @@ def normalize_apostrophes():
         "changed":   changed,
         "errors":    errors,
     })
+
+
+# ── Profile recovery ───────────────────────────────────────────────────────────
+
+@router.get("/api/copy-bank/recover-profiles")
+def recover_profiles(save: str = "false"):
+    """
+    Diagnostic + recovery endpoint.
+
+    Reads the current __cb_profiles__ row and ALL template keys, then:
+    1. Reports what profiles are currently stored
+    2. Reconstructs what profiles *should* exist based on the template keys
+    3. If ?save=true, writes the reconstructed profiles back to Supabase
+
+    Safe to call multiple times — reconstruction preserves any colour/emoji/sender
+    data that still exists in the current profiles row.
+    """
+    import re as _re
+
+    url     = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    anon    = os.environ.get("SUPABASE_ANON_KEY", "")
+    if not (url and anon):
+        return JSONResponse({"ok": False, "error": "Supabase not configured"}, status_code=500)
+
+    headers = {
+        "apikey":        anon,
+        "Authorization": f"Bearer {anon}",
+        "Content-Type":  "application/json",
+    }
+
+    # ── 1. Fetch current profiles ──────────────────────────────────
+    prof_resp = http_req.get(
+        f"{url}/rest/v1/copy_bank_templates",
+        headers=headers,
+        params={"key": "eq.__cb_profiles__", "select": "content"},
+        timeout=10,
+    )
+    current_profiles: list = []
+    if prof_resp.ok:
+        rows = prof_resp.json()
+        if rows and isinstance(rows[0].get("content"), list):
+            current_profiles = rows[0]["content"]
+
+    # Index existing profiles by client_id so we can merge metadata
+    existing_by_id: dict = {p.get("client_id"): p for p in current_profiles if p.get("client_id")}
+
+    # ── 2. Fetch all template keys (paginated) ──────────────────────
+    all_keys: list[str] = []
+    PAGE = 1000
+    offset = 0
+    while True:
+        r = http_req.get(
+            f"{url}/rest/v1/copy_bank_templates",
+            headers=headers,
+            params={"select": "key", "limit": PAGE, "offset": offset},
+            timeout=30,
+        )
+        if not r.ok:
+            return JSONResponse({"ok": False, "error": f"Key fetch failed: {r.status_code}"}, status_code=500)
+        page = r.json()
+        all_keys.extend(row["key"] for row in page if row.get("key"))
+        if len(page) < PAGE:
+            break
+        offset += PAGE
+
+    # ── 3. Fetch client names ──────────────────────────────────────
+    clients_resp = http_req.get(
+        f"{url}/rest/v1/clients",
+        headers=headers,
+        params={"select": "id,name", "order": "name.asc"},
+        timeout=10,
+    )
+    client_name_map: dict = {}
+    if clients_resp.ok:
+        for c in clients_resp.json():
+            if c.get("id") and c.get("name"):
+                client_name_map[c["id"]] = c["name"]
+
+    # ── 4. Parse template keys to reconstruct territory/industry sets ──
+    # BizDev keys:  "{territory}_{industry}"
+    # Client keys:  "__c__{client_id}__{territory}_{industry}"
+    SKIP = {"__cb_profiles__", "__cb_senders__"}
+    META_PREFIXES = ("__cb_", "__c__")
+
+    bizdev_territories: set[str] = set()
+    bizdev_industries:  set[str] = set()
+    client_map: dict[str, dict] = {}  # client_id → {territories, industries}
+
+    for key in all_keys:
+        if key in SKIP:
+            continue
+        if key.startswith("__c__"):
+            # Client template: __c__{uuid}__{territory}_{industry}
+            rest = key[5:]          # strip "__c__"
+            # UUID is 36 chars; separator is "__"
+            sep = rest.find("__")
+            if sep < 0:
+                continue
+            client_id = rest[:sep]
+            ter_ind   = rest[sep + 2:]
+            # Split into territory and industry: territory has no underscore normally
+            # but industry might — so split on first underscore only if territory
+            # matches known short codes, else try all splits
+            parts = ter_ind.split("_", 1)
+            if len(parts) == 2:
+                territory, industry = parts[0], parts[1]
+            else:
+                territory, industry = ter_ind, ""
+            if client_id not in client_map:
+                client_map[client_id] = {"territories": set(), "industries": set()}
+            if territory:
+                client_map[client_id]["territories"].add(territory)
+            if industry:
+                client_map[client_id]["industries"].add(industry)
+        elif not any(key.startswith(p) for p in META_PREFIXES):
+            # BizDev template: "{territory}_{industry}"
+            parts = key.split("_", 1)
+            if len(parts) == 2:
+                bizdev_territories.add(parts[0])
+                bizdev_industries.add(parts[1])
+
+    # ── 5. Build reconstructed profiles ───────────────────────────
+    reconstructed: list[dict] = []
+
+    # BizDev profile (always first)
+    existing_bizdev = existing_by_id.get("bizdev", {})
+    reconstructed.append({
+        "client_id":   "bizdev",
+        "name":        existing_bizdev.get("name", "Unstuck Agency"),
+        "type":        "bizdev",
+        "territories": sorted(bizdev_territories) or existing_bizdev.get("territories", ["US", "UK"]),
+        "industries":  sorted(bizdev_industries)  or existing_bizdev.get("industries", []),
+        "color":       existing_bizdev.get("color", "#7c3aed"),
+        "emoji":       existing_bizdev.get("emoji", "🏢"),
+        "senders":     existing_bizdev.get("senders", []),
+        "channels":    existing_bizdev.get("channels", [["email","Email"],["flyout","Fly-out"],["linkedin","LinkedIn"]]),
+        "industryLabels": existing_bizdev.get("industryLabels", {}),
+    })
+
+    # Client profiles — one per client_id found in template keys
+    for client_id, data in sorted(client_map.items(), key=lambda x: client_name_map.get(x[0], x[0])):
+        existing = existing_by_id.get(client_id, {})
+        name = client_name_map.get(client_id) or existing.get("name") or f"Client {client_id[:8]}"
+        reconstructed.append({
+            "client_id":   client_id,
+            "name":        name,
+            "type":        "client",
+            "territories": sorted(data["territories"]),
+            "industries":  sorted(data["industries"]),
+            # Preserve existing colour/emoji/senders if they survived
+            "color":       existing.get("color", "#7c3aed"),
+            "emoji":       existing.get("emoji", "👤"),
+            "senders":     existing.get("senders", []),
+            "channels":    existing.get("channels", [["email","Email"],["linkedin","LinkedIn"]]),
+            "industryLabels": existing.get("industryLabels", {}),
+        })
+
+    report = {
+        "ok":                  True,
+        "total_template_keys": len(all_keys),
+        "current_profiles":    current_profiles,
+        "reconstructed":       reconstructed,
+        "client_name_map":     client_name_map,
+        "would_save":          save.lower() == "true",
+    }
+
+    # ── 6. Optionally save reconstructed profiles ──────────────────
+    if save.lower() == "true":
+        patch = http_req.post(
+            f"{url}/rest/v1/copy_bank_templates?on_conflict=key",
+            headers={**headers, "Prefer": "resolution=merge-duplicates,return=minimal"},
+            json={"key": "__cb_profiles__", "content": reconstructed},
+            timeout=10,
+        )
+        report["save_status"] = patch.status_code
+        report["save_ok"]     = patch.ok
+        if not patch.ok:
+            report["save_error"] = patch.text[:400]
+
+    return JSONResponse(report)

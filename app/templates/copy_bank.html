@@ -2642,29 +2642,44 @@ async function loadProfiles() {
     );
     const rows = await res.json();
     if (rows && rows.length && Array.isArray(rows[0].content)) {
+      // Normal case: profiles row exists with valid content array
       // Deduplicate by name: if bizdev and client share a name, keep only bizdev
       const seen = {};
-      profiles = rows[0].content.filter(function(p) {
+      const deduped = [];
+      (rows[0].content || []).forEach(function(p) {
         const name = p.name || '';
-        if (!seen[name]) { seen[name] = p.type; return true; }
-        // Replace client entry if we now see bizdev with same name
-        if (p.type === 'bizdev' && seen[name] !== 'bizdev') {
+        if (!seen[name]) {
+          seen[name] = p.type;
+          deduped.push(p);
+        } else if (p.type === 'bizdev' && seen[name] !== 'bizdev') {
+          // Replace the existing client entry with the bizdev one
+          const idx = deduped.findIndex(function(x){ return x.name === name; });
+          if (idx !== -1) deduped.splice(idx, 1, p);
           seen[name] = 'bizdev';
-          const idx = profiles.findIndex(function(x){ return x.name === name; });
-          if (idx !== -1) profiles.splice(idx, 1);
-          return true;
         }
-        return false;
+        // else: duplicate non-bizdev — discard
       });
-    } else {
+      profiles = deduped;
+    } else if (!rows || rows.length === 0) {
+      // First-time setup: no profiles row exists at all — safe to create one
       profiles = [BIZDEV_PROFILE];
       await saveProfiles();
+    } else {
+      // Row exists but content is in an unexpected format — DO NOT overwrite;
+      // use an in-memory default so the page loads, and log the issue.
+      console.error('[CopyBank] loadProfiles: unexpected content format — profiles row NOT overwritten', rows[0]);
+      profiles = [BIZDEV_PROFILE];
     }
-    if (!profiles.find(function(p){ return p.client_id==='bizdev'; })) {
+    if (!profiles.find(function(p){ return p.client_id === 'bizdev'; })) {
       profiles.unshift(BIZDEV_PROFILE);
       await saveProfiles();
     }
-  } catch(e) { profiles = [BIZDEV_PROFILE]; }
+  } catch(e) {
+    // On any error, fall back to in-memory default but do NOT save —
+    // the existing Supabase row must be preserved.
+    console.error('[CopyBank] loadProfiles error:', e);
+    profiles = [BIZDEV_PROFILE];
+  }
 }
 
 async function saveProfiles() { await saveToSupabase(PROFILES_KEY, profiles); }
