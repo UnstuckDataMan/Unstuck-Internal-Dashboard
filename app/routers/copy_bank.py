@@ -710,3 +710,90 @@ def recover_profiles(save: str = "false"):
             report["save_error"] = patch.text[:400]
 
     return JSONResponse(report)
+
+
+@router.get("/api/copy-bank/audit-content")
+def audit_content():
+    """
+    Fetches every template row and reports exactly how much copy is stored in each.
+    Returns a per-key summary: how many subjects, email variations, flyout variations,
+    and LinkedIn steps exist — and flags empty templates.
+    """
+    url  = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    anon = os.environ.get("SUPABASE_ANON_KEY", "")
+    if not (url and anon):
+        return JSONResponse({"ok": False, "error": "Supabase not configured"}, status_code=500)
+
+    headers = {
+        "apikey":        anon,
+        "Authorization": f"Bearer {anon}",
+        "Content-Type":  "application/json",
+    }
+
+    # Paginate through all rows
+    SKIP = {"__cb_profiles__", "__cb_senders__"}
+    all_rows: list[dict] = []
+    PAGE, offset = 1000, 0
+    while True:
+        r = http_req.get(
+            f"{url}/rest/v1/copy_bank_templates",
+            headers=headers,
+            params={"select": "key,content", "limit": PAGE, "offset": offset},
+            timeout=30,
+        )
+        if not r.ok:
+            return JSONResponse({"ok": False, "error": f"Fetch failed: {r.status_code}"}, status_code=500)
+        page = r.json()
+        all_rows.extend(page)
+        if len(page) < PAGE:
+            break
+        offset += PAGE
+
+    def _count(content, channel, field):
+        if not isinstance(content, dict):
+            return 0
+        ch = content.get(channel) or {}
+        items = ch.get(field) or []
+        return sum(1 for x in items if (x.strip() if isinstance(x, str) else (x.get("body") or "").strip()))
+
+    summary = []
+    empty_keys = []
+    has_copy_keys = []
+
+    for row in all_rows:
+        key = row.get("key", "")
+        if key in SKIP:
+            continue
+        c = row.get("content") or {}
+
+        email_subjects    = _count(c, "email",    "subjects")
+        email_variations  = _count(c, "email",    "variations")
+        flyout_subjects   = _count(c, "flyout",   "subjects")
+        flyout_variations = _count(c, "flyout",   "variations")
+        li_steps          = _count(c, "linkedin", "steps")
+
+        total = email_subjects + email_variations + flyout_subjects + flyout_variations + li_steps
+        entry = {
+            "key":              key,
+            "email_subjects":   email_subjects,
+            "email_variations": email_variations,
+            "flyout_subjects":  flyout_subjects,
+            "flyout_variations":flyout_variations,
+            "linkedin_steps":   li_steps,
+            "total_items":      total,
+            "has_copy":         total > 0,
+        }
+        summary.append(entry)
+        if total > 0:
+            has_copy_keys.append(key)
+        else:
+            empty_keys.append(key)
+
+    return JSONResponse({
+        "ok":               True,
+        "total_templates":  len(summary),
+        "with_copy":        len(has_copy_keys),
+        "empty":            len(empty_keys),
+        "empty_keys":       empty_keys,
+        "templates":        sorted(summary, key=lambda x: x["key"]),
+    })
