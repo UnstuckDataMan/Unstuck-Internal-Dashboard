@@ -23,8 +23,10 @@ import json
 import os
 import re
 import threading
+import time
 
 import gspread
+from gspread.exceptions import APIError
 import openpyxl
 from google.oauth2.service_account import Credentials
 from google.auth.transport.requests import AuthorizedSession
@@ -37,6 +39,64 @@ SCOPES = [
 _DRIVE_FILES_URL      = "https://www.googleapis.com/drive/v3/files"
 _SHEETS_BASE_URL      = "https://sheets.googleapis.com/v4/spreadsheets"
 _SEPARATOR_TEXT       = "No More Emails For Today."
+
+# ── Sheet-read cache ──────────────────────────────────────────────────────────
+# Multiple functions (read_leads, read_sent_with_dates, read_ab_stats) all call
+# get_all_records on the same sheet.  During a sync, this would fire 2–3 reads
+# per campaign within seconds and quickly exhaust the 60 reads/min quota.
+#
+# Strategy: cache the raw records for 45 seconds per (sheet_id, render_option).
+# All reads within the same sync window share one API call.  Writes (date
+# back-fills) call _invalidate_sheet_cache so the next read sees fresh data.
+_records_cache: dict[str, tuple[float, list]] = {}
+_records_cache_lock = threading.Lock()
+_RECORDS_CACHE_TTL  = 45  # seconds
+
+
+def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
+    """
+    Fetch records from a worksheet with caching + 429-backoff.
+
+    • Cache: returns the stored result if a read for this sheet + render option
+      happened within _RECORDS_CACHE_TTL seconds.  Cuts API calls from 2–3 per
+      campaign (sync + A/B) to 1 per campaign per 45-second window.
+
+    • Retry: on HTTP 429 (quota exceeded) waits 10 s, 20 s, 40 s before the
+      final re-raise so transient quota bursts self-heal rather than propagating
+      an error to the user.
+    """
+    render = kwargs.get("value_render_option", "FORMATTED_VALUE")
+    cache_key = f"{sheet_id}:{render}"
+    now = time.time()
+
+    with _records_cache_lock:
+        entry = _records_cache.get(cache_key)
+        if entry and (now - entry[0]) < _RECORDS_CACHE_TTL:
+            return entry[1]
+
+    # Cache miss — fetch from API with exponential backoff on 429
+    wait_times = (10, 20, 40)
+    for attempt in range(len(wait_times) + 1):
+        try:
+            records = ws.get_all_records(**kwargs)
+            with _records_cache_lock:
+                _records_cache[cache_key] = (time.time(), records)
+            return records
+        except APIError as exc:
+            status = getattr(exc.response, "status_code", 0)
+            if status == 429 and attempt < len(wait_times):
+                time.sleep(wait_times[attempt])
+            else:
+                raise
+
+
+def _invalidate_sheet_cache(sheet_id: str) -> None:
+    """Remove all cached entries for a sheet (call after any write operation)."""
+    prefix = f"{sheet_id}:"
+    with _records_cache_lock:
+        stale = [k for k in _records_cache if k.startswith(prefix)]
+        for k in stale:
+            del _records_cache[k]
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -745,7 +805,7 @@ def read_sheet_status(sheet_id: str) -> dict:
     sh = gc.open_by_key(sheet_id)
     gsheet = sh.sheet1
     # UNFORMATTED_VALUE returns Python booleans for checkbox cells
-    records = gsheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
+    records = _get_all_records(gsheet, sheet_id, value_render_option="UNFORMATTED_VALUE")
 
     data_rows = [r for r in records if str(r.get("Recipient Email", "")).strip()]
     total     = len(data_rows)
@@ -762,7 +822,7 @@ def read_sent_emails(sheet_id: str) -> list[str]:
     gc = _client()
     sh = gc.open_by_key(sheet_id)
     gsheet = sh.sheet1
-    records = gsheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
+    records = _get_all_records(gsheet, sheet_id, value_render_option="UNFORMATTED_VALUE")
 
     emails: list[str] = []
     for r in records:
@@ -783,7 +843,7 @@ def read_sent_with_dates(sheet_id: str) -> list[dict]:
     gc = _client()
     sh = gc.open_by_key(sheet_id)
     ws = sh.sheet1
-    records = ws.get_all_records(value_render_option="UNFORMATTED_VALUE")
+    records = _get_all_records(ws, sheet_id, value_render_option="UNFORMATTED_VALUE")
 
     results: list[dict] = []
     for i, r in enumerate(records, start=2):   # row 2 = first data row
@@ -831,6 +891,8 @@ def _write_date_column(
     ]
     if updates:
         ws.batch_update(updates)
+    # Invalidate cache so the next read sees the freshly written dates.
+    _invalidate_sheet_cache(sheet_id)
 
 
 def write_sent_dates(sheet_id: str, row_date_pairs: list[tuple[int, str]]) -> None:
@@ -876,7 +938,7 @@ def read_ab_stats(sheet_id: str) -> list[dict]:
     gc     = _client()
     sh     = gc.open_by_key(sheet_id)
     gsheet = sh.sheet1
-    records = gsheet.get_all_records(value_render_option="UNFORMATTED_VALUE")
+    records = _get_all_records(gsheet, sheet_id, value_render_option="UNFORMATTED_VALUE")
 
     stats: dict = defaultdict(
         lambda: {"total": 0, "lead": 0, "interested": 0, "reply": 0, "unsubscribe": 0}
@@ -920,11 +982,14 @@ def read_leads(sheet_id: str) -> list[dict]:
     """
     Return {"email", "status"} pairs where Lead Status is "Lead" or "Unsubscribe".
     Rows with status "Reply" or blank are ignored.
+
+    Uses UNFORMATTED_VALUE so the result is shared with read_sent_with_dates
+    in the cache — sync_campaign_core calls both, halving API calls per campaign.
     """
     gc = _client()
     sh = gc.open_by_key(sheet_id)
     gsheet = sh.sheet1
-    records = gsheet.get_all_records()
+    records = _get_all_records(gsheet, sheet_id, value_render_option="UNFORMATTED_VALUE")
 
     results: list[dict] = []
     for record in records:
