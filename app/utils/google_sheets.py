@@ -564,15 +564,21 @@ def _apply_sheet_formatting(
                 "index": 0,
             }})
 
-    # 4.5. Lead Status = "Lead" → whole-row grey EXCEPT the LS column.
+    # 4.5. Any Lead Status value → whole-row grey EXCEPT the LS column.
+    # Fires for Lead, Reply, Interested AND Unsubscribe — each greys its own
+    # row only.  (Domain-wide greying of other same-domain rows remains
+    # Lead-only via the domain-grey rule above.)
     # Added LAST so it ends up at index 0 (highest priority) after all rules are
     # processed.  This ensures the grey overrides the sent-blue fill even when a
-    # row has both Send Status = TRUE and Lead Status = "Lead".
-    # The LS column is excluded from the ranges so the green Lead cell (rule 4)
-    # is never covered — only non-LS cells go grey.
+    # row has both Send Status = TRUE and a Lead Status value.
+    # The LS column is excluded from the ranges so the coloured status cell
+    # (rule 4) is never covered — only non-LS cells go grey.
     if lead_status_col >= 0:
         ls_letter    = _col_letter(lead_status_col + 1)
-        lead_formula = f'=${ls_letter}2="Lead"'
+        lead_formula = (
+            f'=OR(${ls_letter}2="Lead",${ls_letter}2="Reply",'
+            f'${ls_letter}2="Interested",${ls_letter}2="Unsubscribe")'
+        )
         lead_ranges: list[dict] = []
         if lead_status_col > 0:
             lead_ranges.append({
@@ -1126,12 +1132,16 @@ def _apply_lead_grey_cf(
 
     The rule is inserted at index 0 (highest priority in Google Sheets API)
     so it overrides both the sent-blue fill AND the domain-grey fill for rows
-    where Lead Status = "Lead".  The LS column is excluded from the ranges so
-    the green Lead cell colour is never covered.
+    with any Lead Status value (Lead / Reply / Interested / Unsubscribe) —
+    each status greys its own row only.  The LS column is excluded from the
+    ranges so the coloured status cell is never covered.
     """
     ls_0      = ls_col_idx - 1          # 0-based column index
     ls_letter = _col_letter(ls_col_idx)
-    formula   = f'=${ls_letter}2="Lead"'
+    formula   = (
+        f'=OR(${ls_letter}2="Lead",${ls_letter}2="Reply",'
+        f'${ls_letter}2="Interested",${ls_letter}2="Unsubscribe")'
+    )
     row_count = 3000   # generous upper bound — covers any realistic sheet
 
     ranges: list[dict] = []
@@ -1237,31 +1247,32 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
     if updates:
         ws.batch_update(updates)
 
-        # For lead rows: ensure all three CF rules are present on this sheet.
-        # - lead-row-grey:     greys the specific Lead row (non-LS columns)
-        # - domain-grey:       greys all other same-domain rows (overrides sent-blue)
-        # - sender-stripe:     keeps Sender Account cell yellow (overrides everything)
-        # All applied retroactively so old sheets without the rules get them.
+        # Ensure the CF rules are present on this sheet (retroactive for old
+        # sheets created before the rules were baked into _apply_sheet_formatting).
+        # - row-grey:       greys the marked row itself (non-LS columns) for ANY
+        #                   status — Lead / Reply / Interested / Unsubscribe
+        # - domain-grey:    Lead only — greys all other same-domain rows
+        # - sender-stripe:  keeps Sender Account cell yellow (overrides everything)
+        try:
+            _apply_lead_grey_cf(sheet_id, ws.id, ls_col_idx, len(headers))
+        except Exception as _cf_err:
+            print(f"[google_sheets] lead-grey CF apply error: {_cf_err}")
         if lead_status == "Lead":
-            try:
-                _apply_lead_grey_cf(sheet_id, ws.id, ls_col_idx, len(headers))
-            except Exception as _cf_err:
-                print(f"[google_sheets] lead-grey CF apply error: {_cf_err}")
             try:
                 _apply_domain_grey_cf(
                     sheet_id, ws.id, ls_col_idx, email_col_idx, len(headers)
                 )
             except Exception as _cf_err:
                 print(f"[google_sheets] domain-grey CF apply error: {_cf_err}")
-            sender_col_idx = (
-                headers.index("Sender Account") + 1
-                if "Sender Account" in headers else -1
-            )
-            if sender_col_idx > 0:
-                try:
-                    _apply_sender_stripe_cf(sheet_id, ws.id, sender_col_idx)
-                except Exception as _cf_err:
-                    print(f"[google_sheets] sender-stripe CF apply error: {_cf_err}")
+        sender_col_idx = (
+            headers.index("Sender Account") + 1
+            if "Sender Account" in headers else -1
+        )
+        if sender_col_idx > 0:
+            try:
+                _apply_sender_stripe_cf(sheet_id, ws.id, sender_col_idx)
+            except Exception as _cf_err:
+                print(f"[google_sheets] sender-stripe CF apply error: {_cf_err}")
 
     return len(updates)
 
