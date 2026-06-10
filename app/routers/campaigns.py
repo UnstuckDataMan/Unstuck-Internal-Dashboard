@@ -225,12 +225,15 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
         "total_prospects,sent_count,completed,completed_at,tags,"
         "lead_count,reply_count,interested_count,unsubscribe_count"
     )
-    # Middle tier: chaser_count missing but paused present — without this,
-    # one missing column would also hide the paused state on every card.
+    # Middle tiers: paused and chaser_count are independent optional columns.
+    # If only one is missing, the other must still be selected — otherwise a
+    # missing 'paused' would also hide the chaser progress bar (and vice
+    # versa), since a PostgREST select fails entirely on any unknown column.
+    _SELECT_CHASER = _SELECT_BASE + ",chaser_count"
     _SELECT_PAUSED = _SELECT_BASE + ",paused"
 
     if _sb_configured():
-        for _sel in (_SELECT_FULL, _SELECT_PAUSED, _SELECT_BASE):
+        for _sel in (_SELECT_FULL, _SELECT_CHASER, _SELECT_PAUSED, _SELECT_BASE):
             try:
                 r = http_req.get(
                     f"{SUPABASE_URL}/rest/v1/campaigns",
@@ -583,6 +586,23 @@ async def campaign_ab_stats(campaign_id: str):
 # ── Pause / Resume a campaign ─────────────────────────────────────────────────
 # Requires a boolean `paused` column on the campaigns table (default false).
 
+def _paused_patch_error(action: str, detail: str) -> HTMLResponse:
+    """Visible error for pause/resume failures.
+
+    Returned with HTTP 200 because HTMX does not swap error-status responses —
+    a 500 here made the Pause button appear to silently do nothing.
+    """
+    return HTMLResponse(
+        '<div style="padding:16px;border:1px solid #ef5350;border-radius:8px;'
+        'color:#ef9a9a;font-size:.85rem;line-height:1.6">'
+        f'<strong>{action} failed:</strong> {detail}<br>'
+        "If this mentions a missing 'paused' column, run this in the "
+        'Supabase SQL editor, then reload:<br>'
+        '<code>ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS paused '
+        'boolean DEFAULT false;</code></div>'
+    )
+
+
 @router.post("/api/campaigns/{campaign_id}/pause")
 async def pause_campaign(
     request:     Request,
@@ -592,15 +612,17 @@ async def pause_campaign(
     if not _sb_configured():
         return JSONResponse({"error": "Supabase not configured."}, status_code=503)
     try:
-        http_req.patch(
+        pr = http_req.patch(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers("return=minimal"),
             params={"id": f"eq.{campaign_id}"},
             json={"paused": True},
             timeout=10,
-        ).raise_for_status()
+        )
+        if pr.status_code >= 400:
+            return _paused_patch_error("Pause", pr.text[:300])
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return _paused_patch_error("Pause", str(exc))
     return await list_campaigns(request, client_id=client_id)
 
 
@@ -613,15 +635,17 @@ async def resume_campaign(
     if not _sb_configured():
         return JSONResponse({"error": "Supabase not configured."}, status_code=503)
     try:
-        http_req.patch(
+        pr = http_req.patch(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers("return=minimal"),
             params={"id": f"eq.{campaign_id}"},
             json={"paused": False},
             timeout=10,
-        ).raise_for_status()
+        )
+        if pr.status_code >= 400:
+            return _paused_patch_error("Resume", pr.text[:300])
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return _paused_patch_error("Resume", str(exc))
     return await list_campaigns(request, client_id=client_id)
 
 
