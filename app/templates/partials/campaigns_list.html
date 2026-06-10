@@ -431,6 +431,17 @@
       <span class="camp-progress-label">{{ c.sent_count or 0 }} / {{ c.total_prospects }} sent</span>
     </div>
     {% endif %}
+
+    {# Chaser progress bar — shown only when at least one chaser has been sent #}
+    {% if c.chaser_count and c.sent_count %}
+    {% set chaser_pct = ((c.chaser_count or 0) / (c.sent_count or 1) * 100) | int %}
+    <div class="camp-progress-wrap" style="margin-top:4px">
+      <div class="camp-progress-bar">
+        <div class="camp-progress-fill camp-progress-fill-chaser" style="width:{{ chaser_pct }}%"></div>
+      </div>
+      <span class="camp-progress-label">{{ c.chaser_count }} / {{ c.sent_count }} chasers sent</span>
+    </div>
+    {% endif %}
     <div class="camp-actions">
       <button class="camp-resume-btn"
               hx-post="/api/campaigns/{{ c.id }}/resume?client_id={{ client_id }}"
@@ -556,6 +567,18 @@
       {% if c.interested_count %}<span class="camp-chip camp-chip-interested">{{ c.interested_count }} interested</span>{% endif %}
       {% if c.unsubscribe_count %}<span class="camp-chip camp-chip-unsub">{{ c.unsubscribe_count }} unsub{{ 's' if c.unsubscribe_count != 1 else '' }}</span>{% endif %}
     </div>
+
+    {# Chaser progress bar — chasers usually go out after a campaign completes,
+       so past cards need this most.  Shown once at least one chaser is sent. #}
+    {% if c.chaser_count and c.sent_count %}
+    {% set chaser_pct = ((c.chaser_count or 0) / (c.sent_count or 1) * 100) | int %}
+    <div class="camp-progress-wrap" style="margin-top:4px">
+      <div class="camp-progress-bar">
+        <div class="camp-progress-fill camp-progress-fill-chaser" style="width:{{ chaser_pct }}%"></div>
+      </div>
+      <span class="camp-progress-label">{{ c.chaser_count }} / {{ c.sent_count }} chasers sent</span>
+    </div>
+    {% endif %}
 
     {# ── Tags ── #}
     <div class="camp-tags" id="camp-tags-{{ c.id }}"
