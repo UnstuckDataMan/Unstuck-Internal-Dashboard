@@ -252,11 +252,12 @@ def sync_campaign_core(
                     "email":        entry["email"],
                     "contacted_at": entry["sent_date"],
                     "source":       "auto_sync",
-                    # chaser_contacted_at tracks when the follow-up email was sent;
-                    # included only when a Chaser Date is known so existing rows
-                    # with a chaser date are not cleared by rows that haven't been chased.
-                    **({"chaser_contacted_at": entry["chaser_date"]}
-                       if entry.get("chaser_date") else {}),
+                    # chaser_contacted_at must be present on EVERY row (null when
+                    # not chased): PostgREST rejects bulk inserts whose rows have
+                    # differing keys, so omitting it on unchased rows failed any
+                    # mixed batch — the fallback then stripped the column from all
+                    # rows and chaser dates were silently never stored.
+                    "chaser_contacted_at": entry.get("chaser_date") or None,
                     **({"campaign_name": campaign_name} if campaign_name else {}),
                 }
                 for entry in chunk
