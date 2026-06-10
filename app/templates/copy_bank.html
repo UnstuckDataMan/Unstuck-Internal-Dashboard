@@ -2388,6 +2388,8 @@ function sbHeaders(prefer) {
 const TEMPLATES      = {};
 const ORIG_TEMPLATES = {};   // snapshot of last-saved (approved) state; used for per-card revert & glow
 const PENDING_CACHE  = {};   // key → pending row; loaded at init so all pending content survives reload
+const PENDING_APPLIED = {};  // key → true once its pending draft has been merged into TEMPLATES (prevents
+                              // re-overwriting in-progress edits every time checkPendingForView runs)
 let   dirtyContent   = false; // true when copy text has been edited but not yet approved
 let   activeChannel  = 'email';
 let   territory      = 'US';
@@ -2597,6 +2599,7 @@ async function loadFromSupabase() {
             PENDING_CACHE[row.key] = row;
             // Apply pending content over approved content — ORIG_TEMPLATES stays as approved baseline
             TEMPLATES[row.key] = migrateContent(JSON.parse(JSON.stringify(row.content)));
+            PENDING_APPLIED[row.key] = true;
           }
         });
       }
@@ -3842,7 +3845,10 @@ async function checkPendingForView() {
         const data = await res.json();
         if (data.pending) {
           PENDING_CACHE[key] = data.pending;
-          TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(data.pending.content)));
+          if (!PENDING_APPLIED[key]) {
+            TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(data.pending.content)));
+            PENDING_APPLIED[key] = true;
+          }
           currentPending = data.pending;
           render();
           setPendingApprovalState(currentPending.created_at);
@@ -3852,10 +3858,15 @@ async function checkPendingForView() {
     return;
   }
 
-  // Apply all pending content for this profile to TEMPLATES
+  // Apply pending content for this profile to TEMPLATES — but only the first time each
+  // key is encountered, so in-progress edits aren't clobbered on every toggle switch.
   profilePendingKeys.forEach(function(k){
+    if (PENDING_APPLIED[k]) return;
     var row = PENDING_CACHE[k];
-    if (row && row.content) TEMPLATES[k] = migrateContent(JSON.parse(JSON.stringify(row.content)));
+    if (row && row.content) {
+      TEMPLATES[k] = migrateContent(JSON.parse(JSON.stringify(row.content)));
+      PENDING_APPLIED[k] = true;
+    }
   });
 
   // Use most recent pending row to drive the banner date
