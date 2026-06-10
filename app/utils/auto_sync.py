@@ -138,20 +138,59 @@ def sync_campaign_core(
             elif status == "Reply":
                 result["reply_count"] += 1
 
-        for i in range(0, len(dnc_rows), CHUNK_SIZE):
-            chunk = dnc_rows[i : i + CHUNK_SIZE]
+        # Deduplicate within the batch.  Two Leads at the same company both
+        # yield the same domain row, and duplicate values inside one INSERT
+        # make Postgres reject the whole statement.
+        seen_dnc: set[str] = set()
+        unique_dnc: list[dict] = []
+        for row in dnc_rows:
+            key = row["email"].lower()
+            if key not in seen_dnc:
+                seen_dnc.add(key)
+                unique_dnc.append(row)
+
+        for i in range(0, len(unique_dnc), CHUNK_SIZE):
+            chunk = unique_dnc[i : i + CHUNK_SIZE]
+            # on_conflict=client_id,email targets the table's real unique
+            # constraint.  Without it, ignore-duplicates conflicts on the PK
+            # (a fresh UUID that never collides), so any row already in the
+            # DNC failed the ENTIRE chunk with 409 — and the old code treated
+            # 409 as success, silently dropping every new lead/unsub after
+            # the first sync.
+            ok = False
             try:
                 r = http_req.post(
                     f"{SUPABASE_URL}/rest/v1/dnc_entries",
                     headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                    params={"on_conflict": "client_id,email"},
                     json=chunk,
                     timeout=30,
                 )
-                if r.status_code not in (200, 201, 204, 409):
-                    r.raise_for_status()
-            except Exception as exc:
-                result["error"] = f"DNC write error: {exc}"
-                return result
+                ok = r.status_code in (200, 201, 204)
+            except Exception:
+                ok = False
+
+            if not ok:
+                # Fallback: insert rows one at a time so a single conflicting
+                # row (or an on_conflict/constraint mismatch) can't block the
+                # rest.  409 = already in DNC = fine.
+                failures = 0
+                for row in chunk:
+                    try:
+                        r1 = http_req.post(
+                            f"{SUPABASE_URL}/rest/v1/dnc_entries",
+                            headers=_sb_headers("return=minimal"),
+                            json=[row],
+                            timeout=15,
+                        )
+                        if r1.status_code not in (200, 201, 204, 409):
+                            failures += 1
+                    except Exception:
+                        failures += 1
+                if failures:
+                    # Record the problem but keep syncing — contacted data and
+                    # counters should still update even if some DNC rows failed.
+                    result["error"] = f"DNC write error: {failures} entr{'y' if failures == 1 else 'ies'} failed"
 
     # ── Add sent rows to contacted_prospects ──────────────────────────
     # Use the actual Sent Date from the sheet so the date-bucketed stats
