@@ -45,6 +45,18 @@ def _parse_total(headers: dict) -> int:
     return 0
 
 
+def _pg_in_list(values: list[str]) -> str:
+    """Build a PostgREST in.(...) literal with each value double-quoted.
+
+    Unquoted values break on commas/parens; double-quoting (with backslash
+    escapes) makes campaign names with any punctuation filter correctly.
+    """
+    quoted = ",".join(
+        '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"' for v in values
+    )
+    return f"({quoted})"
+
+
 def _count_contacted(
     client_id: str,
     date_eq:  str = "",
@@ -73,8 +85,7 @@ def _count_contacted(
         ("limit",     "1"),
     ]
     if campaign_names:
-        val = "(" + ",".join(campaign_names) + ")"
-        base_params.append(("campaign_name", f"in.{val}"))
+        base_params.append(("campaign_name", f"in.{_pg_in_list(campaign_names)}"))
     # (no fallback filter needed — source=auto_sync already excludes non-send rows)
     if date_eq:
         base_params.append(("contacted_at", f"eq.{date_eq}"))
@@ -116,8 +127,7 @@ def _count_chaser_contacted(
         ("limit",               "1"),
     ]
     if campaign_names:
-        val = "(" + ",".join(campaign_names) + ")"
-        base_params.append(("campaign_name", f"in.{val}"))
+        base_params.append(("campaign_name", f"in.{_pg_in_list(campaign_names)}"))
     if date_eq:
         base_params.append(("chaser_contacted_at", f"eq.{date_eq}"))
     if date_gte:
@@ -151,10 +161,12 @@ def _time_breakdown(
     monday      = today - timedelta(days=today.weekday())
     sunday      = monday + timedelta(days=6)
     month_start = today.replace(day=1)
+    # Day numbers formatted manually — strftime('%-d') is Linux-only and
+    # raises ValueError on Windows, which would break the whole breakdown.
     week_label  = (
-        f"{monday.strftime('%b %-d')}–{sunday.strftime('%-d')}"
+        f"{monday.strftime('%b')} {monday.day}–{sunday.day}"
         if monday.month == sunday.month
-        else f"{monday.strftime('%b %-d')}–{sunday.strftime('%b %-d')}"
+        else f"{monday.strftime('%b')} {monday.day}–{sunday.strftime('%b')} {sunday.day}"
     )
     kw = {"campaign_names": campaign_names}
 
@@ -213,9 +225,12 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
         "total_prospects,sent_count,completed,completed_at,tags,"
         "lead_count,reply_count,interested_count,unsubscribe_count"
     )
+    # Middle tier: chaser_count missing but paused present — without this,
+    # one missing column would also hide the paused state on every card.
+    _SELECT_PAUSED = _SELECT_BASE + ",paused"
 
     if _sb_configured():
-        for _sel in (_SELECT_FULL, _SELECT_BASE):
+        for _sel in (_SELECT_FULL, _SELECT_PAUSED, _SELECT_BASE):
             try:
                 r = http_req.get(
                     f"{SUPABASE_URL}/rest/v1/campaigns",

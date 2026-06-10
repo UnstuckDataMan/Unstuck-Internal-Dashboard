@@ -800,6 +800,31 @@ def _is_sent(value) -> bool:
     return str(value).strip().upper() in ("TRUE", "SENT")
 
 
+def _to_iso_date(value) -> str:
+    """Normalise a sheet date cell to YYYY-MM-DD, or "" if unparseable.
+
+    Cells the app writes are RAW ISO strings, but hand-edited cells can come
+    back as Google serial numbers — UNFORMATTED_VALUE renders real date cells
+    as days-since-1899-12-30 (e.g. 46100 instead of "2026-03-19").  Passing a
+    serial through to Supabase would fail the whole insert chunk, silently
+    dropping those sends from the stats, so anything unparseable returns ""
+    and gets back-filled (and rewritten to the sheet) as today during sync.
+    """
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, (int, float)):
+        from datetime import date as _d, timedelta as _td
+        serial = int(value)
+        if 1 <= serial < 200000:   # plausible Sheets serial range
+            try:
+                return (_d(1899, 12, 30) + _td(days=serial)).isoformat()
+            except Exception:
+                return ""
+        return ""
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(value).strip())
+    return m.group(1) if m else ""
+
+
 def read_sheet_status(sheet_id: str) -> dict:
     """
     Count total prospect rows and how many have Send Status ticked / = "Sent".
@@ -856,9 +881,9 @@ def read_sent_with_dates(sheet_id: str) -> list[dict]:
         email = str(r.get("Recipient Email", "")).strip().lower()
         if not _is_sent(r.get("Send Status", "")) or not email or "@" not in email:
             continue
-        sent_date    = str(r.get("Sent Date",   "")).strip()
+        sent_date    = _to_iso_date(r.get("Sent Date", ""))
         chaser_sent  = _is_sent(r.get("Chaser Sent?", ""))
-        chaser_date  = str(r.get("Chaser Date", "")).strip()
+        chaser_date  = _to_iso_date(r.get("Chaser Date", ""))
         results.append({"email": email, "sent_date": sent_date,
                          "row_num": i, "chaser_sent": chaser_sent,
                          "chaser_date": chaser_date})

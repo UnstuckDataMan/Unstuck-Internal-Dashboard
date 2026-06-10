@@ -70,10 +70,15 @@ def sync_campaign_core(
         result["error"] = f"Sheet read error: {exc}"
         return result
 
+    # sent_read_ok distinguishes "sheet genuinely has no ticked rows" from a
+    # transient read failure — the stale-row cleanup below must never run
+    # after a failed read or it would wipe the campaign's send history.
+    sent_read_ok = True
     try:
         sent_data = read_sent_with_dates(sheet_id)
     except Exception:
         sent_data = []
+        sent_read_ok = False
 
     # ── Back-fill missing Sent Date and Chaser Date cells ────────────
     # For every sent row that has no Sent Date yet, stamp today.
@@ -156,10 +161,36 @@ def sync_campaign_core(
     # fresh auto_sync rows with the correct contacted_at dates.
     # This ensures re-syncs always reflect updated send dates (e.g. when more
     # prospects are marked as sent between syncs).
+
+    # Deduplicate by email first.  Sheets can contain duplicate prospect rows;
+    # contacted_prospects is unique on (client_id, email) so without this the
+    # ignore-duplicates resolution decides arbitrarily which row wins.  Keep
+    # the earliest sent date and merge chaser info from any duplicate so the
+    # stats count each prospect exactly once per period.
+    unique_sent: list[dict] = []
     if sent_data:
-        for i in range(0, len(sent_data), CHUNK_SIZE):
-            chunk = sent_data[i : i + CHUNK_SIZE]
-            email_list = "(" + ",".join(e["email"] for e in chunk) + ")"
+        by_email: dict[str, dict] = {}
+        for entry in sent_data:
+            cur = by_email.get(entry["email"])
+            if cur is None:
+                by_email[entry["email"]] = dict(entry)
+            else:
+                if entry.get("sent_date") and (
+                    not cur.get("sent_date") or entry["sent_date"] < cur["sent_date"]
+                ):
+                    cur["sent_date"] = entry["sent_date"]
+                if entry.get("chaser_sent"):
+                    cur["chaser_sent"] = True
+                if entry.get("chaser_date") and (
+                    not cur.get("chaser_date") or entry["chaser_date"] < cur["chaser_date"]
+                ):
+                    cur["chaser_date"] = entry["chaser_date"]
+        unique_sent = list(by_email.values())
+
+    if unique_sent:
+        for i in range(0, len(unique_sent), CHUNK_SIZE):
+            chunk = unique_sent[i : i + CHUNK_SIZE]
+            email_list = "(" + ",".join(f'"{e["email"]}"' for e in chunk) + ")"
 
             # Remove all existing rows for these emails so the fresh auto_sync
             # rows carry the correct contacted_at date on every sync.
@@ -230,6 +261,56 @@ def sync_campaign_core(
             if inserted:
                 result["contacted_added"] += len(chunk)
 
+    # ── Remove stale auto_sync rows for this campaign ─────────────────
+    # If a prospect was previously synced as sent but the tick has since been
+    # removed (or the row deleted from the sheet), its old auto_sync row would
+    # keep inflating the send stats forever.  Compare the campaign's existing
+    # rows against the current sent set and delete anything no longer ticked.
+    # Guarded by sent_read_ok so a transient read failure never wipes history.
+    if sent_read_ok and campaign_name:
+        current_emails = {e["email"] for e in unique_sent}
+        try:
+            existing: list[str] = []
+            offset = 0
+            while True:   # paginate — Supabase caps responses at 1000 rows
+                rr = http_req.get(
+                    f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                    headers=_sb_headers(),
+                    params={
+                        "select":        "email",
+                        "client_id":     f"eq.{client_id}",
+                        "source":        "eq.auto_sync",
+                        "campaign_name": f"eq.{campaign_name}",
+                        "limit":         "1000",
+                        "offset":        str(offset),
+                    },
+                    timeout=30,
+                )
+                rr.raise_for_status()
+                page = [row.get("email", "") for row in rr.json()]
+                existing.extend(p for p in page if p)
+                if len(page) < 1000:
+                    break
+                offset += 1000
+
+            stale = [e for e in existing if e not in current_emails]
+            for i in range(0, len(stale), CHUNK_SIZE):
+                stale_chunk = stale[i : i + CHUNK_SIZE]
+                stale_list = "(" + ",".join(f'"{e}"' for e in stale_chunk) + ")"
+                http_req.delete(
+                    f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                    headers=_sb_headers(),
+                    params={
+                        "client_id":     f"eq.{client_id}",
+                        "source":        "eq.auto_sync",
+                        "campaign_name": f"eq.{campaign_name}",
+                        "email":         f"in.{stale_list}",
+                    },
+                    timeout=30,
+                )
+        except Exception:
+            pass   # Non-fatal — stale rows are retried on the next sync
+
     # ── Update campaign counters ──────────────────────────────────────
     new_sent     = len(sent_data)
     chaser_count = sum(1 for e in sent_data if e.get("chaser_sent"))
@@ -240,23 +321,38 @@ def sync_campaign_core(
         "interested_count":  result["interested_added"],
         "unsubscribe_count": result["unsubscribes_added"],
     }
-    if chaser_count:
-        patch_body["chaser_count"] = chaser_count
 
     # Auto-stamp completed_at the first time this campaign hits 100 %
     if total_prospects and new_sent >= total_prospects and not completed_at:
         patch_body["completed_at"] = _datetime.now(_tz.utc).isoformat()
 
+    # chaser_count is always included (so unticking every chaser resets it to
+    # 0), but the column may not exist yet — and PostgREST rejects the ENTIRE
+    # patch when any column is unknown, which would silently freeze sent_count
+    # and every other counter.  On failure, retry with the base body alone.
     try:
-        http_req.patch(
+        pr = http_req.patch(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers("return=minimal"),
             params={"id": f"eq.{campaign_id}"},
-            json=patch_body,
+            json={**patch_body, "chaser_count": chaser_count},
             timeout=10,
         )
+        patch_ok = pr.status_code < 400
     except Exception:
-        pass
+        patch_ok = False
+
+    if not patch_ok:
+        try:
+            http_req.patch(
+                f"{SUPABASE_URL}/rest/v1/campaigns",
+                headers=_sb_headers("return=minimal"),
+                params={"id": f"eq.{campaign_id}"},
+                json=patch_body,
+                timeout=10,
+            )
+        except Exception:
+            pass
 
     return result
 

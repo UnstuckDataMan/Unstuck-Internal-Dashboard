@@ -4505,6 +4505,9 @@
           _set('cdash-sn-week-label',  d.week_label  || '');
           _set('cdash-sn-month',       d.month  ?? '—');
           _set('cdash-sn-month-label', d.month_label || '');
+          // all_time from contacted_prospects includes chaser sends, matching
+          // how Today/Week/Month are counted — the card's sent_count does not.
+          if (d.all_time !== undefined) _set('cdash-sn-alltime', d.all_time);
         })
         .catch(function () { _set('cdash-sn-today', '—'); _set('cdash-sn-week', '—'); _set('cdash-sn-month', '—'); });
     }());
