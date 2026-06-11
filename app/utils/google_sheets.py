@@ -80,7 +80,13 @@ def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
         try:
             records = ws.get_all_records(**kwargs)
             with _records_cache_lock:
-                _records_cache[cache_key] = (time.time(), records)
+                # Drop expired entries while we hold the lock so the cache
+                # doesn't grow without bound across many sheets.
+                fresh_now = time.time()
+                for k in [k for k, (ts, _) in _records_cache.items()
+                          if (fresh_now - ts) >= _RECORDS_CACHE_TTL]:
+                    del _records_cache[k]
+                _records_cache[cache_key] = (fresh_now, records)
             return records
         except APIError as exc:
             status = getattr(exc.response, "status_code", 0)
@@ -147,11 +153,25 @@ def _client() -> gspread.Client:
     return _gc_cache
 
 
+# Module-level AuthorizedSession cache — mirrors _client().  Building a fresh
+# session per call paid a full OAuth token fetch each time; a single sheet
+# mark could create three sessions (one per CF helper).  AuthorizedSession
+# refreshes its token automatically, so a long-lived instance is safe.
+_session_cache: AuthorizedSession | None = None
+_session_lock = threading.Lock()
+
+
 def _authed_session() -> AuthorizedSession:
-    """Return an AuthorizedSession for direct Sheets/Drive REST calls."""
-    info = _decode_sa_json()
-    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-    return AuthorizedSession(creds)
+    """Return a cached AuthorizedSession for direct Sheets/Drive REST calls."""
+    global _session_cache
+    if _session_cache is not None:
+        return _session_cache
+    with _session_lock:
+        if _session_cache is None:
+            info = _decode_sa_json()
+            creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+            _session_cache = AuthorizedSession(creds)
+    return _session_cache
 
 
 # ── Drive cleanup (admin utility) ─────────────────────────────────────────────
@@ -825,44 +845,6 @@ def _to_iso_date(value) -> str:
     return m.group(1) if m else ""
 
 
-def read_sheet_status(sheet_id: str) -> dict:
-    """
-    Count total prospect rows and how many have Send Status ticked / = "Sent".
-    Supports both checkbox (TRUE boolean) and legacy dropdown ("Sent" text).
-
-    Returns: {"total": int, "sent": int, "is_complete": bool}
-    """
-    gc = _client()
-    sh = gc.open_by_key(sheet_id)
-    gsheet = sh.sheet1
-    # UNFORMATTED_VALUE returns Python booleans for checkbox cells
-    records = _get_all_records(gsheet, sheet_id, value_render_option="UNFORMATTED_VALUE")
-
-    data_rows = [r for r in records if str(r.get("Recipient Email", "")).strip()]
-    total     = len(data_rows)
-    sent      = sum(1 for r in data_rows if _is_sent(r.get("Send Status", "")))
-    return {"total": total, "sent": sent, "is_complete": (total > 0 and sent >= total)}
-
-
-def read_sent_emails(sheet_id: str) -> list[str]:
-    """
-    Return the list of Recipient Email values where Send Status is ticked.
-    Uses UNFORMATTED_VALUE so checkbox cells come back as Python booleans.
-    Skips separator rows (no email address).
-    """
-    gc = _client()
-    sh = gc.open_by_key(sheet_id)
-    gsheet = sh.sheet1
-    records = _get_all_records(gsheet, sheet_id, value_render_option="UNFORMATTED_VALUE")
-
-    emails: list[str] = []
-    for r in records:
-        email = str(r.get("Recipient Email", "")).strip().lower()
-        if _is_sent(r.get("Send Status", "")) and email and "@" in email:
-            emails.append(email)
-    return emails
-
-
 def read_sent_with_dates(sheet_id: str) -> list[dict]:
     """
     Return [{email, sent_date, row_num}] for all rows where Send Status is ticked.
@@ -1033,12 +1015,51 @@ def read_leads(sheet_id: str) -> list[dict]:
 
 # ── Lead-grey CF rule helper ──────────────────────────────────────────────────
 
+def _existing_cf_formulas(sheet_id: str, ws_id: int) -> set[str] | None:
+    """
+    Return the set of CUSTOM_FORMULA strings already present as conditional-
+    format rules on the given worksheet, or None if the lookup failed.
+
+    Used by mark_email_in_sheet so the retroactive CF helpers below only add
+    their rule when it is genuinely missing.  Without this check every mark
+    re-added 2–3 identical rules at index 0, so sheets steadily accumulated
+    duplicate rules (slower rendering, cluttered rules list).
+
+    Callers should treat None as "unknown" and fall back to adding the rule
+    (the old, always-add behaviour) — a duplicate rule is cosmetic, a missing
+    rule breaks the grey-out logic.
+    """
+    try:
+        session = _authed_session()
+        resp = session.get(
+            f"{_SHEETS_BASE_URL}/{sheet_id}",
+            params={"fields": "sheets(properties(sheetId),conditionalFormats)"},
+        )
+        if not resp.ok:
+            return None
+        formulas: set[str] = set()
+        for sheet in resp.json().get("sheets", []):
+            if sheet.get("properties", {}).get("sheetId") != ws_id:
+                continue
+            for rule in sheet.get("conditionalFormats") or []:
+                cond = (rule.get("booleanRule") or {}).get("condition") or {}
+                if cond.get("type") == "CUSTOM_FORMULA":
+                    for v in cond.get("values") or []:
+                        f = v.get("userEnteredValue")
+                        if f:
+                            formulas.add(f)
+        return formulas
+    except Exception:
+        return None
+
+
 def _apply_domain_grey_cf(
     sheet_id:   str,
     ws_id:      int,   # Google Sheets GID of the worksheet
     ls_col_idx: int,   # 1-based column index of "Lead Status"
     em_col_idx: int,   # 1-based column index of "Recipient Email"
     n_cols:     int,
+    existing_formulas: set[str] | None = None,
 ) -> None:
     """
     Add the domain-grey CF rule to an existing sheet via direct REST call.
@@ -1063,6 +1084,8 @@ def _apply_domain_grey_cf(
         f'${em_letter}$2:${em_letter}{row_count},'
         f'"*@"&RIGHT(${em_letter}2,LEN(${em_letter}2)-FIND("@",${em_letter}2)))>0)'
     )
+    if existing_formulas is not None and formula in existing_formulas:
+        return   # rule already on the sheet — don't add a duplicate
     session = _authed_session()
     resp = session.post(
         f"{_SHEETS_BASE_URL}/{sheet_id}:batchUpdate",
@@ -1096,6 +1119,7 @@ def _apply_sender_stripe_cf(
     sheet_id:       str,
     ws_id:          int,   # Google Sheets GID
     sender_col_idx: int,   # 1-based column index of "Sender Account"
+    existing_formulas: set[str] | None = None,
 ) -> None:
     """
     Add the first-of-sender yellow stripe CF rule to an existing sheet.
@@ -1109,6 +1133,8 @@ def _apply_sender_stripe_cf(
     sa_letter = _col_letter(sender_col_idx)
     formula   = f'=AND(${sa_letter}2<>"",${sa_letter}2<>${sa_letter}1)'
 
+    if existing_formulas is not None and formula in existing_formulas:
+        return   # rule already on the sheet — don't add a duplicate
     session = _authed_session()
     resp = session.post(
         f"{_SHEETS_BASE_URL}/{sheet_id}:batchUpdate",
@@ -1143,6 +1169,7 @@ def _apply_lead_grey_cf(
     ws_id:     int,   # Google Sheets GID of the worksheet
     ls_col_idx: int,  # 1-based column index of "Lead Status"
     n_cols:    int,
+    existing_formulas: set[str] | None = None,
 ) -> None:
     """
     Add a lead-row-grey CF rule to an existing sheet via a direct REST call.
@@ -1167,6 +1194,8 @@ def _apply_lead_grey_cf(
         f'=OR(${ls_letter}2="Lead",${ls_letter}2="Reply",'
         f'${ls_letter}2="Interested",${ls_letter}2="Unsubscribe")'
     )
+    if existing_formulas is not None and formula in existing_formulas:
+        return   # rule already on the sheet — don't add a duplicate
     row_count = 3000   # generous upper bound — covers any realistic sheet
 
     ranges: list[dict] = []
@@ -1278,14 +1307,20 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
         #                   status — Lead / Reply / Interested / Unsubscribe
         # - domain-grey:    Lead only — greys all other same-domain rows
         # - sender-stripe:  keeps Sender Account cell yellow (overrides everything)
+        #
+        # Existing rules are read first so each rule is added at most once per
+        # sheet; if the lookup fails the helpers fall back to always-add.
+        existing_cf = _existing_cf_formulas(sheet_id, ws.id)
         try:
-            _apply_lead_grey_cf(sheet_id, ws.id, ls_col_idx, len(headers))
+            _apply_lead_grey_cf(sheet_id, ws.id, ls_col_idx, len(headers),
+                                existing_formulas=existing_cf)
         except Exception as _cf_err:
             print(f"[google_sheets] lead-grey CF apply error: {_cf_err}")
         if lead_status == "Lead":
             try:
                 _apply_domain_grey_cf(
-                    sheet_id, ws.id, ls_col_idx, email_col_idx, len(headers)
+                    sheet_id, ws.id, ls_col_idx, email_col_idx, len(headers),
+                    existing_formulas=existing_cf,
                 )
             except Exception as _cf_err:
                 print(f"[google_sheets] domain-grey CF apply error: {_cf_err}")
@@ -1295,7 +1330,8 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
         )
         if sender_col_idx > 0:
             try:
-                _apply_sender_stripe_cf(sheet_id, ws.id, sender_col_idx)
+                _apply_sender_stripe_cf(sheet_id, ws.id, sender_col_idx,
+                                        existing_formulas=existing_cf)
             except Exception as _cf_err:
                 print(f"[google_sheets] sender-stripe CF apply error: {_cf_err}")
 

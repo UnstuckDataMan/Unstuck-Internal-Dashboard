@@ -3112,10 +3112,10 @@
           }).then(r => r.json());
           if (res.error) {
             resultEl.innerHTML = `<span style="color:#f87171">${res.error}</span>`;
-          } else if (!res.leads_added && !res.unsubscribes_added) {
-            resultEl.innerHTML = `<span style="color:var(--text-2)">${res.message || 'No Lead or Unsubscribe rows found in the sheet.'}</span>`;
+          } else if (!res.leads_added && !res.unsubscribes_added && !res.interested_added) {
+            resultEl.innerHTML = `<span style="color:var(--text-2)">${res.message || 'No Lead, Interested or Unsubscribe rows found in the sheet.'}</span>`;
           } else {
-            resultEl.innerHTML = `<span style="color:#4ade80">✓ Added to DNC — Leads: <strong>${res.leads_added}</strong>, Unsubscribes: <strong>${res.unsubscribes_added}</strong></span>`;
+            resultEl.innerHTML = `<span style="color:#4ade80">✓ Added to DNC — Leads: <strong>${res.leads_added}</strong>, Interested: <strong>${res.interested_added || 0}</strong>, Unsubscribes: <strong>${res.unsubscribes_added}</strong></span>`;
           }
         } catch (err) {
           resultEl.innerHTML = `<span style="color:#f87171">Network error: ${err.message}</span>`;

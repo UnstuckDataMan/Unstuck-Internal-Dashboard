@@ -8,20 +8,24 @@ import threading
 import time
 import uuid
 from datetime import date, timedelta
+from html import escape as _html_escape
 from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
 import requests as http_req
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from app.deps import templates
+from app.utils.supabase import (
+    SUPABASE_URL,
+    sb_headers as _sb_headers,
+    sb_configured as _sb_configured,
+    parse_total as _parse_total,
+)
 
 router = APIRouter()
-
-SUPABASE_URL      = os.environ.get("SUPABASE_URL", "").rstrip("/")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 CHUNK_SIZE       = 500   # emails per Supabase batch query
@@ -79,33 +83,6 @@ def _mark_sheets_background(sheet_ids: list[str], mark_value: str, reason: str) 
                 pass
     except Exception:
         pass
-
-
-# ── Supabase helpers ───────────────────────────────────────────────────────────
-
-def _sb_headers(prefer: Optional[str] = None) -> dict:
-    h = {
-        "apikey":        SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-        "Content-Type":  "application/json",
-    }
-    if prefer:
-        h["Prefer"] = prefer
-    return h
-
-
-def _sb_configured() -> bool:
-    return bool(SUPABASE_URL and SUPABASE_ANON_KEY)
-
-
-def _parse_total(headers: dict) -> int:
-    cr = headers.get("Content-Range", "")
-    if "/" in cr:
-        try:
-            return int(cr.split("/")[1])
-        except ValueError:
-            pass
-    return 0
 
 
 # ── file helpers ───────────────────────────────────────────────────────────────
@@ -193,6 +170,45 @@ def _fetch_dnc_matches(client_id: str, norm_emails: list[str]) -> set[str]:
         elif "@" in email and email.split("@")[1] in dnc_domains:
             to_remove.add(email)
     return to_remove
+
+
+def _existing_in_table(
+    table: str,
+    client_id: str,
+    values: list[str],
+    extra_params: Optional[list[tuple[str, str]]] = None,
+) -> set[str]:
+    """
+    Return the subset of *values* whose email already exists in *table* for
+    this client.  Queries only the supplied values in chunks
+    (email=in.(...)) instead of paging through the entire table — for a
+    client with 100k rows that's the difference between a handful of
+    requests and two hundred.
+    """
+    existing: set[str] = set()
+    for i in range(0, len(values), CHUNK_SIZE):
+        chunk = values[i : i + CHUNK_SIZE]
+        quoted = ",".join(
+            '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"' for v in chunk
+        )
+        params: list[tuple[str, str]] = [
+            ("select",    "email"),
+            ("client_id", f"eq.{client_id}"),
+            ("email",     f"in.({quoted})"),
+        ]
+        if extra_params:
+            params.extend(extra_params)
+        r = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers=_sb_headers(),
+            params=params,
+            timeout=30,
+        )
+        r.raise_for_status()
+        for row in r.json():
+            if row.get("email"):
+                existing.add(str(row["email"]).lower().strip())
+    return existing
 
 
 def _fetch_contacted_matches(
@@ -408,13 +424,26 @@ async def api_dnc_scrub(
 
     # ── Auto-save clean contacts to contacted_prospects (non-fatal) ──
     contacted_saved_count = 0
-    if save_contacted == "on" and remaining_count > 0 and _sb_configured():
-        clean_norm_emails = df.loc[~removed_mask, "_norm_email"].tolist()
-        campaign          = campaign_name.strip() or None
-        today             = date.today().isoformat()
+    if save_contacted == "on" and remaining_count > 0:
+        # Dedupe within the file first — duplicate values inside a single
+        # multi-row INSERT make Postgres reject the whole statement.
+        clean_norm_emails = list(dict.fromkeys(
+            df.loc[~removed_mask, "_norm_email"].tolist()
+        ))
+        campaign = campaign_name.strip() or None
+        today    = date.today().isoformat()
         try:
-            for i in range(0, len(clean_norm_emails), CHUNK_SIZE):
-                chunk = clean_norm_emails[i : i + CHUNK_SIZE]
+            # Skip emails already in contacted history.  scrub_upload must
+            # never overwrite existing rows (e.g. auto_sync sends), and a
+            # duplicate inside a 500-row INSERT 409s the ENTIRE chunk — the
+            # old code accepted that 409 but still counted the chunk as
+            # saved, silently dropping up to 499 genuinely new rows.
+            existing   = _existing_in_table(
+                "contacted_prospects", client_id, clean_norm_emails
+            )
+            new_emails = [e for e in clean_norm_emails if e not in existing]
+            for i in range(0, len(new_emails), CHUNK_SIZE):
+                chunk = new_emails[i : i + CHUNK_SIZE]
                 rows = [
                     {
                         "client_id":    client_id,
@@ -431,11 +460,11 @@ async def api_dnc_scrub(
                     json=rows,
                     timeout=30,
                 )
-                if r.status_code not in (200, 201, 409):
+                if r.status_code not in (200, 201, 204):
                     r.raise_for_status()
                 contacted_saved_count += len(chunk)
         except Exception:
-            contacted_saved_count = 0  # non-fatal — scrub result is unaffected
+            pass  # non-fatal — count reflects only chunks confirmed inserted
 
     # ── Log scrub (non-fatal) ─────────────────────────────────────
     try:
@@ -494,20 +523,9 @@ async def api_dnc_scrub(
 
 
 @router.get("/api/dnc/download/{token}")
-async def dnc_download_clean(token: str):
-    with _store_lock:
-        entry = _store.get(token)
-    if entry is None:
-        raise HTTPException(404, "Download link has expired or already been used.")
-    return Response(
-        content=entry["data"],
-        media_type=entry["mime"],
-        headers={"Content-Disposition": f'attachment; filename="{entry["filename"]}"'},
-    )
-
-
 @router.get("/api/dnc/download-removed/{token}")
-async def dnc_download_removed(token: str):
+async def dnc_download(token: str):
+    """Serve a stored scrub result (clean or removed list) by token."""
     with _store_lock:
         entry = _store.get(token)
     if entry is None:
@@ -523,8 +541,9 @@ async def dnc_download_removed(token: str):
 async def send_clean_to_merge(token: str):
     """Take the scrub clean-list, save as Excel in mail_merge/uploads, return
     the same JSON shape as /api/merge/upload-prospects so the JS can hand off."""
-    import sys
-    from pathlib import Path as _Path
+    # The merge router already sets up the mail_merge import path and the
+    # uploads directory — reuse both rather than duplicating the logic here.
+    from app.routers.mail_merge import UPLOAD_DIR, parse_prospect_file
 
     with _store_lock:
         entry = _store.get(token)
@@ -533,15 +552,6 @@ async def send_clean_to_merge(token: str):
 
     raw_bytes = entry["data"]
     orig_name = entry["filename"]
-
-    # ── Ensure mail_merge utils are importable ──────────────────────
-    _mm_dir = _Path(__file__).resolve().parents[2] / "mail_merge"
-    if str(_mm_dir) not in sys.path:
-        sys.path.insert(0, str(_mm_dir))
-    from utils.excel_reader import parse_prospect_file   # noqa: E402
-
-    upload_dir = _mm_dir / "uploads"
-    upload_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Convert CSV → Excel if needed ───────────────────────────────
     if orig_name.lower().endswith(".csv"):
@@ -553,7 +563,7 @@ async def send_clean_to_merge(token: str):
         orig_name = orig_name.rsplit(".", 1)[0] + ".xlsx"
 
     safe_name = f"{uuid.uuid4().hex}_{orig_name}"
-    filepath  = upload_dir / safe_name
+    filepath  = UPLOAD_DIR / safe_name
     filepath.write_bytes(raw_bytes)
 
     try:
@@ -566,8 +576,10 @@ async def send_clean_to_merge(token: str):
             "total_rows": total_rows,
         }
     except Exception as exc:
-        return HTMLResponse(
-            f"Failed to parse clean file for merge: {exc}", status_code=400,
+        # JSON, not HTML — the front end calls resp.json() and reads .error
+        return JSONResponse(
+            {"error": f"Failed to parse clean file for merge: {exc}"},
+            status_code=400,
         )
 
 
@@ -594,37 +606,73 @@ async def get_contacted_campaigns(
     if not _sb_configured():
         return error("Supabase is not configured.")
 
-    # Fetch all campaign_names for this client in pages (one lightweight column)
-    all_names: list = []
-    fetch_offset = 0
-    batch = 1000
-    while True:
-        try:
-            r = http_req.get(
-                f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                headers=_sb_headers(),
-                params={
-                    "select":    "campaign_name",
-                    "client_id": f"eq.{client_id}",
-                    "limit":     str(batch),
-                    "offset":    str(fetch_offset),
-                },
-                timeout=30,
-            )
-            r.raise_for_status()
-        except Exception as e:
-            return error(f"Supabase error: {e}")
+    campaigns: list[dict] = []
+    total_count       = 0
+    no_campaign_count = 0
 
-        page = r.json()
-        all_names.extend(row.get("campaign_name") for row in page)
-        if len(page) < batch:
-            break
-        fetch_offset += batch
+    # ── Attempt 1: single aggregated request (PostgREST 12+ GROUP BY) ────
+    # One round-trip instead of one request per 1000 rows.  Falls back to
+    # the paginated count below if aggregates are disabled on the server.
+    agg_ok = False
+    try:
+        r = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+            headers=_sb_headers(),
+            params={
+                "select":    "campaign_name,count()",
+                "client_id": f"eq.{client_id}",
+            },
+            timeout=30,
+        )
+        if r.ok:
+            groups = r.json()
+            if isinstance(groups, list) and all(
+                isinstance(g, dict) and "count" in g for g in groups
+            ):
+                for g in groups:
+                    n = int(g.get("count") or 0)
+                    total_count += n
+                    if g.get("campaign_name") is None:
+                        no_campaign_count += n
+                    else:
+                        campaigns.append({"name": g["campaign_name"], "count": n})
+                campaigns.sort(key=lambda c: c["count"], reverse=True)
+                agg_ok = True
+    except Exception:
+        agg_ok = False
 
-    total_count      = len(all_names)
-    no_campaign_count = sum(1 for n in all_names if n is None)
-    named_counter    = Counter(n for n in all_names if n is not None)
-    campaigns        = [{"name": k, "count": v} for k, v in named_counter.most_common()]
+    # ── Fallback: page through campaign_name values and count in Python ──
+    if not agg_ok:
+        all_names: list = []
+        fetch_offset = 0
+        batch = 1000
+        while True:
+            try:
+                r = http_req.get(
+                    f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                    headers=_sb_headers(),
+                    params={
+                        "select":    "campaign_name",
+                        "client_id": f"eq.{client_id}",
+                        "limit":     str(batch),
+                        "offset":    str(fetch_offset),
+                    },
+                    timeout=30,
+                )
+                r.raise_for_status()
+            except Exception as e:
+                return error(f"Supabase error: {e}")
+
+            page = r.json()
+            all_names.extend(row.get("campaign_name") for row in page)
+            if len(page) < batch:
+                break
+            fetch_offset += batch
+
+        total_count       = len(all_names)
+        no_campaign_count = sum(1 for n in all_names if n is None)
+        named_counter     = Counter(n for n in all_names if n is not None)
+        campaigns         = [{"name": k, "count": v} for k, v in named_counter.most_common()]
 
     return templates.TemplateResponse(
         "partials/dnc_contacted_campaigns.html",
@@ -905,36 +953,17 @@ async def upload_contacted(
 
     campaign = campaign_name.strip() or None
 
-    # ── Pre-fetch existing emails for this client+campaign so we only
-    # insert genuinely new rows and avoid unique-constraint 409 errors.
-    existing: set[str] = set()
+    # ── Check which uploaded emails already exist for this client+campaign
+    # so we only insert genuinely new rows and avoid unique-constraint 409
+    # errors.  Queries just the uploaded emails, not the whole table.
+    campaign_filter: list[tuple[str, str]] = [
+        ("campaign_name", f"eq.{campaign}") if campaign
+        else ("campaign_name", "is.null")
+    ]
     try:
-        ex_offset = 0
-        while True:
-            ex_params: dict = {
-                "select":    "email",
-                "client_id": f"eq.{client_id}",
-                "limit":     str(CHUNK_SIZE),
-                "offset":    str(ex_offset),
-            }
-            if campaign:
-                ex_params["campaign_name"] = f"eq.{campaign}"
-            else:
-                ex_params["campaign_name"] = "is.null"
-            ex_r = http_req.get(
-                f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                headers=_sb_headers(),
-                params=ex_params,
-                timeout=30,
-            )
-            ex_r.raise_for_status()
-            page = ex_r.json()
-            for row in page:
-                if row.get("email"):
-                    existing.add(str(row["email"]).lower().strip())
-            if len(page) < CHUNK_SIZE:
-                break
-            ex_offset += CHUNK_SIZE
+        existing = _existing_in_table(
+            "contacted_prospects", client_id, emails, campaign_filter
+        )
     except Exception as e:
         return error(f"Could not check existing contacts: {e}")
 
@@ -1009,8 +1038,14 @@ async def delete_campaign_contacted(
             params=params,
             timeout=30,
         ).raise_for_status()
-    except Exception:
-        pass
+    except Exception as e:
+        # Surface the failure — a silent pass made the campaign reappear with
+        # no explanation.
+        return templates.TemplateResponse(
+            "partials/dnc_contacted_campaigns.html",
+            {"request": request, "error": f"Delete failed: {e}", "campaigns": [],
+             "total_count": 0, "no_campaign_count": 0, "client_id": client_id},
+        )
 
     # Return to the campaign list view
     return await get_contacted_campaigns(request, client_id=client_id)
@@ -1083,8 +1118,14 @@ async def delete_contacted(
                 params={"id": f"eq.{entry_id}"},
                 timeout=10,
             ).raise_for_status()
-        except Exception:
-            pass
+        except Exception as e:
+            return templates.TemplateResponse(
+                "partials/dnc_contacted_table.html",
+                {"request": request, "error": f"Delete failed: {e}", "entries": [],
+                 "total": 0, "offset": 0, "page_size": PAGE_SIZE, "has_prev": False,
+                 "has_next": False, "client_id": client_id, "search": "",
+                 "date_from": "", "date_to": "", "campaign": campaign},
+            )
 
     return await get_contacted(request, client_id=client_id,
                                search="", date_from="", date_to="", offset=0,
@@ -1107,8 +1148,14 @@ async def bulk_delete_contacted(
                 params={"id": f"in.{id_filter}"},
                 timeout=15,
             ).raise_for_status()
-        except Exception:
-            pass
+        except Exception as e:
+            return templates.TemplateResponse(
+                "partials/dnc_contacted_table.html",
+                {"request": request, "error": f"Delete failed: {e}", "entries": [],
+                 "total": 0, "offset": 0, "page_size": PAGE_SIZE, "has_prev": False,
+                 "has_next": False, "client_id": client_id, "search": "",
+                 "date_from": "", "date_to": "", "campaign": campaign},
+            )
 
     return await get_contacted(request, client_id=client_id,
                                search="", date_from="", date_to="", offset=0,
@@ -1123,9 +1170,12 @@ async def sync_from_sheet(request: Request):
     Read 'Lead Status' and 'Recipient Email' columns from a Google Sheet and
     bulk-add matching rows to dnc_entries for the given client.
 
-    Lead        → reason: "lead"    (already engaged; exclude from future cold outreach)
-    Unsubscribe → reason: "opt_out" (explicitly opted out)
-    Reply / blank → ignored
+    Status mapping — kept identical to the auto-sync pipeline
+    (sync_campaign_core in app/utils/auto_sync.py):
+      Lead        → DOMAIN-level block, reason "lead"  (whole company engaged)
+      Interested  → email-level block,  reason "interested"
+      Unsubscribe → email-level block,  reason "opt_out"
+      Reply / blank → ignored (a reply is NOT an opt-out)
     """
     from app.utils.google_sheets import is_configured, extract_sheet_id, read_leads
 
@@ -1134,71 +1184,122 @@ async def sync_from_sheet(request: Request):
     client_id = (data.get("client_id") or "").strip()
 
     if not is_configured():
-        return HTMLResponse(
-            content='{"error":"Google Sheets is not configured on this server."}',
+        return JSONResponse(
+            {"error": "Google Sheets is not configured on this server."},
             status_code=400,
-            media_type="application/json",
         )
     if not sheet_ref or not client_id:
-        return HTMLResponse(
-            content='{"error":"Both sheet_id (or URL) and client_id are required."}',
+        return JSONResponse(
+            {"error": "Both sheet_id (or URL) and client_id are required."},
             status_code=400,
-            media_type="application/json",
         )
     if not _sb_configured():
-        return HTMLResponse(
-            content='{"error":"Supabase is not configured."}',
-            status_code=400,
-            media_type="application/json",
-        )
+        return JSONResponse({"error": "Supabase is not configured."}, status_code=400)
 
     sheet_id = extract_sheet_id(sheet_ref)
 
     try:
         leads = read_leads(sheet_id)
     except Exception as exc:
-        return HTMLResponse(
-            content=f'{{"error":"Could not read Google Sheet: {exc}"}}',
-            status_code=500,
-            media_type="application/json",
+        return JSONResponse(
+            {"error": f"Could not read Google Sheet: {exc}"}, status_code=500,
         )
 
-    if not leads:
+    leads_added = interested_added = unsubscribes_added = 0
+    dnc_rows: list[dict] = []
+    for entry in leads:
+        email  = entry["email"]
+        status = entry["status"]
+
+        if status == "Lead" and "@" in email:
+            dnc_rows.append({
+                "client_id": client_id, "email": email.split("@")[1],
+                "reason": "lead", "added_by": "google_sheets_sync",
+            })
+            leads_added += 1
+        elif status == "Interested":
+            dnc_rows.append({
+                "client_id": client_id, "email": email,
+                "reason": "interested", "added_by": "google_sheets_sync",
+            })
+            interested_added += 1
+        elif status == "Unsubscribe":
+            dnc_rows.append({
+                "client_id": client_id, "email": email,
+                "reason": "opt_out", "added_by": "google_sheets_sync",
+            })
+            unsubscribes_added += 1
+        # "Reply" rows are intentionally not blocked.
+
+    if not dnc_rows:
         return {
-            "leads_added": 0, "unsubscribes_added": 0,
-            "message": "No Lead or Unsubscribe rows found in the sheet.",
+            "leads_added": 0, "interested_added": 0, "unsubscribes_added": 0,
+            "message": "No Lead, Interested or Unsubscribe rows found in the sheet.",
         }
 
-    rows = [
-        {
-            "client_id": client_id,
-            "email":     entry["email"],
-            "reason":    "lead" if entry["status"] == "Lead" else "opt_out",
-            "added_by":  "google_sheets_sync",
-        }
-        for entry in leads
-    ]
+    # Deduplicate within the batch — two Leads at the same company yield the
+    # same domain row, and duplicate values inside one INSERT make Postgres
+    # reject the whole statement.
+    seen: set[str] = set()
+    unique_rows: list[dict] = []
+    for row in dnc_rows:
+        key = row["email"].lower()
+        if key not in seen:
+            seen.add(key)
+            unique_rows.append(row)
 
-    for i in range(0, len(rows), CHUNK_SIZE):
-        chunk = rows[i : i + CHUNK_SIZE]
+    failures = 0
+    for i in range(0, len(unique_rows), CHUNK_SIZE):
+        chunk = unique_rows[i : i + CHUNK_SIZE]
+        # on_conflict=client_id,email targets the table's real unique
+        # constraint.  Without it, ignore-duplicates resolves on the PK (a
+        # fresh UUID that never collides), so any entry already on the DNC
+        # list 409s the ENTIRE chunk — the old code then failed the whole
+        # sync on every re-run.
+        ok = False
         try:
             r = http_req.post(
                 f"{SUPABASE_URL}/rest/v1/dnc_entries",
                 headers=_sb_headers("resolution=ignore-duplicates,return=minimal"),
+                params={"on_conflict": "client_id,email"},
                 json=chunk,
                 timeout=30,
             )
-            r.raise_for_status()
-        except Exception as exc:
-            return HTMLResponse(
-                content=f'{{"error":"Supabase error: {exc}"}}',
-                status_code=500,
-                media_type="application/json",
-            )
+            ok = r.status_code in (200, 201, 204)
+        except Exception:
+            ok = False
 
-    leads_added        = sum(1 for e in leads if e["status"] == "Lead")
-    unsubscribes_added = sum(1 for e in leads if e["status"] == "Unsubscribe")
-    return {"leads_added": leads_added, "unsubscribes_added": unsubscribes_added}
+        if not ok:
+            # Per-row fallback so one bad row can't block the rest.
+            # 409 = already on the DNC list = fine.
+            for row in chunk:
+                try:
+                    r1 = http_req.post(
+                        f"{SUPABASE_URL}/rest/v1/dnc_entries",
+                        headers=_sb_headers("return=minimal"),
+                        json=[row],
+                        timeout=15,
+                    )
+                    if r1.status_code not in (200, 201, 204, 409):
+                        failures += 1
+                except Exception:
+                    failures += 1
+
+    if failures:
+        return JSONResponse(
+            {"error": (
+                f"{failures} entr{'y' if failures == 1 else 'ies'} could not be "
+                f"added (processed — leads: {leads_added}, interested: "
+                f"{interested_added}, unsubscribes: {unsubscribes_added})."
+            )},
+            status_code=500,
+        )
+
+    return {
+        "leads_added":        leads_added,
+        "interested_added":   interested_added,
+        "unsubscribes_added": unsubscribes_added,
+    }
 
 
 # ── purge old contacted records ───────────────────────────────────────────────
@@ -1422,8 +1523,8 @@ async def campaign_sheet_options(client_id: str = Query("")):
 
     opts = ['<option value="">All active sheets</option>']
     for c in campaigns:
-        name = (c.get("campaign_name") or "Unnamed").replace('"', "&quot;")
-        sid  = c.get("sheet_id", "")
+        name = _html_escape(c.get("campaign_name") or "Unnamed", quote=True)
+        sid  = _html_escape(c.get("sheet_id", ""), quote=True)
         if sid:
             opts.append(f'<option value="{sid}">{name}</option>')
 
@@ -1501,7 +1602,6 @@ async def add_dnc_entry(
 
     # Auto-log to contacted_prospects for full emails (non-fatal)
     if not is_domain:
-        from datetime import date as _date
         try:
             http_req.post(
                 f"{SUPABASE_URL}/rest/v1/contacted_prospects",
@@ -1509,7 +1609,7 @@ async def add_dnc_entry(
                 json={
                     "client_id":    client_id,
                     "email":        email_norm,
-                    "contacted_at": _date.today().isoformat(),
+                    "contacted_at": date.today().isoformat(),
                     "source":       "dnc_manual",
                 },
                 timeout=10,
@@ -1708,38 +1808,18 @@ async def bulk_import_dnc(
 
     reason_clean = reason.strip() or "bulk_import"
 
-    # Pre-fetch all existing DNC entries for this client so we can skip
-    # duplicates before inserting.  This avoids 409 Conflict errors that occur
-    # when the table's unique constraint prevents ON CONFLICT DO NOTHING from
-    # being applied by PostgREST's resolution=ignore-duplicates header.
-    existing_dnc: set[str] = set()
+    # Check which of the uploaded values already exist on this client's DNC
+    # list so we can skip duplicates before inserting.  This avoids 409
+    # Conflict errors that occur when the table's unique constraint prevents
+    # ON CONFLICT DO NOTHING from being applied by PostgREST's
+    # resolution=ignore-duplicates header.  Queries just the uploaded values,
+    # not the whole table.
     try:
-        ex_offset = 0
-        while True:
-            ex_r = http_req.get(
-                f"{SUPABASE_URL}/rest/v1/dnc_entries",
-                headers=_sb_headers(),
-                params={
-                    "select":    "email",
-                    "client_id": f"eq.{client_id}",
-                    "limit":     str(CHUNK_SIZE),
-                    "offset":    str(ex_offset),
-                },
-                timeout=30,
-            )
-            ex_r.raise_for_status()
-            page = ex_r.json()
-            for row in page:
-                if row.get("email"):
-                    existing_dnc.add(str(row["email"]).lower().strip())
-            if len(page) < CHUNK_SIZE:
-                break
-            ex_offset += CHUNK_SIZE
+        existing_dnc = _existing_in_table("dnc_entries", client_id, emails)
     except Exception as e:
         return error(f"Could not check existing DNC entries: {e}")
 
     new_emails = [e for e in emails if e not in existing_dnc]
-    skipped    = len(emails) - len(new_emails)
 
     for i in range(0, len(new_emails), CHUNK_SIZE):
         chunk = new_emails[i : i + CHUNK_SIZE]
@@ -1763,14 +1843,6 @@ async def bulk_import_dnc(
                 return error(f"Supabase error {r.status_code}: {body}")
         except Exception as e:
             return error(f"Supabase error during import: {e}")
-
-    # Surface a meaningful success message in the table header area
-    added = len(new_emails)
-    if added == 0:
-        # All entries already existed — not an error, just inform the user.
-        # Return the normal table view; the template will show the existing list.
-        pass  # fall through to get_dnc_entries below
-    # skipped > 0 info is visible via the unchanged total in the table.
 
     return await get_dnc_entries(request, client_id=client_id, offset=0, search="")
 

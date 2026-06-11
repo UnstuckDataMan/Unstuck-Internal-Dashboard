@@ -6,7 +6,6 @@ scheduler, Excel reader/writer) so no business logic is duplicated.
 """
 from __future__ import annotations
 
-import os
 import re
 import sys
 import uuid
@@ -26,11 +25,14 @@ from utils.merge import validate_templates, perform_merge, reassign_templates  #
 from utils.scheduler import generate_schedule, _dvariance  # noqa: E402
 from utils.excel_writer import write_merge_output          # noqa: E402
 
+from app.utils.supabase import (                            # noqa: E402
+    SUPABASE_URL,
+    sb_headers as _sb_headers,
+    sb_configured as _sb_configured,
+)
+
 # ── Config ────────────────────────────────────────────────────────────────────
 router = APIRouter()
-
-SUPABASE_URL      = os.environ.get("SUPABASE_URL", "").rstrip("/")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
 UPLOAD_DIR = _MM_DIR / "uploads"
 OUTPUT_DIR = _MM_DIR / "outputs"
@@ -41,21 +43,6 @@ ALLOWED_EXTENSIONS = {"xlsx", "xls"}
 MAX_UPLOAD_BYTES   = 32 * 1024 * 1024  # 32 MB
 
 _SAFE_RE = re.compile(r"[^\w\s\-.]", re.ASCII)
-
-
-def _sb_headers(prefer: str = "") -> dict:
-    h = {
-        "apikey":        SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-        "Content-Type":  "application/json",
-    }
-    if prefer:
-        h["Prefer"] = prefer
-    return h
-
-
-def _sb_configured() -> bool:
-    return bool(SUPABASE_URL and SUPABASE_ANON_KEY)
 
 
 def _secure_name(name: str) -> str:
@@ -126,7 +113,6 @@ async def generate_merge(request: Request):
     file_id           = data.get("file_id")
     subject_templates = data.get("subject_templates", [])
     body_templates    = data.get("body_templates", [])
-    chaser_subject    = ""
     chaser_body       = data.get("chaser_body", "")
     sender_emails     = data.get("sender_emails", [])
     missing_value     = data.get("missing_value", "[MISSING]")
@@ -165,8 +151,6 @@ async def generate_merge(request: Request):
 
         # Validate all templates
         all_templates = subject_templates + body_templates
-        if chaser_subject:
-            all_templates.append(chaser_subject)
         if chaser_body:
             all_templates.append(chaser_body)
 
@@ -180,8 +164,7 @@ async def generate_merge(request: Request):
         # Merge
         merged_rows = perform_merge(
             all_rows, headers, subject_templates, body_templates,
-            chaser_subject, chaser_body, sender_emails, missing_value,
-            email_column,
+            chaser_body, sender_emails, missing_value, email_column,
         )
 
         # Schedule

@@ -3,7 +3,7 @@ Campaigns router — tracks mail-merge campaigns linked to Google Sheets.
 """
 from __future__ import annotations
 
-import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date as _date, datetime as _datetime, timedelta, timezone as _tz
 
 import requests as http_req
@@ -11,38 +11,16 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 
 from app.deps import templates
+from app.utils.supabase import (
+    SUPABASE_URL,
+    sb_headers as _sb_headers,
+    sb_configured as _sb_configured,
+    parse_total as _parse_total,
+)
 
 router = APIRouter()
 
-SUPABASE_URL      = os.environ.get("SUPABASE_URL", "").rstrip("/")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
-
 CHUNK_SIZE = 500
-
-
-def _sb_headers(prefer: str = "") -> dict:
-    h = {
-        "apikey":        SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-        "Content-Type":  "application/json",
-    }
-    if prefer:
-        h["Prefer"] = prefer
-    return h
-
-
-def _sb_configured() -> bool:
-    return bool(SUPABASE_URL and SUPABASE_ANON_KEY)
-
-
-def _parse_total(headers: dict) -> int:
-    cr = headers.get("Content-Range", "")
-    if "/" in cr:
-        try:
-            return int(cr.split("/")[1])
-        except ValueError:
-            pass
-    return 0
 
 
 def _pg_in_list(values: list[str]) -> str:
@@ -170,19 +148,30 @@ def _time_breakdown(
     )
     kw = {"campaign_names": campaign_names}
 
-    def _total(date_eq: str = "", date_gte: str = "", date_lte: str = "") -> int:
-        """Sum initial sends and chaser sends for the given date window."""
-        initial = _count_contacted(client_id, date_eq=date_eq,
-                                   date_gte=date_gte, date_lte=date_lte, **kw)
-        chasers = _count_chaser_contacted(client_id, date_eq=date_eq,
-                                          date_gte=date_gte, date_lte=date_lte, **kw)
-        return initial + chasers
+    # Each bucket needs two count queries (initial + chaser) — eight requests
+    # total.  They are independent, so run them concurrently instead of
+    # sequentially: the panel load drops from ~8× to ~1× round-trip latency.
+    buckets = {
+        "today":    {"date_eq": today.isoformat()},
+        "week":     {"date_gte": monday.isoformat(), "date_lte": sunday.isoformat()},
+        "month":    {"date_gte": month_start.isoformat(), "date_lte": today.isoformat()},
+        "all_time": {},
+    }
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {
+            name: (
+                ex.submit(_count_contacted, client_id, **dates, **kw),
+                ex.submit(_count_chaser_contacted, client_id, **dates, **kw),
+            )
+            for name, dates in buckets.items()
+        }
+        totals = {
+            name: initial.result() + chasers.result()
+            for name, (initial, chasers) in futures.items()
+        }
 
     return {
-        "today":       _total(date_eq=today.isoformat()),
-        "week":        _total(date_gte=monday.isoformat(), date_lte=sunday.isoformat()),
-        "month":       _total(date_gte=month_start.isoformat(), date_lte=today.isoformat()),
-        "all_time":    _total(),
+        **totals,
         "week_label":  week_label,
         "month_label": today.strftime("%B %Y"),
     }

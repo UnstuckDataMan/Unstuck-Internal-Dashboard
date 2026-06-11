@@ -8,31 +8,19 @@ default "9,21" → 09:00 and 21:00 UTC).
 from __future__ import annotations
 
 import logging
-import os
 from datetime import date as _date, datetime as _datetime, timezone as _tz
 
 import requests as http_req
 
+from app.utils.supabase import (
+    SUPABASE_URL,
+    sb_headers as _sb_headers,
+    sb_configured as _sb_configured,
+)
+
 logger = logging.getLogger(__name__)
 
-SUPABASE_URL      = os.environ.get("SUPABASE_URL", "").rstrip("/")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
-CHUNK_SIZE        = 500
-
-
-def _sb_headers(prefer: str = "") -> dict:
-    h = {
-        "apikey":        SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-        "Content-Type":  "application/json",
-    }
-    if prefer:
-        h["Prefer"] = prefer
-    return h
-
-
-def _sb_configured() -> bool:
-    return bool(SUPABASE_URL and SUPABASE_ANON_KEY)
+CHUNK_SIZE = 500
 
 
 # ── Core per-campaign sync (shared with the manual endpoint) ──────────────────

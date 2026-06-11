@@ -126,7 +126,6 @@ def perform_merge(
     headers: List[str],
     subject_templates: List[str],
     body_templates: List[str],
-    chaser_subject: str,
     chaser_body: str,
     sender_emails: List[str],
     missing_value: str = '[MISSING]',
@@ -136,13 +135,15 @@ def perform_merge(
     Perform a row-by-row mail merge.
 
     Returns a list of enriched row dicts with these extra keys:
-      __sender_account__   – the rotated sender email
       __recipient_email__  – value from the identified email column
-      __subject_line__     – merged subject
-      __email_body__       – merged body
-      __chaser_subject__   – merged chaser subject (if supplied)
       __chaser_body__      – merged chaser body (if supplied)
-      __template_variant__ – e.g. "S1/B2"
+
+    Subject / body / variant are deliberately NOT filled here.  The caller
+    sorts rows by schedule (date → sender → time) and then calls
+    reassign_templates(), which fills __subject_line__ / __email_body__ /
+    __template_variant__ from each row's final position so the output reads
+    1-2-3-1-2-3.  __sender_account__ likewise comes from the schedule, not
+    from this function.
     """
     if not subject_templates:
         raise ValueError("At least one subject line template is required.")
@@ -171,28 +172,10 @@ def perform_merge(
     merged_rows: List[Dict] = []
 
     for i, row in enumerate(rows):
-        sender_idx = i % len(sender_emails)
-        sender = sender_emails[sender_idx]
-
-        # Global sequential rotation: templates cycle 1-2-3-1-2-3 across ALL
-        # prospects in order, regardless of how many senders there are.
-        s_idx = i % len(subject_templates)
-        b_idx = i % len(body_templates)
         inline_idx = i // len(body_templates)
 
-        subject = _fill(_expand_inline_variants(subject_templates[s_idx], inline_idx), row, header_map, missing_value)
-        body    = _fill(_expand_inline_variants(body_templates[b_idx],    inline_idx), row, header_map, missing_value)
-
         enriched = dict(row)
-        enriched['__sender_account__'] = sender
         enriched['__recipient_email__'] = row.get(email_column, '') if email_column else ''
-        enriched['__subject_line__'] = subject
-        enriched['__email_body__'] = body
-        enriched['__template_variant__'] = f"S{s_idx + 1}/B{b_idx + 1}"
-
-        if chaser_subject:
-            enriched['__chaser_subject__'] = _fill(
-                _expand_inline_variants(chaser_subject, inline_idx), row, header_map, missing_value)
         if chaser_body:
             enriched['__chaser_body__'] = _fill(
                 _expand_inline_variants(chaser_body, inline_idx), row, header_map, missing_value)

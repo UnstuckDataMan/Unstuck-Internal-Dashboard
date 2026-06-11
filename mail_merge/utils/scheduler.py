@@ -50,7 +50,6 @@ def _next_working_day(d: date) -> date:
 # --------------------------------------------------------------------------- #
 
 SENDER_OFFSET_MINS = 60      # 1 hour between staggered senders (compressed if needed)
-MAX_PER_SENDER_PER_DAY = 15
 
 # Variance band for each nominal sends-per-day setting.
 # Each sender's daily count = nominal ± variance, but the SUM across all
