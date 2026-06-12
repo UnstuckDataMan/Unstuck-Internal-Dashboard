@@ -334,6 +334,102 @@ async def campaign_send_stats(
     return JSONResponse(_time_breakdown(client_id, campaign_names=names_list))
 
 
+# ── Reset client stats ─────────────────────────────────────────────────────────
+
+def _reset_stats_error(detail: str) -> HTMLResponse:
+    """Visible error for reset-stats failures.
+
+    Returned with HTTP 200 because HTMX does not swap error-status responses —
+    the user must see why the reset did not (fully) apply.
+    """
+    return HTMLResponse(
+        '<div style="padding:16px;border:1px solid #ef5350;border-radius:8px;'
+        'color:#ef9a9a;font-size:.85rem;line-height:1.6">'
+        f'<strong>Reset failed:</strong> {detail}<br>'
+        'Reload the page and try again — nothing is lost by retrying, the '
+        'reset is safe to run twice.</div>'
+    )
+
+
+@router.post("/api/campaigns/reset-stats")
+async def reset_client_stats(request: Request, client_id: str = Query("")):
+    """
+    Start stats tracking fresh for one client:
+
+      1. Delete the client's synced send-history rows
+         (contacted_prospects WHERE source = 'auto_sync') — these power the
+         Today / This Week / This Month / All-Time send counts.
+      2. Zero every campaign counter (sent / lead / reply / interested /
+         unsub / chaser) for the client.
+
+    Deliberately untouched:
+      • dnc_entries — compliance data, never part of stats
+      • scrub_upload / manual / csv_upload / dnc_manual contacted rows —
+        they power the scrubber's "recently contacted" removal, not stats
+
+    Campaigns with a linked sheet repopulate accurate numbers on their next
+    sync (the sheet is the source of truth); rows from renamed or unlinked
+    campaigns — the usual source of stale, inaccurate stats — stay gone.
+    """
+    if not client_id:
+        return JSONResponse({"error": "client_id is required."}, status_code=400)
+    if not _sb_configured():
+        return JSONResponse({"error": "Supabase not configured."}, status_code=503)
+
+    # 1. Delete synced send history (stats source) — auto_sync rows ONLY.
+    try:
+        dr = http_req.delete(
+            f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+            headers=_sb_headers(),
+            params={
+                "client_id": f"eq.{client_id}",
+                "source":    "eq.auto_sync",
+            },
+            timeout=60,
+        )
+        dr.raise_for_status()
+    except Exception as exc:
+        return _reset_stats_error(f"could not clear send history: {exc}")
+
+    # 2. Zero campaign counters.  chaser_count is optional (added by a manual
+    # ALTER TABLE) and PostgREST rejects the whole PATCH on unknown columns,
+    # so retry without it — same fallback pattern as the sync counter update.
+    zero_counters = {
+        "sent_count": 0, "lead_count": 0, "reply_count": 0,
+        "interested_count": 0, "unsubscribe_count": 0,
+    }
+    patched = False
+    try:
+        pr = http_req.patch(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            headers=_sb_headers("return=minimal"),
+            params={"client_id": f"eq.{client_id}"},
+            json={**zero_counters, "chaser_count": 0},
+            timeout=30,
+        )
+        patched = pr.status_code < 400
+    except Exception:
+        patched = False
+
+    if not patched:
+        try:
+            pr = http_req.patch(
+                f"{SUPABASE_URL}/rest/v1/campaigns",
+                headers=_sb_headers("return=minimal"),
+                params={"client_id": f"eq.{client_id}"},
+                json=zero_counters,
+                timeout=30,
+            )
+            pr.raise_for_status()
+        except Exception as exc:
+            return _reset_stats_error(
+                f"send history was cleared, but campaign counters could not "
+                f"be zeroed: {exc}"
+            )
+
+    return await list_campaigns(request, client_id=client_id)
+
+
 # ── Sync + refresh (combined) ──────────────────────────────────────────────────
 # Single endpoint used by the per-campaign "Sync" button.  Runs the full
 # sync pipeline (DNC blocking, contacted_prospects sync, stat update) via

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from conftest import FakeResponse, in_list_values, param_values
+from conftest import FakeResponse, in_list_values, param_values, params_list
 
 import app.routers.campaigns as campaigns
 import app.utils.auto_sync as auto_sync
@@ -203,6 +203,83 @@ def test_sync_core_chaser_column_missing_falls_back(fake_sb, monkeypatch):
     assert len(patches) == 2
     assert "chaser_count" in patches[0] and "chaser_count" not in patches[1]
     assert patches[1]["sent_count"] == 1, "sent_count must survive the fallback"
+
+
+# ── Reset client stats ────────────────────────────────────────────────────────
+
+CAMPAIGN_ROW = {
+    "id": "1", "campaign_name": "Camp", "client_id": "c1", "client_name": "X",
+    "sheet_id": "s", "sheet_url": "u", "total_prospects": 10, "sent_count": 0,
+    "completed": None, "completed_at": None, "tags": [], "lead_count": 0,
+    "reply_count": 0, "interested_count": 0, "unsubscribe_count": 0,
+    "paused": False, "chaser_count": 0, "created_at": "2026-06-01T00:00:00",
+    "sender_profile_name": "P",
+}
+
+
+def test_reset_stats_deletes_only_auto_sync_rows_and_zeroes_counters(fake_sb, client):
+    fake_sb.route("GET", "campaigns", lambda c: FakeResponse(200, [CAMPAIGN_ROW]))
+    fake_sb.route("GET", "contacted_prospects", lambda c: count_response(0))
+    fake_sb.route("DELETE", "contacted_prospects", lambda c: FakeResponse(204))
+    fake_sb.route("PATCH", "campaigns", lambda c: FakeResponse(204))
+
+    resp = client.post("/api/campaigns/reset-stats", params={"client_id": "c1"})
+    assert resp.status_code == 200
+
+    # The delete must be scoped to EXACTLY this client's auto_sync rows —
+    # scrub/manual/CSV history (and everything else) must survive.
+    deletes = fake_sb.calls_to("DELETE", "contacted_prospects")
+    assert len(deletes) == 1
+    assert dict(params_list(deletes[0])) == {
+        "client_id": "eq.c1", "source": "eq.auto_sync",
+    }
+    assert fake_sb.calls_to("DELETE", "dnc_entries") == [], "DNC list untouched"
+
+    patch = fake_sb.calls_to("PATCH", "campaigns")[0]
+    assert dict(params_list(patch)) == {"client_id": "eq.c1"}
+    assert patch["json"] == {"sent_count": 0, "lead_count": 0, "reply_count": 0,
+                             "interested_count": 0, "unsubscribe_count": 0,
+                             "chaser_count": 0}
+
+    # Refreshed panel comes back with the reset button + confirmation modal
+    assert "reset-stats-modal" in resp.text
+    assert "Reset Stats" in resp.text
+
+
+def test_reset_stats_retries_without_chaser_count_column(fake_sb, client):
+    fake_sb.route("GET", "campaigns", lambda c: FakeResponse(200, [CAMPAIGN_ROW]))
+    fake_sb.route("GET", "contacted_prospects", lambda c: count_response(0))
+    fake_sb.route("DELETE", "contacted_prospects", lambda c: FakeResponse(204))
+
+    patches = []
+    def patch_handler(call):
+        patches.append(call["json"])
+        if "chaser_count" in call["json"]:
+            return FakeResponse(400, [], text="chaser_count does not exist")
+        return FakeResponse(204)
+    fake_sb.route("PATCH", "campaigns", patch_handler)
+
+    resp = client.post("/api/campaigns/reset-stats", params={"client_id": "c1"})
+    assert resp.status_code == 200
+    assert len(patches) == 2
+    assert "chaser_count" not in patches[1]
+    assert patches[1]["sent_count"] == 0
+
+
+def test_reset_stats_surfaces_delete_failure_without_touching_counters(fake_sb, client):
+    fake_sb.route("DELETE", "contacted_prospects",
+                  lambda c: FakeResponse(500, [], text="boom"))
+    resp = client.post("/api/campaigns/reset-stats", params={"client_id": "c1"})
+    assert resp.status_code == 200          # HTMX swaps the visible error
+    assert "Reset failed" in resp.text
+    assert fake_sb.calls_to("PATCH", "campaigns") == [], \
+        "counters must not be zeroed if the history delete failed"
+
+
+def test_reset_stats_requires_client_id(fake_sb, client):
+    resp = client.post("/api/campaigns/reset-stats")
+    assert resp.status_code == 400
+    assert "client_id" in resp.json()["error"]
 
 
 # ── /api/campaigns dashboard stats ────────────────────────────────────────────

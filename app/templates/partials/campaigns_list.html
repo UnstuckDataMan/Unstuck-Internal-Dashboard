@@ -43,6 +43,15 @@
     <span id="cdash-ctx-label">All Campaigns</span>
     <button id="cdash-ctx-clear" class="cdash-ctx-clear" style="display:none"
             onclick="restoreClientStats(event)">← All campaigns</button>
+    <button type="button" class="reset-stats-btn" id="reset-stats-open-btn"
+            onclick="openResetStatsModal()">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+        <path d="M3 3v5h5"/>
+      </svg>
+      Reset Stats
+    </button>
   </div>
 
   {# Send timeline tiles #}
@@ -128,6 +137,40 @@
   </div>
 
 </div><!-- /cdash -->
+
+{# ── Reset-stats confirmation modal ─────────────────────────────────── #}
+<dialog id="reset-stats-modal">
+  <p class="domain-block-title">Reset stats for this client?</p>
+  <p class="domain-block-sub">
+    This permanently deletes the synced send history powering the
+    Today&nbsp;/ Week&nbsp;/ Month&nbsp;/ All-Time counts and sets every
+    campaign's counters to zero, so tracking starts fresh.<br><br>
+    <strong>Kept safe:</strong> the DNC list and all scrub / manual / CSV
+    contact history are untouched.<br>
+    <strong>Note:</strong> campaigns with a linked Google Sheet rebuild
+    accurate numbers from the sheet on their next sync; campaigns without
+    one stay at zero.
+  </p>
+  <div class="domain-block-checks">
+    <label class="domain-block-check">
+      <input type="checkbox" id="reset-stats-check"
+             onchange="document.getElementById('reset-stats-confirm-btn').disabled = !this.checked" />
+      I understand the send history behind these stats will be permanently deleted.
+    </label>
+  </div>
+  <div class="reset-stats-actions">
+    <button type="button" class="btn btn-download"
+            onclick="document.getElementById('reset-stats-modal').close()">Cancel</button>
+    <button type="button" class="reset-stats-confirm" id="reset-stats-confirm-btn" disabled
+            hx-post="/api/campaigns/reset-stats?client_id={{ client_id }}"
+            hx-target="#campaigns-panel-inner"
+            hx-swap="innerHTML"
+            hx-indicator="#camp-spinner"
+            onclick="document.getElementById('reset-stats-modal').close()">
+      Reset Stats
+    </button>
+  </div>
+</dialog>
 
 {# A/B panel — populated by JS when a campaign card is clicked #}
 <div id="cdash-ab-panel" style="display:none"></div>

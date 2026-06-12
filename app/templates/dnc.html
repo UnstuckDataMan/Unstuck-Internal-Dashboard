@@ -698,6 +698,75 @@
     box-shadow: 0 2px 10px rgba(124,58,237,.35);
   }
 
+  /* ── Reset-stats confirmation modal ─────────────────────────── */
+  #reset-stats-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.55);
+    padding: 30px 32px 28px;
+    max-width: 460px;
+    width: 90vw;
+    color: var(--text);
+  }
+  #reset-stats-modal::backdrop {
+    background: rgba(0,0,0,.72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .reset-stats-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    border: 1px solid rgba(239,83,80,.35);
+    border-radius: 7px;
+    background: rgba(239,83,80,.08);
+    color: #ef9a9a;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font);
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: background .15s var(--ease), color .15s var(--ease),
+                border-color .15s var(--ease);
+    white-space: nowrap;
+  }
+  .reset-stats-btn:hover {
+    background: rgba(239,83,80,.16);
+    color: #ffcdd2;
+    border-color: rgba(239,83,80,.55);
+  }
+  .reset-stats-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+  .reset-stats-confirm {
+    padding: 9px 22px;
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: var(--font);
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #ef5350, #c62828);
+    color: #fff;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(239,83,80,.35);
+    transition: background .2s var(--ease), opacity .2s var(--ease);
+  }
+  .reset-stats-confirm:disabled {
+    background: rgba(239,83,80,.22);
+    color: rgba(255,255,255,.4);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
   .purge-success-box {
     display: flex;
     align-items: center;
@@ -3088,6 +3157,19 @@
         });
       });
     }
+
+    // ── Reset-stats modal (Campaigns tab) ────────────────────────── //
+    // The dialog lives inside the HTMX-swapped campaigns partial, so the
+    // opener is a global function the partial's onclick can always reach.
+    window.openResetStatsModal = function () {
+      const dlg = document.getElementById('reset-stats-modal');
+      if (!dlg) return;
+      const check = document.getElementById('reset-stats-check');
+      const btn   = document.getElementById('reset-stats-confirm-btn');
+      if (check) check.checked = false;     // fresh confirmation every time
+      if (btn)   btn.disabled  = true;
+      if (dlg.showModal) dlg.showModal();
+    };
 
     // ── Sync from Google Sheet (Manage DNC tab) ──────────────────── //
     const syncSheetBtn = document.getElementById('sync-sheet-btn');
