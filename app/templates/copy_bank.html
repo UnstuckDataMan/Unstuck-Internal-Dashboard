@@ -785,47 +785,50 @@
       border: 1px solid var(--border); max-height: 62vh; overflow-y: auto;
     }
     .exp-pdf-preview-inner {
-      background: #ffffff; padding: 36px 40px;
-      font-family: 'DM Sans', sans-serif; color: #1a1a2e;
+      background: #100d1e; padding: 36px 40px;
+      font-family: 'DM Sans', sans-serif; color: #f0eeff;
       min-height: 400px;
     }
     .exp-pdf-preview-inner .exp-p-title {
       font-size: 22px; font-weight: 700; margin: 0 0 4px;
-      color: #7c3aed;
+      color: #a78bfa;
     }
     .exp-pdf-preview-inner .exp-p-subtitle {
-      font-size: 11px; color: #9aa0a6; margin: 0 0 28px;
+      font-size: 11px; color: rgba(210,205,255,.5); margin: 0 0 28px;
     }
     .exp-pdf-preview-inner .exp-p-section {
-      margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid rgba(124,58,237,.2);
+      margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid rgba(124,58,237,.25);
+      break-inside: avoid; page-break-inside: avoid;
     }
     .exp-pdf-preview-inner .exp-p-section-title {
-      font-size: 15px; font-weight: 700; color: #1a1a2e; margin: 0 0 2px;
+      font-size: 15px; font-weight: 700; color: #c4b5fd; margin: 0 0 2px;
     }
     .exp-pdf-preview-inner .exp-p-channel {
       font-size: 11px; font-weight: 700; color: #7c3aed;
       text-transform: uppercase; letter-spacing: 1px; margin: 4px 0 12px;
     }
     .exp-pdf-preview-inner .exp-p-block-label {
-      font-size: 10px; font-weight: 700; color: #9aa0a6;
+      font-size: 10px; font-weight: 700; color: rgba(210,205,255,.4);
       text-transform: uppercase; letter-spacing: 1px; margin: 10px 0 6px;
     }
     .exp-pdf-preview-inner .exp-p-subject {
-      font-size: 13px; color: #1a1a2e; padding: 5px 10px;
-      background: rgba(124,58,237,.06); border-radius: 6px;
+      font-size: 13px; color: #f0eeff; padding: 5px 10px;
+      background: rgba(255,255,255,.06); border-radius: 6px;
       border-left: 3px solid #7c3aed; margin-bottom: 4px;
+      break-inside: avoid; page-break-inside: avoid;
     }
     .exp-pdf-preview-inner .exp-p-variation {
       margin-bottom: 10px; padding: 12px 14px;
-      background: #f5f3ff; border-radius: 9px;
-      border: 1px solid rgba(124,58,237,.2);
+      background: rgba(255,255,255,.05); border-radius: 9px;
+      border: 1px solid rgba(124,58,237,.25);
+      break-inside: avoid; page-break-inside: avoid;
     }
     .exp-pdf-preview-inner .exp-p-var-label {
       font-size: 10px; font-weight: 700; color: #7c3aed;
       text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px;
     }
     .exp-pdf-preview-inner .exp-p-body {
-      font-size: 12.5px; line-height: 1.75; color: #374151;
+      font-size: 12.5px; line-height: 1.75; color: rgba(230,225,255,.8);
       white-space: pre-wrap;
     }
 
@@ -4842,11 +4845,12 @@ function _onPdfBtnClick() {
   var preview = document.getElementById('exp-pdf-preview');
   var profileName = activeProfile ? activeProfile.name.replace(/[^a-z0-9]/gi, '_') : 'export';
   var opt = {
-    margin:     [8, 8, 8, 8],
+    margin:     [0, 0, 0, 0],
     filename:   profileName + '_copy_bank.pdf',
     image:      { type: 'jpeg', quality: 0.95 },
-    html2canvas: { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true },
+    html2canvas: { scale: 2, backgroundColor: '#100d1e', logging: false, useCORS: true },
     jsPDF:      { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak:  { mode: ['css', 'avoid-all'] },
   };
   html2pdf().set(opt).from(preview).save().then(function(){
     statusEl.textContent = '✓ PDF downloaded'; statusEl.className = 'exp-status-msg ok';
