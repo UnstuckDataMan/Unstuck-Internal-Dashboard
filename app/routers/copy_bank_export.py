@@ -79,6 +79,8 @@ def google_auth(request: Request):
         state=state,
         prompt="consent",
     )
+    # Persist code_verifier so the callback can complete PKCE exchange
+    _sessions[state] = {"code_verifier": getattr(flow, "code_verifier", None)}
     return RedirectResponse(auth_url)
 
 
@@ -107,6 +109,10 @@ def google_callback(request: Request,
     try:
         flow = Flow.from_client_config(_client_config(), scopes=SCOPES,
                                        redirect_uri=_get_redirect_uri(request))
+        # Restore code_verifier from the auth step to satisfy PKCE
+        prior = _sessions.get(state, {})
+        if prior.get("code_verifier"):
+            flow.code_verifier = prior["code_verifier"]
         flow.fetch_token(code=code)
         creds = flow.credentials
         _sessions[state] = {
