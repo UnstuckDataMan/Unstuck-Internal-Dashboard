@@ -798,7 +798,11 @@
     }
     .exp-pdf-preview-inner .exp-p-section {
       margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid rgba(124,58,237,.25);
+    }
+    /* Section header: title + channel stay together and never orphan at page bottom */
+    .exp-pdf-preview-inner .exp-p-section-header {
       break-inside: avoid; page-break-inside: avoid;
+      break-after: avoid; page-break-after: avoid;
     }
     .exp-pdf-preview-inner .exp-p-section-title {
       font-size: 15px; font-weight: 700; color: #c4b5fd; margin: 0 0 2px;
@@ -821,11 +825,17 @@
       margin-bottom: 10px; padding: 12px 14px;
       background: rgba(255,255,255,.05); border-radius: 9px;
       border: 1px solid rgba(124,58,237,.25);
-      break-inside: avoid; page-break-inside: avoid;
     }
     .exp-pdf-preview-inner .exp-p-var-label {
       font-size: 10px; font-weight: 700; color: #7c3aed;
       text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px;
+      break-after: avoid; page-break-after: avoid;
+    }
+    /* Individual paragraphs within a variation — prevent mid-sentence breaks */
+    .exp-pdf-preview-inner .exp-p-para {
+      font-size: 12.5px; line-height: 1.75; color: rgba(230,225,255,.8);
+      margin-bottom: 0.5em;
+      break-inside: avoid; page-break-inside: avoid;
     }
     .exp-pdf-preview-inner .exp-p-body {
       font-size: 12.5px; line-height: 1.75; color: rgba(230,225,255,.8);
@@ -4813,8 +4823,10 @@ function _buildPdfHtml(sections) {
 
   sections.forEach(function(sec) {
     html += '<div class="exp-p-section">';
+    html += '<div class="exp-p-section-header">';
     html += '<div class="exp-p-section-title">'+escHtml(sec.territory)+' &mdash; '+escHtml(sec.industry)+'</div>';
     html += '<div class="exp-p-channel">'+escHtml(sec.channel)+'</div>';
+    html += '</div>';
 
     if (sec.subjects.length) {
       html += '<div class="exp-p-block-label">Subject Lines</div>';
@@ -4828,7 +4840,11 @@ function _buildPdfHtml(sections) {
       sec.bodies.forEach(function(b, i) {
         html += '<div class="exp-p-variation">';
         html += '<div class="exp-p-var-label">Variation '+(i+1)+'</div>';
-        html += '<div class="exp-p-body">'+escHtml(b)+'</div>';
+        // Split into paragraphs so breaks happen between sentences, not mid-sentence
+        var paras = b.split(/\n+/);
+        paras.forEach(function(para) {
+          if (para.trim()) html += '<div class="exp-p-para">'+escHtml(para)+'</div>';
+        });
         html += '</div>';
       });
     }
@@ -4850,12 +4866,19 @@ function _onPdfBtnClick() {
     image:      { type: 'jpeg', quality: 0.95 },
     html2canvas: { scale: 2, backgroundColor: '#100d1e', logging: false, useCORS: true },
     jsPDF:      { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak:  { mode: ['css', 'avoid-all'] },
+    pagebreak:  { mode: 'css' },
   };
+  // Pad the preview to a full A4 page boundary so the last page has no white gap
+  var a4Px = Math.ceil(297 * 96 / 25.4);
+  var rem = preview.scrollHeight % a4Px;
+  var extraPad = rem > 0 ? a4Px - rem : 0;
+  if (extraPad > 0) preview.style.paddingBottom = extraPad + 'px';
   html2pdf().set(opt).from(preview).save().then(function(){
+    preview.style.paddingBottom = '';
     statusEl.textContent = '✓ PDF downloaded'; statusEl.className = 'exp-status-msg ok';
     setTimeout(function(){ statusEl.textContent = ''; }, 4000);
   }).catch(function(e){
+    preview.style.paddingBottom = '';
     statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'exp-status-msg err';
   });
 }
