@@ -785,40 +785,39 @@
       border: 1px solid var(--border); max-height: 62vh; overflow-y: auto;
     }
     .exp-pdf-preview-inner {
-      background: #100d1e; padding: 36px 40px;
-      font-family: 'DM Sans', sans-serif; color: #f0eeff;
+      background: #ffffff; padding: 36px 40px;
+      font-family: 'DM Sans', sans-serif; color: #1a1a2e;
       min-height: 400px;
     }
     .exp-pdf-preview-inner .exp-p-title {
       font-size: 22px; font-weight: 700; margin: 0 0 4px;
-      background: linear-gradient(135deg,#7c3aed,#e879f9);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      color: #7c3aed;
     }
     .exp-pdf-preview-inner .exp-p-subtitle {
-      font-size: 11px; color: rgba(210,205,255,.45); margin: 0 0 28px;
+      font-size: 11px; color: #9aa0a6; margin: 0 0 28px;
     }
     .exp-pdf-preview-inner .exp-p-section {
       margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid rgba(124,58,237,.2);
     }
     .exp-pdf-preview-inner .exp-p-section-title {
-      font-size: 15px; font-weight: 700; color: #c4b5fd; margin: 0 0 2px;
+      font-size: 15px; font-weight: 700; color: #1a1a2e; margin: 0 0 2px;
     }
     .exp-pdf-preview-inner .exp-p-channel {
       font-size: 11px; font-weight: 700; color: #7c3aed;
       text-transform: uppercase; letter-spacing: 1px; margin: 4px 0 12px;
     }
     .exp-pdf-preview-inner .exp-p-block-label {
-      font-size: 10px; font-weight: 700; color: rgba(210,205,255,.4);
+      font-size: 10px; font-weight: 700; color: #9aa0a6;
       text-transform: uppercase; letter-spacing: 1px; margin: 10px 0 6px;
     }
     .exp-pdf-preview-inner .exp-p-subject {
-      font-size: 13px; color: #f0eeff; padding: 5px 10px;
-      background: rgba(255,255,255,.06); border-radius: 6px;
+      font-size: 13px; color: #1a1a2e; padding: 5px 10px;
+      background: rgba(124,58,237,.06); border-radius: 6px;
       border-left: 3px solid #7c3aed; margin-bottom: 4px;
     }
     .exp-pdf-preview-inner .exp-p-variation {
       margin-bottom: 10px; padding: 12px 14px;
-      background: rgba(255,255,255,.05); border-radius: 9px;
+      background: #f5f3ff; border-radius: 9px;
       border: 1px solid rgba(124,58,237,.2);
     }
     .exp-pdf-preview-inner .exp-p-var-label {
@@ -826,11 +825,11 @@
       text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px;
     }
     .exp-pdf-preview-inner .exp-p-body {
-      font-size: 12.5px; line-height: 1.75; color: rgba(230,225,255,.75);
+      font-size: 12.5px; line-height: 1.75; color: #374151;
       white-space: pre-wrap;
     }
 
-    /* Google Doc preview (light, mimics Google Docs) */
+    /* Google Sheets preview (light, mimics Google Sheetss) */
     .exp-gdoc-preview-inner {
       background: #fff; padding: 36px 48px;
       font-family: 'Arial', sans-serif; color: #202124;
@@ -4846,7 +4845,7 @@ function _onPdfBtnClick() {
     margin:     [8, 8, 8, 8],
     filename:   profileName + '_copy_bank.pdf',
     image:      { type: 'jpeg', quality: 0.95 },
-    html2canvas: { scale: 2, backgroundColor: '#100d1e', logging: false, useCORS: true },
+    html2canvas: { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true },
     jsPDF:      { unit: 'mm', format: 'a4', orientation: 'portrait' },
   };
   html2pdf().set(opt).from(preview).save().then(function(){
@@ -4857,7 +4856,7 @@ function _onPdfBtnClick() {
   });
 }
 
-// ── Google Doc preview + export ──
+// ── Google Sheets preview + export ──
 function _renderExpGdocPreview() {
   var sections = _buildExpSections();
   var el = document.getElementById('exp-gdoc-preview');
@@ -4969,12 +4968,12 @@ async function _onGdocExportClick() {
   var sections = _buildExpSections();
   if (!sections.length) {
     statusEl.textContent = 'No content selected.'; statusEl.className = 'exp-status-msg err';
-    exportBtn.disabled = false; exportBtn.textContent = '↗ Export as Google Doc';
+    exportBtn.disabled = false; exportBtn.textContent = '↗ Export as Google Sheets';
     return;
   }
 
   try {
-    var res  = await fetch('/api/export/google/create-doc', {
+    var res  = await fetch('/api/export/google/create-sheet', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -4986,7 +4985,7 @@ async function _onGdocExportClick() {
     var data = await res.json();
     if (data.ok) {
       linkEl.href = data.url; linkEl.style.display = '';
-      statusEl.textContent = '✓ Google Doc created!'; statusEl.className = 'exp-status-msg ok';
+      statusEl.textContent = '✓ Google Sheets created!'; statusEl.className = 'exp-status-msg ok';
     } else {
       statusEl.textContent = 'Error: ' + (data.error || 'Unknown'); statusEl.className = 'exp-status-msg err';
     }
@@ -4994,7 +4993,7 @@ async function _onGdocExportClick() {
     statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'exp-status-msg err';
   }
 
-  exportBtn.disabled = false; exportBtn.textContent = '↗ Export as Google Doc';
+  exportBtn.disabled = false; exportBtn.textContent = '↗ Export as Google Sheets';
 }
 
 // ════════════════════════════════════════════════════════
@@ -5045,7 +5044,7 @@ loadFromSupabase();
   <div class="export-tab-nav">
     <button class="exp-nav-tab active" data-exp-tab="settings">&#9881; Export Settings</button>
     <button class="exp-nav-tab"        data-exp-tab="pdf">&#128196; PDF</button>
-    <button class="exp-nav-tab"        data-exp-tab="gdoc">&#128196; Google Doc</button>
+    <button class="exp-nav-tab"        data-exp-tab="gdoc">&#128196; Google Sheets</button>
   </div>
 
   <!-- Settings panel -->
@@ -5087,12 +5086,12 @@ loadFromSupabase();
     </div>
   </div>
 
-  <!-- Google Doc panel -->
+  <!-- Google Sheets panel -->
   <div id="exp-gdoc-panel" class="exp-panel" style="display:none">
     <div class="exp-actions-bar">
       <button id="exp-gdoc-connect-btn" class="exp-export-btn" style="display:none">&#128279; Connect Google Account</button>
-      <button id="exp-gdoc-export-btn"  class="exp-export-btn" style="display:none">&#8599; Export as Google Doc</button>
-      <a id="exp-gdoc-link" class="exp-gdoc-link" href="#" target="_blank" style="display:none">Open Google Doc &#8599;</a>
+      <button id="exp-gdoc-export-btn"  class="exp-export-btn" style="display:none">&#8599; Export as Google Sheets</button>
+      <a id="exp-gdoc-link" class="exp-gdoc-link" href="#" target="_blank" style="display:none">Open Google Sheets &#8599;</a>
       <span id="exp-gdoc-status" class="exp-status-msg"></span>
     </div>
     <div class="exp-preview-wrap">

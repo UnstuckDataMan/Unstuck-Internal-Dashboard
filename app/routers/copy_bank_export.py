@@ -16,7 +16,7 @@ router = APIRouter()
 _sessions: dict = {}
 
 SCOPES = [
-    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
 ]
 
@@ -123,7 +123,7 @@ def google_callback(request: Request,
         return _close("google_auth_error", error=str(exc))
 
 
-# ── Google Doc creation ────────────────────────────────────────────────────────
+# ── Google Sheets creation ─────────────────────────────────────────────────────
 
 class ExportSection(BaseModel):
     territory: str
@@ -133,14 +133,14 @@ class ExportSection(BaseModel):
     bodies:    List[str] = []
 
 
-class CreateDocBody(BaseModel):
+class CreateSheetBody(BaseModel):
     session_id:   str
     profile_name: str
     sections:     List[ExportSection]
 
 
-@router.post("/api/export/google/create-doc")
-def create_google_doc(body: CreateDocBody):
+@router.post("/api/export/google/create-sheet")
+def create_google_sheet(body: CreateSheetBody):
     session = _sessions.get(body.session_id)
     if not session:
         return JSONResponse(
@@ -164,138 +164,63 @@ def create_google_doc(body: CreateDocBody):
             client_secret=session["client_secret"],
             scopes=session["scopes"],
         )
-        docs_svc = build("docs",  "v1", credentials=creds)
+        sheets_svc = build("sheets", "v4", credentials=creds)
 
-        title = f"Copy Bank Export — {body.profile_name}"
-        doc   = docs_svc.documents().create(body={"title": title}).execute()
-        doc_id = doc["documentId"]
+        date_str = datetime.datetime.now().strftime("%d %B %Y")
+        title    = f"Copy Bank — {body.profile_name} — {date_str}"
 
-        reqs = _build_doc_requests(body)
-        if reqs:
-            docs_svc.documents().batchUpdate(
-                documentId=doc_id,
-                body={"requests": reqs},
-            ).execute()
+        # Create the spreadsheet
+        spreadsheet = sheets_svc.spreadsheets().create(body={
+            "properties": {"title": title},
+            "sheets": [{"properties": {"title": "Copy Bank"}}],
+        }).execute()
+        sheet_id     = spreadsheet["spreadsheetId"]
+        sheet_tab_id = spreadsheet["sheets"][0]["properties"]["sheetId"]
 
-        return JSONResponse({"ok": True, "url": f"https://docs.google.com/document/d/{doc_id}/edit"})
-    except Exception as exc:
-        log.error("Google Doc creation failed: %s", exc)
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-
-
-# ── Google Doc formatting ──────────────────────────────────────────────────────
-
-def _build_doc_requests(body: CreateDocBody) -> list:
-    """
-    Build a Google Docs batchUpdate request list that populates the document
-    with styled content reflecting the Unstuck brand colours.
-    """
-    PURPLE = {"red": 0.486, "green": 0.227, "blue": 0.929}   # #7c3aed
-    GREY   = {"red": 0.420, "green": 0.396, "blue": 0.475}
-    DARK   = {"red": 0.122, "green": 0.098, "blue": 0.176}
-
-    date_str = datetime.datetime.now().strftime("%-d %B %Y")
-
-    # Build list of (text, style_tag)
-    segs = []
-    segs.append((f"Copy Bank Export — {body.profile_name}\n", "doc_title"))
-    segs.append((f"Generated {date_str}\n\n",               "doc_subtitle"))
-
-    for sec in body.sections:
-        segs.append((f"{sec.territory} — {sec.industry}\n", "section_h1"))
-        segs.append((f"{sec.channel}\n",                    "channel_h2"))
-
-        if sec.subjects:
-            segs.append(("Subject Lines\n", "label"))
+        # Build rows: header + one row per piece of copy
+        rows = [["Territory", "Industry", "Channel", "Type", "#", "Content"]]
+        for sec in body.sections:
             for i, s in enumerate(sec.subjects, 1):
-                segs.append((f"{i}. {s}\n", "body"))
-            segs.append(("\n", "body"))
-
-        if sec.bodies:
-            segs.append(("Variations\n", "label"))
+                rows.append([sec.territory, sec.industry, sec.channel, "Subject", i, s])
+            label = "Step" if sec.channel == "LinkedIn" else "Variation"
             for i, b in enumerate(sec.bodies, 1):
-                segs.append((f"Variation {i}\n", "variation_label"))
-                segs.append((f"{b}\n\n",         "body"))
+                rows.append([sec.territory, sec.industry, sec.channel, label, i, b])
 
-    full_text = "".join(s[0] for s in segs)
-    if not full_text.strip():
-        return []
+        # Write data
+        sheets_svc.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range="Copy Bank!A1",
+            valueInputOption="RAW",
+            body={"values": rows},
+        ).execute()
 
-    requests = [{"insertText": {"location": {"index": 1}, "text": full_text}}]
+        # Format header row: bold + purple background
+        sheets_svc.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id,
+            body={"requests": [
+                {"repeatCell": {
+                    "range": {"sheetId": sheet_tab_id, "startRowIndex": 0, "endRowIndex": 1},
+                    "cell": {"userEnteredFormat": {
+                        "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                        "backgroundColor": {"red": 0.486, "green": 0.227, "blue": 0.929},
+                    }},
+                    "fields": "userEnteredFormat(textFormat,backgroundColor)",
+                }},
+                # Freeze header row
+                {"updateSheetProperties": {
+                    "properties": {"sheetId": sheet_tab_id, "gridProperties": {"frozenRowCount": 1}},
+                    "fields": "gridProperties.frozenRowCount",
+                }},
+                # Auto-resize all columns
+                {"autoResizeDimensions": {
+                    "dimensions": {"sheetId": sheet_tab_id, "dimension": "COLUMNS",
+                                   "startIndex": 0, "endIndex": 6},
+                }},
+            ]},
+        ).execute()
 
-    pos = 1
-    for text, style in segs:
-        length   = len(text)
-        end      = pos + length
-        text_end = end - 1 if text.endswith("\n") else end   # exclude trailing newline from style range
-
-        if style == "doc_title":
-            requests.append({"updateTextStyle": {
-                "range": {"startIndex": pos, "endIndex": text_end},
-                "textStyle": {"bold": True,
-                              "fontSize": {"magnitude": 22, "unit": "PT"},
-                              "foregroundColor": {"color": {"rgbColor": PURPLE}}},
-                "fields": "bold,fontSize,foregroundColor",
-            }})
-        elif style == "doc_subtitle":
-            requests.append({"updateTextStyle": {
-                "range": {"startIndex": pos, "endIndex": text_end},
-                "textStyle": {"italic": True,
-                              "fontSize": {"magnitude": 10, "unit": "PT"},
-                              "foregroundColor": {"color": {"rgbColor": GREY}}},
-                "fields": "italic,fontSize,foregroundColor",
-            }})
-        elif style == "section_h1":
-            requests.append({"updateTextStyle": {
-                "range": {"startIndex": pos, "endIndex": text_end},
-                "textStyle": {"bold": True,
-                              "fontSize": {"magnitude": 15, "unit": "PT"},
-                              "foregroundColor": {"color": {"rgbColor": DARK}}},
-                "fields": "bold,fontSize,foregroundColor",
-            }})
-            requests.append({"updateParagraphStyle": {
-                "range": {"startIndex": pos, "endIndex": end},
-                "paragraphStyle": {
-                    "spaceAbove": {"magnitude": 18, "unit": "PT"},
-                    "spaceBelow": {"magnitude": 2, "unit": "PT"},
-                    "borderBottom": {
-                        "color": {"color": {"rgbColor": PURPLE}},
-                        "width": {"magnitude": 1, "unit": "PT"},
-                        "padding": {"magnitude": 4, "unit": "PT"},
-                        "dashStyle": "SOLID",
-                    }
-                },
-                "fields": "spaceAbove,spaceBelow,borderBottom",
-            }})
-        elif style == "channel_h2":
-            requests.append({"updateTextStyle": {
-                "range": {"startIndex": pos, "endIndex": text_end},
-                "textStyle": {"bold": True,
-                              "fontSize": {"magnitude": 12, "unit": "PT"},
-                              "foregroundColor": {"color": {"rgbColor": PURPLE}}},
-                "fields": "bold,fontSize,foregroundColor",
-            }})
-            requests.append({"updateParagraphStyle": {
-                "range": {"startIndex": pos, "endIndex": end},
-                "paragraphStyle": {"spaceBelow": {"magnitude": 8, "unit": "PT"}},
-                "fields": "spaceBelow",
-            }})
-        elif style == "label":
-            requests.append({"updateTextStyle": {
-                "range": {"startIndex": pos, "endIndex": text_end},
-                "textStyle": {"bold": True, "smallCaps": True,
-                              "fontSize": {"magnitude": 9, "unit": "PT"},
-                              "foregroundColor": {"color": {"rgbColor": GREY}}},
-                "fields": "bold,smallCaps,fontSize,foregroundColor",
-            }})
-        elif style == "variation_label":
-            requests.append({"updateTextStyle": {
-                "range": {"startIndex": pos, "endIndex": text_end},
-                "textStyle": {"bold": True, "italic": True,
-                              "fontSize": {"magnitude": 10, "unit": "PT"},
-                              "foregroundColor": {"color": {"rgbColor": PURPLE}}},
-                "fields": "bold,italic,fontSize,foregroundColor",
-            }})
-        pos = end
-
-    return requests
+        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
+        return JSONResponse({"ok": True, "url": url})
+    except Exception as exc:
+        log.error("Google Sheets creation failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
