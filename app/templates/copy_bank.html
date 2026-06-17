@@ -4821,8 +4821,10 @@ function _buildPdfHtml(sections) {
     return html;
   }
 
-  sections.forEach(function(sec) {
-    html += '<div class="exp-p-section">';
+  sections.forEach(function(sec, secIdx) {
+    // Every section except the first starts on a new page
+    var pageBreak = secIdx > 0 ? ' style="page-break-before:always;break-before:page;"' : '';
+    html += '<div class="exp-p-section"' + pageBreak + '>';
     html += '<div class="exp-p-section-header">';
     html += '<div class="exp-p-section-title">'+escHtml(sec.territory)+' &mdash; '+escHtml(sec.industry)+'</div>';
     html += '<div class="exp-p-channel">'+escHtml(sec.channel)+'</div>';
@@ -4868,19 +4870,39 @@ function _onPdfBtnClick() {
     jsPDF:      { unit: 'mm', format: 'a4', orientation: 'portrait' },
     pagebreak:  { mode: 'css' },
   };
-  // Pad the preview to a full A4 page boundary so the last page has no white gap
-  var a4Px = Math.ceil(297 * 96 / 25.4);
-  var rem = preview.scrollHeight % a4Px;
-  var extraPad = rem > 0 ? a4Px - rem : 0;
-  if (extraPad > 0) preview.style.paddingBottom = extraPad + 'px';
-  html2pdf().set(opt).from(preview).save().then(function(){
-    preview.style.paddingBottom = '';
-    statusEl.textContent = '✓ PDF downloaded'; statusEl.className = 'exp-status-msg ok';
-    setTimeout(function(){ statusEl.textContent = ''; }, 4000);
-  }).catch(function(e){
-    preview.style.paddingBottom = '';
-    statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'exp-status-msg err';
-  });
+  var _cvs = null;
+  html2pdf()
+    .set(opt)
+    .from(preview)
+    .toCanvas()
+    .get('canvas')
+    .then(function(c) { _cvs = c; })
+    .toPdf()
+    .get('pdf')
+    .then(function(pdf) {
+      if (_cvs) {
+        var pw = pdf.internal.pageSize.getWidth();
+        var ph = pdf.internal.pageSize.getHeight();
+        var np = pdf.internal.getNumberOfPages();
+        // canvas pixels per A4 page height
+        var pxPerPage = _cvs.width * ph / pw;
+        var lastFill  = _cvs.height % pxPerPage;
+        if (lastFill > 1) {
+          var gapMm = (pxPerPage - lastFill) * pw / _cvs.width;
+          pdf.setPage(np);
+          pdf.setFillColor(16, 13, 30);
+          pdf.rect(0, ph - gapMm, pw, gapMm + 0.5, 'F');
+        }
+      }
+    })
+    .save()
+    .then(function() {
+      statusEl.textContent = '✓ PDF downloaded'; statusEl.className = 'exp-status-msg ok';
+      setTimeout(function(){ statusEl.textContent = ''; }, 4000);
+    })
+    .catch(function(e) {
+      statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'exp-status-msg err';
+    });
 }
 
 // ── Google Sheets preview + export ──
