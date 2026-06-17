@@ -4823,7 +4823,7 @@ function _buildPdfHtml(sections) {
 
   sections.forEach(function(sec, secIdx) {
     // Every section except the first starts on a new page
-    var pageBreak = secIdx > 0 ? ' style="page-break-before:always;break-before:page;"' : '';
+    var pageBreak = secIdx > 0 ? ' style="page-break-before:always;break-before:page;padding-top:36px;"' : '';
     html += '<div class="exp-p-section"' + pageBreak + '>';
     html += '<div class="exp-p-section-header">';
     html += '<div class="exp-p-section-title">'+escHtml(sec.territory)+' &mdash; '+escHtml(sec.industry)+'</div>';
