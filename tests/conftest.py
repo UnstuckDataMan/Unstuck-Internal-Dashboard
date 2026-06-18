@@ -163,6 +163,9 @@ class FakeWorksheet:
     def batch_update(self, updates):
         self.batch_updates.append(updates)
 
+    def get_all_values(self, value_render_option=None, **kwargs):
+        return [list(self.headers)] + [list(r) for r in self.rows]
+
     def get_all_records(self, **kwargs):
         return [dict(zip(self.headers, r)) for r in self.rows]
 

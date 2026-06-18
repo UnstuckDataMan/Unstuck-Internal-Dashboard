@@ -64,6 +64,13 @@ def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
     • Retry: on HTTP 429 (quota exceeded) waits 10 s, 20 s, 40 s before the
       final re-raise so transient quota bursts self-heal rather than propagating
       an error to the user.
+
+    Uses get_all_values + manual dict construction instead of get_all_records
+    because gspread raises GSpreadException when the sheet header row contains
+    duplicate column names (e.g. "First Name" appears in both the routing
+    section before __divider__ and the prospect section after it).  We keep
+    only the first occurrence of each duplicate key so callers that only care
+    about unique columns (Recipient Email, Lead Status, etc.) are unaffected.
     """
     render = kwargs.get("value_render_option", "FORMATTED_VALUE")
     cache_key = f"{sheet_id}:{render}"
@@ -78,7 +85,24 @@ def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
     wait_times = (10, 20, 40)
     for attempt in range(len(wait_times) + 1):
         try:
-            records = ws.get_all_records(**kwargs)
+            all_values = ws.get_all_values(value_render_option=render)
+            if not all_values:
+                records: list = []
+            else:
+                raw_headers = all_values[0]
+                # Deduplicate headers: keep first occurrence, mark repeats None.
+                seen: set[str] = set()
+                headers: list = []
+                for h in raw_headers:
+                    if h not in seen:
+                        seen.add(h)
+                        headers.append(h)
+                    else:
+                        headers.append(None)
+                records = [
+                    {h: v for h, v in zip(headers, row) if h is not None}
+                    for row in all_values[1:]
+                ]
             with _records_cache_lock:
                 # Drop expired entries while we hold the lock so the cache
                 # doesn't grow without bound across many sheets.

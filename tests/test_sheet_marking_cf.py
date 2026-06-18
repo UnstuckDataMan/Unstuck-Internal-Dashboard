@@ -297,11 +297,11 @@ def test_to_iso_date_normalises_serials_and_strings():
 def test_records_cache_hits_and_invalidation(monkeypatch):
     ws = make_ws(["a@acme.com"])
     calls = {"n": 0}
-    real = ws.get_all_records
+    real = ws.get_all_values
     def counting(**kw):
         calls["n"] += 1
         return real(**kw)
-    ws.get_all_records = counting
+    ws.get_all_values = counting
 
     gs._records_cache.clear()
     r1 = gs._get_all_records(ws, "cache-test", value_render_option="UNFORMATTED_VALUE")
