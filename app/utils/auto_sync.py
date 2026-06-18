@@ -86,13 +86,14 @@ def sync_campaign_core(
         if sent_to_write:
             try:
                 write_sent_dates(sheet_id, sent_to_write)
-            except Exception:
-                pass   # Non-fatal
+            except Exception as _exc:
+                logger.warning("write_sent_dates failed for sheet %s: %s", sheet_id, _exc)
+                result["error"] = f"Sent Date write failed: {_exc}"
         if chaser_to_write:
             try:
                 write_chaser_dates(sheet_id, chaser_to_write)
-            except Exception:
-                pass   # Non-fatal
+            except Exception as _exc:
+                logger.warning("write_chaser_dates failed for sheet %s: %s", sheet_id, _exc)
 
     # ── Build DNC rows ────────────────────────────────────────────────
     if leads:

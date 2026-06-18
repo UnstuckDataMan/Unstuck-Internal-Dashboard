@@ -890,11 +890,22 @@ def _write_date_column(
     sh = gc.open_by_key(sheet_id)
     ws = sh.sheet1
 
-    headers = ws.row_values(1)
+    # Prefer the already-cached records (populated by read_sent_with_dates
+    # moments earlier during the same sync) over a fresh row_values(1) call.
+    # This avoids an extra uncached API round-trip that has no quota-retry
+    # protection and often pushes syncs over the 60-reads/min quota when
+    # multiple campaigns sync in quick succession.
+    records = _get_all_records(ws, sheet_id, value_render_option="UNFORMATTED_VALUE")
+    headers: list[str] = list(records[0].keys()) if records else ws.row_values(1)
+
     if col_name not in headers:
-        new_col_idx = len(headers) + 1          # 1-based
+        # Column absent — append it.  Use the raw row to count all columns
+        # (including trailing empties that get_all_records may trim).
+        raw_headers = ws.row_values(1)
+        new_col_idx = len(raw_headers) + 1       # 1-based
         ws.update_cell(1, new_col_idx, col_name)
         date_col = new_col_idx
+        _invalidate_sheet_cache(sheet_id)        # header changed
     else:
         date_col = headers.index(col_name) + 1   # 1-based
 
@@ -902,8 +913,23 @@ def _write_date_column(
         {"range": f"{_col_letter(date_col)}{row_num}", "values": [[date_str]]}
         for row_num, date_str in row_date_pairs
     ]
-    if updates:
-        ws.batch_update(updates)
+    if not updates:
+        return
+
+    # Retry once on quota errors (429) — the read path already consumed some
+    # quota, and large sheets can tip the burst budget on the write.
+    wait_times = (10, 20)
+    for attempt in range(len(wait_times) + 1):
+        try:
+            ws.batch_update(updates)
+            break
+        except APIError as exc:
+            status = getattr(exc.response, "status_code", 0)
+            if status == 429 and attempt < len(wait_times):
+                time.sleep(wait_times[attempt])
+            else:
+                raise
+
     # Invalidate cache so the next read sees the freshly written dates.
     _invalidate_sheet_cache(sheet_id)
 
