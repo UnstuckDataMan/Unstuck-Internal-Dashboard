@@ -4883,19 +4883,38 @@ function _buildSectionBodyHtml(sec) {
   return h;
 }
 
-// ── Place a rendered canvas onto the current jsPDF page (and add extra pages
-//    if the canvas is taller than one A4 page), then fill any remaining space
-//    at the bottom of the last page with the dark background colour. ─────────
+// ── Render an element to a canvas using html2canvas (bundled in html2pdf) ────
+function _renderToCanvas(el, h2cOpts) {
+  var H2C = window.html2canvas;
+  if (typeof H2C === 'function') return H2C(el, h2cOpts);
+  // Fallback: drive html2pdf's internal pipeline
+  return new Promise(function(resolve, reject) {
+    try {
+      var worker = html2pdf()
+        .set({ margin:[0,0,0,0], html2canvas:h2cOpts,
+               jsPDF:{unit:'mm',format:'a4',orientation:'portrait'} })
+        .from(el).toCanvas();
+      Promise.resolve(worker).then(function(w) {
+        var c = w && w.prop && w.prop.canvas;
+        (c && c.width > 0) ? resolve(c) : reject(new Error('No canvas'));
+      }).catch(reject);
+    } catch(e) { reject(e); }
+  });
+}
+
+// ── Place a canvas on the current jsPDF page; add extra pages if the canvas
+//    is taller than A4, and fill any empty bottom space with the dark colour. ─
 function _addCanvasToPdf(pdf, canvas, pw, ph) {
-  var imgData  = canvas.toDataURL('image/jpeg', 0.95);
-  var imgH     = canvas.height * pw / canvas.width; // total height in mm
-  var numPages = Math.ceil(imgH / ph) || 1;
-  for (var pg = 0; pg < numPages; pg++) {
+  var imgH = canvas.height * pw / canvas.width;
+  if (!imgH || !isFinite(imgH) || imgH <= 0) return;
+  var imgData = canvas.toDataURL('image/jpeg', 0.95);
+  var numPgs  = Math.ceil(imgH / ph) || 1;
+  for (var pg = 0; pg < numPgs; pg++) {
     if (pg > 0) pdf.addPage();
     pdf.addImage(imgData, 'JPEG', 0, -(pg * ph), pw, imgH);
-    if (pg === numPages - 1) {
+    if (pg === numPgs - 1) {
       var usedH = imgH - pg * ph;
-      if (usedH < ph) {
+      if (usedH > 0 && usedH < ph) {
         pdf.setFillColor(16, 13, 30);
         pdf.rect(0, usedH, pw, ph - usedH + 0.5, 'F');
       }
@@ -4903,18 +4922,17 @@ function _addCanvasToPdf(pdf, canvas, pw, ph) {
   }
 }
 
-// ── PDF export: renders each section individually to avoid hitting the
-//    browser's canvas size limit (~16 384 px), which would produce a blank
-//    white PDF for profiles with many territory/industry/channel combos. ──────
+// ── PDF export: renders each section into its own small canvas to avoid the
+//    browser's ~16 384 px canvas-height limit (which causes blank white PDFs
+//    for profiles with many territory/industry/channel sections). ──────────────
 async function _onPdfBtnClick() {
   var statusEl = document.getElementById('exp-pdf-status');
   statusEl.textContent = 'Generating…'; statusEl.className = 'exp-status-msg';
 
-  // Off-screen rendering container — same class so all CSS applies
-  var el = document.createElement('div');
-  el.className = 'exp-pdf-preview-inner';
-  el.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;';
-  document.body.appendChild(el);
+  // Reuse the existing (visible, properly styled) preview element so fonts
+  // and layout are guaranteed correct. Restore it when done.
+  var preview      = document.getElementById('exp-pdf-preview');
+  var originalHtml = preview.innerHTML;
 
   try {
     var sections = _buildExpSections();
@@ -4926,34 +4944,27 @@ async function _onPdfBtnClick() {
     var profileName        = activeProfile ? activeProfile.name.replace(/[^a-z0-9]/gi, '_') : 'export';
     var profileNameDisplay = activeProfile ? activeProfile.name : '';
     var dateStr = new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'});
-    var pw = 210, ph = 297; // A4 in mm
+    var pw = 210, ph = 297;
+    var h2cOpts = { scale:2, backgroundColor:'#100d1e', logging:false, useCORS:true };
 
-    var h2cOpts = { scale:2, backgroundColor:'#100d1e', logging:false, useCORS:true, width:794, windowWidth:794 };
-    var baseOpt = {
-      margin:[0,0,0,0], image:{type:'jpeg',quality:.95},
-      html2canvas:h2cOpts, jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
-      pagebreak:{mode:'css'},
-    };
-
-    // ── Page 1: title + first section ──────────────────────────────────────
-    el.innerHTML =
+    // ── Page 1: cover title + first section ────────────────────────────────
+    preview.innerHTML =
       '<div class="exp-p-title">'+escHtml(profileNameDisplay)+'</div>'+
       '<div class="exp-p-subtitle">Copy Bank Export &mdash; '+escHtml(dateStr)+'</div>'+
       _buildSectionBodyHtml(sections[0]);
 
-    var firstCanvas = null;
+    // Get the jsPDF instance by letting html2pdf render page 1 normally
     var pdf = await html2pdf()
-      .set(baseOpt)
-      .from(el)
-      .toCanvas()
-      .get('canvas')
-      .then(function(c) { firstCanvas = c; })
+      .set({ margin:[0,0,0,0], image:{type:'jpeg',quality:.95},
+             html2canvas:h2cOpts, jsPDF:{unit:'mm',format:'a4',orientation:'portrait'} })
+      .from(preview)
       .toPdf()
       .get('pdf');
 
-    // Fill dark background at bottom of first page if content is shorter than A4
-    if (firstCanvas && firstCanvas.width) {
-      var imgH1 = firstCanvas.height * pw / firstCanvas.width;
+    // Fill dark colour at bottom of page 1 if shorter than A4
+    var cvs1 = await _renderToCanvas(preview, h2cOpts);
+    if (cvs1 && cvs1.width > 0) {
+      var imgH1 = cvs1.height * pw / cvs1.width;
       if (imgH1 < ph) {
         pdf.setPage(1);
         pdf.setFillColor(16, 13, 30);
@@ -4963,18 +4974,11 @@ async function _onPdfBtnClick() {
 
     // ── Pages 2+: one section per page ─────────────────────────────────────
     for (var i = 1; i < sections.length; i++) {
-      el.innerHTML = _buildSectionBodyHtml(sections[i]);
-
-      var canvas = await html2pdf()
-        .set(baseOpt)
-        .from(el)
-        .toCanvas()
-        .get('canvas');
-
-      // canvas may be the element itself or a Worker if prop.canvas wasn't set
-      if (canvas && canvas.toDataURL) {
+      preview.innerHTML = _buildSectionBodyHtml(sections[i]);
+      var cvs = await _renderToCanvas(preview, h2cOpts);
+      if (cvs && cvs.width > 0 && cvs.height > 0) {
         pdf.addPage();
-        _addCanvasToPdf(pdf, canvas, pw, ph);
+        _addCanvasToPdf(pdf, cvs, pw, ph);
       }
     }
 
@@ -4984,7 +4988,7 @@ async function _onPdfBtnClick() {
   } catch(e) {
     statusEl.textContent = 'Error: '+(e.message||String(e)); statusEl.className = 'exp-status-msg err';
   } finally {
-    if (document.body.contains(el)) document.body.removeChild(el);
+    preview.innerHTML = originalHtml;
   }
 }
 
