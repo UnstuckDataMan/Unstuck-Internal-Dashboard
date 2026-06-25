@@ -14,9 +14,10 @@ from typing import List, Optional
 
 import pandas as pd
 import requests as http_req
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from app import auth
 from app.deps import templates
 from app.utils.supabase import (
     SUPABASE_URL,
@@ -1015,7 +1016,7 @@ async def upload_contacted(
     )
 
 
-@router.delete("/api/dnc/contacted/campaign")
+@router.delete("/api/dnc/contacted/campaign", dependencies=[Depends(auth.require_admin)])
 async def delete_campaign_contacted(
     request:   Request,
     client_id: str = Query(...),
@@ -1132,7 +1133,7 @@ async def delete_contacted(
                                campaign=campaign)
 
 
-@router.post("/api/dnc/contacted/bulk-delete")
+@router.post("/api/dnc/contacted/bulk-delete", dependencies=[Depends(auth.require_admin)])
 async def bulk_delete_contacted(
     request:   Request,
     client_id: str       = Form(...),
@@ -1304,7 +1305,7 @@ async def sync_from_sheet(request: Request):
 
 # ── purge old contacted records ───────────────────────────────────────────────
 
-@router.post("/api/dnc/contacted/purge")
+@router.post("/api/dnc/contacted/purge", dependencies=[Depends(auth.require_admin)])
 async def purge_contacted(
     request:       Request,
     client_id:     str = Form(...),

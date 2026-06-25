@@ -3,10 +3,11 @@ import logging
 import os
 
 import requests as http_req
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app import auth
 from app.deps import templates
 
 log = logging.getLogger(__name__)
@@ -280,7 +281,7 @@ def get_pending(key: str):
     return JSONResponse({"pending": rows[0] if rows else None})
 
 
-@router.post("/api/copy-bank/approve")
+@router.post("/api/copy-bank/approve", dependencies=[Depends(auth.require_role(auth.COPY_APPROVER_ROLES))])
 def approve_copy(body: ApproveBody):
     """
     Approve a pending draft:
@@ -361,7 +362,7 @@ def approve_copy(body: ApproveBody):
     return JSONResponse({"ok": True})
 
 
-@router.get("/api/copy-bank/approval-logs")
+@router.get("/api/copy-bank/approval-logs", dependencies=[Depends(auth.require_role(auth.COPY_APPROVER_ROLES))])
 def approval_logs():
     """Return pending requests and approval history for the logs panel."""
     url = os.environ.get("SUPABASE_URL", "")
@@ -387,7 +388,7 @@ def approval_logs():
 
 # ── Admin: merge Unstuck profiles ─────────────────────────────────────────────
 
-@router.post("/api/admin/merge-unstuck-profiles")
+@router.post("/api/admin/merge-unstuck-profiles", dependencies=[Depends(auth.require_admin)])
 def merge_unstuck_profiles():
     url = os.environ.get("SUPABASE_URL", "")
     write_headers = {
@@ -474,7 +475,7 @@ def _normalise_value(v):
     return v
 
 
-@router.post("/api/copy-bank/normalize-apostrophes")
+@router.post("/api/copy-bank/normalize-apostrophes", dependencies=[Depends(auth.require_admin)])
 def normalize_apostrophes():
     """
     One-time (idempotent) migration: replace curly/smart apostrophes with

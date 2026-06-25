@@ -7,9 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date as _date, datetime as _datetime, timedelta, timezone as _tz
 
 import requests as http_req
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 
+from app import auth
 from app.deps import templates
 from app.utils.supabase import (
     SUPABASE_URL,
@@ -351,7 +352,7 @@ def _reset_stats_error(detail: str) -> HTMLResponse:
     )
 
 
-@router.post("/api/campaigns/reset-stats")
+@router.post("/api/campaigns/reset-stats", dependencies=[Depends(auth.require_admin)])
 async def reset_client_stats(request: Request, client_id: str = Query("")):
     """
     Start stats tracking fresh for one client:
@@ -736,7 +737,7 @@ async def resume_campaign(
 
 # ── Delete a campaign ─────────────────────────────────────────────────────────
 
-@router.delete("/api/campaigns/{campaign_id}")
+@router.delete("/api/campaigns/{campaign_id}", dependencies=[Depends(auth.require_admin)])
 async def delete_campaign(
     request:     Request,
     campaign_id: str,

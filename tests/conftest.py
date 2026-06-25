@@ -23,6 +23,11 @@ sys.path.insert(0, str(REPO_ROOT))
 TEST_SUPABASE_URL = "http://supabase.test"
 os.environ["SUPABASE_URL"]      = TEST_SUPABASE_URL
 os.environ["SUPABASE_ANON_KEY"] = "test-anon-key"
+# Auth is off by default for the existing offline endpoint tests; the dedicated
+# auth/RBAC tests re-enable it per-test via monkeypatch. SESSION_SECRET is fixed
+# so SessionMiddleware is deterministic across the suite.
+os.environ.setdefault("AUTH_DISABLED", "1")
+os.environ.setdefault("SESSION_SECRET", "test-session-secret")
 # Non-empty so google_sheets.is_configured() returns True; only decoded if a
 # test forgets to patch the gspread layer (decoding works, auth never runs).
 os.environ["GOOGLE_SHEETS_SA_JSON"] = base64.b64encode(

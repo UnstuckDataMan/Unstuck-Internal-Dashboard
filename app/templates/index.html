@@ -370,6 +370,20 @@
       animation: fadeUp 0.50s var(--ease-out) both;
       animation-delay: var(--d, 0s);
     }
+
+    /* ── Signed-in user bar ── */
+    .userbar {
+      position: fixed; top: 18px; right: 22px; z-index: 5;
+      display: flex; align-items: center; gap: 12px; font-size: 13px;
+    }
+    .userbar-name { color: rgba(255,255,255,.55); }
+    .userbar-link {
+      color: rgba(167,139,250,.9); text-decoration: none;
+      padding: 6px 12px; border: 1px solid rgba(255,255,255,.12);
+      border-radius: 9px; background: rgba(255,255,255,.05);
+      transition: background .15s, color .15s;
+    }
+    .userbar-link:hover { background: rgba(255,255,255,.10); color: #c4b5fd; }
   </style>
 </head>
 <body>
@@ -383,6 +397,14 @@
 </div>
 
 <div class="app">
+
+  {% if user %}
+  <div class="userbar">
+    <span class="userbar-name">{{ user.name }}</span>
+    {% if user.role == 'admin' %}<a class="userbar-link" href="/admin/users">Admin</a>{% endif %}
+    <a class="userbar-link" href="/logout">Log out</a>
+  </div>
+  {% endif %}
 
   <!-- ══════════════════════════════════
        SCREEN: HOME
@@ -410,7 +432,7 @@
               </svg>
             </div>
             <div class="cat-card-title">Data Processing</div>
-            <div class="cat-card-count">7 tools</div>
+            <div class="cat-card-count" id="count-data">7 tools</div>
             <div class="cat-card-cta">
               Explore tools
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -430,7 +452,7 @@
               </svg>
             </div>
             <div class="cat-card-title">Campaign Management</div>
-            <div class="cat-card-count">6 tools</div>
+            <div class="cat-card-count" id="count-campaign">6 tools</div>
             <div class="cat-card-cta">
               Explore tools
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -461,6 +483,7 @@
       <h2 class="tool-screen-title">Data Processing</h2>
       <div class="tool-grid g3">
 
+        {% if 'launch_checker' in tools %}
         <a href="/launch-checker" class="card-link anim" style="--d:0.04s">
           <div class="tool-card">
             <div class="card-bar"></div>
@@ -477,7 +500,9 @@
             </div>
           </div>
         </a>
+        {% endif %}
 
+        {% if 'targeting_checker' in tools %}
         <a href="/targeting-checker" class="card-link anim" style="--d:0.11s">
           <div class="tool-card">
             <div class="card-bar"></div>
@@ -497,6 +522,7 @@
             </div>
           </div>
         </a>
+        {% endif %}
 
         <a href="http://134.209.186.139:8501/" target="_blank" rel="noopener noreferrer" class="card-link anim" style="--d:0.18s">
           <div class="tool-card">
@@ -534,6 +560,7 @@
           </div>
         </a>
 
+        {% if 'gender' in tools %}
         <a href="/gender" class="card-link anim" style="--d:0.32s">
           <div class="tool-card">
             <div class="card-bar"></div>
@@ -549,7 +576,9 @@
             </div>
           </div>
         </a>
+        {% endif %}
 
+        {% if 'city' in tools %}
         <a href="/city-state" class="card-link anim" style="--d:0.39s">
           <div class="tool-card">
             <div class="card-bar"></div>
@@ -565,6 +594,7 @@
             </div>
           </div>
         </a>
+        {% endif %}
 
         <a href="https://www.zerobounce.net/members/validate/results" target="_blank" rel="noopener noreferrer" class="card-link anim" style="--d:0.46s">
           <div class="tool-card">
@@ -605,6 +635,7 @@
       <h2 class="tool-screen-title">Campaign Management</h2>
       <div class="tool-grid g2">
 
+        {% if 'dnc' in tools or 'mail_merge' in tools %}
         <a href="/dnc-removal" class="card-link anim" style="--d:0.04s">
           <div class="tool-card">
             <div class="card-bar"></div>
@@ -620,7 +651,9 @@
             </div>
           </div>
         </a>
+        {% endif %}
 
+        {% if 'copy_bank' in tools %}
         <a href="/copy-bank" class="card-link anim" style="--d:0.11s">
           <div class="tool-card">
             <div class="card-bar"></div>
@@ -636,7 +669,9 @@
             </div>
           </div>
         </a>
+        {% endif %}
 
+        {% if 'reply_bank' in tools %}
         <a href="/reply-bank/" class="card-link anim" style="--d:0.18s">
           <div class="tool-card">
             <div class="card-bar"></div>
@@ -651,7 +686,9 @@
             </div>
           </div>
         </a>
+        {% endif %}
 
+        {% if 'bd_targeting' in tools %}
         <a href="/bd-targeting" class="card-link anim" style="--d:0.25s">
           <div class="tool-card">
             <div class="card-bar"></div>
@@ -666,6 +703,7 @@
             </div>
           </div>
         </a>
+        {% endif %}
 
         <a href="https://app.smartlead.ai/app/email-campaign/all" target="_blank" rel="noopener noreferrer" class="card-link anim" style="--d:0.32s">
           <div class="tool-card">
@@ -789,6 +827,18 @@
     ['mouseup','mouseleave','touchend','touchcancel'].forEach(e =>
       el.addEventListener(e, () => el.classList.remove('pressing'), { passive: true }));
   });
+
+  // ── Reflect role-gated visibility in the category counts ─────────
+  (function () {
+    const map = { 'count-data': 'screen-data', 'count-campaign': 'screen-campaign' };
+    for (const [countId, screenId] of Object.entries(map)) {
+      const el = document.getElementById(countId);
+      const screen = document.getElementById(screenId);
+      if (!el || !screen) continue;
+      const n = screen.querySelectorAll('.tool-grid .card-link').length;
+      el.textContent = n + (n === 1 ? ' tool' : ' tools');
+    }
+  })();
 </script>
 
 </body>

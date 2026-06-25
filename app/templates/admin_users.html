@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Management · Unstuck Agency</title>
+  <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --purple: #7c3aed; --pink: #e879f9;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+      --surface: rgba(255,255,255,.06); --border: rgba(255,255,255,.12);
+    }
+    body { font-family: var(--font); background: #07041a; color: #fff; min-height: 100vh; padding: 32px 28px 64px; -webkit-font-smoothing: antialiased; }
+    a { color: #c4b5fd; text-decoration: none; }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    header { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
+    header h1 { font-size: 24px; font-weight: 700; letter-spacing: -.02em; }
+    .back { font-size: 13px; color: rgba(255,255,255,.6); padding: 8px 14px; border: 1px solid var(--border); border-radius: 10px; }
+    .back:hover { background: rgba(255,255,255,.08); color: #fff; }
+    .spacer { flex: 1; }
+
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 22px; margin-bottom: 22px; }
+    .panel h2 { font-size: 14px; font-weight: 650; margin-bottom: 16px; color: rgba(255,255,255,.85); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 12px 10px; vertical-align: top; border-bottom: 1px solid rgba(255,255,255,.07); }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: rgba(255,255,255,.4); font-weight: 600; }
+    .email { font-weight: 600; }
+    .muted { color: rgba(255,255,255,.45); font-size: 12px; }
+
+    input[type=text], input[type=email], select {
+      background: rgba(0,0,0,.25); border: 1px solid var(--border); border-radius: 8px;
+      color: #fff; padding: 7px 10px; font-family: var(--font); font-size: 13px; width: 100%;
+    }
+    select { cursor: pointer; }
+    .tools { display: flex; flex-wrap: wrap; gap: 6px 12px; max-width: 360px; }
+    .tools label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: rgba(255,255,255,.7); cursor: pointer; }
+    .tools input { accent-color: var(--purple); }
+
+    .btn { border: none; border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font); }
+    .btn-save { background: var(--purple); color: #fff; }
+    .btn-save:hover { background: #6d28d9; }
+    .btn-del { background: rgba(239,68,68,.15); color: #fca5a5; border: 1px solid rgba(239,68,68,.35); }
+    .btn-del:hover { background: rgba(239,68,68,.28); }
+    .row-actions { display: flex; flex-direction: column; gap: 8px; }
+
+    .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+    .add-grid { display: grid; grid-template-columns: 1fr 1fr 160px auto; gap: 12px; align-items: end; }
+    .add-grid label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: rgba(255,255,255,.4); margin-bottom: 6px; }
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1f1147; border: 1px solid var(--border); padding: 12px 20px; border-radius: 12px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+    .roletag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(124,58,237,.25); border: 1px solid rgba(124,58,237,.4); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a class="back" href="/">← Dashboard</a>
+      <h1>User Management</h1>
+      <div class="spacer"></div>
+      <a class="back" href="/logout">Log out</a>
+    </header>
+
+    <div class="panel">
+      <h2>Add or update a user</h2>
+      <div class="add-grid">
+        <div><label>Email</label><input type="email" id="add-email" placeholder="name@{{ '' }}domain"></div>
+        <div><label>Name</label><input type="text" id="add-name" placeholder="Full name"></div>
+        <div>
+          <label>Role</label>
+          <select id="add-role">
+            {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+          </select>
+        </div>
+        <div><button class="btn btn-save" onclick="addUser()">Add user</button></div>
+      </div>
+      <p class="muted" style="margin-top:10px">New users start with their role's default tools. Fine-tune per-user access in the table below.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Users</h2>
+      <table>
+        <thead>
+          <tr><th style="width:200px">User</th><th style="width:130px">Role</th><th>Tools</th><th style="width:90px">Active</th><th style="width:120px"></th></tr>
+        </thead>
+        <tbody id="rows"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const ALL_TOOLS  = {{ tools | tojson }};
+    const ROLE_TOOLS = {{ role_tools | tojson }};
+    const ROLES      = {{ roles | tojson }};
+
+    function toast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2200);
+    }
+
+    function baseline(role) { return new Set(ROLE_TOOLS[role] || []); }
+
+    function effective(u) {
+      const set = baseline(u.role);
+      (u.tools_add || []).forEach(t => set.add(t));
+      (u.tools_remove || []).forEach(t => set.delete(t));
+      return set;
+    }
+
+    function esc(s) { return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+    function renderRow(u) {
+      const eff = effective(u);
+      const tools = ALL_TOOLS.map(t =>
+        `<label><input type="checkbox" data-tool="${t}" ${eff.has(t) ? 'checked' : ''}> ${t}</label>`
+      ).join('');
+      const roleOpts = ROLES.map(r => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${r}</option>`).join('');
+      return `<tr data-email="${esc(u.email)}">
+        <td><div class="email">${esc(u.email)}</div><div class="muted">${esc(u.name) || '—'}</div></td>
+        <td><select class="role">${roleOpts}</select></td>
+        <td><div class="tools">${tools}</div></td>
+        <td><label class="toggle"><input type="checkbox" class="active" ${u.active ? 'checked' : ''}> active</label></td>
+        <td><div class="row-actions">
+          <button class="btn btn-save" onclick="saveRow(this)">Save</button>
+          <button class="btn btn-del" onclick="delRow(this)">Remove</button>
+        </div></td>
+      </tr>`;
+    }
+
+    // When the role changes, re-check the tool boxes to the new role's baseline.
+    document.addEventListener('change', e => {
+      if (!e.target.classList.contains('role')) return;
+      const tr = e.target.closest('tr');
+      const base = baseline(e.target.value);
+      tr.querySelectorAll('input[data-tool]').forEach(cb => { cb.checked = base.has(cb.dataset.tool); });
+    });
+
+    function rowPayload(tr) {
+      const role = tr.querySelector('.role').value;
+      const base = baseline(role);
+      const add = [], remove = [];
+      tr.querySelectorAll('input[data-tool]').forEach(cb => {
+        const t = cb.dataset.tool;
+        if (cb.checked && !base.has(t)) add.push(t);
+        if (!cb.checked && base.has(t)) remove.push(t);
+      });
+      return {
+        email: tr.dataset.email,
+        role,
+        active: tr.querySelector('.active').checked,
+        tools_add: add,
+        tools_remove: remove,
+      };
+    }
+
+    async function load() {
+      const r = await fetch('/api/admin/users');
+      const d = await r.json();
+      const tbody = document.getElementById('rows');
+      if (!d.ok) { tbody.innerHTML = `<tr><td colspan="5" class="muted">Error: ${esc(d.error)}</td></tr>`; return; }
+      tbody.innerHTML = d.users.length ? d.users.map(renderRow).join('') : '<tr><td colspan="5" class="muted">No users yet.</td></tr>';
+    }
+
+    async function post(body) {
+      const r = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      return r.json();
+    }
+
+    async function saveRow(btn) {
+      const d = await post(rowPayload(btn.closest('tr')));
+      toast(d.ok ? 'Saved' : ('Error: ' + (d.error || 'failed')));
+    }
+
+    async function delRow(btn) {
+      const tr = btn.closest('tr');
+      if (!confirm(`Remove ${tr.dataset.email}? They will lose access immediately on next sign-in.`)) return;
+      const r = await fetch('/api/admin/users?email=' + encodeURIComponent(tr.dataset.email), { method: 'DELETE' });
+      const d = await r.json();
+      if (d.ok) { tr.remove(); toast('Removed'); } else { toast('Error: ' + (d.error || 'failed')); }
+    }
+
+    async function addUser() {
+      const email = document.getElementById('add-email').value.trim().toLowerCase();
+      const name  = document.getElementById('add-name').value.trim();
+      const role  = document.getElementById('add-role').value;
+      if (!email || !email.includes('@')) { toast('Enter a valid email'); return; }
+      const d = await post({ email, name, role, active: true, tools_add: [], tools_remove: [] });
+      if (d.ok) { document.getElementById('add-email').value = ''; document.getElementById('add-name').value = ''; await load(); toast('Added'); }
+      else { toast('Error: ' + (d.error || 'failed')); }
+    }
+
+    load();
+  </script>
+</body>
+</html>

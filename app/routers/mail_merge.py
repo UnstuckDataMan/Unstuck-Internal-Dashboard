@@ -12,8 +12,10 @@ import uuid
 from pathlib import Path
 
 import requests as http_req
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse
+
+from app import auth
 
 # ── Ensure mail_merge/utils is importable ─────────────────────────────────────
 _MM_DIR = Path(__file__).resolve().parents[2] / "mail_merge"
@@ -333,7 +335,7 @@ async def save_sender_profile(request: Request):
 
 # ── 6. Sender Profiles — DELETE ───────────────────────────────────────────────
 
-@router.delete("/api/merge/sender-profiles/{profile_name:path}")
+@router.delete("/api/merge/sender-profiles/{profile_name:path}", dependencies=[Depends(auth.require_admin)])
 async def delete_sender_profile(profile_name: str):
     if not _sb_configured():
         return JSONResponse(
@@ -432,7 +434,7 @@ async def sheets_status():
     return {"configured": is_configured()}
 
 
-@router.post("/api/merge/cleanup-drive")
+@router.post("/api/merge/cleanup-drive", dependencies=[Depends(auth.require_admin)])
 async def cleanup_drive():
     """Delete ALL spreadsheets from the service account's Drive to free quota."""
     from app.utils.google_sheets import is_configured, cleanup_service_account_drive

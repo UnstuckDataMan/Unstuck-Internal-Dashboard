@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in · Unstuck Agency</title>
+  <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+  <link rel="icon" type="image/png" href="/static/img/favicon-32x32.png" sizes="32x32">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gradient: linear-gradient(135deg, #180835 0%, #7c3aed 32%, #5b5ea6 62%, #e879f9 100%);
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+      --mono: "SF Mono", "Fira Code", "Roboto Mono", "Courier New", monospace;
+    }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+      background: #07041a;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100%; overflow: hidden;
+    }
+    .bg { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+    .blob { position: absolute; border-radius: 50%; }
+    .blob-1 { width: 640px; height: 640px; background: radial-gradient(circle, rgba(124,58,237,.5) 0%, transparent 70%); top: -16%; left: -12%; }
+    .blob-2 { width: 520px; height: 520px; background: radial-gradient(circle, rgba(232,121,249,.38) 0%, transparent 70%); bottom: -14%; right: -14%; }
+
+    .card {
+      position: relative; z-index: 1;
+      width: 100%; max-width: 400px; margin: 0 24px;
+      background: rgba(255,255,255,.09);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 26px; overflow: hidden;
+      box-shadow: 0 4px 28px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.10);
+    }
+    .card-bar { height: 5px; background: var(--gradient); opacity: .9; }
+    .card-body { padding: 40px 36px 38px; text-align: center; }
+    .logo { width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 22px; display: block;
+            -webkit-mask-image: radial-gradient(circle at 50% 50%, black 52%, transparent 80%);
+                    mask-image: radial-gradient(circle at 50% 50%, black 52%, transparent 80%); }
+    h1 { font-size: 24px; font-weight: 700; color: #fff; letter-spacing: -.025em; }
+    .sub { font-family: var(--mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+           color: rgba(255,255,255,.34); margin-top: 12px; margin-bottom: 30px; }
+
+    .gbtn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 11px;
+      width: 100%; padding: 13px 18px;
+      background: #fff; color: #1f1147; border: none; border-radius: 12px;
+      font-family: var(--font); font-size: 14.5px; font-weight: 600; cursor: pointer;
+      text-decoration: none; transition: transform .15s, box-shadow .15s;
+      box-shadow: 0 4px 16px rgba(0,0,0,.3);
+    }
+    .gbtn:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(124,58,237,.4); }
+    .gbtn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+
+    .hint { margin-top: 22px; font-size: 12px; color: rgba(255,255,255,.42); line-height: 1.6; }
+    .hint b { color: rgba(255,255,255,.72); }
+
+    .err {
+      margin-bottom: 24px; padding: 12px 14px;
+      background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.4);
+      border-radius: 12px; color: #fecaca; font-size: 13px; line-height: 1.5; text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <div class="bg" aria-hidden="true">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-bar"></div>
+    <div class="card-body">
+      <img src="/static/img/brand-icon.png" alt="Unstuck Agency" class="logo">
+      <h1>Unstuck Agency</h1>
+      <p class="sub">Internal Tools Dashboard</p>
+
+      {% if error %}
+        <div class="err">
+          {% if error == "not_provisioned" %}
+            Your Google account isn't set up for the dashboard yet. Ask an admin to add you.
+          {% elif error == "denied" %}
+            Sign-in is restricted to verified <b>@{{ allowed_domain }}</b> accounts.
+          {% elif error == "not_configured" %}
+            Google sign-in isn't configured on the server. Contact an admin.
+          {% elif error == "oauth_failed" %}
+            Something went wrong talking to Google. Please try again.
+          {% elif error == "bad_state" %}
+            Your sign-in session expired. Please try again.
+          {% else %}
+            Sign-in was cancelled or could not be completed. Please try again.
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <a class="gbtn" href="/auth/login" {% if not google_ready %}aria-disabled="true"{% endif %}>
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.71-1.57 2.68-3.89 2.68-6.62z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/>
+          <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
+        </svg>
+        Sign in with Google
+      </a>
+
+      <p class="hint">Restricted to <b>@{{ allowed_domain }}</b> accounts that have been granted access.</p>
+    </div>
+  </div>
+</body>
+</html>

@@ -12,4 +12,18 @@ services:
         sync: false   # set manually in Render dashboard
       - key: SUPABASE_ANON_KEY
         sync: false   # set manually in Render dashboard
-    healthCheckPath: /
+      # ── Auth / RBAC ──────────────────────────────────────────────────────────
+      - key: SESSION_SECRET        # random 32+ byte string; signs session cookies
+        sync: false
+      - key: ALLOWED_EMAIL_DOMAIN  # Google Workspace domain allowed to sign in
+        value: unstuck-agency.com
+      - key: APP_BASE_URL          # public https URL; OAuth redirect base
+        sync: false
+      - key: GOOGLE_CLIENT_ID      # reused from the Copy Bank export OAuth client
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Emergency rollback lever: set to "1" to disable all auth without a deploy.
+      # - key: AUTH_DISABLED
+      #   value: "1"
+    healthCheckPath: /healthz
