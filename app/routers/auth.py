@@ -132,6 +132,9 @@ async def auth_login(request: Request):
         prompt="select_account",
         hd=auth.allowed_domain(),          # hint Google to the Workspace domain
     )
+    # Persist the PKCE code_verifier so the callback can complete the token
+    # exchange (a fresh Flow there would otherwise generate a different one).
+    request.session["oauth_code_verifier"] = getattr(flow, "code_verifier", None)
     return RedirectResponse(auth_url, status_code=303)
 
 
@@ -153,6 +156,10 @@ async def auth_callback(request: Request, code: str = "", state: str = "", error
     try:
         flow = Flow.from_client_config(_client_config(), scopes=SCOPES,
                                        redirect_uri=_redirect_uri(request))
+        # Restore the PKCE code_verifier captured during /auth/login.
+        verifier = request.session.pop("oauth_code_verifier", None)
+        if verifier:
+            flow.code_verifier = verifier
         flow.fetch_token(code=code)
         claims = google_id_token.verify_oauth2_token(
             flow.credentials.id_token,
