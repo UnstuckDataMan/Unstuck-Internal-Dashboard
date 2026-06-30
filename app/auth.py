@@ -41,6 +41,7 @@ TOOLS: tuple[str, ...] = (
     "reply_bank",
     "bd_targeting",
     "campaigns",
+    "client_profiles",      # central client-profile manager
     "launch_checker",
     "targeting_checker",
     "gender",
@@ -63,6 +64,8 @@ ROUTE_TOOL_MAP: tuple[tuple[str, str], ...] = (
     ("/bd-targeting",                     "bd_targeting"),
     ("/api/bd-targeting",                 "bd_targeting"),
     ("/api/campaigns",                    "campaigns"),
+    ("/client-profiles",                  "client_profiles"),
+    ("/api/client-profiles",              "client_profiles"),
     ("/launch-checker",                   "launch_checker"),
     ("/api/launch-checker",               "launch_checker"),
     ("/targeting-checker",                "targeting_checker"),

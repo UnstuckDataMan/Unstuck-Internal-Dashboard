@@ -1,0 +1,53 @@
+{% if error %}
+<div class="err-box">{{ error }}</div>
+{% elif profiles %}
+<p class="result-meta" style="margin-bottom:16px">
+  <strong>{{ profiles | length }}</strong> client profile{{ "" if profiles | length == 1 else "s" }}
+</p>
+<div class="profiles-grid">
+  {% for p in profiles %}
+  <div class="profile-card{% if p.active is defined and not p.active %} is-archived{% endif %}"
+       style="{% if p.color %}--card-accent: {{ p.color }};{% endif %}">
+    <div class="profile-card-head">
+      <span class="profile-emoji">{{ p.emoji or "🏢" }}</span>
+      <div class="profile-id-block">
+        <div class="profile-name">{{ p.name }}</div>
+        <div class="profile-type">
+          {{ p.type or "client" }}{% if p.active is defined and not p.active %} · archived{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-meta">
+      {% if p.territories %}
+      <div class="meta-row"><span class="meta-k">Territories</span><span class="meta-v">{{ p.territories | join(", ") }}</span></div>
+      {% endif %}
+      {% if p.industries %}
+      <div class="meta-row"><span class="meta-k">Industries</span><span class="meta-v">{{ p.industries | join(", ") }}</span></div>
+      {% endif %}
+      {% if p.senders %}
+      <div class="meta-row"><span class="meta-k">Senders</span><span class="meta-v">{{ p.senders | join(", ") }}</span></div>
+      {% endif %}
+      {% if p.sender_emails %}
+      <div class="meta-row"><span class="meta-k">Inboxes</span><span class="meta-v">{{ p.sender_emails | length }} email{{ "" if p.sender_emails | length == 1 else "s" }}</span></div>
+      {% endif %}
+      {% if p.booking_link %}
+      <div class="meta-row"><span class="meta-k">Booking</span><span class="meta-v"><a href="{{ p.booking_link }}" target="_blank" rel="noopener noreferrer">link ↗</a></span></div>
+      {% endif %}
+    </div>
+
+    <div class="profile-card-actions">
+      <button type="button" class="btn btn-download profile-edit-btn" data-id="{{ p.id }}">Edit</button>
+      <button type="button" class="btn-delete"
+              hx-delete="/api/client-profiles/{{ p.id }}"
+              hx-target="#profiles-list"
+              hx-swap="innerHTML"
+              hx-confirm="Delete the profile for &quot;{{ p.name }}&quot;? This removes the client record. (DNC entries and campaign history are not deleted.)"
+              title="Delete profile">✕</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="result-meta" style="margin-top:8px; color: var(--text-2)">No client profiles yet — create your first one above.</p>
+{% endif %}

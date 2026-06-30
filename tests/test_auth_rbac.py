@@ -47,6 +47,9 @@ def test_effective_tools_unknown_role_is_empty():
     ("/api/copy-bank/approve",              "copy_bank"),
     ("/api/export/google/callback",         "copy_bank"),
     ("/api/campaigns/reset-stats",          "campaigns"),
+    ("/client-profiles",                    "client_profiles"),
+    ("/api/client-profiles",                "client_profiles"),
+    ("/api/client-profiles/backfill",       "client_profiles"),
     ("/api/normalize/download/abc",         "city"),
     ("/city-state",                         "city"),
     ("/api/gender",                         "gender"),
@@ -137,6 +140,24 @@ def test_viewer_blocked_from_dnc_tool_by_middleware(client, auth_on, monkeypatch
     assert r.status_code == 403
 
 
+def test_viewer_blocked_from_client_profiles(client, auth_on, monkeypatch):
+    _login_as(monkeypatch, "viewer")   # viewer lacks the client_profiles tool
+    r = client.get("/client-profiles", follow_redirects=False)
+    assert r.status_code == 403
+
+
+def test_sdr_allowed_into_client_profiles(client, auth_on, monkeypatch):
+    _login_as(monkeypatch, "sdr")      # staff bundle includes client_profiles
+    r = client.get("/client-profiles", follow_redirects=False)
+    assert r.status_code == 200
+
+
+def test_non_admin_blocked_from_profiles_backfill(client, auth_on, monkeypatch):
+    _login_as(monkeypatch, "sdr")      # has the tool, but backfill is admin-only
+    r = client.get("/api/client-profiles/backfill", follow_redirects=False)
+    assert r.status_code == 403
+
+
 def test_admin_allowed_into_admin_users(client, auth_on, monkeypatch, fake_sb):
     _login_as(monkeypatch, "admin")
     r = client.get("/api/admin/users", follow_redirects=False)
@@ -154,6 +175,7 @@ def test_index_hides_cards_for_viewer(client, auth_on, monkeypatch):
     html = client.get("/").text
     assert "Launch Checker" in html     # viewer has launch_checker
     assert "DNC & Merger" not in html   # viewer lacks dnc / mail_merge
+    assert "Client Profiles" not in html  # viewer lacks client_profiles
     assert "/admin/users" not in html   # not an admin → no admin link
 
 
@@ -162,3 +184,4 @@ def test_index_shows_admin_link_for_admin(client, auth_on, monkeypatch):
     html = client.get("/").text
     assert "/admin/users" in html
     assert "DNC & Merger" in html
+    assert "Client Profiles" in html

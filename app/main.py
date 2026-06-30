@@ -12,7 +12,7 @@ from app import auth
 from app.deps import templates
 from app.routers import (
     gender, city, dnc, reply_bank, mail_merge, copy_bank, copy_bank_export,
-    campaigns, launch_checker, targeting_checker, bd_targeting,
+    campaigns, launch_checker, targeting_checker, bd_targeting, profiles,
     auth as auth_router, admin,
 )
 
@@ -96,6 +96,7 @@ app.include_router(mail_merge.router)
 app.include_router(copy_bank.router)
 app.include_router(copy_bank_export.router)
 app.include_router(campaigns.router)
+app.include_router(profiles.router)
 app.include_router(launch_checker.router)
 app.include_router(targeting_checker.router)
 app.include_router(bd_targeting.router)

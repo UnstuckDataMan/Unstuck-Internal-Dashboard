@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+
+{% block title %}Client Profiles — Unstuck{% endblock %}
+{% block heading %}Client Profiles{% endblock %}
+
+{% block content %}
+<style>
+  /* Wider canvas — this page holds an editor plus a card grid */
+  .page-inner { max-width: 1040px; }
+
+  /* base.html only styles input[type=text]; bring select/textarea/color in line */
+  select,
+  textarea {
+    width: 100%;
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: var(--font);
+    color: var(--text);
+    outline: none;
+    transition: border-color .18s var(--ease), box-shadow .18s var(--ease), background .18s var(--ease);
+    -webkit-appearance: none;
+  }
+  textarea { resize: vertical; min-height: 64px; line-height: 1.55; }
+  select:hover,
+  textarea:hover { background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.18); }
+  select:focus,
+  textarea:focus { border-color: var(--border-focus); box-shadow: var(--sh-glow); background: rgba(255,255,255,.08); }
+  textarea::placeholder { color: var(--text-3); }
+
+  .field-hint { font-size: 11px; color: var(--text-3); margin-top: 6px; line-height: 1.5; }
+
+  .section-label {
+    font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-3); margin: 0 0 12px;
+  }
+
+  /* Colour input: small swatch picker next to the hex text field */
+  .color-row { display: flex; align-items: center; gap: 10px; }
+  .color-row input[type="text"] { flex: 1; }
+  input[type="color"] {
+    width: 42px; height: 42px; padding: 0; border: 1px solid var(--border);
+    border-radius: 11px; background: transparent; cursor: pointer; flex-shrink: 0;
+  }
+  input[type="color"]::-webkit-color-swatch-wrapper { padding: 3px; }
+  input[type="color"]::-webkit-color-swatch { border: none; border-radius: 8px; }
+
+  .editor-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+
+  /* ── Profiles grid ─────────────────────────────────────────── */
+  .profiles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .profile-card {
+    --card-accent: var(--purple);
+    position: relative;
+    background: rgba(255,255,255,.05);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px 18px 16px;
+    box-shadow: var(--sh-sm);
+    overflow: hidden;
+  }
+  .profile-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: var(--card-accent);
+  }
+  .profile-card.is-archived { opacity: .55; }
+  .profile-card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .profile-emoji {
+    width: 40px; height: 40px; flex-shrink: 0; border-radius: 11px;
+    display: flex; align-items: center; justify-content: center; font-size: 20px;
+    background: rgba(255,255,255,.06); border: 1px solid var(--border);
+  }
+  .profile-name { font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: -.01em; }
+  .profile-type { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; margin-top: 2px; }
+
+  .profile-meta { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; }
+  .meta-row { display: flex; gap: 10px; font-size: 12.5px; line-height: 1.45; }
+  .meta-k { flex: 0 0 76px; color: var(--text-3); text-transform: uppercase; font-size: 10px; letter-spacing: .06em; padding-top: 2px; }
+  .meta-v { flex: 1; color: var(--text-2); word-break: break-word; }
+  .meta-v a { color: #a78bfa; text-decoration: none; }
+  .meta-v a:hover { text-decoration: underline; }
+
+  .profile-card-actions { display: flex; align-items: center; gap: 8px; }
+  .profile-card-actions .btn-download { padding: 6px 16px; font-size: 12.5px; }
+
+  .btn-delete {
+    margin-left: auto;
+    width: 28px; height: 28px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--red-bdr); background: var(--red-bg); color: var(--red);
+    border-radius: 8px; font-size: 13px; cursor: pointer;
+    transition: background .15s var(--ease), transform .15s var(--ease);
+  }
+  .btn-delete:hover { background: rgba(248,113,113,.22); transform: translateY(-1px); }
+</style>
+
+<div class="page-header">
+  <span class="page-badge">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+    Central hub
+  </span>
+  <p class="page-sub">
+    One place to manage every client profile — name, branding, territories, industries, sender names and
+    sending inboxes. Saving syncs automatically to <strong>Copy Bank</strong>, <strong>Mail Merge</strong>
+    and the <strong>Campaigns</strong> dashboard.
+  </p>
+</div>
+
+<!-- ── Editor ──────────────────────────────────────────────────── -->
+<div class="editor-head">
+  <p class="section-label" id="editor-title" style="margin:0">New profile</p>
+</div>
+<div class="form-card">
+  <form id="profile-form"
+        hx-post="/api/client-profiles"
+        hx-target="#profiles-list"
+        hx-swap="innerHTML"
+        hx-indicator="#profile-spinner">
+    <!-- id is tracked in JS only (no name → never submitted); presence switches POST→PATCH -->
+    <input type="hidden" id="profile-id">
+
+    <div class="form-row">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Client name</label>
+        <input type="text" name="name" placeholder="e.g. Acme Corp" required />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Type</label>
+        <select name="type">
+          <option value="client">Client</option>
+          <option value="bizdev">Biz Dev (Unstuck)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row" style="margin-top:18px">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Emoji <span class="opt">card icon</span></label>
+        <input type="text" name="emoji" maxlength="4" placeholder="🏢" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Colour <span class="opt">card accent</span></label>
+        <div class="color-row">
+          <input type="text" name="color" placeholder="#7c3aed" />
+          <input type="color" id="profile-color-pick" value="#7c3aed" aria-label="Pick colour" />
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:18px; margin-bottom:0">
+      <label>Territories</label>
+      <input type="text" name="territories" placeholder="US, UK, AU, CA" />
+      <div class="field-hint">Comma-separated. Drives Copy Bank &amp; BD targeting.</div>
+    </div>
+
+    <div class="form-group" style="margin-top:18px; margin-bottom:0">
+      <label>Industries</label>
+      <input type="text" name="industries" placeholder="SaaS, PR, Media" />
+      <div class="field-hint">Comma-separated.</div>
+    </div>
+
+    <div class="form-group" style="margin-top:18px; margin-bottom:0">
+      <label>Sender names <span class="opt">display names</span></label>
+      <input type="text" name="senders" placeholder="Robyn, Glen, Leo" />
+      <div class="field-hint">Comma-separated. Shown on Copy Bank cards.</div>
+    </div>
+
+    <div class="form-group" style="margin-top:18px; margin-bottom:0">
+      <label>Sending inboxes <span class="opt">emails</span></label>
+      <textarea name="sender_emails" placeholder="robyn@acme.com&#10;glen@acme.com&#10;leo@acme.com"></textarea>
+      <div class="field-hint">One per line (or comma-separated). Synced to the Mail Merge sender profile named after this client.</div>
+    </div>
+
+    <div class="form-row" style="margin-top:18px">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Booking link <span class="opt">optional</span></label>
+        <input type="text" name="booking_link" placeholder="https://cal.com/acme" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Status</label>
+        <select name="active">
+          <option value="true">Active</option>
+          <option value="false">Archived</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:18px; margin-bottom:0">
+      <label>Notes <span class="opt">optional</span></label>
+      <textarea name="notes" placeholder="Anything the team should know about this client…"></textarea>
+    </div>
+
+    <!-- Inline error slot (router retargets here via HX-Retarget) -->
+    <div id="profile-error" style="margin-top:18px"></div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary" id="profile-submit">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        <span id="profile-submit-label">Create profile</span>
+      </button>
+      <button type="button" class="btn btn-download" id="profile-reset" style="display:none">Cancel edit</button>
+      <div id="profile-spinner" class="spinner htmx-indicator">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        Saving…
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- ── List ────────────────────────────────────────────────────── -->
+<p class="section-label" style="margin-top:30px">Profiles</p>
+<div id="profiles-list" hx-get="/api/client-profiles" hx-trigger="load" hx-swap="innerHTML">
+  <p class="result-meta" style="color: var(--text-3); margin-top:8px">Loading profiles…</p>
+</div>
+
+<script>
+(function () {
+  const form       = document.getElementById('profile-form');
+  const idEl       = document.getElementById('profile-id');
+  const submitBtn  = document.getElementById('profile-submit');
+  const resetBtn   = document.getElementById('profile-reset');
+  const titleEl    = document.getElementById('editor-title');
+  const labelEl    = document.getElementById('profile-submit-label');
+  const errSlot    = document.getElementById('profile-error');
+  const colorText  = form.elements['color'];
+  const colorPick  = document.getElementById('profile-color-pick');
+
+  function syncColorSwatch() {
+    const v = (colorText.value || '').trim();
+    if (/^#?[0-9a-fA-F]{6}$/.test(v)) colorPick.value = v[0] === '#' ? v : '#' + v;
+  }
+
+  function setCreateMode() {
+    idEl.value = '';
+    form.removeAttribute('hx-patch');
+    form.setAttribute('hx-post', '/api/client-profiles');
+    htmx.process(form);
+    labelEl.textContent = 'Create profile';
+    resetBtn.style.display = 'none';
+    titleEl.textContent = 'New profile';
+  }
+
+  function setEditMode(id) {
+    idEl.value = id;
+    form.removeAttribute('hx-post');
+    form.setAttribute('hx-patch', '/api/client-profiles/' + id);
+    htmx.process(form);
+    labelEl.textContent = 'Save changes';
+    resetBtn.style.display = '';
+    titleEl.textContent = 'Edit profile';
+  }
+
+  function fillForm(p) {
+    form.elements['name'].value          = p.name || '';
+    form.elements['type'].value          = p.type || 'client';
+    form.elements['territories'].value   = (p.territories || []).join(', ');
+    form.elements['industries'].value    = (p.industries || []).join(', ');
+    form.elements['senders'].value       = (p.senders || []).join(', ');
+    form.elements['sender_emails'].value = (p.sender_emails || []).join('\n');
+    form.elements['color'].value         = p.color || '';
+    form.elements['emoji'].value         = p.emoji || '';
+    form.elements['booking_link'].value  = p.booking_link || '';
+    form.elements['notes'].value         = p.notes || '';
+    form.elements['active'].value        = (p.active === false) ? 'false' : 'true';
+    syncColorSwatch();
+  }
+
+  // Edit — delegated because the list is re-rendered by HTMX
+  document.getElementById('profiles-list').addEventListener('click', function (e) {
+    const btn = e.target.closest('.profile-edit-btn');
+    if (!btn) return;
+    const id = btn.getAttribute('data-id');
+    fetch('/api/client-profiles/' + id, { headers: { 'HX-Request': 'true' } })
+      .then(r => r.json())
+      .then(p => {
+        if (p && !p.error) {
+          setEditMode(id);
+          fillForm(p);
+          errSlot.innerHTML = '';
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      })
+      .catch(() => {});
+  });
+
+  resetBtn.addEventListener('click', function () {
+    form.reset();
+    setCreateMode();
+    syncColorSwatch();
+    errSlot.innerHTML = '';
+  });
+
+  // After a successful create/update the router fires HX-Trigger: profilesChanged
+  document.body.addEventListener('profilesChanged', function () {
+    form.reset();
+    setCreateMode();
+    syncColorSwatch();
+    errSlot.innerHTML = '';
+  });
+
+  // Colour picker <-> hex text two-way sync
+  colorPick.addEventListener('input', function () { colorText.value = colorPick.value; });
+  colorText.addEventListener('input', syncColorSwatch);
+
+  setCreateMode();
+  syncColorSwatch();
+})();
+</script>
+{% endblock %}
