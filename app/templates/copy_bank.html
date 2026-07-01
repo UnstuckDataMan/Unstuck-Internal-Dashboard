@@ -2463,6 +2463,7 @@ function defaultContent() {
     email:    { subjects: [], variations: [{ body: '' }] },
     flyout:   { subjects: [], variations: [{ body: '' }] },
     linkedin: { steps: [{ body: '' }] },
+    chaser:   { steps: [{ body: '' }] },
   };
 }
 
@@ -2489,6 +2490,7 @@ function migrateContent(c) {
   }
   if (Array.isArray(c.flyout)) c.flyout = { subjects:[], variations: c.flyout.map(function(i){return{body:i.body||''};}) };
   if (Array.isArray(c.linkedin)) c.linkedin = { steps: c.linkedin.map(function(i){return{body:i.body||''};}) };
+  if (Array.isArray(c.chaser))   c.chaser   = { steps: c.chaser.map(function(i){return{body:i.body||''};}) };
   if (!c.email)             c.email    = { subjects:[], variations:[{body:''}] };
   if (!c.email.subjects)    c.email.subjects   = [];
   if (!c.email.variations)  c.email.variations = [{body:''}];
@@ -2497,6 +2499,8 @@ function migrateContent(c) {
   if (!c.flyout.variations) c.flyout.variations = [{body:''}];
   if (!c.linkedin)          c.linkedin = { steps:[{body:''}] };
   if (!c.linkedin.steps)    c.linkedin.steps    = [{body:''}];
+  if (!c.chaser)            c.chaser   = { steps:[{body:''}] };
+  if (!c.chaser.steps)      c.chaser.steps      = [{body:''}];
   return c;
 }
 
@@ -2571,8 +2575,8 @@ async function copyText(text, btn, label) {
 
 function getChData(key, ch) {
   const t = TEMPLATES[key];
-  if (!t) return ch==='linkedin' ? {steps:[]} : {subjects:[],variations:[]};
-  if (ch==='linkedin') return {steps:(t.linkedin&&t.linkedin.steps)||[]};
+  if (!t) return (ch==='linkedin'||ch==='chaser') ? {steps:[]} : {subjects:[],variations:[]};
+  if (ch==='linkedin'||ch==='chaser') return {steps:(t[ch]&&t[ch].steps)||[]};
   return {subjects:(t[ch]&&t[ch].subjects)||[],variations:(t[ch]&&t[ch].variations)||[]};
 }
 
@@ -2900,6 +2904,12 @@ function exportProfileCopy(p) {
         var body = (s && s.body || '').trim();
         if (body) rows.push([ter, indLabel(ind), 'LinkedIn', 'Step', i+1, body]);
       });
+      // Chaser steps
+      var chaserSteps = (t.chaser && t.chaser.steps) || [];
+      chaserSteps.forEach(function(s,i){
+        var body = (s && s.body || '').trim();
+        if (body) rows.push([ter, indLabel(ind), 'Chaser', 'Step', i+1, body]);
+      });
     });
   });
 
@@ -3186,6 +3196,15 @@ function renderTabs() {
     const isBizdev = activeProfile && activeProfile.type === 'bizdev';
     tabDefs = isBizdev ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']] : [['email','Email'],['linkedin','LinkedIn']];
   }
+  // Chaser is a built-in follow-up sequence channel shown on every profile,
+  // right after Email. Injected at render time (not stored per-profile) so it
+  // appears even for profiles with a custom channel list. slice() first so we
+  // never mutate activeProfile.channels.
+  if (!tabDefs.find(function(t){ return t[0]==='chaser'; })) {
+    const emailIdx = tabDefs.findIndex(function(t){ return t[0]==='email'; });
+    tabDefs = tabDefs.slice();
+    tabDefs.splice(emailIdx >= 0 ? emailIdx + 1 : tabDefs.length, 0, ['chaser','Chaser']);
+  }
   if (!tabDefs.find(function(t){ return t[0]===activeChannel; })) activeChannel = 'email';
   const container = document.getElementById('tabs-container');
   container.innerHTML = '';
@@ -3244,7 +3263,9 @@ function render() {
   const key    = currentKey();
   container.innerHTML = '';
   if (activeChannel === 'linkedin') {
-    renderStepsSection(container, getChData(key,'linkedin').steps, sender);
+    renderStepsSection(container, getChData(key,'linkedin').steps, sender, 'linkedin', 'LinkedIn Sequence');
+  } else if (activeChannel === 'chaser') {
+    renderStepsSection(container, getChData(key,'chaser').steps, sender, 'chaser', 'Chaser Sequence');
   } else {
     const d = getChData(key, activeChannel);
     renderSubjectsSection(container, d.subjects);
@@ -3311,8 +3332,10 @@ function renderVariationsSection(container, ch, variations, sender) {
   container.appendChild(section);
 }
 
-function renderStepsSection(container, steps, sender) {
-  const section = buildSection('LinkedIn Sequence','Copy all Steps');
+function renderStepsSection(container, steps, sender, channel, title) {
+  channel = channel || 'linkedin';
+  title   = title   || 'LinkedIn Sequence';
+  const section = buildSection(title,'Copy all Steps');
   const btn = section.querySelector('.copy-channel-btn');
   // LinkedIn steps do not get a sender sign-off (sender is for email/flyout only)
   const assembled = steps.map(function(s,i){
@@ -3324,11 +3347,11 @@ function renderStepsSection(container, steps, sender) {
     if (!hasAny) return;
     await copyText(assembled.filter(function(a){ return a.body; }).map(function(a){ return a.body; }).join('\n\n'), btn, 'Copy all Steps');
   });
-  if (!hasAny) section.appendChild(emptyEl('No LinkedIn steps yet — add one below.'));
+  if (!hasAny) section.appendChild(emptyEl('No steps yet — add one below.'));
   else assembled.forEach(function(a){
     if(a.body) section.appendChild(makeCard(
       a.label, a.body, a.body,
-      { key: currentKey(), channel: 'linkedin', type: 'step', idx: a.idx, rawValue: a.raw }
+      { key: currentKey(), channel: channel, type: 'step', idx: a.idx, rawValue: a.raw }
     ));
   });
   const addBtn = document.createElement('button'); addBtn.className = 'add-template-btn';
@@ -3351,7 +3374,7 @@ function getOrigVal(editInfo) {
   const orig = ORIG_TEMPLATES[editInfo.key] || {};
   if (editInfo.type === 'subject') return ((orig[editInfo.channel] && orig[editInfo.channel].subjects) || [])[editInfo.idx] || '';
   if (editInfo.type === 'variation') return (((orig[editInfo.channel] && orig[editInfo.channel].variations) || [])[editInfo.idx] || {}).body || '';
-  if (editInfo.type === 'step') return (((orig.linkedin && orig.linkedin.steps) || [])[editInfo.idx] || {}).body || '';
+  if (editInfo.type === 'step') return (((orig[editInfo.channel] && orig[editInfo.channel].steps) || [])[editInfo.idx] || {}).body || '';
   return '';
 }
 
@@ -3468,7 +3491,10 @@ function addNewEntry(type) {
     if (!d[ch]) d[ch] = { subjects: [], variations: [] };
     idx = d[ch].variations.length; d[ch].variations.push({ body: '' });
   } else if (type === 'step') {
-    editCh = 'linkedin'; idx = d.linkedin.steps.length; d.linkedin.steps.push({ body: '' });
+    editCh = ch;
+    if (!d[ch]) d[ch] = { steps: [] };
+    if (!d[ch].steps) d[ch].steps = [];
+    idx = d[ch].steps.length; d[ch].steps.push({ body: '' });
   }
 
   const editInfo = { key, channel: editCh, type, idx, rawValue: '', isNew: true };
@@ -3482,7 +3508,7 @@ function addNewEntry(type) {
     const t = (sec.querySelector('.channel-title') || {}).textContent || '';
     if (type === 'subject' && t === 'Subject Lines') targetSection = sec;
     else if (type === 'variation' && t.endsWith('Variations')) targetSection = sec;
-    else if (type === 'step' && t === 'LinkedIn Sequence') targetSection = sec;
+    else if (type === 'step' && t.endsWith('Sequence')) targetSection = sec;
   });
 
   if (targetSection) {
@@ -3503,8 +3529,8 @@ function cancelNewEntry(card, editInfo) {
       d[editInfo.channel].subjects.splice(editInfo.idx, 1);
     else if (editInfo.type === 'variation' && d[editInfo.channel] && d[editInfo.channel].variations)
       d[editInfo.channel].variations.splice(editInfo.idx, 1);
-    else if (editInfo.type === 'step' && d.linkedin && d.linkedin.steps)
-      d.linkedin.steps.splice(editInfo.idx, 1);
+    else if (editInfo.type === 'step' && d[editInfo.channel] && d[editInfo.channel].steps)
+      d[editInfo.channel].steps.splice(editInfo.idx, 1);
   }
   card.remove();
 }
@@ -3519,8 +3545,8 @@ function deleteEntry(editInfo) {
     if (d[editInfo.channel] && d[editInfo.channel].variations)
       d[editInfo.channel].variations.splice(editInfo.idx, 1);
   } else if (editInfo.type === 'step') {
-    if (d.linkedin && d.linkedin.steps)
-      d.linkedin.steps.splice(editInfo.idx, 1);
+    if (d[editInfo.channel] && d[editInfo.channel].steps)
+      d[editInfo.channel].steps.splice(editInfo.idx, 1);
   }
   dirtyContent = true;
   updateApprovalBtn();
@@ -4365,7 +4391,8 @@ function commitCardEdit(card, editInfo, val) {
     if (!d[editInfo.channel]) d[editInfo.channel] = { subjects: [], variations: [] };
     if (d[editInfo.channel].variations) d[editInfo.channel].variations[editInfo.idx] = { body: val };
   } else if (editInfo.type === 'step') {
-    if (d.linkedin && d.linkedin.steps) d.linkedin.steps[editInfo.idx] = { body: val };
+    if (!d[editInfo.channel]) d[editInfo.channel] = { steps: [] };
+    if (d[editInfo.channel].steps) d[editInfo.channel].steps[editInfo.idx] = { body: val };
   }
   editInfo.rawValue = val; // keep editInfo in sync for future reverts
   dirtyContent = true;
@@ -4409,7 +4436,7 @@ function revertCard(card, editInfo) {
       const v = ((orig[editInfo.channel] && orig[editInfo.channel].variations) || [])[editInfo.idx];
       origVal = (v && v.body) || '';
     } else if (editInfo.type === 'step') {
-      const s = (orig.linkedin && orig.linkedin.steps || [])[editInfo.idx];
+      const s = (orig[editInfo.channel] && orig[editInfo.channel].steps || [])[editInfo.idx];
       origVal = (s && s.body) || '';
     }
   }
@@ -4683,7 +4710,11 @@ function openExportScreen() {
   var defaultChs = (activeProfile.type === 'bizdev')
     ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']]
     : [['email','Email'],['linkedin','LinkedIn']];
-  var chs = activeProfile.channels || defaultChs;
+  var chs = (activeProfile.channels || defaultChs).slice();
+  if (!chs.find(function(c){ return c[0]==='chaser'; })) {
+    var _ei = chs.findIndex(function(c){ return c[0]==='email'; });
+    chs.splice(_ei >= 0 ? _ei + 1 : chs.length, 0, ['chaser','Chaser']);
+  }
   expState.channels = chs.map(function(c){ return c[0]; });
 
   // Sender
@@ -4774,7 +4805,8 @@ function _buildExpSections() {
   var defaultChs = (activeProfile && activeProfile.type === 'bizdev')
     ? [['email','Email'],['flyout','Fly-out'],['linkedin','LinkedIn']]
     : [['email','Email'],['linkedin','LinkedIn']];
-  var allChs = (activeProfile && activeProfile.channels) || defaultChs;
+  var allChs = ((activeProfile && activeProfile.channels) || defaultChs).slice();
+  if (!allChs.find(function(c){ return c[0]==='chaser'; })) allChs.push(['chaser','Chaser']);
 
   expState.territories.forEach(function(ter) {
     expState.industries.forEach(function(ind) {
@@ -4788,8 +4820,8 @@ function _buildExpSections() {
         var chLabel = (allChs.find(function(c){ return c[0] === chKey; }) || [chKey, chKey])[1];
         var subjects = [], bodies = [];
 
-        if (chKey === 'linkedin') {
-          bodies = ((data.linkedin && data.linkedin.steps) || [])
+        if (chKey === 'linkedin' || chKey === 'chaser') {
+          bodies = ((data[chKey] && data[chKey].steps) || [])
             .map(function(s){ return (s.body || '').trim(); })
             .filter(Boolean);
         } else {

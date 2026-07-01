@@ -188,7 +188,7 @@ def create_google_sheet(body: CreateSheetBody):
         for sec in body.sections:
             for i, s in enumerate(sec.subjects, 1):
                 rows.append([sec.territory, sec.industry, sec.channel, "Subject", i, s])
-            label = "Step" if sec.channel == "LinkedIn" else "Variation"
+            label = "Step" if sec.channel in ("LinkedIn", "Chaser") else "Variation"
             for i, b in enumerate(sec.bodies, 1):
                 rows.append([sec.territory, sec.industry, sec.channel, label, i, b])
 
