@@ -904,7 +904,7 @@
     }
     #profile-screen.visible { display: block; }
 
-    /* Profile screen topbar — sticky like a normal page header */
+    /* Profile screen topbar — fixed to viewport so it never scrolls away */
     .ps-topbar {
       background: rgba(8,8,18,.92);
       backdrop-filter: saturate(160%) blur(22px);
@@ -914,9 +914,11 @@
       display: flex;
       align-items: center;
       padding: 0 20px;
-      position: sticky;
+      position: fixed;
       top: 0;
-      z-index: 10;
+      left: 0;
+      right: 0;
+      z-index: 110;
     }
     .ps-topbar-title {
       flex: 1;
@@ -929,9 +931,9 @@
     }
     .ps-topbar-spacer { min-width: 120px; }
 
-    /* Profile screen body — plain block; centering handled by children's max-width + margin:auto */
+    /* Profile screen body — top padding = fixed topbar height (58px) + breathing room (24px) */
     .ps-body {
-      padding: 32px 20px;
+      padding: 82px 20px 32px;
       display: flex;
       flex-direction: column;
       align-items: center;
