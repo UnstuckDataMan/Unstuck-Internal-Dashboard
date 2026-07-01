@@ -4037,18 +4037,34 @@ async function approveCopy(approvedBy) {
   const btn = document.getElementById('approve-btn');
   btn.textContent = 'Publishing…'; btn.disabled = true;
 
-  // Approve every pending key for this profile
+  // Approve every pending key for this profile (only keys that actually have a pending row)
   var pendingKeys = Object.keys(PENDING_CACHE).filter(function(k){
     return keyBelongsToProfile(k, activeProfile);
   });
-  // Always include current key even if not in cache
-  var curKey = currentKey();
-  if (!pendingKeys.includes(curKey)) pendingKeys.push(curKey);
+
+  if (!pendingKeys.length) {
+    // No pending rows in cache — fetch live for current key as fallback
+    var curKey = currentKey();
+    try {
+      var liveRes = await fetch('/api/copy-bank/pending/' + encodeURIComponent(curKey));
+      var liveData = await liveRes.json();
+      if (liveData.pending) {
+        PENDING_CACHE[curKey] = liveData.pending;
+        pendingKeys = [curKey];
+      }
+    } catch(e) { /* non-fatal — will show error below */ }
+    if (!pendingKeys.length) {
+      showToast('No pending approval found — it may have already been approved.', true);
+      btn.textContent = 'Approve & Publish'; btn.disabled = false;
+      setNormalApprovalState();
+      return;
+    }
+  }
 
   var anyFailed = false;
   for (var pi = 0; pi < pendingKeys.length; pi++) {
     var k = pendingKeys[pi];
-    var content = TEMPLATES[k] || defaultContent();
+    var content = PENDING_CACHE[k] ? PENDING_CACHE[k].content : (TEMPLATES[k] || defaultContent());
     try {
       var res = await fetch('/api/copy-bank/approve', {
         method: 'POST',
@@ -4060,6 +4076,7 @@ async function approveCopy(approvedBy) {
         TEMPLATES[k] = migrateContent(JSON.parse(JSON.stringify(content)));
         ORIG_TEMPLATES[k] = JSON.parse(JSON.stringify(TEMPLATES[k]));
         delete PENDING_CACHE[k];
+        delete PENDING_APPLIED[k];
       } else {
         anyFailed = true;
         const errMsg = typeof data.error === 'object' ? JSON.stringify(data.error) : (data.error || 'Unknown');

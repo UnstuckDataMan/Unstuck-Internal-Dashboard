@@ -305,12 +305,15 @@ def approve_copy(body: ApproveBody):
 
     pending = rows[0]
 
-    # 2. Publish to copy_bank_templates — use reviewer's final content (may differ from original)
+    # 2. Publish to copy_bank_templates — always use the DB-stored pending content so
+    #    the approved version is exactly what the editor submitted, regardless of what
+    #    the client sends (guards against stale client-side TEMPLATES being published).
+    published_content = pending["content"]
     pub = http_req.post(
         f"{url}/rest/v1/copy_bank_templates",
         params={"on_conflict": "key"},
         headers=_sb_write_headers("resolution=merge-duplicates,return=minimal"),
-        json={"key": body.key, "content": body.content},
+        json={"key": body.key, "content": published_content},
         timeout=10,
     )
     if not pub.ok:
@@ -331,7 +334,7 @@ def approve_copy(body: ApproveBody):
                 "client_name":               pending["client_name"],
                 "territory":                 pending["territory"],
                 "industry":                  pending["industry"],
-                "content_snapshot":          body.content,
+                "content_snapshot":          published_content,
                 "previous_content_snapshot": pending.get("previous_content", {}),
                 "approved_by":               body.approved_by,
                 "requested_by":              pending.get("requested_by", ""),
