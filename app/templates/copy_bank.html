@@ -11,9 +11,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,600;12..96,700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
-  <!-- html2canvas — loaded explicitly so window.html2canvas is always available -->
+  <!-- html2canvas + jsPDF loaded explicitly for consistent PDF rendering -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
-  <!-- html2pdf.js — used by the Export → PDF feature -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <!-- html2pdf.js — kept for Google Sheets export plumbing -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -899,14 +900,13 @@
       position: fixed;
       inset: 0;
       z-index: 100;
-      flex-direction: column;
-      overflow: hidden;
+      overflow-y: auto;
     }
-    #profile-screen.visible { display: flex; }
+    #profile-screen.visible { display: block; }
 
-    /* Profile screen topbar */
+    /* Profile screen topbar — sticky like a normal page header */
     .ps-topbar {
-      background: rgba(8,8,18,.72);
+      background: rgba(8,8,18,.92);
       backdrop-filter: saturate(160%) blur(22px);
       -webkit-backdrop-filter: saturate(160%) blur(22px);
       border-bottom: 1px solid var(--border);
@@ -914,9 +914,9 @@
       display: flex;
       align-items: center;
       padding: 0 20px;
-      flex-shrink: 0;
-      position: relative;
-      z-index: 1;
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
     .ps-topbar-title {
       flex: 1;
@@ -929,17 +929,12 @@
     }
     .ps-topbar-spacer { min-width: 120px; }
 
-    /* Profile screen scrollable body */
+    /* Profile screen body — plain block; centering handled by children's max-width + margin:auto */
     .ps-body {
-      flex: 1;
-      overflow-y: auto;
+      padding: 32px 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      padding: 32px 20px;
-      position: relative;
-      z-index: 1;
     }
 
     .ps-logo {
@@ -2779,7 +2774,9 @@ function loadProfileViewState(profile) {
 function showProfileScreen() {
   saveProfileViewState();   // capture current selections before leaving
   activeProfile = null;
-  document.getElementById('profile-screen').classList.add('visible');
+  var ps = document.getElementById('profile-screen');
+  ps.classList.add('visible');
+  ps.scrollTop = 0;
   document.getElementById('main-header').style.display   = 'none';
   document.getElementById('tab-bar').style.display       = 'none';
   document.getElementById('main-view').style.display     = 'none';
@@ -4924,17 +4921,18 @@ function _addCanvasToPdf(pdf, canvas, pw, ph) {
   }
 }
 
-// ── PDF export: renders each section into its own small canvas to avoid the
-//    browser's ~16 384 px canvas-height limit (which causes blank white PDFs
-//    for profiles with many territory/industry/channel sections). ──────────────
+// ── PDF export ────────────────────────────────────────────────────────────────
+// Renders each logical block (header, subjects, each variation) as its own
+// html2canvas call at a pinned 750 px width, then flows blocks onto A4 pages
+// using a Y-cursor.  No canvas slicing → boxes are never cut; fixed render
+// width → font size is identical on every page.
 async function _onPdfBtnClick() {
   var statusEl = document.getElementById('exp-pdf-status');
   statusEl.textContent = 'Generating…'; statusEl.className = 'exp-status-msg';
 
-  // Reuse the existing (visible, properly styled) preview element so fonts
-  // and layout are guaranteed correct. Restore it when done.
   var preview      = document.getElementById('exp-pdf-preview');
-  var originalHtml = preview.innerHTML;
+  var origHtml     = preview.innerHTML;
+  var origStyle    = preview.getAttribute('style') || '';
 
   try {
     var sections = _buildExpSections();
@@ -4943,44 +4941,85 @@ async function _onPdfBtnClick() {
       return;
     }
 
+    var JsPDF = window.jspdf && window.jspdf.jsPDF;
+    if (!JsPDF) throw new Error('jsPDF not loaded — please refresh and try again');
+
     var profileName        = activeProfile ? activeProfile.name.replace(/[^a-z0-9]/gi, '_') : 'export';
     var profileNameDisplay = activeProfile ? activeProfile.name : '';
     var dateStr = new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'});
-    var pw = 210, ph = 297;
+
+    // Pin preview off-screen at a fixed width so every block renders identically
+    preview.style.cssText = [
+      'position:fixed', 'top:-9999px', 'left:0',
+      'width:750px', 'padding:0', 'min-height:0',
+      'background:#100d1e', 'overflow:visible'
+    ].join(';');
+
+    var pw = 210, ph = 297;   // A4 in mm
+    var MARGIN = 12;           // mm — top/bottom page margin
+    var GAP    = 3;            // mm — gap between successive blocks
+    var curY   = MARGIN;
     var h2cOpts = { scale:2, backgroundColor:'#100d1e', logging:false, useCORS:true };
+    var pdf = new JsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
 
-    // ── Page 1: cover title + first section ────────────────────────────────
-    preview.innerHTML =
-      '<div class="exp-p-title">'+escHtml(profileNameDisplay)+'</div>'+
-      '<div class="exp-p-subtitle">Copy Bank Export &mdash; '+escHtml(dateStr)+'</div>'+
-      _buildSectionBodyHtml(sections[0]);
+    // Fill the current page with the dark background colour
+    function _darkFill() {
+      pdf.setFillColor(16, 13, 30);
+      pdf.rect(0, 0, pw, ph, 'F');
+    }
+    _darkFill();
 
-    // Get the jsPDF instance by letting html2pdf render page 1 normally
-    var pdf = await html2pdf()
-      .set({ margin:[0,0,0,0], image:{type:'jpeg',quality:.95},
-             html2canvas:h2cOpts, jsPDF:{unit:'mm',format:'a4',orientation:'portrait'} })
-      .from(preview)
-      .toPdf()
-      .get('pdf');
-
-    // Fill dark colour at bottom of page 1 if shorter than A4
-    var cvs1 = await _renderToCanvas(preview, h2cOpts);
-    if (cvs1 && cvs1.width > 0) {
-      var imgH1 = cvs1.height * pw / cvs1.width;
-      if (imgH1 < ph) {
-        pdf.setPage(1);
-        pdf.setFillColor(16, 13, 30);
-        pdf.rect(0, imgH1, pw, ph - imgH1 + 0.5, 'F');
+    // Render html, place it on the page (new page if it doesn't fit)
+    async function place(html, forceNewPage) {
+      // Wrap with side padding so content matches the page margins
+      preview.innerHTML = '<div style="padding:0 38px">' + html + '</div>';
+      var cvs = await window.html2canvas(preview, h2cOpts);
+      if (!cvs || !cvs.width || !cvs.height) return;
+      var bh = cvs.height * pw / cvs.width;
+      if (forceNewPage || curY + bh > ph - MARGIN) {
+        pdf.addPage(); _darkFill(); curY = MARGIN;
       }
+      pdf.addImage(cvs.toDataURL('image/jpeg', 0.95), 'JPEG', 0, curY, pw, bh);
+      curY += bh + GAP;
     }
 
-    // ── Pages 2+: one section per page ─────────────────────────────────────
-    for (var i = 1; i < sections.length; i++) {
-      preview.innerHTML = _buildSectionBodyHtml(sections[i]);
-      var cvs = await _renderToCanvas(preview, h2cOpts);
-      if (cvs && cvs.width > 0 && cvs.height > 0) {
-        pdf.addPage();
-        _addCanvasToPdf(pdf, cvs, pw, ph);
+    for (var i = 0; i < sections.length; i++) {
+      var sec = sections[i];
+
+      // Section header (territory · industry · channel)
+      var hdr = '';
+      if (i === 0) {
+        hdr += '<div class="exp-p-title">' + escHtml(profileNameDisplay) + '</div>';
+        hdr += '<div class="exp-p-subtitle">Copy Bank Export &mdash; ' + escHtml(dateStr) + '</div>';
+      }
+      hdr += '<div class="exp-p-section-header">';
+      hdr += '<div class="exp-p-section-title">' + escHtml(sec.territory) + ' &mdash; ' + escHtml(sec.industry) + '</div>';
+      hdr += '<div class="exp-p-channel">' + escHtml(sec.channel) + '</div>';
+      hdr += '</div>';
+      // Each section starts on its own page (except the very first)
+      await place(hdr, i > 0);
+
+      // Subject lines
+      if (sec.subjects.length) {
+        var subHtml = '<div class="exp-p-block-label">Subject Lines</div>';
+        for (var si = 0; si < sec.subjects.length; si++) {
+          subHtml += '<div class="exp-p-subject">' + (si + 1) + '. ' + escHtml(sec.subjects[si]) + '</div>';
+        }
+        await place(subHtml, false);
+      }
+
+      // Variations — each rendered individually so page breaks never cut a box
+      for (var bi = 0; bi < sec.bodies.length; bi++) {
+        var vHtml = '';
+        if (bi === 0) vHtml += '<div class="exp-p-block-label">Variations</div>';
+        vHtml += '<div class="exp-p-variation">';
+        vHtml += '<div class="exp-p-var-label">Variation ' + (bi + 1) + '</div>';
+        var paras = sec.bodies[bi].split(/\n+/);
+        for (var pi = 0; pi < paras.length; pi++) {
+          if (paras[pi].trim()) vHtml += '<div class="exp-p-para">' + escHtml(paras[pi]) + '</div>';
+        }
+        vHtml += '</div>';
+        await place(vHtml, false);
       }
     }
 
@@ -4988,9 +5027,10 @@ async function _onPdfBtnClick() {
     statusEl.textContent = '✓ PDF downloaded'; statusEl.className = 'exp-status-msg ok';
     setTimeout(function(){ statusEl.textContent = ''; }, 4000);
   } catch(e) {
-    statusEl.textContent = 'Error: '+(e.message||String(e)); statusEl.className = 'exp-status-msg err';
+    statusEl.textContent = 'Error: ' + (e.message || String(e)); statusEl.className = 'exp-status-msg err';
   } finally {
-    preview.innerHTML = originalHtml;
+    preview.setAttribute('style', origStyle);
+    preview.innerHTML = origHtml;
   }
 }
 
