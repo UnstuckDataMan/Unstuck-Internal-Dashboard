@@ -4121,7 +4121,26 @@
         addTemplate('body');
       }
 
-      feedback.textContent = `✅ Loaded ${data.subjects.length} subject(s), ${data.bodies.length} body variation(s)`;
+      // Also pull the chaser follow-up (a separate 'chaser' sequence in Copy
+      // Bank) into the Chaser field. The merge sends a single chaser, so load
+      // the first step and note if the sequence has more.
+      let chaserNote = '';
+      try {
+        const chResp = await fetch(
+          `/api/copy-bank/templates/${encodeURIComponent(clientId)}/${encodeURIComponent(territory)}/${encodeURIComponent(industry)}?channel=chaser`
+        );
+        const chData  = await chResp.json();
+        const chSteps = (chData.bodies || []).filter(b => b && b.trim());
+        const chaserTa = $('mm-chaser-body');
+        if (chSteps.length && chaserTa) {
+          chaserTa.value = senderName ? chSteps[0].trimEnd() + '\n\n' + senderName : chSteps[0];
+          const sec = $('mm-chaser-section');
+          if (sec) sec.open = true;   // reveal the collapsed chaser section
+          chaserNote = chSteps.length > 1 ? `, chaser (step 1 of ${chSteps.length})` : ', chaser';
+        }
+      } catch(e) { /* chaser is optional — never block the main load */ }
+
+      feedback.textContent = `✅ Loaded ${data.subjects.length} subject(s), ${data.bodies.length} body variation(s)${chaserNote}`;
       feedback.style.color = 'var(--green, #10b981)';
     } catch(e) {
       feedback.textContent = '❌ Error loading copy.';

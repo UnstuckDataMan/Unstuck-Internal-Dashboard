@@ -102,12 +102,18 @@ def copy_bank_template(client_id: str, territory: str, industry: str, channel: s
 
     c = rows[0].get("content") or {}
 
-    # Select channel data — flyout only available for Biz Dev
-    ch_key = "flyout" if channel == "flyout" else "email"
-    ch     = c.get(ch_key) or {}
-
-    subjects = [s for s in (ch.get("subjects") or []) if s and s.strip()]
-    bodies   = [v["body"] for v in (ch.get("variations") or []) if v.get("body", "").strip()]
+    # LinkedIn and Chaser are ordered, body-only "steps" sequences; email and
+    # flyout have subject lines + body variations.
+    if channel in ("linkedin", "chaser"):
+        ch       = c.get(channel) or {}
+        subjects = []
+        bodies   = [s["body"] for s in (ch.get("steps") or []) if s.get("body", "").strip()]
+    else:
+        # flyout only available for Biz Dev; anything else falls back to email
+        ch_key   = "flyout" if channel == "flyout" else "email"
+        ch       = c.get(ch_key) or {}
+        subjects = [s for s in (ch.get("subjects") or []) if s and s.strip()]
+        bodies   = [v["body"] for v in (ch.get("variations") or []) if v.get("body", "").strip()]
     return {"subjects": subjects, "bodies": bodies}
 
 
