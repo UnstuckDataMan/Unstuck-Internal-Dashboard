@@ -23,6 +23,15 @@ logger = logging.getLogger(__name__)
 CHUNK_SIZE = 500
 
 
+def _next_working_day(from_date: _date) -> _date:
+    """Return the first Monday–Friday after from_date (skips weekends)."""
+    from datetime import timedelta
+    d = from_date + timedelta(days=1)
+    while d.weekday() >= 5:   # 5 = Saturday, 6 = Sunday
+        d += timedelta(days=1)
+    return d
+
+
 # ── Core per-campaign sync (shared with the manual endpoint) ──────────────────
 
 def sync_campaign_core(
@@ -73,16 +82,17 @@ def sync_campaign_core(
     # For every chased row (Chaser Sent? = TRUE) with no Chaser Date, stamp today.
     # Existing dates are kept so contacted_at always reflects the real send date.
     if sent_data:
-        today_str = _date.today().isoformat()
+        today_str      = _date.today().isoformat()
+        send_date_str  = _next_working_day(_date.today()).isoformat()
         sent_to_write:   list[tuple[int, str]] = []
         chaser_to_write: list[tuple[int, str]] = []
         for entry in sent_data:
             if not entry["sent_date"]:
-                entry["sent_date"] = today_str
-                sent_to_write.append((entry["row_num"], today_str))
+                entry["sent_date"] = send_date_str
+                sent_to_write.append((entry["row_num"], send_date_str))
             if entry.get("chaser_sent") and not entry.get("chaser_date"):
-                entry["chaser_date"] = today_str
-                chaser_to_write.append((entry["row_num"], today_str))
+                entry["chaser_date"] = send_date_str
+                chaser_to_write.append((entry["row_num"], send_date_str))
         if sent_to_write:
             try:
                 write_sent_dates(sheet_id, sent_to_write)
