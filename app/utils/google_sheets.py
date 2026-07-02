@@ -1472,7 +1472,7 @@ def _add_stats_sheet(sh, headers: list, has_chaser: bool) -> None:
         for i in range(N_WEEKS):
             cl = glet(i)
             if m_label == "Sends":
-                fml = f'=SUMPRODUCT(--({SENT}>={cl}$1),--({SENT}<{cl}$1+7))'
+                fml = f'=IF({cl}$1="","",SUMPRODUCT(--({SD}<>""),--({SENT}>={cl}$1),--({SENT}<{cl}$1+7)))'
             elif m_label == "Replies":
                 fml = f'=SUMPRODUCT(--({SENT}>={cl}$1),--({SENT}<{cl}$1+7),(--({LS}<>"")))'
             elif m_label == "Reply rate":
