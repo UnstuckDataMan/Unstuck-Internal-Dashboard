@@ -1493,6 +1493,9 @@ def _add_stats_sheet(sh, headers: list) -> None:
     stats_ws.format("A1:A13", bold)
     stats_ws.format("F2:F17", bold)
 
+    stats_ws.format(f"G1:{end_col}1",   {"numberFormat": {"type": "DATE", "pattern": "D MMM YY"}})
+    stats_ws.format(f"G10:{end_col}10", {"numberFormat": {"type": "DATE", "pattern": "MMM YY"}})
+
     pct_fmt = {"numberFormat": {"type": "PERCENT", "pattern": "0.00%"}}
     stats_ws.format("B5:D5", pct_fmt)   # Reply rate summary
     stats_ws.format("B7:D7", pct_fmt)   # Lead rate summary
