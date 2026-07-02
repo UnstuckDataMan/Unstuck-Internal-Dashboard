@@ -24,6 +24,7 @@ from app.utils.supabase import (
     sb_headers as _sb_headers,
     sb_configured as _sb_configured,
     parse_total as _parse_total,
+    pg_in_list as _pg_in_list,
 )
 
 router = APIRouter()
@@ -138,14 +139,15 @@ def _batch_query_dnc(client_id: str, values: list[str]) -> set[str]:
     matched: set[str] = set()
     for i in range(0, len(values), CHUNK_SIZE):
         chunk = values[i : i + CHUNK_SIZE]
-        val_filter = "(" + ",".join(chunk) + ")"
+        # Values come straight from an uploaded file — quote each one so a
+        # stray comma/paren can't split the in.() list (see pg_in_list).
         r = http_req.get(
             f"{SUPABASE_URL}/rest/v1/dnc_entries",
             headers=_sb_headers(),
             params={
                 "select":    "email",
                 "client_id": f"eq.{client_id}",
-                "email":     f"in.{val_filter}",
+                "email":     f"in.{_pg_in_list(chunk)}",
             },
             timeout=30,
         )
@@ -189,13 +191,10 @@ def _existing_in_table(
     existing: set[str] = set()
     for i in range(0, len(values), CHUNK_SIZE):
         chunk = values[i : i + CHUNK_SIZE]
-        quoted = ",".join(
-            '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"' for v in chunk
-        )
         params: list[tuple[str, str]] = [
             ("select",    "email"),
             ("client_id", f"eq.{client_id}"),
-            ("email",     f"in.({quoted})"),
+            ("email",     f"in.{_pg_in_list(chunk)}"),
         ]
         if extra_params:
             params.extend(extra_params)
@@ -221,12 +220,11 @@ def _fetch_contacted_matches(
     contacted: set[str] = set()
     for i in range(0, len(norm_emails), CHUNK_SIZE):
         chunk = norm_emails[i : i + CHUNK_SIZE]
-        email_filter = "(" + ",".join(chunk) + ")"
         params: list[tuple[str, str]] = [
             ("select",       "email"),
             ("client_id",    f"eq.{client_id}"),
             ("contacted_at", f"gte.{cutoff_date}"),
-            ("email",        f"in.{email_filter}"),
+            ("email",        f"in.{_pg_in_list(chunk)}"),
         ]
         r = http_req.get(
             f"{SUPABASE_URL}/rest/v1/contacted_prospects",
@@ -1061,18 +1059,20 @@ async def mark_contacted_as_dnc(
     if not _sb_configured():
         return HTMLResponse('<span class="dnc-flag-err">Supabase not configured</span>')
 
-    # Fetch email from the contacted_prospects row
+    # Fetch email from the contacted_prospects row — scoped to the stated
+    # client so an entry_id from another client can't be flagged under this one.
     try:
         r = http_req.get(
             f"{SUPABASE_URL}/rest/v1/contacted_prospects",
             headers=_sb_headers(),
-            params={"id": f"eq.{entry_id}", "select": "email"},
+            params={"id": f"eq.{entry_id}", "client_id": f"eq.{client_id}",
+                    "select": "email"},
             timeout=10,
         )
         r.raise_for_status()
         rows = r.json()
     except Exception as exc:
-        return HTMLResponse(f'<span class="dnc-flag-err">Error: {exc}</span>')
+        return HTMLResponse(f'<span class="dnc-flag-err">Error: {_html_escape(str(exc))}</span>')
 
     if not rows:
         return HTMLResponse('<span class="dnc-flag-err">Entry not found</span>')
@@ -1099,7 +1099,7 @@ async def mark_contacted_as_dnc(
             return HTMLResponse('<span class="dnc-flag-ok">Already on DNC</span>')
         r.raise_for_status()
     except Exception as exc:
-        return HTMLResponse(f'<span class="dnc-flag-err">DNC error: {exc}</span>')
+        return HTMLResponse(f'<span class="dnc-flag-err">DNC error: {_html_escape(str(exc))}</span>')
 
     return HTMLResponse('<span class="dnc-flag-ok">✓ Added to DNC</span>')
 
@@ -1140,13 +1140,35 @@ async def bulk_delete_contacted(
     ids:       List[str] = Form(default=[]),
     campaign:  str       = Form(""),   # pass through so table reloads with same campaign
 ):
+    # Every id must be a UUID — anything else (comma smuggling, paste errors)
+    # would corrupt the in.() filter and change the delete's scope.
+    def _is_uuid(v: str) -> bool:
+        try:
+            uuid.UUID(v)
+            return True
+        except (ValueError, AttributeError, TypeError):
+            return False
+
+    if ids and not all(_is_uuid(i) for i in ids):
+        return templates.TemplateResponse(
+            "partials/dnc_contacted_table.html",
+            {"request": request, "error": "Delete rejected: invalid row id in selection.",
+             "entries": [], "total": 0, "offset": 0, "page_size": PAGE_SIZE,
+             "has_prev": False, "has_next": False, "client_id": client_id,
+             "search": "", "date_from": "", "date_to": "", "campaign": campaign},
+        )
+
     if ids and _sb_configured():
-        id_filter = "(" + ",".join(ids) + ")"
         try:
             http_req.delete(
                 f"{SUPABASE_URL}/rest/v1/contacted_prospects",
                 headers=_sb_headers(),
-                params={"id": f"in.{id_filter}"},
+                params={
+                    "id":        f"in.{_pg_in_list(ids)}",
+                    # scope to the client whose table is displayed — a stray id
+                    # from another client can never be deleted from this view
+                    "client_id": f"eq.{client_id}",
+                },
                 timeout=15,
             ).raise_for_status()
         except Exception as e:
@@ -1209,7 +1231,9 @@ async def sync_from_sheet(request: Request):
     leads_added = interested_added = unsubscribes_added = 0
     dnc_rows: list[dict] = []
     for entry in leads:
-        email  = entry["email"]
+        # Normalise BEFORE storing: scrub lookups compare lowercased values,
+        # so a mixed-case DNC entry from a sheet would never match a scrub.
+        email  = str(entry["email"] or "").strip().lower()
         status = entry["status"]
 
         if status == "Lead" and "@" in email:

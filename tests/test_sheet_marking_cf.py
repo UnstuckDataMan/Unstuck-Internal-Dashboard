@@ -242,14 +242,19 @@ def test_sheet_formatting_requests(monkeypatch):
 
 # ── create_outreach_sheet helper-column injection ─────────────────────────────
 
-def test_create_outreach_sheet_adds_tracking_columns(monkeypatch, tmp_path):
+def test_create_outreach_sheet_writes_tracking_columns_through(monkeypatch, tmp_path):
+    """Tracking columns (Chaser Sent?/Chaser Date/Sent Date) are built into the
+    xlsx by excel_writer since the Stats-tab layout change; create_outreach_sheet
+    must write the workbook through to the Google Sheet verbatim."""
     import openpyxl
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Outreach List"
-    ws.append(["Send Status", "Recipient Email", "Chaser Body", "Lead Status",
-               "Sender Account"])
-    ws.append(["", "a@b.com", "bump", "", "s1@x.com"])
+    in_headers = ["Send Status", "Recipient Email", "Send Time", "Sent Date",
+                  "Chaser Body", "Chaser Sent?", "Chaser Date", "Lead Status",
+                  "Sender Account"]
+    ws.append(in_headers)
+    ws.append(["", "a@b.com", "09:00", "", "bump", "", "", "", "s1@x.com"])
     path = tmp_path / "m.xlsx"
     wb.save(str(path))
 
@@ -266,7 +271,8 @@ def test_create_outreach_sheet_adds_tracking_columns(monkeypatch, tmp_path):
 
     written = [u for u in fake_ws.updates if u[0] == "update"][0]
     headers = written[2][0]
-    assert headers[-1] == "Sent Date", "Sent Date appended for date tracking"
+    # Headers pass through unchanged — tracking columns come from excel_writer
+    assert headers == in_headers
     cb = headers.index("Chaser Body")
     assert headers[cb + 1] == "Chaser Sent?" and headers[cb + 2] == "Chaser Date"
     # Every data row padded to the same width

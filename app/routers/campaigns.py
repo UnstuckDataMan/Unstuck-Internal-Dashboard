@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as _date, datetime as _datetime, timedelta, timezone as _tz
+from html import escape as _html_escape
 
 import requests as http_req
 from fastapi import APIRouter, Depends, Query, Request
@@ -17,23 +18,12 @@ from app.utils.supabase import (
     sb_headers as _sb_headers,
     sb_configured as _sb_configured,
     parse_total as _parse_total,
+    pg_in_list as _pg_in_list,
 )
 
 router = APIRouter()
 
 CHUNK_SIZE = 500
-
-
-def _pg_in_list(values: list[str]) -> str:
-    """Build a PostgREST in.(...) literal with each value double-quoted.
-
-    Unquoted values break on commas/parens; double-quoting (with backslash
-    escapes) makes campaign names with any punctuation filter correctly.
-    """
-    quoted = ",".join(
-        '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"' for v in values
-    )
-    return f"({quoted})"
 
 
 def _count_contacted(
@@ -575,7 +565,7 @@ async def sync_campaign(request: Request, campaign_id: str):
         r.raise_for_status()
         rows = r.json()
     except Exception as exc:
-        return HTMLResponse(f'<span class="camp-sync-err">{exc}</span>')
+        return HTMLResponse(f'<span class="camp-sync-err">{_html_escape(str(exc))}</span>')
 
     if not rows:
         return HTMLResponse('<span class="camp-sync-err">Campaign not found.</span>')
@@ -600,7 +590,7 @@ async def sync_campaign(request: Request, campaign_id: str):
     )
 
     if result["error"]:
-        return HTMLResponse(f'<span class="camp-sync-err">{result["error"]}</span>')
+        return HTMLResponse(f'<span class="camp-sync-err">{_html_escape(str(result["error"]))}</span>')
 
     leads_added       = result["leads_added"]
     interested_added  = result["interested_added"]

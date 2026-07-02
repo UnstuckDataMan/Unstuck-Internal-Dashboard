@@ -8,6 +8,7 @@ default "9,21" → 09:00 and 21:00 UTC).
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import date as _date, datetime as _datetime, timezone as _tz
 
 import requests as http_req
@@ -16,6 +17,7 @@ from app.utils.supabase import (
     SUPABASE_URL,
     sb_headers as _sb_headers,
     sb_configured as _sb_configured,
+    pg_in_list as _pg_in_list,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,7 +36,50 @@ def _next_working_day(from_date: _date) -> _date:
 
 # ── Core per-campaign sync (shared with the manual endpoint) ──────────────────
 
+# One lock per campaign: the sync below is a non-atomic delete-then-insert on
+# contacted_prospects, so two overlapping syncs of the same campaign (scheduled
+# job + a user's Sync click, or a double-click) could interleave the delete and
+# insert phases and drop rows.  Overlapping callers skip instead of waiting —
+# the running sync already does the work they wanted.
+_sync_locks: dict[str, threading.Lock] = {}
+_sync_locks_guard = threading.Lock()
+
+
+def _campaign_lock(campaign_id: str) -> threading.Lock:
+    with _sync_locks_guard:
+        lock = _sync_locks.get(campaign_id)
+        if lock is None:
+            lock = _sync_locks[campaign_id] = threading.Lock()
+        return lock
+
+
 def sync_campaign_core(
+    campaign_id:     str,
+    sheet_id:        str,
+    client_id:       str,
+    campaign_name:   str,
+    total_prospects: int = 0,
+    completed_at:    str | None = None,
+) -> dict:
+    """Locked wrapper around _sync_campaign_core_unlocked — see its docstring."""
+    lock = _campaign_lock(str(campaign_id))
+    if not lock.acquire(blocking=False):
+        return {
+            "leads_added": 0, "interested_added": 0,
+            "unsubscribes_added": 0, "reply_count": 0,
+            "contacted_added": 0,
+            "error": "Sync already running for this campaign — skipped.",
+        }
+    try:
+        return _sync_campaign_core_unlocked(
+            campaign_id, sheet_id, client_id, campaign_name,
+            total_prospects=total_prospects, completed_at=completed_at,
+        )
+    finally:
+        lock.release()
+
+
+def _sync_campaign_core_unlocked(
     campaign_id:     str,
     sheet_id:        str,
     client_id:       str,
@@ -109,7 +154,9 @@ def sync_campaign_core(
     if leads:
         dnc_rows: list[dict] = []
         for entry in leads:
-            email  = entry["email"]
+            # Normalise BEFORE storing: scrub lookups compare lowercased
+            # values, so a mixed-case DNC entry would never match a scrub.
+            email  = str(entry["email"] or "").strip().lower()
             status = entry["status"]
 
             if status == "Lead" and "@" in email:
@@ -209,9 +256,16 @@ def sync_campaign_core(
     if sent_data:
         by_email: dict[str, dict] = {}
         for entry in sent_data:
-            cur = by_email.get(entry["email"])
+            # Normalise so contacted rows match the lowercased scrub lookups
+            # and the (client_id, email) unique constraint can't case-dupe.
+            norm = str(entry.get("email") or "").strip().lower()
+            if not norm:
+                continue
+            entry = dict(entry)
+            entry["email"] = norm
+            cur = by_email.get(norm)
             if cur is None:
-                by_email[entry["email"]] = dict(entry)
+                by_email[norm] = entry
             else:
                 if entry.get("sent_date") and (
                     not cur.get("sent_date") or entry["sent_date"] < cur["sent_date"]
@@ -228,7 +282,7 @@ def sync_campaign_core(
     if unique_sent:
         for i in range(0, len(unique_sent), CHUNK_SIZE):
             chunk = unique_sent[i : i + CHUNK_SIZE]
-            email_list = "(" + ",".join(f'"{e["email"]}"' for e in chunk) + ")"
+            email_list = _pg_in_list([e["email"] for e in chunk])
 
             # Remove all existing rows for these emails so the fresh auto_sync
             # rows carry the correct contacted_at date on every sync.

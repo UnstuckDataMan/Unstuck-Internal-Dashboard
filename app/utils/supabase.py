@@ -37,3 +37,18 @@ def parse_total(headers) -> int:
         except ValueError:
             pass
     return 0
+
+
+def pg_in_list(values: list[str]) -> str:
+    """Build a PostgREST in.(...) literal with each value double-quoted.
+
+    Unquoted values break on commas/parens: PostgREST URL-decodes the query
+    string before parsing the in.() operator, so a value containing a literal
+    comma (legal inside a quoted CSV cell) would be split into two separate
+    list items.  Double-quoting with backslash escapes makes any punctuation
+    filter correctly.
+    """
+    quoted = ",".join(
+        '"' + str(v).replace("\\", "\\\\").replace('"', '\\"') + '"' for v in values
+    )
+    return f"({quoted})"
