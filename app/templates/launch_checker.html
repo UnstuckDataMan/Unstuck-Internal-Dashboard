@@ -558,6 +558,7 @@
       .btn-submit { text-align: center; }
     }
   </style>
+  {% include "partials/_skeleton.html" %}
 </head>
 <body>
 
@@ -970,8 +971,8 @@ function setHomeFilter(client) {
 async function renderHome() {
   const ipList = document.getElementById('in-progress-list');
   const prList = document.getElementById('previous-list');
-  if (ipList) ipList.innerHTML = '<div class="list-empty">Loading…</div>';
-  if (prList) prList.innerHTML = '<div class="list-empty">Loading…</div>';
+  if (ipList) ipList.innerHTML = window.Skeleton.list(3);
+  if (prList) prList.innerHTML = window.Skeleton.list(2);
 
   _homeRecords = await getRecords();
   renderHomeCards(_homeRecords);
@@ -1295,7 +1296,7 @@ function closeRecords() { document.getElementById('modal-overlay').classList.rem
 
 async function renderRecordsTable() {
   const body = document.getElementById('modal-body');
-  body.innerHTML = '<div class="records-empty">Loading…</div>';
+  body.innerHTML = window.Skeleton.list(5);
   const records = (await getRecords()).sort((a,b)=>new Date(b.timestamp_started)-new Date(a.timestamp_started));
   if (!records.length) { body.innerHTML='<div class="records-empty">No records yet.</div>'; return; }
 

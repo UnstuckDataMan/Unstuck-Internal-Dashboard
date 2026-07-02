@@ -589,6 +589,7 @@
                              background: rgba(139,92,246,.18); }
     .adm-export-generate   { margin-top: 6px; }
   </style>
+  {% include "partials/_skeleton.html" %}
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
@@ -1321,7 +1322,7 @@ async function _pushAllToSupabase() {
 (async function initApp() {
   // Show loading spinner while fetching shared data
   const msgBox = document.getElementById('message-box');
-  if (msgBox) { msgBox.className = 'message-box'; msgBox.innerHTML = '<div class="app-loading">Loading…</div>'; }
+  if (msgBox) { msgBox.className = 'message-box'; msgBox.innerHTML = window.Skeleton.cards(3); }
 
   if (_sb) {
     // ── Load from Supabase (shared source of truth) ──

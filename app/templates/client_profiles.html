@@ -225,7 +225,11 @@
 <!-- ── List ────────────────────────────────────────────────────── -->
 <p class="section-label" style="margin-top:30px">Profiles</p>
 <div id="profiles-list" hx-get="/api/client-profiles" hx-trigger="load" hx-swap="innerHTML">
-  <p class="result-meta" style="color: var(--text-3); margin-top:8px">Loading profiles…</p>
+  <div class="skel-stack" role="status" aria-label="Loading profiles">
+    <div class="skel-card"><div class="skel-card-head"><span class="skel skel-circle" style="width:30px;height:30px;flex-shrink:0"></span><span class="skel skel-line md" style="margin:0"></span></div><span class="skel skel-line lg"></span><span class="skel skel-line sm"></span></div>
+    <div class="skel-card"><div class="skel-card-head"><span class="skel skel-circle" style="width:30px;height:30px;flex-shrink:0"></span><span class="skel skel-line md" style="margin:0"></span></div><span class="skel skel-line lg"></span><span class="skel skel-line sm"></span></div>
+    <div class="skel-card"><div class="skel-card-head"><span class="skel skel-circle" style="width:30px;height:30px;flex-shrink:0"></span><span class="skel skel-line md" style="margin:0"></span></div><span class="skel skel-line lg"></span><span class="skel skel-line sm"></span></div>
+  </div>
 </div>
 
 <script>
