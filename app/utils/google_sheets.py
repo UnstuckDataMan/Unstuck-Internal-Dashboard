@@ -1350,179 +1350,153 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _add_stats_sheet(sh, headers: list) -> None:
-    """Add a 'Stats' worksheet to an existing Google Sheet with live COUNTIFS formulas.
-
-    Args:
-        sh: gspread Spreadsheet object
-        headers: list of column header strings from the 'Outreach List' sheet
-    """
-    has_chaser   = "Chaser Body" in headers
-    has_schedule = "Sent Date" in headers
+    """Add a 'Stats' worksheet to an existing Google Sheet with live SUMPRODUCT formulas."""
+    has_chaser = "Chaser Body" in headers
 
     def _h_to_col(name: str, fallback: int = 1) -> str:
-        """Return the Sheets column letter for a header name."""
         try:
             return _col_letter(headers.index(name) + 1)
         except ValueError:
             return _col_letter(fallback)
 
-    SD_COL = _h_to_col("Sent Date", 3)           # C
-    CD_COL = _h_to_col("Chaser Date", 13)         # M (if has_chaser)
-    LS_COL = _h_to_col("Lead Status", 14)         # N
-    EM_COL = _h_to_col("Recipient Email", 6)      # F
+    sd_col = _h_to_col("Sent Date", 3)
+    ls_col = _h_to_col("Lead Status", 14)
+    ss_col = _h_to_col("Send Status", 1)
 
-    SD = f"'Outreach List'!{SD_COL}2:{SD_COL}10000"
-    CD = f"'Outreach List'!{CD_COL}2:{CD_COL}10000"
-    LS = f"'Outreach List'!{LS_COL}2:{LS_COL}10000"
-    EM = f"'Outreach List'!{EM_COL}2:{EM_COL}10000"
+    SD   = f"'Outreach List'!${sd_col}$2:${sd_col}$10000"
+    LS   = f"'Outreach List'!${ls_col}$2:${ls_col}$10000"
+    SS   = f"'Outreach List'!${ss_col}:${ss_col}"
+    SENT = f"IFERROR(DATEVALUE({SD}),{SD})"
 
-    T  = "TODAY()"
-    WK = f"({T}-WEEKDAY({T},2)+1)"
+    if has_chaser:
+        cd_col = _h_to_col("Chaser Date", 13)
+        cs_col = _h_to_col("Chaser Sent?", 12)
+        CD          = f"'Outreach List'!${cd_col}$2:${cd_col}$10000"
+        CS          = f"'Outreach List'!${cs_col}:${cs_col}"
+        CHASER_SENT = f"IFERROR(DATEVALUE({CD}),{CD})"
 
-    WEEK0 = (
-        f"MINIFS({SD},{SD},\"<>\")"
-        f"-WEEKDAY(MINIFS({SD},{SD},\"<>\"),2)+1"
-    )
+    ANCHOR = f"=('Outreach List'!{sd_col}2+1)-WEEKDAY('Outreach List'!{sd_col}2+1,2)+1"
+
+    def sp_sent(days):
+        return f'=SUMPRODUCT(--({SENT}>=TODAY()-{days}),--({SENT}<TODAY()))'
+
+    def sp_ls(days, cond):
+        return f'=SUMPRODUCT(--({SENT}>=TODAY()-{days}),--({SENT}<TODAY()),(--({LS}{cond})))'
+
+    def sp_chaser(days):
+        if has_chaser:
+            return f'=SUMPRODUCT(--({CHASER_SENT}>=TODAY()-{days}),--({CHASER_SENT}<TODAY()))'
+        return '=0'
 
     N_WEEKS  = 20
     N_MONTHS = 20
-
-    # ── Build the full grid as a list-of-rows for batch write ────────────
-    # We build a 2D array; blanks are "".
-    # Layout: 17 rows x (4 + 1 + 1 + N_WEEKS) columns
-    # Cols: A(1) B(2) C(3) D(4) | E(5) gap | F(6) label | G(7)+ data
-
     G = 7  # first data column index (1-based)
 
     def glet(i: int) -> str:
-        """Column letter for G+i offset (0-based)."""
         return _col_letter(G + i)
 
     rows = [[""] * (G + N_WEEKS - 1) for _ in range(17)]
 
     def s(r: int, c: int, v) -> None:
-        """Set cell at 1-based row r, 1-based col c."""
         rows[r - 1][c - 1] = v
 
-    # ── Summary headers (row 1, cols A-D) ────────────────────────────────
-    s(1, 1, "Metric"); s(1, 2, "Today"); s(1, 3, "This Week"); s(1, 4, "All Time")
+    # Row 1 summary headers
+    s(1, 1, "Date"); s(1, 2, "Last day"); s(1, 3, "Last 7 days"); s(1, 4, "Last 30 days")
 
-    # ── Summary metric rows (2-9) ─────────────────────────────────────────
+    # Rows 2-9: metrics
     SUMMARY = [
-        ("Contacted",
-            f"=COUNTIFS({SD},\">=\"&{T},{SD},\"<\"&{T}+1)",
-            f"=COUNTIFS({SD},\">=\"&{WK},{SD},\"<=\"&{T})",
-            f"=COUNTIF({SD},\"<>\")"),
-        ("Chasers",
-            f"=COUNTIFS({CD},\">=\"&{T},{CD},\"<\"&{T}+1)" if has_chaser else "=0",
-            f"=COUNTIFS({CD},\">=\"&{WK},{CD},\"<=\"&{T})"  if has_chaser else "=0",
-            f"=COUNTIF({CD},\"<>\")"                         if has_chaser else "=0"),
-        ("Replies",
-            f"=COUNTIFS({SD},\">=\"&{T},{SD},\"<\"&{T}+1,{LS},\"Reply\")",
-            f"=COUNTIFS({SD},\">=\"&{WK},{SD},\"<=\"&{T},{LS},\"Reply\")",
-            f"=COUNTIF({LS},\"Reply\")"),
-        ("Reply rate",   "=IFERROR(B4/B2,\"\")", "=IFERROR(C4/C2,\"\")", "=IFERROR(D4/D2,\"\")"),
-        ("Leads",
-            f"=COUNTIFS({SD},\">=\"&{T},{SD},\"<\"&{T}+1,{LS},\"Lead\")",
-            f"=COUNTIFS({SD},\">=\"&{WK},{SD},\"<=\"&{T},{LS},\"Lead\")",
-            f"=COUNTIF({LS},\"Lead\")"),
-        ("Lead rate",    "=IFERROR(B6/B2,\"\")", "=IFERROR(C6/C2,\"\")", "=IFERROR(D6/D2,\"\")"),
-        ("Interested",
-            f"=COUNTIFS({SD},\">=\"&{T},{SD},\"<\"&{T}+1,{LS},\"Interested\")",
-            f"=COUNTIFS({SD},\">=\"&{WK},{SD},\"<=\"&{T},{LS},\"Interested\")",
-            f"=COUNTIF({LS},\"Interested\")"),
-        ("Unsubscribes",
-            f"=COUNTIFS({SD},\">=\"&{T},{SD},\"<\"&{T}+1,{LS},\"Unsubscribe\")",
-            f"=COUNTIFS({SD},\">=\"&{WK},{SD},\"<=\"&{T},{LS},\"Unsubscribe\")",
-            f"=COUNTIF({LS},\"Unsubscribe\")"),
+        ("Contacted",    sp_sent(1),               sp_sent(7),               sp_sent(30)),
+        ("Chasers",      sp_chaser(1),              sp_chaser(7),             sp_chaser(30)),
+        ("Replies",      sp_ls(1, '<>""'),           sp_ls(7, '<>""'),         sp_ls(30, '<>""')),
+        ("Reply rate",   "=B4/B2",                  "=C4/C2",                 "=D4/D2"),
+        ("Leads",        sp_ls(1, '="Lead"'),        sp_ls(7, '="Lead"'),      sp_ls(30, '="Lead"')),
+        ("Lead rate",    "=B6/B2",                  "=C6/C2",                 "=D6/D2"),
+        ("Interested",   sp_ls(1, '="Interested"'),  sp_ls(7, '="Interested"'), sp_ls(30, '="Interested"')),
+        ("Unsubscribes", sp_ls(1, '="Unsubscribe"'), sp_ls(7, '="Unsubscribe"'), sp_ls(30, '="Unsubscribe"')),
     ]
-    for ri, row_def in enumerate(SUMMARY, 2):
-        label, f_today, f_week, f_all = row_def
-        s(ri, 1, label); s(ri, 2, f_today); s(ri, 3, f_week); s(ri, 4, f_all)
+    for ri, (label, f_day, f_7, f_30) in enumerate(SUMMARY, 2):
+        s(ri, 1, label); s(ri, 2, f_day); s(ri, 3, f_7); s(ri, 4, f_30)
 
-    # Row 11: % Contacted / % Chasered
-    s(11, 1, "% Contacted")
-    s(11, 2, f"=IFERROR(D2/COUNTIF({EM},\"*@*\"),\"\")")
-    s(12, 1, "% Chasered")
-    s(12, 2, "=IFERROR(D3/D2,\"\")" if has_chaser else "=0")
+    # Row 13: % contacted / % chasered
+    s(13, 1, "% contacted")
+    s(13, 2, f'=COUNTIF({SS},TRUE)/COUNTA({SS})')
+    if has_chaser:
+        s(13, 3, f'=COUNTIF({CS},TRUE)/(COUNTIF({SS},TRUE)-SUMPRODUCT(--(LEN({LS})>0)))')
 
-    # ── Weekly headers (row 1, cols F+) ──────────────────────────────────
+    # Weekly headers (row 1, cols F+)
     s(1, 6, "Weekly")
-    s(1, G, f"={WEEK0}")
+    s(1, G, ANCHOR)
     for i in range(1, N_WEEKS):
         s(1, G + i, f"={glet(i - 1)}1+7")
 
-    # ── Weekly metric rows (2-8) ──────────────────────────────────────────
-    WK_METRICS = ["Sends", "Replies", "Reply rate", "Leads", "Lead rate", "Interested", "Unsubscribes"]
-    for mi, m_label in enumerate(WK_METRICS):
+    # Weekly metric rows (2-8)
+    WK_LABELS = ["Sends", "Replies", "Reply rate", "Leads", "Lead rate", "Interested", "Unsubscribes"]
+    for mi, m_label in enumerate(WK_LABELS):
         row = mi + 2
         s(row, 6, m_label)
         for i in range(N_WEEKS):
             cl = glet(i)
             if m_label == "Sends":
-                fml = f"=COUNTIFS({SD},\">=\"&{cl}1,{SD},\"<\"&{cl}1+7)"
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$1),--({SENT}<{cl}$1+7))'
             elif m_label == "Replies":
-                fml = f"=COUNTIFS({SD},\">=\"&{cl}1,{SD},\"<\"&{cl}1+7,{LS},\"Reply\")"
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$1),--({SENT}<{cl}$1+7),(--({LS}<>"")))'
             elif m_label == "Reply rate":
-                fml = f"=IFERROR({cl}3/{cl}2,\"\")"
+                fml = f"={cl}3/{cl}2"
             elif m_label == "Leads":
-                fml = f"=COUNTIFS({SD},\">=\"&{cl}1,{SD},\"<\"&{cl}1+7,{LS},\"Lead\")"
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$1),--({SENT}<{cl}$1+7),(--({LS}="Lead")))'
             elif m_label == "Lead rate":
-                fml = f"=IFERROR({cl}5/{cl}2,\"\")"
+                fml = f"={cl}5/{cl}2"
             elif m_label == "Interested":
-                fml = f"=COUNTIFS({SD},\">=\"&{cl}1,{SD},\"<\"&{cl}1+7,{LS},\"Interested\")"
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$1),--({SENT}<{cl}$1+7),(--({LS}="Interested")))'
             else:
-                fml = f"=COUNTIFS({SD},\">=\"&{cl}1,{SD},\"<\"&{cl}1+7,{LS},\"Unsubscribe\")"
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$1),--({SENT}<{cl}$1+7),(--({LS}="Unsubscribe")))'
             s(row, G + i, fml)
 
-    # ── Monthly headers (row 10, cols F+) ────────────────────────────────
+    # Monthly headers (row 10, cols F+)
     s(10, 6, "Monthly")
-    s(10, G, f"={glet(0)}1")   # same anchor as first week
+    s(10, G, ANCHOR)
     for i in range(1, N_MONTHS):
         s(10, G + i, f"=EDATE({glet(i - 1)}10,1)")
 
-    # ── Monthly metric rows (11-17) ───────────────────────────────────────
-    MO_METRICS = ["Sends", "Replies", "Reply rate", "Leads", "Lead rate", "Interested", "Unsubscribes"]
-    for mi, m_label in enumerate(MO_METRICS):
+    # Monthly metric rows (11-17)
+    MO_LABELS = ["Sends", "Replies", "Reply rate", "Leads", "Lead rate", "Interested", "Unsubscribes"]
+    for mi, m_label in enumerate(MO_LABELS):
         row = mi + 11
         s(row, 6, m_label)
         for i in range(N_MONTHS):
             cl = glet(i)
-            next_date = f"{glet(i + 1)}10" if i < N_MONTHS - 1 else "DATE(2099,1,1)"
             if m_label == "Sends":
-                fml = f"=COUNTIFS({SD},\">=\"&{cl}10,{SD},\"<\"&{next_date})"
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$10),--({SENT}<EDATE({cl}$10,1)))'
             elif m_label == "Replies":
-                fml = f"=COUNTIFS({SD},\">=\"&{cl}10,{SD},\"<\"&{next_date},{LS},\"Reply\")"
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$10),--({SENT}<EDATE({cl}$10,1)),(--({LS}<>"")))'
             elif m_label == "Reply rate":
-                fml = f"=IFERROR({cl}12/{cl}11,\"\")"
+                fml = f"={cl}12/{cl}11"
             elif m_label == "Leads":
-                fml = f"=COUNTIFS({SD},\">=\"&{cl}10,{SD},\"<\"&{next_date},{LS},\"Lead\")"
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$10),--({SENT}<EDATE({cl}$10,1)),(--({LS}="Lead")))'
             elif m_label == "Lead rate":
-                fml = f"=IFERROR({cl}14/{cl}11,\"\")"
+                fml = f"={cl}14/{cl}11"
             elif m_label == "Interested":
-                fml = f"=COUNTIFS({SD},\">=\"&{cl}10,{SD},\"<\"&{next_date},{LS},\"Interested\")"
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$10),--({SENT}<EDATE({cl}$10,1)),(--({LS}="Interested")))'
             else:
-                fml = f"=COUNTIFS({SD},\">=\"&{cl}10,{SD},\"<\"&{next_date},{LS},\"Unsubscribe\")"
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$10),--({SENT}<EDATE({cl}$10,1)),(--({LS}="Unsubscribe")))'
             s(row, G + i, fml)
 
-    # ── Write to Google Sheet ─────────────────────────────────────────────
+    # Write to Google Sheet
     stats_ws = sh.add_worksheet(title="Stats", rows=20, cols=G + N_WEEKS)
     end_col   = _col_letter(G + N_WEEKS - 1)
     stats_ws.update(rows, f"A1:{end_col}17", value_input_option="USER_ENTERED")
 
-    # Bold header rows (row 1 summary + row 1 weekly + row 10 monthly)
     bold = {"textFormat": {"bold": True}}
-    stats_ws.format(f"A1:D1", bold)
+    stats_ws.format("A1:D1", bold)
     stats_ws.format(f"F1:{end_col}1", bold)
     stats_ws.format(f"F10:{end_col}10", bold)
-    stats_ws.format(f"A1:A12", bold)
-    stats_ws.format(f"F2:F17", bold)
+    stats_ws.format("A1:A13", bold)
+    stats_ws.format("F2:F17", bold)
 
-    # Percentage format for rate rows
     pct_fmt = {"numberFormat": {"type": "PERCENT", "pattern": "0.00%"}}
-    stats_ws.format("B5:D5", pct_fmt)   # Reply rate
-    stats_ws.format("B7:D7", pct_fmt)   # Lead rate
-    stats_ws.format("B11:B12", pct_fmt) # % Contacted / % Chasered
+    stats_ws.format("B5:D5", pct_fmt)   # Reply rate summary
+    stats_ws.format("B7:D7", pct_fmt)   # Lead rate summary
+    stats_ws.format("B13:C13", pct_fmt) # % contacted / % chasered
     for i in range(N_WEEKS):
         cl = glet(i)
         stats_ws.format(f"{cl}4:{cl}4", pct_fmt)  # weekly Reply rate
