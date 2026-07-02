@@ -125,9 +125,9 @@ def write_merge_output(
     sec_template = ['Subject Line', 'Email Body', 'A/B Variant']
     if has_schedule:
         sec_template += ['Chaser Send Time']
-    if has_chaser:
-        # Chaser Sent? and Chaser Date always follow Chaser Body in a fixed block
-        sec_template += ['Chaser Body', 'Chaser Sent?', 'Chaser Date']
+    # Always include chaser columns so column positions are fixed regardless of
+    # whether there are chasers — hidden below when has_chaser=False
+    sec_template += ['Chaser Body', 'Chaser Sent?', 'Chaser Date']
     # Section 5: tracking
     sec_tracking = ['Lead Status', 'Notes']
     # Section 6: grey divider + all original prospect columns from the uploaded file
@@ -308,6 +308,12 @@ def write_merge_output(
 
     # ── Auto-filter ────────────────────────────────────────────────────────
     ws.auto_filter.ref = f"A1:{get_column_letter(len(all_cols))}1"
+
+    # ── Hide chaser columns when there are no chasers ─────────────────────
+    if not has_chaser:
+        for col_name in ['Chaser Send Time', 'Chaser Body', 'Chaser Sent?', 'Chaser Date']:
+            if col_name in col_map:
+                ws.column_dimensions[get_column_letter(col_map[col_name])].hidden = True
 
     # ── Summary sheet ──────────────────────────────────────────────────────
     ws2 = wb.create_sheet('Summary')

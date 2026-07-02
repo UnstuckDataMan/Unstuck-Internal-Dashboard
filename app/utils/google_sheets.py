@@ -725,6 +725,12 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     data_rows = str_rows[1:]
     all_rows  = str_rows
 
+    # Detect whether this merge actually has chaser content (vs. placeholder cols)
+    _cb_idx   = headers.index("Chaser Body") if "Chaser Body" in headers else -1
+    has_chaser = _cb_idx >= 0 and any(
+        row[_cb_idx] for row in data_rows if _cb_idx < len(row)
+    )
+
     # Log detected column positions for debugging
     _div_idx = headers.index("__divider__") if "__divider__" in headers else -1
     _ls_idx  = headers.index("Lead Status") if "Lead Status" in headers else -1
@@ -763,9 +769,39 @@ def create_outreach_sheet(title: str, xlsx_path: str) -> dict:
     # ── Share: anyone with link can edit ─────────────────────────────────
     sh.share("", perm_type="anyone", role="writer")
 
+    # ── Hide chaser columns when there are no chasers ────────────────────
+    if not has_chaser:
+        _CHASER_COLS = ['Chaser Send Time', 'Chaser Body', 'Chaser Sent?', 'Chaser Date']
+        hide_requests = []
+        for col_name in _CHASER_COLS:
+            if col_name in headers:
+                col_0 = headers.index(col_name)
+                hide_requests.append({
+                    "updateDimensionProperties": {
+                        "range": {
+                            "sheetId":    gsheet.id,
+                            "dimension":  "COLUMNS",
+                            "startIndex": col_0,
+                            "endIndex":   col_0 + 1,
+                        },
+                        "properties": {"hiddenByUser": True},
+                        "fields": "hiddenByUser",
+                    }
+                })
+        if hide_requests:
+            try:
+                session = _authed_session()
+                session.post(
+                    f"{_SHEETS_BASE_URL}/{file_id}:batchUpdate",
+                    json={"requests": hide_requests},
+                )
+                print(f"[google_sheets] hid {len(hide_requests)} chaser column(s)")
+            except Exception as hide_err:
+                print(f"[google_sheets] column hide FAILED (non-fatal): {hide_err}")
+
     # ── Stats tab ─────────────────────────────────────────────────────────
     try:
-        _add_stats_sheet(sh, headers)
+        _add_stats_sheet(sh, headers, has_chaser)
     except Exception as stats_err:
         print(f"[google_sheets] Stats sheet FAILED (non-fatal): {stats_err}")
 
@@ -1349,9 +1385,8 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-def _add_stats_sheet(sh, headers: list) -> None:
+def _add_stats_sheet(sh, headers: list, has_chaser: bool) -> None:
     """Add a 'Stats' worksheet to an existing Google Sheet with live SUMPRODUCT formulas."""
-    has_chaser = "Chaser Body" in headers
 
     def _h_to_col(name: str, fallback: int = 1) -> str:
         try:
