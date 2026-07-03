@@ -3035,7 +3035,8 @@
         }
       }
       if (!cid) return;
-      // Load entries for this client
+      // Show a skeleton while the entries load, then fetch
+      document.getElementById('entries-table').innerHTML = window.Skeleton.table(7, 4);
       htmx.ajax('GET', `/api/dnc/entries?client_id=${encodeURIComponent(cid)}&offset=0`, {
         target:  '#entries-table',
         swap:    'innerHTML',
@@ -3043,6 +3044,17 @@
     }
 
     manageClient.addEventListener('change', onManageClientChange);
+
+    // Skeleton while search-as-you-type / pagination reloads the entries table.
+    // Scoped to declarative HTMX requests that target #entries-table (the 60s
+    // auto-refresh calls htmx.ajax directly and is intentionally left silent).
+    document.body.addEventListener('htmx:beforeRequest', function (e) {
+      const tgt = e.detail && e.detail.target;
+      const elt = e.detail && e.detail.elt;
+      if (!tgt || tgt.id !== 'entries-table') return;
+      if (!elt || !elt.hasAttribute || !elt.hasAttribute('hx-get')) return;  // skip programmatic ajax
+      tgt.innerHTML = window.Skeleton.table(7, 4);
+    });
 
     // After HTMX loads client options into manage select, keep hidden inputs in sync
     document.body.addEventListener('htmx:afterSettle', function (e) {
@@ -3085,6 +3097,7 @@
 
     function loadCampaigns(clientId) {
       if (!clientId) return;
+      document.getElementById('contacted-table').innerHTML = window.Skeleton.list(5);
       htmx.ajax('GET', `/api/dnc/contacted/campaigns?client_id=${encodeURIComponent(clientId)}`, {
         target: '#contacted-table',
         swap:   'innerHTML',
@@ -3149,6 +3162,7 @@
              </div>`;
           return;
         }
+        document.getElementById('campaigns-panel-inner').innerHTML = window.Skeleton.cards(3);
         const url = `/api/campaigns?client_id=${encodeURIComponent(cid)}`;
         htmx.ajax('GET', url, {
           target:    '#campaigns-panel-inner',
@@ -4254,6 +4268,13 @@
 <script>
 (function () {
 
+  // Sheet-derived strings (variant names etc.) are outsider-editable — the
+  // outreach sheets are shared by link — so escape anything we innerHTML.
+  function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   // ── Campaign tags ──────────────────────────────────────────────────── //
 
   window.openTagInput = function (campId, evt) {
@@ -4523,8 +4544,8 @@
     const hasWin  = winners.length === 1;
 
     let pillHtml;
-    if (isTie)       pillHtml = `<span class="cdash-ab-winner-pill ab-tie">Tie — ${winners.map(w => w.variant).join(' &amp; ')}</span>`;
-    else if (hasWin) pillHtml = `<span class="cdash-ab-winner-pill">★ Winner: ${winners[0].variant}</span>`;
+    if (isTie)       pillHtml = `<span class="cdash-ab-winner-pill ab-tie">Tie — ${winners.map(w => escHtml(w.variant)).join(' &amp; ')}</span>`;
+    else if (hasWin) pillHtml = `<span class="cdash-ab-winner-pill">★ Winner: ${escHtml(winners[0].variant)}</span>`;
     else             pillHtml = `<span class="cdash-ab-winner-pill ab-none">No responses yet</span>`;
 
     const rows = variants.map(v => {
@@ -4540,7 +4561,7 @@
       return `
         <div class="cdash-ab-row${isWinner ? ' cdash-ab-row-winner' : ''}">
           <div class="cdash-ab-variant-wrap">
-            <span class="cdash-ab-variant">${v.variant}</span>
+            <span class="cdash-ab-variant">${escHtml(v.variant)}</span>
             ${isWinner ? '<span class="cdash-ab-win-badge">★ Winner</span>' : ''}
           </div>
           <div class="cdash-ab-stats">

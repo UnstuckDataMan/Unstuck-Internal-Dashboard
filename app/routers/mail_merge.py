@@ -142,6 +142,11 @@ async def generate_merge(request: Request):
             {"error": "At least one sender email address is required"}, status_code=400
         )
 
+    # Same traversal guard as download_id in upload_to_sheets — file_id is
+    # client-supplied and must never resolve outside UPLOAD_DIR.
+    if "/" in file_id or "\\" in file_id or ".." in file_id:
+        return JSONResponse({"error": "Invalid file_id."}, status_code=400)
+
     filepath = UPLOAD_DIR / file_id
     if not filepath.exists():
         return JSONResponse(

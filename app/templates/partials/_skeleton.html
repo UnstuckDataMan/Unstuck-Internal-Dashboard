@@ -1,0 +1,115 @@
+{# ─────────────────────────────────────────────────────────────────────────────
+   Shared skeleton-loading system.  Include once in <head> on every page (base.html
+   covers all base-extending pages; standalone pages include it directly).
+
+   CSS classes are theme-neutral (literal rgba on the dark surface) so they work
+   regardless of each page's own :root variables.
+
+   JS builders (window.Skeleton) return ready-to-inject markup:
+     Skeleton.cards(n)         → n stacked card placeholders
+     Skeleton.table(rows,cols) → a table placeholder in a bordered wrap
+     Skeleton.list(n)          → n compact list-row placeholders
+     Skeleton.lines(n)         → n text-line placeholders
+   For server-rendered initial states, use the .skel-* classes directly in HTML.
+──────────────────────────────────────────────────────────────────────────── #}
+<style>
+  @keyframes skelShimmer { 0% { background-position: -180% 0; } 100% { background-position: 180% 0; } }
+  .skel {
+    display: block;
+    background: linear-gradient(90deg,
+      rgba(255,255,255,.05) 25%,
+      rgba(255,255,255,.12) 50%,
+      rgba(255,255,255,.05) 75%);
+    background-size: 200% 100%;
+    animation: skelShimmer 1.5s ease-in-out infinite;
+    border-radius: 8px;
+  }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+
+  .skel-stack { display: flex; flex-direction: column; }
+  .skel-line { height: 12px; border-radius: 6px; margin-bottom: 10px; }
+  .skel-line.sm { width: 35%; }
+  .skel-line.md { width: 60%; }
+  .skel-line.lg { width: 85%; }
+  .skel-line.xl { width: 100%; }
+  .skel-line:last-child { margin-bottom: 0; }
+  .skel-circle { border-radius: 50%; }
+  .skel-pill { height: 22px; width: 74px; border-radius: 999px; }
+
+  .skel-card {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 16px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+  }
+  .skel-card:last-child { margin-bottom: 0; }
+  .skel-card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+
+  .skel-wrap {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .skel-table { width: 100%; border-collapse: collapse; }
+  .skel-table td { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .skel-table tr:last-child td { border-bottom: none; }
+</style>
+<script>
+  window.Skeleton = (function () {
+    function card() {
+      return '<div class="skel-card" aria-hidden="true">'
+        +   '<div class="skel-card-head">'
+        +     '<span class="skel skel-circle" style="width:32px;height:32px;flex-shrink:0"></span>'
+        +     '<span class="skel skel-line md" style="margin:0"></span>'
+        +   '</div>'
+        +   '<span class="skel skel-line xl"></span>'
+        +   '<span class="skel skel-line lg"></span>'
+        +   '<span class="skel skel-line sm"></span>'
+        + '</div>';
+    }
+    function cards(n) {
+      n = n || 3;
+      var out = '';
+      for (var i = 0; i < n; i++) out += card();
+      return '<div class="skel-stack" role="status" aria-label="Loading">' + out + '</div>';
+    }
+    function table(rows, cols) {
+      rows = rows || 6; cols = cols || 4;
+      var widths = ['70%', '85%', '55%', '45%', '60%', '35%'];
+      var body = '';
+      for (var r = 0; r < rows; r++) {
+        var tds = '';
+        for (var c = 0; c < cols; c++) {
+          tds += '<td><span class="skel skel-line" style="margin:0;width:' + widths[c % widths.length] + '"></span></td>';
+        }
+        body += '<tr>' + tds + '</tr>';
+      }
+      return '<div class="skel-wrap" role="status" aria-label="Loading">'
+        +      '<table class="skel-table"><tbody>' + body + '</tbody></table></div>';
+    }
+    function list(n) {
+      n = n || 5;
+      var widths = ['60%', '45%', '70%', '50%', '65%'];
+      var out = '';
+      for (var i = 0; i < n; i++) {
+        out += '<div class="skel-card" style="padding:14px 18px;margin-bottom:10px">'
+          +      '<div style="display:flex;align-items:center;gap:12px">'
+          +        '<span class="skel skel-circle" style="width:28px;height:28px;flex-shrink:0"></span>'
+          +        '<span class="skel skel-line" style="margin:0;flex:1;max-width:' + widths[i % widths.length] + '"></span>'
+          +        '<span class="skel skel-pill" style="flex-shrink:0"></span>'
+          +      '</div></div>';
+      }
+      return '<div role="status" aria-label="Loading">' + out + '</div>';
+    }
+    function lines(n) {
+      n = n || 3;
+      var sizes = ['xl', 'lg', 'md', 'sm'];
+      var out = '';
+      for (var i = 0; i < n; i++) out += '<span class="skel skel-line ' + sizes[i % sizes.length] + '"></span>';
+      return '<div class="skel-stack" role="status" aria-label="Loading">' + out + '</div>';
+    }
+    return { card: card, cards: cards, table: table, list: list, lines: lines };
+  })();
+</script>

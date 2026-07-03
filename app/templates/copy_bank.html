@@ -2122,6 +2122,7 @@
       .logs-table th { white-space: nowrap; }
     }
   </style>
+  {% include "partials/_skeleton.html" %}
 </head>
 <body>
 
@@ -2159,10 +2160,12 @@
 
 
     <div class="profile-grid" id="profile-grid">
-      <div class="rp-state" style="grid-column:1/-1;padding:40px 0">
-        <div class="spinner"></div>
-        <span>Loading&hellip;</span>
-      </div>
+      <div class="skel-card"><div class="skel-card-head"><span class="skel skel-circle" style="width:34px;height:34px;flex-shrink:0"></span><span class="skel skel-line md" style="margin:0"></span></div><span class="skel skel-line lg"></span><span class="skel skel-line sm"></span></div>
+      <div class="skel-card"><div class="skel-card-head"><span class="skel skel-circle" style="width:34px;height:34px;flex-shrink:0"></span><span class="skel skel-line md" style="margin:0"></span></div><span class="skel skel-line lg"></span><span class="skel skel-line sm"></span></div>
+      <div class="skel-card"><div class="skel-card-head"><span class="skel skel-circle" style="width:34px;height:34px;flex-shrink:0"></span><span class="skel skel-line md" style="margin:0"></span></div><span class="skel skel-line lg"></span><span class="skel skel-line sm"></span></div>
+      <div class="skel-card"><div class="skel-card-head"><span class="skel skel-circle" style="width:34px;height:34px;flex-shrink:0"></span><span class="skel skel-line md" style="margin:0"></span></div><span class="skel skel-line lg"></span><span class="skel skel-line sm"></span></div>
+      <div class="skel-card"><div class="skel-card-head"><span class="skel skel-circle" style="width:34px;height:34px;flex-shrink:0"></span><span class="skel skel-line md" style="margin:0"></span></div><span class="skel skel-line lg"></span><span class="skel skel-line sm"></span></div>
+      <div class="skel-card"><div class="skel-card-head"><span class="skel skel-circle" style="width:34px;height:34px;flex-shrink:0"></span><span class="skel skel-line md" style="margin:0"></span></div><span class="skel skel-line lg"></span><span class="skel skel-line sm"></span></div>
     </div>
 
     <div class="ps-actions">
@@ -4131,7 +4134,7 @@ async function openApprovalLogs() {
   document.getElementById('profile-screen').classList.remove('visible');
   document.getElementById('approval-logs-panel').classList.add('visible');
   const body = document.getElementById('logs-body');
-  body.innerHTML = '<div class="rp-state"><div class="spinner"></div><span>Loading&hellip;</span></div>';
+  body.innerHTML = window.Skeleton.list(6);
   try {
     const res  = await fetch('/api/copy-bank/approval-logs');
     const data = await res.json();

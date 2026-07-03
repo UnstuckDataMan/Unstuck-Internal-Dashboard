@@ -109,7 +109,10 @@ SENT = [
 
 
 def test_sync_core_full_pipeline(fake_sb, monkeypatch):
-    today = date.today().isoformat()
+    # Back-fill stamps the NEXT working day, not today (commit e5a4084) —
+    # sheets are synced ahead of the send, so a blank Sent Date means the
+    # row will go out on the next business day.
+    send_day = auto_sync._next_working_day(date.today()).isoformat()
     written = _patch_sheet_reads(monkeypatch, LEADS, SENT)
 
     fake_sb.route("POST", "dnc_entries", lambda c: FakeResponse(201))
@@ -130,9 +133,9 @@ def test_sync_core_full_pipeline(fake_sb, monkeypatch):
                       "unsubscribes_added": 1, "reply_count": 1,
                       "contacted_added": 2, "error": ""}
 
-    # Date back-fill: missing Sent Date / Chaser Date stamped today
-    assert written["sent"]   == [(3, today)]
-    assert written["chaser"] == [(2, today)]
+    # Date back-fill: missing Sent Date / Chaser Date stamped next working day
+    assert written["sent"]   == [(3, send_day)]
+    assert written["chaser"] == [(2, send_day)]
 
     # DNC rows: Lead→domain (deduped), Interested/Unsub→email, Reply absent
     dnc_post = fake_sb.calls_to("POST", "dnc_entries")[0]
@@ -150,8 +153,8 @@ def test_sync_core_full_pipeline(fake_sb, monkeypatch):
     ins = fake_sb.calls_to("POST", "contacted_prospects")[0]["json"]
     by_email = {r["email"]: r for r in ins}
     assert by_email["lead1@acme.com"]["contacted_at"] == "2026-06-01"
-    assert by_email["lead1@acme.com"]["chaser_contacted_at"] == today  # back-filled
-    assert by_email["fresh@corp.com"]["contacted_at"] == today
+    assert by_email["lead1@acme.com"]["chaser_contacted_at"] == send_day  # back-filled
+    assert by_email["fresh@corp.com"]["contacted_at"] == send_day
     assert by_email["fresh@corp.com"]["chaser_contacted_at"] is None  # key present!
     assert all(r["campaign_name"] == "June Campaign" for r in ins)
     assert all(r["source"] == "auto_sync" for r in ins)
