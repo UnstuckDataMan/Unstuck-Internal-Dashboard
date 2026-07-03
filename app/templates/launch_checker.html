@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Drip Launch Checker — Unstuck Agency</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -29,7 +32,7 @@
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      font-family: 'Adobe Garamond Pro', 'EB Garamond', Garamond, 'Times New Roman', serif;
       background: var(--bg);
       background-image:
         radial-gradient(ellipse 65% 55% at 8% 12%, rgba(109,40,217,0.28) 0%, transparent 60%),
@@ -272,7 +275,7 @@
       transition: border-color 0.15s, box-shadow 0.15s;
     }
     input[type="text"]::placeholder { color: rgba(255,255,255,0.28); }
-    input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139,92,246,0.2); }
+    input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(139,92,246,.4), 0 4px 24px rgba(139,92,246,.25); }
     input[type="text"].field-err { border-color: var(--error); }
     .radio-group, .check-group { display: flex; gap: 8px; flex-wrap: wrap; }
     .radio-option, .check-option { flex: 1; min-width: 100px; }
@@ -296,11 +299,15 @@
     .field-err-msg.show { display: block; }
     .btn-primary {
       width: 100%; margin-top: 24px; padding: 12px 20px;
-      background: var(--accent); color: #fff; border: none;
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 50%, #e879f9 100%);
+      color: #fff; border: none;
       border-radius: var(--radius-sm); font-size: 15px; font-weight: 600;
-      cursor: pointer; transition: background 0.15s;
+      cursor: pointer;
+      box-shadow: 0 2px 12px rgba(124,58,237,.35);
+      transition: transform 0.2s, box-shadow 0.2s;
     }
-    .btn-primary:hover { background: var(--accent-dark); }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(124,58,237,.5); }
+    .btn-primary:active { transform: none; box-shadow: 0 2px 8px rgba(124,58,237,.25); }
 
     /* ── PROGRESS BAR ────────────────────────────── */
     .progress-wrap {
@@ -933,7 +940,9 @@ async function apiFetch(method, path, body) {
     return r.json();
   } catch (e) { console.error('API error:', e); return null; }
 }
-async function getRecords()          { return await apiFetch('GET',    '/api/launch-checker/records') || []; }
+// Returns null on fetch failure (distinct from a genuinely empty list) so
+// callers can show an error state instead of a misleading "no launches yet".
+async function getRecords()          { return await apiFetch('GET',    '/api/launch-checker/records'); }
 async function createRecord(rec)     { return await apiFetch('POST',   '/api/launch-checker/records', rec); }
 async function patchRecord(id, data) { return await apiFetch('PATCH',  `/api/launch-checker/records/${id}`, data); }
 async function deleteRecord(id)      { return await apiFetch('DELETE', `/api/launch-checker/records/${id}`); }
@@ -974,7 +983,14 @@ async function renderHome() {
   if (ipList) ipList.innerHTML = window.Skeleton.list(3);
   if (prList) prList.innerHTML = window.Skeleton.list(2);
 
-  _homeRecords = await getRecords();
+  const records = await getRecords();
+  if (records === null) {
+    const err = window.UiError('Could not load launches — check your connection.', renderHome);
+    if (ipList) ipList.innerHTML = err;
+    if (prList) prList.innerHTML = '';
+    return;
+  }
+  _homeRecords = records;
   renderHomeCards(_homeRecords);
 }
 
@@ -1094,7 +1110,7 @@ async function beginChecklist() {
 
 // ─── RESUME ──────────────────────────────────────────────────────────────────
 async function resumeLaunch(id) {
-  const records = await getRecords();
+  const records = await getRecords() || [];
   const rec = records.find(r=>r.id===id); if(!rec) return;
   state = {
     record_id: rec.id, launch_name: rec.launch_name||rec.client_name,
@@ -1255,12 +1271,30 @@ function autoSave() {
   if (!state.record_id) return;
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(async () => {
+    _saveTimer = null;
     await patchRecord(state.record_id, {
       completed_sub_steps: [...state.checked],
       timestamp_updated:   new Date().toISOString()
     });
   }, 600);
 }
+
+// Flush a pending debounced save if the user leaves before it fires —
+// checking boxes then hitting Back silently lost up to 600ms of changes.
+// sendBeacon can't set PATCH/headers, so use fetch keepalive (survives unload).
+window.addEventListener('beforeunload', () => {
+  if (!_saveTimer || !state.record_id) return;
+  clearTimeout(_saveTimer); _saveTimer = null;
+  fetch(`/api/launch-checker/records/${state.record_id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    keepalive: true,
+    body: JSON.stringify({
+      completed_sub_steps: [...state.checked],
+      timestamp_updated:   new Date().toISOString()
+    })
+  }).catch(() => {});
+});
 
 // ─── COMPLETE ────────────────────────────────────────────────────────────────
 async function completeCheck() {
@@ -1297,7 +1331,12 @@ function closeRecords() { document.getElementById('modal-overlay').classList.rem
 async function renderRecordsTable() {
   const body = document.getElementById('modal-body');
   body.innerHTML = window.Skeleton.list(5);
-  const records = (await getRecords()).sort((a,b)=>new Date(b.timestamp_started)-new Date(a.timestamp_started));
+  const fetched = await getRecords();
+  if (fetched === null) {
+    body.innerHTML = window.UiError('Could not load records — check your connection.', renderRecordsTable);
+    return;
+  }
+  const records = fetched.sort((a,b)=>new Date(b.timestamp_started)-new Date(a.timestamp_started));
   if (!records.length) { body.innerHTML='<div class="records-empty">No records yet.</div>'; return; }
 
   let html = `<table class="rec-table"><thead><tr>
@@ -1353,7 +1392,7 @@ function toggleRD(id, btn) {
 
 // ─── EXPORT CSV ──────────────────────────────────────────────────────────────
 async function exportCSV() {
-  const records = await getRecords(); if(!records.length){alert('No records to export.');return;}
+  const records = await getRecords() || []; if(!records.length){alert('No records to export.');return;}
   const hdrs = ['ID','Launch Name','User','Role','Client','Client Type','Channels','Steps Complete','Total Steps','Status','Started','Last Updated','Completed'];
   const rows = records.map(r=>{
     const total = CHECKS.filter(c=>c.channels.some(ch=>(r.channels||[]).includes(ch))&&c.clientTypes.includes(r.client_type||'new')).length;

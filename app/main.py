@@ -102,6 +102,17 @@ app.include_router(targeting_checker.router)
 app.include_router(bd_targeting.router)
 
 
+@app.exception_handler(404)
+async def not_found(request: Request, exc):
+    """Styled 404 for page navigations; API callers still get JSON."""
+    if request.url.path.startswith("/api") or "text/html" not in request.headers.get("accept", ""):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    return templates.TemplateResponse(
+        "404.html", {"request": request}, status_code=404,
+    )
+
+
 @app.get("/healthz")
 async def healthz():
     """Public, unauthenticated health check for Render."""

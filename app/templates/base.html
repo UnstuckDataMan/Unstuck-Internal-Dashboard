@@ -11,7 +11,7 @@
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,600;12..96,700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -34,7 +34,7 @@
       /* Text */
       --text:   #f0eeff;
       --text-2: rgba(230,225,255,.68);
-      --text-3: rgba(210,205,255,.38);
+      --text-3: rgba(210,205,255,.50);  /* was .38 — failed WCAG AA on small text */
 
       /* Status */
       --red:     #f87171;
@@ -47,8 +47,10 @@
       --ease-out:    cubic-bezier(0,0,.2,1);
 
       /* Typography */
-      --font-display: 'Bricolage Grotesque', sans-serif;
-      --font:         'DM Sans', sans-serif;
+      /* Adobe Garamond Pro when available (Adobe Fonts kit / local install);
+         EB Garamond webfont as the everywhere fallback */
+      --font-display: 'Adobe Garamond Pro', 'EB Garamond', Garamond, 'Times New Roman', serif;
+      --font:         'Adobe Garamond Pro', 'EB Garamond', Garamond, 'Times New Roman', serif;
 
       /* Shadows */
       --sh-sm:   0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4);
@@ -587,6 +589,16 @@
       background: var(--border);
       margin: 20px 0;
     }
+
+    /* ── Mobile ──────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .page       { padding: 28px 14px 60px; }
+      .form-card form { padding: 20px 16px 24px; }
+      .form-row   { grid-template-columns: 1fr; }
+      .topbar     { padding: 0 16px; }
+      .form-actions { flex-wrap: wrap; }
+      .btn        { padding-top: 12px; padding-bottom: 12px; } /* touch targets */
+    }
   </style>
   {% include "partials/_skeleton.html" %}
 </head>
@@ -622,6 +634,26 @@
   </main>
 
   <script>
+    // ── Double-submit guard ─────────────────────────────────────────────── //
+    // Any HTMX form: disable its submit button(s) while the request is in
+    // flight so slow scrubs/purges/uploads can't be fired twice.
+    document.addEventListener('htmx:beforeRequest', (e) => {
+      const src = e.detail && e.detail.elt;
+      if (!src || src.tagName !== 'FORM') return;
+      src.querySelectorAll('button[type="submit"]:not([disabled])').forEach(b => {
+        b.disabled = true;
+        b.dataset.hxLock = '1';
+      });
+    });
+    document.addEventListener('htmx:afterRequest', (e) => {
+      const src = e.detail && e.detail.elt;
+      if (!src || src.tagName !== 'FORM') return;
+      src.querySelectorAll('button[type="submit"][data-hx-lock]').forEach(b => {
+        b.disabled = false;
+        delete b.dataset.hxLock;
+      });
+    });
+
     // ── Custom Dropzone ──────────────────────────────────────────────────── //
     document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('.dropzone-wrap').forEach(wrap => {

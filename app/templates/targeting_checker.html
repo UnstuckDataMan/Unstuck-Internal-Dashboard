@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Targeting QA / Lead Scrubber</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&display=swap" rel="stylesheet">
 <style>
 /* ============================================================
    CUSTOM PROPERTIES
@@ -18,7 +21,7 @@
   --border-hi:   #2a2a48;
   --text:        #e0e0f0;
   --text-dim:    #8080a8;
-  --text-muted:  #50507a;
+  --text-muted:  #8a8ab8;  /* was #50507a — ~2.8:1 contrast, failed WCAG AA */
   --accent-a:    #7c3aed;
   --accent-b:    #6366f1;
 }
@@ -29,7 +32,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Adobe Garamond Pro', 'EB Garamond', Garamond, 'Times New Roman', serif;
   background: var(--bg);
   background-image: radial-gradient(ellipse at 20% 60%, #1a0f2e 0%, transparent 60%),
                     radial-gradient(ellipse at 80% 20%, #0f1030 0%, transparent 55%);
@@ -297,7 +300,7 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
 
 .add-inline-form { display: flex; align-items: center; gap: 5px; margin-top: 5px; }
 .add-inline-input { flex: 1; background: var(--bg-input); border: 1px solid var(--border-hi); border-radius: 4px; color: var(--text); font-size: 12px; padding: 4px 8px; outline: none; min-width: 0; }
-.add-inline-input:focus { border-color: var(--accent-a); box-shadow: 0 0 0 2px rgba(124,58,237,.12); }
+.add-inline-input:focus { border-color: var(--accent-a); box-shadow: 0 0 0 1px rgba(139,92,246,.4), 0 4px 24px rgba(139,92,246,.25); }
 .btn-add-confirm { background: none; border: none; cursor: pointer; color: #34d399; font-size: 14px; padding: 2px 4px; line-height: 1; }
 .btn-add-cancel  { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 2px 4px; line-height: 1; }
 .btn-add-confirm:hover { color: #6ee7b7; }

@@ -6,7 +6,7 @@
   <title>Reply Bank — Unstuck Agency</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&display=swap" rel="stylesheet">
   <style>
     :root {
       --purple:    #8b5cf6;
@@ -27,8 +27,8 @@
       --ease:        cubic-bezier(.25,.1,.25,1);
       --ease-spring: cubic-bezier(.34,1.56,.64,1);
       --ease-out:    cubic-bezier(0,0,.2,1);
-      --font-display: 'Bricolage Grotesque', sans-serif;
-      --font:         'DM Sans', sans-serif;
+      --font-display: 'Adobe Garamond Pro', 'EB Garamond', Garamond, 'Times New Roman', serif;
+      --font:         'Adobe Garamond Pro', 'EB Garamond', Garamond, 'Times New Roman', serif;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -131,6 +131,26 @@
     }
     .panel-section { padding: 16px; }
     .panel-section + .panel-section { border-top: 1px solid var(--border); }
+
+    /* Mobile: stack the filter panel above the content as a horizontal strip
+       (same pattern as Copy Bank) instead of squeezing a 270px column. */
+    @media (max-width: 768px) {
+      .main { flex-direction: column; }
+      .left-panel {
+        width: 100%;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: visible;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+      }
+      .left-panel::-webkit-scrollbar { height: 4px; }
+      .left-panel::-webkit-scrollbar-thumb { background: rgba(139,92,246,.35); border-radius: 2px; }
+      .panel-section { flex-shrink: 0; min-width: max-content; padding: 10px 14px; }
+      .panel-section + .panel-section { border-top: none; border-left: 1px solid var(--border); }
+    }
     .section-label {
       font-size: 10px; font-weight: 700; letter-spacing: 1px;
       text-transform: uppercase; color: var(--text-3); margin-bottom: 10px;

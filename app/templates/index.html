@@ -8,6 +8,9 @@
   <link rel="icon"             type="image/png"     href="/static/img/favicon-32x32.png" sizes="32x32">
   <link rel="icon"             type="image/png"     href="/static/img/favicon-16x16.png" sizes="16x16">
   <link rel="apple-touch-icon"                      href="/static/img/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -16,8 +19,7 @@
       --indigo:   #5b5ea6;
       --pink:     #e879f9;
       --gradient: linear-gradient(135deg, #180835 0%, #7c3aed 32%, #5b5ea6 62%, #e879f9 100%);
-      --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-              "Helvetica Neue", Arial, sans-serif;
+      --font: "Adobe Garamond Pro", "EB Garamond", Garamond, "Times New Roman", serif;
       --mono: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", "Courier New", monospace;
       --ease:     cubic-bezier(0.25, 0.1, 0.25, 1);
       --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1);
@@ -294,6 +296,12 @@
     }
     .tool-grid.g3 { grid-template-columns: repeat(3, 1fr); }
     .tool-grid.g2 { grid-template-columns: repeat(2, 1fr); }
+    @media (max-width: 720px) {
+      .tool-grid.g3 { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 480px) {
+      .tool-grid.g3, .tool-grid.g2 { grid-template-columns: 1fr; }
+    }
 
     /* ── Tool cards ── */
     .card-link { text-decoration: none; display: block; height: 100%; }

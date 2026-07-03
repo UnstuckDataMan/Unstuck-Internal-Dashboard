@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon"                      href="/static/img/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,600;12..96,700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&display=swap" rel="stylesheet">
   <!-- html2canvas + jsPDF loaded explicitly for consistent PDF rendering -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
@@ -52,8 +52,8 @@
       --ease-out:    cubic-bezier(0,0,.2,1);
 
       /* Typography */
-      --font-display: 'Bricolage Grotesque', sans-serif;
-      --font:         'DM Sans', sans-serif;
+      --font-display: 'Adobe Garamond Pro', 'EB Garamond', Garamond, 'Times New Roman', serif;
+      --font:         'Adobe Garamond Pro', 'EB Garamond', Garamond, 'Times New Roman', serif;
 
       /* Shadows */
       --sh-sm:   0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4);
@@ -595,7 +595,7 @@
     #unsaved-modal { display: none; }
     .unsaved-backdrop {
       position: fixed; inset: 0; background: rgba(0,0,0,.6);
-      z-index: 900; backdrop-filter: blur(4px);
+      z-index: 900; backdrop-filter: blur(8px);
     }
     .unsaved-dialog {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
@@ -789,7 +789,7 @@
     }
     .exp-pdf-preview-inner {
       background: #100d1e; padding: 36px 40px;
-      font-family: 'DM Sans', sans-serif; color: #f0eeff;
+      font-family: var(--font); color: #f0eeff;
       min-height: 400px;
     }
     .exp-pdf-preview-inner .exp-p-title {
@@ -1015,7 +1015,7 @@
       align-items: center;
       justify-content: center;
       font-size: 20px;
-      backdrop-filter: blur(4px);
+      backdrop-filter: blur(8px);
     }
     /* Card body (name + badge) */
     .profile-card-body {
@@ -1681,7 +1681,7 @@
     }
     #approver-dialog::backdrop {
       background: rgba(0,0,0,.6);
-      backdrop-filter: blur(4px);
+      backdrop-filter: blur(8px);
     }
     .approver-dialog-inner { padding: 28px; }
     .approver-dialog-title {
@@ -1764,7 +1764,7 @@
     }
     #requester-dialog::backdrop {
       background: rgba(0,0,0,.6);
-      backdrop-filter: blur(4px);
+      backdrop-filter: blur(8px);
     }
 
     /* Requester name input */
@@ -1984,9 +1984,12 @@
         /* remove sticky height calc */
         top: unset;
         -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
+        /* thin visible scrollbar — hiding it left no hint that more
+           filters sit off-screen (Industry/Niche was getting clipped) */
+        scrollbar-width: thin;
       }
-      .left-panel::-webkit-scrollbar { display: none; }
+      .left-panel::-webkit-scrollbar { height: 4px; }
+      .left-panel::-webkit-scrollbar-thumb { background: rgba(139,92,246,.35); border-radius: 2px; }
 
       .panel-section {
         padding: 10px 14px;
@@ -2646,7 +2649,8 @@ async function loadFromSupabase() {
     document.getElementById('main-header').style.display = 'flex';
     document.getElementById('tab-bar').style.display = 'flex';
     document.getElementById('main-view').style.display = 'flex';
-    document.getElementById('rp-scroll').innerHTML = '<div class="rp-state error">Failed to load: '+escHtml(e.message)+'</div>';
+    document.getElementById('rp-scroll').innerHTML =
+      window.UiError('Failed to load the Copy Bank: ' + e.message, function(){ location.reload(); });
   }
 }
 
@@ -3262,6 +3266,11 @@ function renderTabs() {
 function render() {
   const container = document.getElementById('rp-scroll');
   if (!dataReady) return;
+  // Commit any open inline editor before rebuilding — innerHTML='' below
+  // used to silently destroy in-progress textarea edits on every tab or
+  // filter switch.  Clicking Done commits to TEMPLATES (or cancels an
+  // empty new entry), so nothing the user typed is lost.
+  container.querySelectorAll('.copy-edit-done-btn').forEach(function(d){ d.click(); });
   const sender = document.getElementById('sender').value;
   const key    = currentKey();
   container.innerHTML = '';
@@ -4140,7 +4149,7 @@ async function openApprovalLogs() {
     const data = await res.json();
     renderLogsPanel(data.pending || [], data.logs || []);
   } catch(e) {
-    body.innerHTML = '<div class="rp-state error">Failed to load logs: ' + escHtml(e.message) + '</div>';
+    body.innerHTML = window.UiError('Failed to load logs: ' + e.message, openApprovalLogs);
   }
 }
 
@@ -5197,14 +5206,12 @@ async function _onGdocExportClick() {
   exportBtn.disabled = true; exportBtn.textContent = 'Creating document…';
   statusEl.textContent = ''; linkEl.style.display = 'none';
 
-  var sections = _buildExpSections();
-  if (!sections.length) {
-    statusEl.textContent = 'No content selected.'; statusEl.className = 'exp-status-msg err';
-    exportBtn.disabled = false; exportBtn.textContent = '↗ Export as Google Sheets';
-    return;
-  }
-
   try {
+    var sections = _buildExpSections();
+    if (!sections.length) {
+      statusEl.textContent = 'No content selected.'; statusEl.className = 'exp-status-msg err';
+      return;
+    }
     var res  = await fetch('/api/export/google/create-sheet', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -5223,9 +5230,10 @@ async function _onGdocExportClick() {
     }
   } catch(e) {
     statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'exp-status-msg err';
+  } finally {
+    // Always re-enable — a stuck "Creating document…" button was unrecoverable
+    exportBtn.disabled = false; exportBtn.textContent = '↗ Export as Google Sheets';
   }
-
-  exportBtn.disabled = false; exportBtn.textContent = '↗ Export as Google Sheets';
 }
 
 // ════════════════════════════════════════════════════════
