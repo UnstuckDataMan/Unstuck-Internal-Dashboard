@@ -1595,8 +1595,8 @@ def _add_stats_sheet(sh, headers: list, has_chaser: bool) -> None:
     stats_ws.format("A1:A16", bold)
     stats_ws.format("F2:F24", bold)
 
-    stats_ws.format(f"G1:{end_col}1",   {"numberFormat": {"type": "DATE", "pattern": "D MMM YY"}})
-    stats_ws.format(f"G14:{end_col}14", {"numberFormat": {"type": "DATE", "pattern": "MMM YY"}})
+    stats_ws.format(f"G1:{end_col}1",   {"numberFormat": {"type": "DATE", "pattern": "DD-MMM-YYYY"}})
+    stats_ws.format(f"G14:{end_col}14", {"numberFormat": {"type": "DATE", "pattern": "MMM-YYYY"}})
 
     pct_fmt = {"numberFormat": {"type": "PERCENT", "pattern": "0.00%"}}
     # Summary percent rows

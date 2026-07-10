@@ -511,7 +511,7 @@ def _write_stats_sheet(wb: Workbook, col_map: Dict[str, int], has_chaser: bool):
     for i in range(1, N_WEEKS):
         prev_cl = get_column_letter(G_COL + i - 1)
         c = ws.cell(row=1, column=G_COL + i, value=f'={prev_cl}1+7')
-        c.number_format = 'D MMM YY'
+        c.number_format = 'DD-MMM-YYYY'
         _h(c, DBLUE)
         ws.column_dimensions[get_column_letter(G_COL + i)].width = 11
 
@@ -566,7 +566,7 @@ def _write_stats_sheet(wb: Workbook, col_map: Dict[str, int], has_chaser: bool):
     for i in range(1, N_WEEKS):
         prev_cl = get_column_letter(G_COL + i - 1)
         c = ws.cell(row=14, column=G_COL + i, value=f'=EDATE({prev_cl}14,1)')
-        c.number_format = 'MMM YY'
+        c.number_format = 'MMM-YYYY'
         _h(c, DBLUE)
 
     # Monthly rows 15–24 (10 metrics, same set as weekly)
