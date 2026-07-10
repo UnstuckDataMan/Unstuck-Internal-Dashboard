@@ -19,6 +19,18 @@
     margin-bottom: 24px;
     animation: pageIn .5s var(--ease-out) .08s both;
   }
+  /* Mobile: the five tabs overflow the viewport — scroll them horizontally
+     with a visible thin scrollbar instead of clipping at the right edge. */
+  @media (max-width: 640px) {
+    .dnc-tabs {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .dnc-tabs::-webkit-scrollbar { height: 4px; }
+    .dnc-tabs::-webkit-scrollbar-thumb { background: rgba(139,92,246,.35); border-radius: 2px; }
+    .dnc-tab-btn { flex: 0 0 auto; white-space: nowrap; }
+  }
   .dnc-tab-btn {
     flex: 1;
     padding: 9px 16px;
@@ -520,8 +532,8 @@
   }
   #add-client-modal::backdrop {
     background: rgba(8, 8, 18, 0.76);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
   .modal-card {
     /* Normal block — no fixed positioning needed; dialog is centred by browser */
@@ -2227,6 +2239,9 @@
             <option value="Europe/London">UK (GMT / BST)</option>
             <option value="Europe/Paris">Central Europe — FR/DE/NL (CET / CEST)</option>
             <option value="Africa/Johannesburg">South Africa (SAST)</option>
+            <option value="Asia/Bangkok">Thailand (ICT)</option>
+            <option value="Asia/Kuala_Lumpur">Malaysia (MYT)</option>
+            <option value="Asia/Ho_Chi_Minh">Vietnam (ICT)</option>
           </select>
           <p class="mm-hint">Output Send Time shown in this timezone.</p>
         </div>

@@ -131,6 +131,26 @@
     }
     .panel-section { padding: 16px; }
     .panel-section + .panel-section { border-top: 1px solid var(--border); }
+
+    /* Mobile: stack the filter panel above the content as a horizontal strip
+       (same pattern as Copy Bank) instead of squeezing a 270px column. */
+    @media (max-width: 768px) {
+      .main { flex-direction: column; }
+      .left-panel {
+        width: 100%;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: visible;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+      }
+      .left-panel::-webkit-scrollbar { height: 4px; }
+      .left-panel::-webkit-scrollbar-thumb { background: rgba(139,92,246,.35); border-radius: 2px; }
+      .panel-section { flex-shrink: 0; min-width: max-content; padding: 10px 14px; }
+      .panel-section + .panel-section { border-top: none; border-left: 1px solid var(--border); }
+    }
     .section-label {
       font-size: 10px; font-weight: 700; letter-spacing: 1px;
       text-transform: uppercase; color: var(--text-3); margin-bottom: 10px;

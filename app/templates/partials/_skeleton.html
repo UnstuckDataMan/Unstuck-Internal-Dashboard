@@ -55,6 +55,41 @@
   .skel-table { width: 100%; border-collapse: collapse; }
   .skel-table td { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.06); }
   .skel-table tr:last-child td { border-bottom: none; }
+
+  /* ── Shared error state (message + retry) ─────────────────── */
+  .ui-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 36px 24px;
+    text-align: center;
+    background: rgba(248,113,113,.06);
+    border: 1px solid rgba(248,113,113,.25);
+    border-radius: 14px;
+  }
+  .ui-error-icon {
+    width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(248,113,113,.15);
+    border-radius: 50%;
+    font-size: 18px; font-weight: 700;
+    color: #f87171;
+  }
+  .ui-error-msg { font-size: 14px; color: #f8b4b4; line-height: 1.5; max-width: 420px; }
+  .ui-error-retry {
+    border: 1px solid rgba(248,113,113,.4);
+    background: rgba(248,113,113,.12);
+    color: #fca5a5;
+    border-radius: 10px;
+    padding: 8px 22px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background .18s ease, transform .18s ease;
+  }
+  .ui-error-retry:hover { background: rgba(248,113,113,.22); transform: translateY(-1px); }
 </style>
 <script>
   window.Skeleton = (function () {
@@ -112,4 +147,23 @@
     }
     return { card: card, cards: cards, table: table, list: list, lines: lines };
   })();
+
+  // Shared error state: UiError('message', retryFn?) → HTML string.  When a
+  // retry function is given it is stashed on window so the inline onclick can
+  // reach it from innerHTML-injected markup.
+  window.UiError = function (message, retryFn) {
+    var esc = String(message == null ? 'Something went wrong.' : message)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    var retry = '';
+    if (typeof retryFn === 'function') {
+      window.__uiErrorRetries = window.__uiErrorRetries || [];
+      var idx = window.__uiErrorRetries.push(retryFn) - 1;
+      retry = '<button type="button" class="ui-error-retry" ' +
+              'onclick="window.__uiErrorRetries[' + idx + ']()">Retry</button>';
+    }
+    return '<div class="ui-error" role="alert">' +
+           '<div class="ui-error-icon">!</div>' +
+           '<div class="ui-error-msg">' + esc + '</div>' + retry + '</div>';
+  };
 </script>

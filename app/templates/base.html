@@ -34,7 +34,7 @@
       /* Text */
       --text:   #f0eeff;
       --text-2: rgba(230,225,255,.68);
-      --text-3: rgba(210,205,255,.38);
+      --text-3: rgba(210,205,255,.50);  /* was .38 — failed WCAG AA on small text */
 
       /* Status */
       --red:     #f87171;
@@ -587,6 +587,16 @@
       background: var(--border);
       margin: 20px 0;
     }
+
+    /* ── Mobile ──────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .page       { padding: 28px 14px 60px; }
+      .form-card form { padding: 20px 16px 24px; }
+      .form-row   { grid-template-columns: 1fr; }
+      .topbar     { padding: 0 16px; }
+      .form-actions { flex-wrap: wrap; }
+      .btn        { padding-top: 12px; padding-bottom: 12px; } /* touch targets */
+    }
   </style>
   {% include "partials/_skeleton.html" %}
 </head>
@@ -622,6 +632,26 @@
   </main>
 
   <script>
+    // ── Double-submit guard ─────────────────────────────────────────────── //
+    // Any HTMX form: disable its submit button(s) while the request is in
+    // flight so slow scrubs/purges/uploads can't be fired twice.
+    document.addEventListener('htmx:beforeRequest', (e) => {
+      const src = e.detail && e.detail.elt;
+      if (!src || src.tagName !== 'FORM') return;
+      src.querySelectorAll('button[type="submit"]:not([disabled])').forEach(b => {
+        b.disabled = true;
+        b.dataset.hxLock = '1';
+      });
+    });
+    document.addEventListener('htmx:afterRequest', (e) => {
+      const src = e.detail && e.detail.elt;
+      if (!src || src.tagName !== 'FORM') return;
+      src.querySelectorAll('button[type="submit"][data-hx-lock]').forEach(b => {
+        b.disabled = false;
+        delete b.dataset.hxLock;
+      });
+    });
+
     // ── Custom Dropzone ──────────────────────────────────────────────────── //
     document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('.dropzone-wrap').forEach(wrap => {

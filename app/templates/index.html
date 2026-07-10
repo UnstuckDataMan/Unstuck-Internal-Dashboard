@@ -294,6 +294,12 @@
     }
     .tool-grid.g3 { grid-template-columns: repeat(3, 1fr); }
     .tool-grid.g2 { grid-template-columns: repeat(2, 1fr); }
+    @media (max-width: 720px) {
+      .tool-grid.g3 { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 480px) {
+      .tool-grid.g3, .tool-grid.g2 { grid-template-columns: 1fr; }
+    }
 
     /* ── Tool cards ── */
     .card-link { text-decoration: none; display: block; height: 100%; }
