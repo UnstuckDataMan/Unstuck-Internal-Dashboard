@@ -385,19 +385,7 @@ def _write_stats_sheet(wb: Workbook, col_map: Dict[str, int], has_chaser: bool):
     SENT        = f"IFERROR(DATEVALUE({SD}),{SD})"
     CHASER_SENT = f"IFERROR(DATEVALUE({CD}),{CD})"
 
-    # Monday of the week containing the first send date
     ANCHOR = f"=('Outreach List'!{sd_col}2+1)-WEEKDAY('Outreach List'!{sd_col}2+1,2)+1"
-
-    def sp_sent(days):
-        return f'=SUMPRODUCT(--({SENT}>=TODAY()-{days}),--({SENT}<TODAY()))'
-
-    def sp_ls(days, cond):
-        return f'=SUMPRODUCT(--({SENT}>=TODAY()-{days}),--({SENT}<TODAY()),(--({LS}{cond})))'
-
-    def sp_chaser(days):
-        if has_chaser:
-            return f'=SUMPRODUCT(--({CHASER_SENT}>=TODAY()-{days}),--({CHASER_SENT}<TODAY()))'
-        return '=0'
 
     # ── Style helpers ────────────────────────────────────────────────────
     NAVY  = '1E3A5F'
@@ -424,37 +412,84 @@ def _write_stats_sheet(wb: Workbook, col_map: Dict[str, int], has_chaser: bool):
         if pct:
             cell.number_format = '0.00%'
 
-    # ── Summary panel: columns A–D, rows 1–17 ───────────────────────────
+    # ── Summary panel: columns A–D, rows 1–16 ───────────────────────────
     for ci, (label, bg) in enumerate(
-        [('Date', NAVY), ('Last day', GREEN), ('Last 7 days', GREEN), ('Last 30 days', GREEN)], 1
+        [('Date', NAVY), ('Today', GREEN), ('Last 7 days', GREEN), ('Last 30 days', GREEN)], 1
     ):
         _h(ws.cell(row=1, column=ci, value=label), bg)
 
-    METRICS = [
-        ('Contacted',              sp_sent(1),                    sp_sent(7),                    sp_sent(30),                   False),
-        ('Chasers',                sp_chaser(1),                  sp_chaser(7),                  sp_chaser(30),                 False),
-        ('Total emails sent',      '=SUM(B2:B3)',                 '=SUM(C2:C3)',                 '=SUM(D2:D3)',                 False),
-        ('Replies',                sp_ls(1, '<>""'),               sp_ls(7, '<>""'),               sp_ls(30, '<>""'),             False),
-        ('Reply rate',             '=B5/B2',                      '=C5/C2',                      '=D5/D2',                      True),
-        ('Reply rate (per email)', '=B5/B4',                      '=C5/C4',                      '=D5/D4',                      True),
-        ('Leads',                  sp_ls(1, '="Lead"'),            sp_ls(7, '="Lead"'),            sp_ls(30, '="Lead"'),          False),
-        ('Lead rate',              '=B8/B2',                      '=C8/C2',                      '=D8/D2',                      True),
-        ('Interested',             sp_ls(1, '="Interested"'),      sp_ls(7, '="Interested"'),      sp_ls(30, '="Interested"'),    False),
-        ('Unsubscribes',           sp_ls(1, '="Unsubscribe"'),     sp_ls(7, '="Unsubscribe"'),     sp_ls(30, '="Unsubscribe"'),   False),
-    ]
+    # Row 2: Contacted — window includes today
+    _lbl(ws.cell(row=2, column=1, value='Contacted'))
+    _val(ws.cell(row=2, column=2, value=f'=SUMPRODUCT(--({SENT}>=TODAY()),--({SENT}<TODAY()+1))'))
+    _val(ws.cell(row=2, column=3, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-6),--({SENT}<TODAY()+1))'))
+    _val(ws.cell(row=2, column=4, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-29),--({SENT}<TODAY()+1))'))
 
-    for ri, (label, f_day, f_7, f_30, is_pct) in enumerate(METRICS, 2):
-        _lbl(ws.cell(row=ri, column=1, value=label))
-        for ci, fml in enumerate([f_day, f_7, f_30], 2):
-            _val(ws.cell(row=ri, column=ci, value=fml), pct=is_pct)
+    # Row 3: Chasers — same window as Contacted
+    _lbl(ws.cell(row=3, column=1, value='Chasers'))
+    if has_chaser:
+        _val(ws.cell(row=3, column=2, value=f'=SUMPRODUCT(--({CHASER_SENT}>=TODAY()),--({CHASER_SENT}<TODAY()+1))'))
+        _val(ws.cell(row=3, column=3, value=f'=SUMPRODUCT(--({CHASER_SENT}>=TODAY()-6),--({CHASER_SENT}<TODAY()+1))'))
+        _val(ws.cell(row=3, column=4, value=f'=SUMPRODUCT(--({CHASER_SENT}>=TODAY()-29),--({CHASER_SENT}<TODAY()+1))'))
+    else:
+        _val(ws.cell(row=3, column=2, value='=0'))
+        _val(ws.cell(row=3, column=3, value='=0'))
+        _val(ws.cell(row=3, column=4, value='=0'))
 
-    # Rows 15-17: campaign-wide % metrics
-    _lbl(ws.cell(row=15, column=1, value='% contacted'))
-    _val(ws.cell(row=15, column=2, value=f'=COUNTIF({SS},TRUE)/(COUNTIF({SS},TRUE)+COUNTIF({SS},FALSE))'), pct=True)
-    _lbl(ws.cell(row=16, column=1, value='Chasers %'))
-    _val(ws.cell(row=16, column=2, value=f'=COUNTIF({CS},TRUE)/(COUNTIF({CS},TRUE)+COUNTIF({CS},FALSE))'), pct=True)
-    _lbl(ws.cell(row=17, column=1, value='Total emails %'))
-    _val(ws.cell(row=17, column=2, value='=(B15+B16)/2'), pct=True)
+    # Row 4: Total emails sent
+    _lbl(ws.cell(row=4, column=1, value='Total emails sent'))
+    _val(ws.cell(row=4, column=2, value='=SUM(B2:B3)'))
+    _val(ws.cell(row=4, column=3, value='=SUM(C2:C3)'))
+    _val(ws.cell(row=4, column=4, value='=SUM(D2:D3)'))
+
+    # Row 5: Replies — window excludes today, starts one day earlier
+    _lbl(ws.cell(row=5, column=1, value='Replies'))
+    _val(ws.cell(row=5, column=2, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-1),--({SENT}<TODAY()),(--({LS}<>"")))'))
+    _val(ws.cell(row=5, column=3, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-7),--({SENT}<TODAY()),(--({LS}<>"")))'))
+    _val(ws.cell(row=5, column=4, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-30),--({SENT}<TODAY()),(--({LS}<>"")))'))
+
+    # Row 6: Reply rate
+    _lbl(ws.cell(row=6, column=1, value='Reply rate'))
+    _val(ws.cell(row=6, column=2, value='=B5/B2'), pct=True)
+    _val(ws.cell(row=6, column=3, value='=C5/C2'), pct=True)
+    _val(ws.cell(row=6, column=4, value='=D5/D2'), pct=True)
+
+    # Row 7: Reply rate (per email)
+    _lbl(ws.cell(row=7, column=1, value='Reply rate (per email)'))
+    _val(ws.cell(row=7, column=2, value='=B5/B4'), pct=True)
+    _val(ws.cell(row=7, column=3, value='=C5/C4'), pct=True)
+    _val(ws.cell(row=7, column=4, value='=D5/D4'), pct=True)
+
+    # Row 8: Leads — same window as Contacted
+    _lbl(ws.cell(row=8, column=1, value='Leads'))
+    _val(ws.cell(row=8, column=2, value=f'=SUMPRODUCT(--({SENT}>=TODAY()),--({SENT}<TODAY()+1),(--({LS}="Lead")))'))
+    _val(ws.cell(row=8, column=3, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-6),--({SENT}<TODAY()+1),(--({LS}="Lead")))'))
+    _val(ws.cell(row=8, column=4, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-29),--({SENT}<TODAY()+1),(--({LS}="Lead")))'))
+
+    # Row 9: Lead rate
+    _lbl(ws.cell(row=9, column=1, value='Lead rate'))
+    _val(ws.cell(row=9, column=2, value='=B8/B2'), pct=True)
+    _val(ws.cell(row=9, column=3, value='=C8/C2'), pct=True)
+    _val(ws.cell(row=9, column=4, value='=D8/D2'), pct=True)
+
+    # Row 10: Interested
+    _lbl(ws.cell(row=10, column=1, value='Interested'))
+    _val(ws.cell(row=10, column=2, value=f'=SUMPRODUCT(--({SENT}>=TODAY()),--({SENT}<TODAY()+1),(--({LS}="Interested")))'))
+    _val(ws.cell(row=10, column=3, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-6),--({SENT}<TODAY()+1),(--({LS}="Interested")))'))
+    _val(ws.cell(row=10, column=4, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-29),--({SENT}<TODAY()+1),(--({LS}="Interested")))'))
+
+    # Row 11: Unsubscribes
+    _lbl(ws.cell(row=11, column=1, value='Unsubscribes'))
+    _val(ws.cell(row=11, column=2, value=f'=SUMPRODUCT(--({SENT}>=TODAY()),--({SENT}<TODAY()+1),(--({LS}="Unsubscribe")))'))
+    _val(ws.cell(row=11, column=3, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-6),--({SENT}<TODAY()+1),(--({LS}="Unsubscribe")))'))
+    _val(ws.cell(row=11, column=4, value=f'=SUMPRODUCT(--({SENT}>=TODAY()-29),--({SENT}<TODAY()+1),(--({LS}="Unsubscribe")))'))
+
+    # Rows 14–16: campaign-wide % metrics (rows 12–13 are empty separators)
+    _lbl(ws.cell(row=14, column=1, value='% contacted'))
+    _val(ws.cell(row=14, column=2, value=f'=COUNTIF({SS},TRUE)/(COUNTIF({SS},TRUE)+COUNTIF({SS},FALSE))'), pct=True)
+    _lbl(ws.cell(row=15, column=1, value='Chasers %'))
+    _val(ws.cell(row=15, column=2, value=f'=COUNTIF({CS},TRUE)/(COUNTIF({CS},TRUE)+COUNTIF({CS},FALSE))'), pct=True)
+    _lbl(ws.cell(row=16, column=1, value='Total emails %'))
+    _val(ws.cell(row=16, column=2, value='=(B14+B15)/2'), pct=True)
 
     ws.column_dimensions['A'].width = 20
     ws.column_dimensions['B'].width = 12
@@ -463,10 +498,9 @@ def _write_stats_sheet(wb: Workbook, col_map: Dict[str, int], has_chaser: bool):
     ws.column_dimensions['E'].width = 3
 
     # ── Weekly: column F = labels, G+ = one column per week ─────────────
-    N_WEEKS  = 20
-    N_MONTHS = 20
-    F_COL = 6
-    G_COL = 7
+    N_WEEKS = 20
+    F_COL   = 6
+    G_COL   = 7
 
     _h(ws.cell(row=1, column=F_COL, value='Weekly'), NAVY)
 
@@ -481,7 +515,7 @@ def _write_stats_sheet(wb: Workbook, col_map: Dict[str, int], has_chaser: bool):
         _h(c, DBLUE)
         ws.column_dimensions[get_column_letter(G_COL + i)].width = 11
 
-    # rows 2-7, skip 8, then 9-12
+    # Weekly rows 2–11 (no skip — Leads at 8, Lead rate 9, Interested 10, Unsubscribes 11)
     WK_METRICS = [
         (2,  'Contacted',              False),
         (3,  'Chasers',                False),
@@ -489,11 +523,10 @@ def _write_stats_sheet(wb: Workbook, col_map: Dict[str, int], has_chaser: bool):
         (5,  'Replies',                False),
         (6,  'Reply rate',             True),
         (7,  'Reply rate (per email)', True),
-        # row 8 intentionally empty
-        (9,  'Leads',                  False),
-        (10, 'Lead rate',              True),
-        (11, 'Interested',             False),
-        (12, 'Unsubscribes',           False),
+        (8,  'Leads',                  False),
+        (9,  'Lead rate',              True),
+        (10, 'Interested',             False),
+        (11, 'Unsubscribes',           False),
     ]
     for row, m_label, is_pct in WK_METRICS:
         _lbl(ws.cell(row=row, column=F_COL, value=m_label))
@@ -517,7 +550,7 @@ def _write_stats_sheet(wb: Workbook, col_map: Dict[str, int], has_chaser: bool):
             elif m_label == 'Leads':
                 fml = f'=SUMPRODUCT(--({SENT}>={cl}$1),--({SENT}<{cl}$1+7),(--({LS}="Lead")))'
             elif m_label == 'Lead rate':
-                fml = f'={cl}9/{cl}2'
+                fml = f'={cl}8/{cl}2'
             elif m_label == 'Interested':
                 fml = f'=SUMPRODUCT(--({SENT}>={cl}$1),--({SENT}<{cl}$1+7),(--({LS}="Interested")))'
             else:
@@ -527,33 +560,55 @@ def _write_stats_sheet(wb: Workbook, col_map: Dict[str, int], has_chaser: bool):
     # ── Monthly: column F = labels, G+ = one column per month ───────────
     _h(ws.cell(row=14, column=F_COL, value='Monthly'), NAVY)
 
-    c = ws.cell(row=14, column=G_COL, value=ANCHOR)
+    c = ws.cell(row=14, column=G_COL, value=f'={get_column_letter(G_COL)}1')
     c.number_format = 'MMM YY'
     _h(c, DBLUE)
-    for i in range(1, N_MONTHS):
+    for i in range(1, N_WEEKS):
         prev_cl = get_column_letter(G_COL + i - 1)
         c = ws.cell(row=14, column=G_COL + i, value=f'=EDATE({prev_cl}14,1)')
         c.number_format = 'MMM YY'
         _h(c, DBLUE)
 
+    # Monthly rows 15–24 (10 metrics, same set as weekly)
     MO_METRICS = [
-        (15, 'Contacted',         False),
-        (16, 'Chasers',           False),
-        (17, 'Total emails sent', False),
+        (15, 'Contacted',              False),
+        (16, 'Chasers',                False),
+        (17, 'Total emails sent',      False),
+        (18, 'Replies',                False),
+        (19, 'Reply rate',             True),
+        (20, 'Reply rate (per email)', True),
+        (21, 'Leads',                  False),
+        (22, 'Lead rate',              True),
+        (23, 'Interested',             False),
+        (24, 'Unsubscribes',           False),
     ]
     for row, m_label, is_pct in MO_METRICS:
         _lbl(ws.cell(row=row, column=F_COL, value=m_label))
-        for i in range(N_MONTHS):
+        for i in range(N_WEEKS):
             cl = get_column_letter(G_COL + i)
             if m_label == 'Contacted':
-                fml = f'=SUMPRODUCT(--({SENT}>={cl}$14),--({SENT}<EDATE({cl}$14,1)))'
+                fml = f'=IF({cl}$14="","",SUMPRODUCT(--({SD}<>""),--({SENT}>={cl}$14),--({SENT}<EDATE({cl}$14,1))))'
             elif m_label == 'Chasers':
                 if has_chaser:
-                    fml = f'=SUMPRODUCT(--({CHASER_SENT}>={cl}$14),--({CHASER_SENT}<EDATE({cl}$14,1)))'
+                    fml = f'=IF({cl}$14="","",SUMPRODUCT(--({CD}<>""),--({CHASER_SENT}>={cl}$14),--({CHASER_SENT}<EDATE({cl}$14,1))))'
                 else:
                     fml = '=0'
-            else:
+            elif m_label == 'Total emails sent':
                 fml = f'=SUM({cl}15:{cl}16)'
+            elif m_label == 'Replies':
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$14),--({SENT}<EDATE({cl}$14,1)),(--({LS}<>"")))'
+            elif m_label == 'Reply rate':
+                fml = f'={cl}18/{cl}15'
+            elif m_label == 'Reply rate (per email)':
+                fml = f'={cl}18/{cl}17'
+            elif m_label == 'Leads':
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$14),--({SENT}<EDATE({cl}$14,1)),(--({LS}="Lead")))'
+            elif m_label == 'Lead rate':
+                fml = f'={cl}21/{cl}15'
+            elif m_label == 'Interested':
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$14),--({SENT}<EDATE({cl}$14,1)),(--({LS}="Interested")))'
+            else:
+                fml = f'=SUMPRODUCT(--({SENT}>={cl}$14),--({SENT}<EDATE({cl}$14,1)),(--({LS}="Unsubscribe")))'
             _val(ws.cell(row=row, column=G_COL + i, value=fml), pct=is_pct)
 
     ws.column_dimensions[get_column_letter(F_COL)].width = 20
