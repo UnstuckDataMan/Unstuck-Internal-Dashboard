@@ -58,6 +58,7 @@ def sync_campaign_core(
     sheet_id:        str,
     client_id:       str,
     campaign_name:   str,
+    client_name:     str = "",
     total_prospects: int = 0,
     completed_at:    str | None = None,
 ) -> dict:
@@ -73,6 +74,7 @@ def sync_campaign_core(
     try:
         return _sync_campaign_core_unlocked(
             campaign_id, sheet_id, client_id, campaign_name,
+            client_name=client_name,
             total_prospects=total_prospects, completed_at=completed_at,
         )
     finally:
@@ -84,6 +86,7 @@ def _sync_campaign_core_unlocked(
     sheet_id:        str,
     client_id:       str,
     campaign_name:   str,
+    client_name:     str = "",
     total_prospects: int = 0,
     completed_at:    str | None = None,
 ) -> dict:
@@ -97,6 +100,7 @@ def _sync_campaign_core_unlocked(
     """
     from app.utils.google_sheets import (
         read_leads, read_sent_with_dates, write_sent_dates, write_chaser_dates,
+        read_stats_cells,
     )
 
     result = {
@@ -447,6 +451,22 @@ def _sync_campaign_core_unlocked(
         except Exception:
             pass
 
+    # ── Cache stats-tab cell values (Test client only for initial rollout) ──
+    # Remove the client_name guard to roll out to all clients.
+    if client_name == "Test":
+        stats = read_stats_cells(sheet_id)
+        if stats:
+            try:
+                http_req.patch(
+                    f"{SUPABASE_URL}/rest/v1/campaigns",
+                    headers=_sb_headers("return=minimal"),
+                    params={"id": f"eq.{campaign_id}"},
+                    json=stats,
+                    timeout=10,
+                )
+            except Exception as exc:
+                logger.warning("stats_cells PATCH failed for %s: %s", campaign_id, exc)
+
     return result
 
 
@@ -472,7 +492,7 @@ def run_auto_sync() -> None:
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers(),
             params={
-                "select":   "id,sheet_id,client_id,campaign_name,total_prospects,completed_at",
+                "select":   "id,sheet_id,client_id,client_name,campaign_name,total_prospects,completed_at",
                 "sheet_id": "not.is.null",
             },
             timeout=15,
@@ -499,6 +519,7 @@ def run_auto_sync() -> None:
                 sheet_id=c["sheet_id"],
                 client_id=c.get("client_id", ""),
                 campaign_name=name,
+                client_name=c.get("client_name", "") or "",
                 total_prospects=c.get("total_prospects") or 0,
                 completed_at=c.get("completed_at"),
             )

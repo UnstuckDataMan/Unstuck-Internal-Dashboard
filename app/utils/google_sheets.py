@@ -1383,6 +1383,37 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
     return len(updates)
 
 
+def read_stats_cells(sheet_id: str) -> dict:
+    """Read pre-computed stats from B4:D4 (total emails sent Today/7d/30d) in the Stats tab.
+
+    Returns {} on any failure — never raises, never breaks sync.
+    """
+    gc = _client()
+    try:
+        ws = gc.open_by_key(sheet_id).worksheet("Stats")
+    except Exception:
+        return {}  # sheet predates Stats tab — skip silently
+
+    try:
+        rows = ws.batch_get(["B2:D4"])[0]
+
+        def _i(r, c):
+            try:
+                return int(float((rows[r][c] if len(rows) > r and len(rows[r]) > c else None) or 0))
+            except Exception:
+                return 0
+
+        # rows[2] = row 4 of the sheet = Total emails sent (B4, C4, D4)
+        return {
+            "stats_emails_today": _i(2, 0),  # B4
+            "stats_emails_7d":    _i(2, 1),  # C4
+            "stats_emails_30d":   _i(2, 2),  # D4
+        }
+    except Exception as exc:
+        logger.warning("read_stats_cells failed for %s: %s", sheet_id, exc)
+        return {}
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _add_stats_sheet(sh, headers: list, has_chaser: bool) -> None:

@@ -65,15 +65,13 @@
         </div>
         <div class="cdash-send-sep"></div>
         <div class="cdash-send-cell">
-          <span class="cdash-send-num" id="cdash-sn-week">{{ send_counts.get('week', 0) }}</span>
-          <span class="cdash-send-lbl">This Week</span>
-          <span class="cdash-send-sub" id="cdash-sn-week-label">{{ send_counts.get('week_label', '') }}</span>
+          <span class="cdash-send-num" id="cdash-sn-week">{{ send_counts.get('last_7d', 0) }}</span>
+          <span class="cdash-send-lbl">Last 7 Days</span>
         </div>
         <div class="cdash-send-sep"></div>
         <div class="cdash-send-cell">
-          <span class="cdash-send-num" id="cdash-sn-month">{{ send_counts.get('month', 0) }}</span>
-          <span class="cdash-send-lbl">This Month</span>
-          <span class="cdash-send-sub" id="cdash-sn-month-label">{{ send_counts.get('month_label', '') }}</span>
+          <span class="cdash-send-num" id="cdash-sn-month">{{ send_counts.get('last_30d', 0) }}</span>
+          <span class="cdash-send-lbl">Last 30 Days</span>
         </div>
         <div class="cdash-send-sep"></div>
         <div class="cdash-send-cell">

@@ -173,6 +173,18 @@ def _fetch_send_counts(client_id: str) -> dict:
     return _time_breakdown(client_id)
 
 
+def _send_counts_from_campaigns(campaigns: list[dict]) -> dict:
+    """Sum pre-cached stats-tab values from campaign rows — zero HTTP requests."""
+    def _s(k: str) -> int:
+        return sum(c.get(k) or 0 for c in campaigns)
+    return {
+        "today":    _s("stats_emails_today"),
+        "last_7d":  _s("stats_emails_7d"),
+        "last_30d": _s("stats_emails_30d"),
+        "all_time": _s("sent_count"),
+    }
+
+
 # ── List campaigns + dashboard stats ──────────────────────────────────────────
 
 @router.get("/api/campaigns")
@@ -192,13 +204,6 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
 
     # Column sets — try with newer optional columns first; fall back if they
     # don't yet exist in the client's Supabase schema.
-    _SELECT_FULL = (
-        "id,created_at,campaign_name,sender_profile_name,"
-        "client_id,client_name,sheet_id,sheet_url,"
-        "total_prospects,sent_count,completed,completed_at,tags,"
-        "lead_count,reply_count,interested_count,unsubscribe_count,"
-        "paused,chaser_count"
-    )
     _SELECT_BASE = (
         "id,created_at,campaign_name,sender_profile_name,"
         "client_id,client_name,sheet_id,sheet_url,"
@@ -209,11 +214,13 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
     # If only one is missing, the other must still be selected — otherwise a
     # missing 'paused' would also hide the chaser progress bar (and vice
     # versa), since a PostgREST select fails entirely on any unknown column.
-    _SELECT_CHASER = _SELECT_BASE + ",chaser_count"
-    _SELECT_PAUSED = _SELECT_BASE + ",paused"
+    _SELECT_CHASER   = _SELECT_BASE + ",chaser_count"
+    _SELECT_PAUSED   = _SELECT_BASE + ",paused"
+    _SELECT_NO_STATS = _SELECT_BASE + ",paused,chaser_count"
+    _SELECT_FULL     = _SELECT_NO_STATS + ",stats_emails_today,stats_emails_7d,stats_emails_30d"
 
     if _sb_configured():
-        for _sel in (_SELECT_FULL, _SELECT_CHASER, _SELECT_PAUSED, _SELECT_BASE):
+        for _sel in (_SELECT_FULL, _SELECT_NO_STATS, _SELECT_CHASER, _SELECT_PAUSED, _SELECT_BASE):
             try:
                 r = http_req.get(
                     f"{SUPABASE_URL}/rest/v1/campaigns",
@@ -264,7 +271,7 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
                 "total_interested":      _s("interested_count"),
                 "total_unsubs":          _s("unsubscribe_count"),
             }
-            send_counts = _fetch_send_counts(client_id)
+            send_counts = _send_counts_from_campaigns(campaigns)
 
     return templates.TemplateResponse(
         "partials/campaigns_list.html",
