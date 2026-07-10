@@ -174,13 +174,15 @@ def _fetch_send_counts(client_id: str) -> dict:
 
 
 def _send_counts_from_campaigns(campaigns: list[dict]) -> dict:
-    """Sum pre-cached stats-tab values from campaign rows — zero HTTP requests."""
+    """Sum pre-cached stats-tab values from campaign rows — zero HTTP requests.
+    Only called for the Test client until stats columns are populated for all clients.
+    """
     def _s(k: str) -> int:
         return sum(c.get(k) or 0 for c in campaigns)
     return {
         "today":    _s("stats_emails_today"),
-        "last_7d":  _s("stats_emails_7d"),
-        "last_30d": _s("stats_emails_30d"),
+        "week":     _s("stats_emails_7d"),    # rolling 7-day window
+        "month":    _s("stats_emails_30d"),   # rolling 30-day window
         "all_time": _s("sent_count"),
     }
 
@@ -271,7 +273,11 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
                 "total_interested":      _s("interested_count"),
                 "total_unsubs":          _s("unsubscribe_count"),
             }
-            send_counts = _send_counts_from_campaigns(campaigns)
+            _client_name = (campaigns[0].get("client_name") or "") if campaigns else ""
+            if _client_name == "Test":
+                send_counts = _send_counts_from_campaigns(campaigns)
+            else:
+                send_counts = _fetch_send_counts(client_id)
 
     return templates.TemplateResponse(
         "partials/campaigns_list.html",
