@@ -2,6 +2,7 @@ import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -49,9 +50,13 @@ async def _lifespan(app: FastAPI):
             max_instances=1,
             coalesce=True,
             misfire_grace_time=600,
+            # A pure cron trigger would not fire until the next top-of-hour, so a
+            # fresh deploy shows no sync (and an empty status pill) for up to an
+            # hour.  Kick the first run ~20s after boot, then follow the cron.
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=20),
         )
         scheduler.start()
-        logger.info("Auto-sync scheduler started (UTC hours=%s minute=%s).",
+        logger.info("Auto-sync scheduler started (UTC hours=%s minute=%s; first run ~20s after boot).",
                     _AUTO_SYNC_HOURS, _AUTO_SYNC_MINUTE)
     except Exception as exc:
         logger.warning("Auto-sync scheduler could not start: %s", exc)

@@ -3,6 +3,7 @@ Campaigns router — tracks mail-merge campaigns linked to Google Sheets.
 """
 from __future__ import annotations
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as _date, datetime as _datetime, timedelta, timezone as _tz
 from html import escape as _html_escape
@@ -367,6 +368,22 @@ async def campaign_sync_status():
     """Current auto-sync run status (JSON) — powers the panel's status pill and
     lets anyone confirm the hourly sync actually fired."""
     return JSONResponse(_sync_status_view())
+
+
+@router.post("/api/campaigns/sync-now")
+async def campaign_sync_now():
+    """Trigger the hourly all-clients sync immediately (same job the scheduler
+    runs). Runs in a background thread so the request returns at once; the status
+    pill then reflects running → done. Skips if a run is already in progress."""
+    from app.utils.auto_sync import run_auto_sync, get_sync_status
+
+    if get_sync_status().get("running"):
+        return JSONResponse(
+            {"started": False, "message": "A sync is already running."},
+            status_code=409,
+        )
+    threading.Thread(target=run_auto_sync, name="manual-auto-sync", daemon=True).start()
+    return JSONResponse({"started": True})
 
 
 # ── Send-stats endpoint (custom range + tag-filter + drill-down) ──────────────

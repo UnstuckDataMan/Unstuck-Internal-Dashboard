@@ -1327,6 +1327,15 @@
     color: var(--text-3); border-left: 1px solid var(--border);
     padding-left: 8px; margin-left: 2px;
   }
+  .sync-status .ss-run {
+    margin-left: 4px; padding: 3px 10px;
+    background: transparent; border: 1px solid var(--border); border-radius: 14px;
+    color: var(--text-2); font-family: var(--font); font-size: .68rem; font-weight: 600;
+    letter-spacing: .04em; cursor: pointer; white-space: nowrap;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .sync-status .ss-run:hover { border-color: var(--accent); color: var(--text); background: rgba(139,92,246,.1); }
+  .sync-status .ss-run:disabled { opacity: .5; cursor: default; }
   /* states */
   .sync-status.ss-ok      .ss-dot { background: #4ade80; box-shadow: 0 0 6px rgba(74,222,128,.6); }
   .sync-status.ss-warn    { border-color: rgba(251,191,36,.4); }
@@ -4346,6 +4355,36 @@
 
 <script>
 (function () {
+
+  // ── Run the hourly auto-sync on demand (all clients) ─────────────────── //
+  // Triggers the same job the scheduler runs, then reloads the campaigns panel
+  // a few times so the status pill reflects running → done without waiting for
+  // the 60s auto-refresh.
+  window.runAutoSyncNow = function (btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+    fetch('/api/campaigns/sync-now', { method: 'POST' })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (d && d.started === false) {
+          if (btn) btn.textContent = 'Already running…';
+        }
+        function reloadPanel() {
+          const sel = document.getElementById('camp-client-filter-sel');
+          const cid = sel ? sel.value : '';
+          if (window.htmx) {
+            htmx.ajax('GET', '/api/campaigns?client_id=' + encodeURIComponent(cid),
+                      { target: '#campaigns-panel-inner', swap: 'innerHTML' });
+          }
+        }
+        // Reflect running → done; the swapped pill supersedes this button.
+        setTimeout(reloadPanel, 2500);
+        setTimeout(reloadPanel, 12000);
+        setTimeout(reloadPanel, 45000);
+      })
+      .catch(function () {
+        if (btn) { btn.disabled = false; btn.textContent = 'Run now'; }
+      });
+  };
 
   // ── Campaign tags ──────────────────────────────────────────────────── //
 

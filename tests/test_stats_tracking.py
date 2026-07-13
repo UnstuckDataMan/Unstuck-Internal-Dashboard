@@ -382,6 +382,36 @@ def test_sync_status_endpoint_idle_before_first_run(client):
     assert data["state"] == "idle" and data["ran"] is False
 
 
+def test_sync_now_starts_background_run(client, monkeypatch):
+    _reset_sync_status()
+    started = {"n": 0}
+    # Replace the threaded target so the test doesn't spin a real sync; assert
+    # the endpoint kicks it off and returns immediately.
+    def fake_thread_target():
+        started["n"] += 1
+    class _FakeThread:
+        def __init__(self, target=None, **kw): self._t = target
+        def start(self): self._t()
+    monkeypatch.setattr(campaigns.threading, "Thread", _FakeThread)
+    monkeypatch.setattr("app.utils.auto_sync.run_auto_sync", fake_thread_target)
+
+    resp = client.post("/api/campaigns/sync-now")
+    assert resp.status_code == 200
+    assert resp.json()["started"] is True
+    assert started["n"] == 1
+
+
+def test_sync_now_skips_when_already_running(client):
+    now = _now_utc()
+    with auto_sync._last_run_lock:
+        auto_sync._last_run.update(started_at=now.isoformat(), finished_at=None,
+                                   running=True, ok=0, failed=0, total=0, duration_s=None)
+    resp = client.post("/api/campaigns/sync-now")
+    assert resp.status_code == 409
+    assert resp.json()["started"] is False
+    _reset_sync_status()
+
+
 def _now_utc():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc)
