@@ -4283,13 +4283,6 @@
 <script>
 (function () {
 
-  // Sheet-derived strings (variant names etc.) are outsider-editable — the
-  // outreach sheets are shared by link — so escape anything we innerHTML.
-  function escHtml(s) {
-    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
   // ── Campaign tags ──────────────────────────────────────────────────── //
 
   window.openTagInput = function (campId, evt) {
@@ -4482,6 +4475,13 @@
 
   function _el(id) { return document.getElementById(id); }
   function _set(id, val) { const e = _el(id); if (e) e.textContent = val; }
+
+  // Sheet-derived strings (variant names etc.) are outsider-editable — the
+  // outreach sheets are shared by link — so escape anything we innerHTML.
+  function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
 
   function _captureClientStats() {
     // Compute campaign totals from card data-* attributes rather than from the
