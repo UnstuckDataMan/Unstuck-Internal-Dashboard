@@ -317,3 +317,78 @@ def test_campaigns_panel_buckets_and_pipeline(fake_sb, client):
         assert name in html
     # Pipeline = (100-40) from the active campaign only; paused/past excluded
     assert "60" in html
+    # The auto-sync status pill renders in the panel regardless of run state.
+    assert "sync-status" in html and "Auto-sync" in html
+
+
+# ── Auto-sync run status ──────────────────────────────────────────────────────
+
+def _reset_sync_status():
+    with auto_sync._last_run_lock:
+        auto_sync._last_run.update(started_at=None, finished_at=None, running=False,
+                                   ok=0, failed=0, total=0, duration_s=None)
+
+
+def test_run_auto_sync_is_sequential_and_records_status(fake_sb, monkeypatch):
+    _reset_sync_status()
+    rows = [
+        {"id": "1", "sheet_id": "s1", "client_id": "c1", "client_name": "X",
+         "campaign_name": "A", "total_prospects": 0, "completed_at": None},
+        {"id": "2", "sheet_id": "s2", "client_id": "c1", "client_name": "X",
+         "campaign_name": "B", "total_prospects": 0, "completed_at": None},
+    ]
+    fake_sb.route("GET", "campaigns", lambda c: FakeResponse(200, rows))
+
+    order = []
+    def fake_core(**kw):
+        order.append(kw["campaign_id"])
+        # second campaign reports an error → counts as a failure
+        return {"error": "" if kw["campaign_id"] == "1" else "sheet boom",
+                "leads_added": 0, "interested_added": 0,
+                "unsubscribes_added": 0, "reply_count": 0, "contacted_added": 0}
+    monkeypatch.setattr(auto_sync, "sync_campaign_core", fake_core)
+
+    auto_sync.run_auto_sync()
+
+    assert order == ["1", "2"], "campaigns must sync one at a time, in order"
+    st = auto_sync.get_sync_status()
+    assert st["running"] is False
+    assert st["total"] == 2 and st["ok"] == 1 and st["failed"] == 1
+    assert st["started_at"] and st["finished_at"]
+    assert st["duration_s"] is not None
+
+
+def test_sync_status_endpoint_reports_fresh_run(client):
+    now = _now_utc()
+    _seed_sync_status(now - timedelta(minutes=6), now - timedelta(minutes=5),
+                      ok=3, failed=0, total=3)
+    data = client.get("/api/campaigns/sync-status").json()
+    assert data["state"] == "ok"
+    assert data["ok"] == 3 and data["total"] == 3
+    assert "ago" in data["ago_text"]
+
+
+def test_sync_status_endpoint_flags_stale_run(client):
+    now = _now_utc()
+    _seed_sync_status(now - timedelta(hours=3), now - timedelta(hours=3),
+                      ok=2, failed=0, total=2)
+    data = client.get("/api/campaigns/sync-status").json()
+    assert data["state"] == "stale", "a run older than the hourly cadence is stale"
+
+
+def test_sync_status_endpoint_idle_before_first_run(client):
+    _reset_sync_status()
+    data = client.get("/api/campaigns/sync-status").json()
+    assert data["state"] == "idle" and data["ran"] is False
+
+
+def _now_utc():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc)
+
+
+def _seed_sync_status(started, finished, ok, failed, total):
+    with auto_sync._last_run_lock:
+        auto_sync._last_run.update(
+            started_at=started.isoformat(), finished_at=finished.isoformat(),
+            running=False, ok=ok, failed=failed, total=total, duration_s=12.0)

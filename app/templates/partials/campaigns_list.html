@@ -1,3 +1,23 @@
+{% if sync_status %}
+<div class="sync-status ss-{{ sync_status.state }}"
+     title="Campaign stats auto-sync runs every hour (UTC). Last activity: {{ sync_status.when_iso or 'none yet' }}">
+  <span class="ss-dot"></span>
+  <span class="ss-text">
+    {%- if sync_status.state == 'idle' -%}
+      Auto-sync scheduled &mdash; awaiting first run
+    {%- elif sync_status.running -%}
+      Auto-sync <b>running now</b>&hellip;
+    {%- elif sync_status.state == 'stale' -%}
+      Auto-sync last ran <b>{{ sync_status.ago_text }}</b> &middot; may be delayed
+    {%- else -%}
+      Auto-sync ran <b>{{ sync_status.ago_text }}</b> &middot; {{ sync_status.ok }}/{{ sync_status.total }} synced
+      {%- if sync_status.failed %} &middot; {{ sync_status.failed }} failed{% endif -%}
+    {%- endif -%}
+  </span>
+  <span class="ss-cadence">hourly</span>
+</div>
+{% endif %}
+
 {% if no_client %}
 <div class="camp-empty">
   <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor"

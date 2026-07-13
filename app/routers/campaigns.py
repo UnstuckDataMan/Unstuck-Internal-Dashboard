@@ -25,6 +25,73 @@ router = APIRouter()
 
 CHUNK_SIZE = 500
 
+# Hourly cadence: if the last completed run is older than this, the sync is
+# behind schedule (e.g. the instance was asleep) and the status pill warns.
+_SYNC_STALE_AFTER_MIN = 75
+
+
+def _humanize_ago(delta_seconds: float) -> str:
+    s = int(delta_seconds)
+    if s < 60:
+        return "just now" if s < 10 else f"{s}s ago"
+    m = s // 60
+    if m < 60:
+        return f"{m} min ago"
+    h = m // 60
+    if h < 24:
+        rem = m % 60
+        return f"{h}h ago" if rem == 0 else f"{h}h {rem}m ago"
+    d = h // 24
+    return f"{d}d ago"
+
+
+def _sync_status_view() -> dict:
+    """Build a display-friendly auto-sync status for the Campaigns panel."""
+    from app.utils.auto_sync import get_sync_status
+    st = get_sync_status()
+    now = _datetime.now(_tz.utc)
+
+    def _parse(iso):
+        if not iso:
+            return None
+        try:
+            return _datetime.fromisoformat(iso)
+        except ValueError:
+            return None
+
+    started = _parse(st.get("started_at"))
+    finished = _parse(st.get("finished_at"))
+
+    view = {
+        "ran":       bool(started),
+        "running":   bool(st.get("running")),
+        "ok":        st.get("ok", 0),
+        "failed":    st.get("failed", 0),
+        "total":     st.get("total", 0),
+        "duration_s": st.get("duration_s"),
+        "ago_text":  "",
+        "state":     "idle",     # idle | running | ok | warn | stale
+        "when_iso":  st.get("finished_at") or st.get("started_at") or "",
+    }
+
+    if st.get("running") and started:
+        view["state"] = "running"
+        view["ago_text"] = f"running now ({_humanize_ago((now - started).total_seconds())} started)"
+    elif finished:
+        ago = (now - finished).total_seconds()
+        view["ago_text"] = _humanize_ago(ago)
+        if ago > _SYNC_STALE_AFTER_MIN * 60:
+            view["state"] = "stale"
+        elif st.get("failed", 0):
+            view["state"] = "warn"
+        else:
+            view["state"] = "ok"
+    elif started:
+        view["state"] = "running"
+        view["ago_text"] = "in progress"
+
+    return view
+
 
 def _count_contacted(
     client_id: str,
@@ -196,7 +263,8 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
         return templates.TemplateResponse(
             "partials/campaigns_list.html",
             {"request": request, "campaigns": [], "error": "", "client_id": "",
-             "no_client": True, "stats": {}, "send_counts": {}},
+             "no_client": True, "stats": {}, "send_counts": {},
+             "sync_status": _sync_status_view()},
         )
 
     campaigns: list[dict] = []
@@ -289,8 +357,16 @@ async def list_campaigns(request: Request, client_id: str = Query("")):
             "no_client":   False,
             "stats":       stats,
             "send_counts": send_counts,
+            "sync_status": _sync_status_view(),
         },
     )
+
+
+@router.get("/api/campaigns/sync-status")
+async def campaign_sync_status():
+    """Current auto-sync run status (JSON) — powers the panel's status pill and
+    lets anyone confirm the hourly sync actually fired."""
+    return JSONResponse(_sync_status_view())
 
 
 # ── Send-stats endpoint (custom range + tag-filter + drill-down) ──────────────

@@ -25,6 +25,29 @@ logger = logging.getLogger(__name__)
 CHUNK_SIZE = 500
 
 
+# ── Auto-sync run status ──────────────────────────────────────────────────────
+# Records the most recent scheduled run so the Campaigns panel can show that the
+# hourly sync actually fired (and how long ago).  In-memory + a lock: this is a
+# single-worker deployment, and the value is display-only — it is recomputed on
+# every run, never read for correctness.
+_last_run: dict = {
+    "started_at":  None,   # ISO-8601 UTC of the most recent run start
+    "finished_at": None,   # ISO-8601 UTC of completion (None while running)
+    "running":     False,
+    "ok":          0,
+    "failed":      0,
+    "total":       0,
+    "duration_s":  None,
+}
+_last_run_lock = threading.Lock()
+
+
+def get_sync_status() -> dict:
+    """Return a copy of the most recent auto-sync run status (display-only)."""
+    with _last_run_lock:
+        return dict(_last_run)
+
+
 def _next_working_day(from_date: _date) -> _date:
     """Return the first Monday–Friday after from_date (skips weekends)."""
     from datetime import timedelta
@@ -472,70 +495,95 @@ def _sync_campaign_core_unlocked(
 
 # ── Scheduled job ─────────────────────────────────────────────────────────────
 
+def _mark_run_start() -> _datetime:
+    now = _datetime.now(_tz.utc)
+    with _last_run_lock:
+        _last_run.update(started_at=now.isoformat(), finished_at=None,
+                         running=True, ok=0, failed=0, total=0, duration_s=None)
+    return now
+
+
+def _mark_run_end(started: _datetime, ok: int, failed: int, total: int) -> None:
+    end = _datetime.now(_tz.utc)
+    with _last_run_lock:
+        _last_run.update(finished_at=end.isoformat(), running=False,
+                         ok=ok, failed=failed, total=total,
+                         duration_s=round((end - started).total_seconds(), 1))
+
+
 def run_auto_sync() -> None:
     """
-    Called by APScheduler twice a day.
-    Fetches every campaign that has a sheet_id and syncs it.
+    Called by APScheduler once an hour (see app/main.py).
+    Fetches every campaign that has a sheet_id and syncs them one at a time —
+    sequential on purpose, to stay under the Google Sheets read quota and avoid
+    hammering Supabase with a burst.  Records a run-status snapshot (start/end,
+    counts) so the Campaigns panel can show the sync actually ran.
     """
     from app.utils.google_sheets import is_configured
 
-    if not _sb_configured():
-        logger.warning("Auto-sync skipped: Supabase not configured.")
-        return
-    if not is_configured():
-        logger.warning("Auto-sync skipped: Google Sheets not configured.")
-        return
-
-    # Fetch all campaigns that have a linked sheet
-    try:
-        r = http_req.get(
-            f"{SUPABASE_URL}/rest/v1/campaigns",
-            headers=_sb_headers(),
-            params={
-                "select":   "id,sheet_id,client_id,client_name,campaign_name,total_prospects,completed_at",
-                "sheet_id": "not.is.null",
-            },
-            timeout=15,
-        )
-        r.raise_for_status()
-        campaigns = [c for c in r.json() if c.get("sheet_id", "").strip()]
-    except Exception as exc:
-        logger.error("Auto-sync: failed to fetch campaigns: %s", exc)
-        return
-
-    if not campaigns:
-        logger.info("Auto-sync: no campaigns with linked sheets — nothing to do.")
-        return
-
-    logger.info("Auto-sync: starting sync for %d campaign(s) across all clients.", len(campaigns))
-
+    started = _mark_run_start()
     ok = failed = 0
-    for c in campaigns:
-        cid  = c.get("id", "")
-        name = c.get("campaign_name", "") or ""
-        try:
-            summary = sync_campaign_core(
-                campaign_id=cid,
-                sheet_id=c["sheet_id"],
-                client_id=c.get("client_id", ""),
-                campaign_name=name,
-                client_name=c.get("client_name", "") or "",
-                total_prospects=c.get("total_prospects") or 0,
-                completed_at=c.get("completed_at"),
-            )
-            if summary["error"]:
-                logger.warning("Auto-sync: campaign %s (%s) error — %s", cid, name, summary["error"])
-                failed += 1
-            else:
-                logger.info(
-                    "Auto-sync: campaign %s (%s) — leads=%d interested=%d unsubs=%d contacted=%d",
-                    cid, name,
-                    summary["leads_added"], summary["interested_added"],
-                    summary["unsubscribes_added"], summary["contacted_added"],
-                )
-                ok += 1
-        except Exception as exc:
-            logger.error("Auto-sync: campaign %s (%s) unexpected error: %s", cid, name, exc)
-            failed += 1
+    campaigns: list[dict] = []
+    try:
+        if not _sb_configured():
+            logger.warning("Auto-sync skipped: Supabase not configured.")
+            return
+        if not is_configured():
+            logger.warning("Auto-sync skipped: Google Sheets not configured.")
+            return
 
-    logger.info("Auto-sync complete: %d succeeded, %d failed.", ok, failed)
+        # Fetch all campaigns that have a linked sheet
+        try:
+            r = http_req.get(
+                f"{SUPABASE_URL}/rest/v1/campaigns",
+                headers=_sb_headers(),
+                params={
+                    "select":   "id,sheet_id,client_id,client_name,campaign_name,total_prospects,completed_at",
+                    "sheet_id": "not.is.null",
+                },
+                timeout=15,
+            )
+            r.raise_for_status()
+            campaigns = [c for c in r.json() if c.get("sheet_id", "").strip()]
+        except Exception as exc:
+            logger.error("Auto-sync: failed to fetch campaigns: %s", exc)
+            return
+
+        if not campaigns:
+            logger.info("Auto-sync: no campaigns with linked sheets — nothing to do.")
+            return
+
+        logger.info("Auto-sync: starting sync for %d campaign(s) across all clients.", len(campaigns))
+
+        # Sequential by design — one campaign finishes before the next starts.
+        for c in campaigns:
+            cid  = c.get("id", "")
+            name = c.get("campaign_name", "") or ""
+            try:
+                summary = sync_campaign_core(
+                    campaign_id=cid,
+                    sheet_id=c["sheet_id"],
+                    client_id=c.get("client_id", ""),
+                    campaign_name=name,
+                    client_name=c.get("client_name", "") or "",
+                    total_prospects=c.get("total_prospects") or 0,
+                    completed_at=c.get("completed_at"),
+                )
+                if summary["error"]:
+                    logger.warning("Auto-sync: campaign %s (%s) error — %s", cid, name, summary["error"])
+                    failed += 1
+                else:
+                    logger.info(
+                        "Auto-sync: campaign %s (%s) — leads=%d interested=%d unsubs=%d contacted=%d",
+                        cid, name,
+                        summary["leads_added"], summary["interested_added"],
+                        summary["unsubscribes_added"], summary["contacted_added"],
+                    )
+                    ok += 1
+            except Exception as exc:
+                logger.error("Auto-sync: campaign %s (%s) unexpected error: %s", cid, name, exc)
+                failed += 1
+
+        logger.info("Auto-sync complete: %d succeeded, %d failed.", ok, failed)
+    finally:
+        _mark_run_end(started, ok, failed, len(campaigns))

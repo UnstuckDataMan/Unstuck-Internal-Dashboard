@@ -19,9 +19,16 @@ from app.routers import (
 logger = logging.getLogger(__name__)
 
 # ── Scheduled auto-sync ───────────────────────────────────────────────────────
-# Runs twice a day for every campaign that has a linked Google Sheet.
-# Override the hours (UTC) via AUTO_SYNC_HOURS env var, e.g. "8,20"
-_AUTO_SYNC_HOURS = os.environ.get("AUTO_SYNC_HOURS", "9,21")
+# Runs once an hour for every campaign that has a linked Google Sheet, so the
+# per-day send stats stay close to real time.  Campaigns are synced sequentially
+# inside run_auto_sync (not in parallel) to stay under the Sheets read quota.
+#
+# AUTO_SYNC_HOURS controls which UTC hours fire:
+#   "*"     → every hour at :00 (default)
+#   "9,21"  → twice daily (the old behaviour), if ever needed
+# AUTO_SYNC_MINUTE offsets the minute within the hour (default "0").
+_AUTO_SYNC_HOURS  = os.environ.get("AUTO_SYNC_HOURS", "*").strip() or "*"
+_AUTO_SYNC_MINUTE = os.environ.get("AUTO_SYNC_MINUTE", "0").strip() or "0"
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -30,17 +37,22 @@ async def _lifespan(app: FastAPI):
         from apscheduler.triggers.cron import CronTrigger
         from app.utils.auto_sync import run_auto_sync
 
-        hours = _AUTO_SYNC_HOURS.strip()
         scheduler = AsyncIOScheduler()
         scheduler.add_job(
             run_auto_sync,
-            CronTrigger(hour=hours, minute=0),
+            CronTrigger(hour=_AUTO_SYNC_HOURS, minute=_AUTO_SYNC_MINUTE),
             id="auto_sync",
-            name="Twice-daily campaign sync",
+            name="Hourly campaign sync",
             replace_existing=True,
+            # A run that overruns the hour must not overlap the next tick; skip
+            # the next fire instead (the per-campaign lock is a second guard).
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=600,
         )
         scheduler.start()
-        logger.info("Auto-sync scheduler started (UTC hours: %s).", hours)
+        logger.info("Auto-sync scheduler started (UTC hours=%s minute=%s).",
+                    _AUTO_SYNC_HOURS, _AUTO_SYNC_MINUTE)
     except Exception as exc:
         logger.warning("Auto-sync scheduler could not start: %s", exc)
         scheduler = None
