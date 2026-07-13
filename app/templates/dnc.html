@@ -1423,13 +1423,40 @@
   }
   .camp-refresh-btn:hover { border-color: var(--accent); color: var(--text); }
   .camp-sync-btn {
+    position: relative;
     display: inline-flex; align-items: center; gap: 5px;
     padding: 6px 12px; background: transparent; border: 1px solid #4ade80;
     border-radius: 8px; font-size: .78rem; color: #4ade80; cursor: pointer;
     font-family: var(--font); font-weight: 600;
-    transition: background .15s, color .15s;
+    transition: background .15s, color .15s, opacity .15s;
+    overflow: hidden;
   }
   .camp-sync-btn:hover { background: rgba(74,222,128,.1); }
+
+  /* ── Sync-in-progress state: the button itself shows the work happening,
+     not just a shared spinner icon elsewhere on the page ── */
+  .camp-sync-btn.is-syncing {
+    cursor: wait;
+    background: rgba(74,222,128,.1);
+  }
+  .camp-sync-spin { animation: campSyncSpin .8s linear infinite; flex-shrink: 0; }
+  @keyframes campSyncSpin { to { transform: rotate(360deg); } }
+  /* Thin sweeping bar along the bottom edge — reads as "still working"
+     during multi-second/multi-campaign syncs without faking a percentage. */
+  .camp-sync-btn.is-syncing::after {
+    content: '';
+    position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, #4ade80, transparent);
+    background-size: 60% 100%;
+    animation: campSyncSweep 1.3s linear infinite;
+  }
+  @keyframes campSyncSweep {
+    from { background-position: -60% 0; }
+    to   { background-position: 160% 0; }
+  }
+  /* Other action buttons on the card grid are muted (not hidden) while a
+     Sync All is running, so a stray click can't race the bulk sync. */
+  .camp-action-muted { opacity: .35; pointer-events: none; }
   .camp-delete-btn {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 6px 12px; background: transparent; border: 1px solid var(--border);
@@ -4798,6 +4825,82 @@
       _clientStats  = null;
       _detailActive = false;
     }
+  });
+})();
+</script>
+
+<script>
+// ── Sync button progress feedback ──────────────────────────────────────────
+// hx-indicator alone points at one tiny shared spinner up by the client
+// filter — clicking Sync on a card gave no sign the click even registered.
+// Swap the clicked button itself into a "syncing" state instead, and mute
+// the panel's other action buttons during Sync All so a slow multi-campaign
+// sync (each one is a sequential Sheets read) doesn't invite a stray click.
+(function () {
+  const SYNC_SELECTOR   = '.camp-sync-btn';
+  const OTHER_ACTIONS   = '.camp-sync-btn, .camp-pause-btn, .camp-resume-btn, .camp-complete-btn, .camp-delete-btn';
+  const STILL_GOING_MS  = 8000;
+
+  function spinnerIcon() {
+    return '<svg class="camp-sync-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" ' +
+      'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
+  }
+
+  function restore(btn) {
+    if (btn.dataset.origHtml !== undefined) {
+      btn.innerHTML = btn.dataset.origHtml;
+      delete btn.dataset.origHtml;
+    }
+    btn.classList.remove('is-syncing');
+    btn.disabled = false;
+  }
+
+  document.body.addEventListener('htmx:beforeRequest', function (e) {
+    const btn = e.detail && e.detail.elt;
+    if (!btn || !btn.matches || !btn.matches(SYNC_SELECTOR)) return;
+
+    const isAll = btn.id === 'camp-sync-all-btn';
+    btn.dataset.origHtml = btn.innerHTML;
+    btn.classList.add('is-syncing');
+    btn.disabled = true;
+    btn.innerHTML = spinnerIcon() +
+      '<span class="camp-sync-label">' + (isAll ? 'Syncing All…' : 'Syncing…') + '</span>';
+
+    // Reassure on slow syncs instead of looking frozen — never fabricate a
+    // percentage since the backend doesn't stream per-campaign progress.
+    setTimeout(function () {
+      if (!btn.classList.contains('is-syncing')) return;
+      const label = btn.querySelector('.camp-sync-label');
+      if (label) label.textContent = isAll
+        ? 'Still syncing — this can take a while…'
+        : 'Still syncing…';
+    }, STILL_GOING_MS);
+
+    if (isAll) {
+      const panel = document.getElementById('campaigns-panel-inner');
+      if (panel) {
+        panel.querySelectorAll(OTHER_ACTIONS).forEach(function (other) {
+          if (other === btn) return;
+          other.classList.add('camp-action-muted');
+          other.disabled = true;
+        });
+      }
+    }
+  });
+
+  // Only reachable when the request failed and htmx did NOT swap the panel —
+  // a successful sync replaces #campaigns-panel-inner wholesale, so the old
+  // button (and its "syncing" state) is discarded along with everything else.
+  document.body.addEventListener('htmx:afterRequest', function (e) {
+    const btn = e.detail && e.detail.elt;
+    if (!btn || !btn.matches || !btn.matches(SYNC_SELECTOR)) return;
+    if (e.detail.successful) return;
+    restore(btn);
+    document.querySelectorAll('.camp-action-muted').forEach(function (el) {
+      el.classList.remove('camp-action-muted');
+      el.disabled = false;
+    });
   });
 })();
 </script>
