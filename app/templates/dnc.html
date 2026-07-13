@@ -4671,9 +4671,23 @@
       abPanel.style.display = '';
       abPanel.innerHTML = '<div class="cdash-ab"><p class="cdash-ab-loading"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Loading A/B data…</p></div>';
       fetch(`/api/campaigns/${campId}/ab-stats`)
-        .then(r => r.json())
-        .then(data => _renderAB(data))
-        .catch(() => _renderAB({ error: 'Network error.' }));
+        // Read as text first: a real backend error always comes back as JSON
+        // (the endpoint catches everything into {error: ...}), so a body that
+        // fails to parse means something outside the app answered instead —
+        // a Render cold-start/gateway page, a proxy timeout, etc. Surfacing
+        // the real HTTP status here turns "Network error" into something
+        // actually diagnosable next time this happens.
+        .then(r => r.text().then(text => ({ status: r.status, text: text })))
+        .then(function (res) {
+          let data;
+          try { data = JSON.parse(res.text); }
+          catch (e) {
+            throw new Error(`Server returned an unexpected response (HTTP ${res.status}). ` +
+              'This usually means the server was waking up or timed out — try again in a moment.');
+          }
+          _renderAB(data);
+        })
+        .catch(err => _renderAB({ error: (err && err.message) || 'Network error — check your connection.' }));
     }
   };
 
