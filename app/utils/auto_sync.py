@@ -38,14 +38,18 @@ _last_run: dict = {
     "failed":      0,
     "total":       0,
     "duration_s":  None,
+    "failures":    [],     # [{name, client, status, reason}] for the last run
 }
 _last_run_lock = threading.Lock()
+_MAX_FAILURES_KEPT = 100
 
 
 def get_sync_status() -> dict:
     """Return a copy of the most recent auto-sync run status (display-only)."""
     with _last_run_lock:
-        return dict(_last_run)
+        snap = dict(_last_run)
+        snap["failures"] = list(_last_run["failures"])
+        return snap
 
 
 def _next_working_day(from_date: _date) -> _date:
@@ -499,16 +503,41 @@ def _mark_run_start() -> _datetime:
     now = _datetime.now(_tz.utc)
     with _last_run_lock:
         _last_run.update(started_at=now.isoformat(), finished_at=None,
-                         running=True, ok=0, failed=0, total=0, duration_s=None)
+                         running=True, ok=0, failed=0, total=0, duration_s=None,
+                         failures=[])
     return now
 
 
-def _mark_run_end(started: _datetime, ok: int, failed: int, total: int) -> None:
+def _mark_run_end(started: _datetime, ok: int, failed: int, total: int,
+                  failures: list | None = None) -> None:
     end = _datetime.now(_tz.utc)
     with _last_run_lock:
         _last_run.update(finished_at=end.isoformat(), running=False,
                          ok=ok, failed=failed, total=total,
-                         duration_s=round((end - started).total_seconds(), 1))
+                         duration_s=round((end - started).total_seconds(), 1),
+                         failures=(failures or [])[:_MAX_FAILURES_KEPT])
+
+
+# Select tiers for the campaigns fetch — try the richest first and fall back so
+# a schema missing the newer `paused`/`completed` columns still works (matches
+# the resilience pattern in campaigns.list_campaigns).
+_CAMPAIGN_SELECT_TIERS = (
+    "id,sheet_id,client_id,client_name,campaign_name,total_prospects,completed_at,sent_count,completed,paused",
+    "id,sheet_id,client_id,client_name,campaign_name,total_prospects,completed_at,sent_count",
+    "id,sheet_id,client_id,client_name,campaign_name,total_prospects,completed_at",
+)
+
+
+def _campaign_status(c: dict) -> str:
+    """Classify a campaign row as active / paused / past (best-effort — falls
+    back gracefully when the status columns aren't in the fetched select)."""
+    if c.get("paused"):
+        return "paused"
+    total = c.get("total_prospects") or 0
+    sent  = c.get("sent_count") or 0
+    if c.get("completed") or c.get("completed_at") or (total > 0 and sent >= total):
+        return "past"
+    return "active"
 
 
 # Only one full run at a time — a trigger (hourly tick or a manual "Run now")
@@ -540,6 +569,7 @@ def _run_auto_sync_locked() -> None:
 
     started = _mark_run_start()
     ok = failed = 0
+    failures: list[dict] = []
     campaigns: list[dict] = []
     try:
         if not _sb_configured():
@@ -549,21 +579,25 @@ def _run_auto_sync_locked() -> None:
             logger.warning("Auto-sync skipped: Google Sheets not configured.")
             return
 
-        # Fetch all campaigns that have a linked sheet
-        try:
-            r = http_req.get(
-                f"{SUPABASE_URL}/rest/v1/campaigns",
-                headers=_sb_headers(),
-                params={
-                    "select":   "id,sheet_id,client_id,client_name,campaign_name,total_prospects,completed_at",
-                    "sheet_id": "not.is.null",
-                },
-                timeout=15,
-            )
-            r.raise_for_status()
-            campaigns = [c for c in r.json() if c.get("sheet_id", "").strip()]
-        except Exception as exc:
-            logger.error("Auto-sync: failed to fetch campaigns: %s", exc)
+        # Fetch all campaigns that have a linked sheet (tiered select so a schema
+        # missing the newer status columns still works).
+        last_exc = None
+        for _sel in _CAMPAIGN_SELECT_TIERS:
+            try:
+                r = http_req.get(
+                    f"{SUPABASE_URL}/rest/v1/campaigns",
+                    headers=_sb_headers(),
+                    params={"select": _sel, "sheet_id": "not.is.null"},
+                    timeout=15,
+                )
+                r.raise_for_status()
+                campaigns = [c for c in r.json() if (c.get("sheet_id") or "").strip()]
+                break
+            except Exception as exc:
+                last_exc = exc
+                campaigns = []
+        else:
+            logger.error("Auto-sync: failed to fetch campaigns: %s", last_exc)
             return
 
         if not campaigns:
@@ -574,21 +608,29 @@ def _run_auto_sync_locked() -> None:
 
         # Sequential by design — one campaign finishes before the next starts.
         for c in campaigns:
-            cid  = c.get("id", "")
-            name = c.get("campaign_name", "") or ""
+            cid    = c.get("id", "")
+            name   = c.get("campaign_name", "") or "(unnamed)"
+            client = c.get("client_name", "") or ""
+            status = _campaign_status(c)
+
+            def _record_failure(reason: str) -> None:
+                failures.append({"name": name, "client": client,
+                                 "status": status, "reason": str(reason)[:200]})
+
             try:
                 summary = sync_campaign_core(
                     campaign_id=cid,
                     sheet_id=c["sheet_id"],
                     client_id=c.get("client_id", ""),
                     campaign_name=name,
-                    client_name=c.get("client_name", "") or "",
+                    client_name=client,
                     total_prospects=c.get("total_prospects") or 0,
                     completed_at=c.get("completed_at"),
                 )
                 if summary["error"]:
                     logger.warning("Auto-sync: campaign %s (%s) error — %s", cid, name, summary["error"])
                     failed += 1
+                    _record_failure(summary["error"])
                 else:
                     logger.info(
                         "Auto-sync: campaign %s (%s) — leads=%d interested=%d unsubs=%d contacted=%d",
@@ -600,10 +642,11 @@ def _run_auto_sync_locked() -> None:
             except Exception as exc:
                 logger.error("Auto-sync: campaign %s (%s) unexpected error: %s", cid, name, exc)
                 failed += 1
+                _record_failure(exc)
 
         logger.info("Auto-sync complete: %d succeeded, %d failed.", ok, failed)
     finally:
-        _mark_run_end(started, ok, failed, len(campaigns))
+        _mark_run_end(started, ok, failed, len(campaigns), failures)
 
 
 # ── In-process hourly scheduler ───────────────────────────────────────────────

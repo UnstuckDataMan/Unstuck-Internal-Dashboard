@@ -356,6 +356,41 @@ def test_run_auto_sync_is_sequential_and_records_status(fake_sb, monkeypatch):
     assert st["total"] == 2 and st["ok"] == 1 and st["failed"] == 1
     assert st["started_at"] and st["finished_at"]
     assert st["duration_s"] is not None
+    # The failing campaign is recorded with its name, client, status and reason.
+    assert len(st["failures"]) == 1
+    fail = st["failures"][0]
+    assert fail["name"] == "B" and fail["client"] == "X"
+    assert "sheet boom" in fail["reason"]
+    assert fail["status"] in ("active", "paused", "past")
+
+
+def test_run_auto_sync_classifies_and_reports_failed_campaign_status(fake_sb, monkeypatch):
+    _reset_sync_status()
+    rows = [
+        # active (no completion, not fully sent) — will fail
+        {"id": "a", "sheet_id": "s", "client_id": "c1", "client_name": "Acme",
+         "campaign_name": "Live", "total_prospects": 100, "sent_count": 10,
+         "completed": False, "completed_at": None, "paused": False},
+        # past (fully sent) — will fail
+        {"id": "b", "sheet_id": "s", "client_id": "c1", "client_name": "Acme",
+         "campaign_name": "Done", "total_prospects": 50, "sent_count": 50,
+         "completed": False, "completed_at": None, "paused": False},
+        # paused — will fail
+        {"id": "c", "sheet_id": "s", "client_id": "c1", "client_name": "Acme",
+         "campaign_name": "Halted", "total_prospects": 100, "sent_count": 5,
+         "completed": False, "completed_at": None, "paused": True},
+    ]
+    fake_sb.route("GET", "campaigns", lambda c: FakeResponse(200, rows))
+    monkeypatch.setattr(auto_sync, "sync_campaign_core",
+                        lambda **kw: {"error": "Sheet read error: not found",
+                                      "leads_added": 0, "interested_added": 0,
+                                      "unsubscribes_added": 0, "reply_count": 0,
+                                      "contacted_added": 0})
+    auto_sync.run_auto_sync()
+
+    st = auto_sync.get_sync_status()
+    by_name = {f["name"]: f["status"] for f in st["failures"]}
+    assert by_name == {"Live": "active", "Done": "past", "Halted": "paused"}
 
 
 def test_sync_status_endpoint_reports_fresh_run(client):

@@ -1336,6 +1336,54 @@
   }
   .sync-status .ss-run:hover { border-color: var(--accent); color: var(--text); background: rgba(139,92,246,.1); }
   .sync-status .ss-run:disabled { opacity: .5; cursor: default; }
+
+  /* ── Failed-campaign detail list ───────────────────────────────────── */
+  .sync-fails {
+    margin: -6px 0 16px;
+    border: 1px solid rgba(251,191,36,.28);
+    border-radius: 12px;
+    background: rgba(251,191,36,.05);
+    overflow: hidden;
+  }
+  .sync-fails > summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    font-size: .78rem; font-weight: 600; color: #fbbf24;
+    user-select: none;
+  }
+  .sync-fails > summary::-webkit-details-marker { display: none; }
+  .sync-fails > summary::after {
+    content: '▾'; margin-left: auto; font-size: .7rem; opacity: .7;
+    transition: transform .18s;
+  }
+  .sync-fails[open] > summary::after { transform: rotate(180deg); }
+  .sync-fails > summary:hover { background: rgba(251,191,36,.08); }
+  .sync-fails-body {
+    max-height: 320px; overflow-y: auto;
+    border-top: 1px solid rgba(251,191,36,.2);
+  }
+  .sf-row {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sf-row:last-child { border-bottom: none; }
+  .sf-main { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .sf-name { font-size: .82rem; font-weight: 600; color: var(--text); }
+  .sf-client { font-size: .72rem; color: var(--text-2); }
+  .sf-tag {
+    font-size: .6rem; letter-spacing: .08em; text-transform: uppercase;
+    font-weight: 700; padding: 2px 7px; border-radius: 20px;
+  }
+  .sf-tag.sf-active { background: rgba(74,222,128,.14); color: #4ade80; }
+  .sf-tag.sf-paused { background: rgba(251,191,36,.15); color: #fbbf24; }
+  .sf-tag.sf-past   { background: rgba(255,255,255,.08); color: var(--text-3); }
+  .sf-reason {
+    font-family: ui-monospace, monospace; font-size: .72rem; color: var(--text-2);
+    margin-top: 4px; word-break: break-word; line-height: 1.5;
+  }
+  .sf-more { padding: 9px 14px; font-size: .72rem; color: var(--text-3); font-style: italic; }
   /* states */
   .sync-status.ss-ok      .ss-dot { background: #4ade80; box-shadow: 0 0 6px rgba(74,222,128,.6); }
   .sync-status.ss-warn    { border-color: rgba(251,191,36,.4); }

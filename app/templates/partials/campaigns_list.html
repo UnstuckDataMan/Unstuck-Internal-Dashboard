@@ -19,6 +19,29 @@
   <button type="button" class="ss-run" onclick="runAutoSyncNow(this)" title="Sync every campaign now">Run&nbsp;now</button>
   {% endif %}
 </div>
+{% if sync_status.failures %}
+<details class="sync-fails">
+  <summary>
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    View the {{ sync_status.failed }} campaign{{ 's' if sync_status.failed != 1 else '' }} that failed to sync
+  </summary>
+  <div class="sync-fails-body">
+    {% for f in sync_status.failures %}
+    <div class="sf-row">
+      <div class="sf-main">
+        <span class="sf-name">{{ f.name }}</span>
+        {% if f.client %}<span class="sf-client">{{ f.client }}</span>{% endif %}
+        <span class="sf-tag sf-{{ f.status }}">{{ f.status }}</span>
+      </div>
+      <div class="sf-reason">{{ f.reason }}</div>
+    </div>
+    {% endfor %}
+    {% if sync_status.failed > sync_status.failures|length %}
+    <div class="sf-more">…and {{ sync_status.failed - sync_status.failures|length }} more not shown</div>
+    {% endif %}
+  </div>
+</details>
+{% endif %}
 {% endif %}
 
 {% if no_client %}
