@@ -310,9 +310,71 @@ def _sync_campaign_core_unlocked(
                     cur["chaser_date"] = entry["chaser_date"]
         unique_sent = list(by_email.values())
 
-    if unique_sent:
-        for i in range(0, len(unique_sent), CHUNK_SIZE):
-            chunk = unique_sent[i : i + CHUNK_SIZE]
+    # ── Diff against existing rows: only rewrite what changed ─────────
+    # The delete-all-then-reinsert of EVERY sent row each run was the main
+    # Supabase churn (it scaled with a campaign's lifetime volume, not with
+    # what's new).  The stale-cleanup fetch below already pages through the
+    # campaign's existing auto_sync rows every run — extend it to include the
+    # stored dates and use it as a diff base, so unchanged rows are skipped
+    # entirely.  On any fetch failure we fall back to rewriting everything
+    # (the old, always-correct behaviour).
+    #
+    # NOTE: an on_conflict upsert is NOT an option here — the unique index is
+    # an expression index (client_id, email, COALESCE(campaign_name,'')) which
+    # PostgREST's on_conflict parameter cannot target (see the 8ce9e75 →
+    # d20c389 incident where a mismatched on_conflict silently stopped sends
+    # from recording).
+    existing_rows: dict[str, tuple] | None = None   # email → (contacted_at, chaser); None = unknown
+    if sent_read_ok and campaign_name:
+        def _fetch_existing(select: str) -> dict[str, tuple]:
+            found: dict[str, tuple] = {}
+            offset = 0
+            while True:   # paginate — Supabase caps responses at 1000 rows
+                rr = http_req.get(
+                    f"{SUPABASE_URL}/rest/v1/contacted_prospects",
+                    headers=_sb_headers(),
+                    params={
+                        "select":        select,
+                        "client_id":     f"eq.{client_id}",
+                        "source":        "eq.auto_sync",
+                        "campaign_name": f"eq.{campaign_name}",
+                        "limit":         "1000",
+                        "offset":        str(offset),
+                    },
+                    timeout=30,
+                )
+                rr.raise_for_status()
+                page = rr.json()
+                for row in page:
+                    em = (row.get("email") or "").strip()
+                    if em:
+                        found[em] = (row.get("contacted_at") or "",
+                                     row.get("chaser_contacted_at") or None)
+                if len(page) < 1000:
+                    return found
+                offset += 1000
+
+        try:
+            existing_rows = _fetch_existing("email,contacted_at,chaser_contacted_at")
+        except Exception:
+            try:   # chaser column may not exist yet — retry without it
+                existing_rows = _fetch_existing("email,contacted_at")
+            except Exception:
+                existing_rows = None   # unknown — rewrite everything below
+
+    if existing_rows is None:
+        to_write = unique_sent
+    else:
+        to_write = [
+            e for e in unique_sent
+            if e["email"] not in existing_rows
+            or existing_rows[e["email"]][0] != (e.get("sent_date") or "")
+            or existing_rows[e["email"]][1] != (e.get("chaser_date") or None)
+        ]
+
+    if to_write:
+        for i in range(0, len(to_write), CHUNK_SIZE):
+            chunk = to_write[i : i + CHUNK_SIZE]
             email_list = _pg_in_list([e["email"] for e in chunk])
 
             # Remove all existing rows for these emails so the fresh auto_sync
@@ -388,39 +450,17 @@ def _sync_campaign_core_unlocked(
     # ── Remove stale auto_sync rows for this campaign ─────────────────
     # If a prospect was previously synced as sent but the tick has since been
     # removed (or the row deleted from the sheet), its old auto_sync row would
-    # keep inflating the send stats forever.  Compare the campaign's existing
-    # rows against the current sent set and delete anything no longer ticked.
-    # Guarded by sent_read_ok so a transient read failure never wipes history.
-    if sent_read_ok and campaign_name:
+    # keep inflating the send stats forever.  The diff fetch above already
+    # holds every existing row for this campaign, so stale detection is free —
+    # no second paginated fetch.  Guarded by sent_read_ok (via existing_rows
+    # being None on read failure) so a transient failure never wipes history.
+    if sent_read_ok and campaign_name and existing_rows is not None:
         current_emails = {e["email"] for e in unique_sent}
         try:
-            existing: list[str] = []
-            offset = 0
-            while True:   # paginate — Supabase caps responses at 1000 rows
-                rr = http_req.get(
-                    f"{SUPABASE_URL}/rest/v1/contacted_prospects",
-                    headers=_sb_headers(),
-                    params={
-                        "select":        "email",
-                        "client_id":     f"eq.{client_id}",
-                        "source":        "eq.auto_sync",
-                        "campaign_name": f"eq.{campaign_name}",
-                        "limit":         "1000",
-                        "offset":        str(offset),
-                    },
-                    timeout=30,
-                )
-                rr.raise_for_status()
-                page = [row.get("email", "") for row in rr.json()]
-                existing.extend(p for p in page if p)
-                if len(page) < 1000:
-                    break
-                offset += 1000
-
-            stale = [e for e in existing if e not in current_emails]
+            stale = [e for e in existing_rows if e not in current_emails]
             for i in range(0, len(stale), CHUNK_SIZE):
                 stale_chunk = stale[i : i + CHUNK_SIZE]
-                stale_list = "(" + ",".join(f'"{e}"' for e in stale_chunk) + ")"
+                stale_list = _pg_in_list(stale_chunk)
                 http_req.delete(
                     f"{SUPABASE_URL}/rest/v1/contacted_prospects",
                     headers=_sb_headers(),

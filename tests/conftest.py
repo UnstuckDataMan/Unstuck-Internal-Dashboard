@@ -146,12 +146,21 @@ def client():
 # ── Fake gspread / Sheets REST layer ──────────────────────────────────────────
 
 class FakeWorksheet:
-    def __init__(self, headers: list[str], rows: list[list[str]], gid: int = 777):
+    def __init__(self, headers: list[str], rows: list[list[str]], gid: int = 777,
+                 col_count: int | None = None):
         self.headers = headers
         self.rows    = rows               # data rows (row 2 onward)
         self.id      = gid
+        # Physical grid width — defaults to exactly the header width, which is
+        # the tight-grid case that used to 400 on column appends.
+        self.col_count = col_count if col_count is not None else max(1, len(headers))
+        self.added_cols: list[int] = []
         self.batch_updates: list[list] = []
         self.updates: list[tuple] = []    # generic recorded calls
+
+    def add_cols(self, n: int):
+        self.added_cols.append(n)
+        self.col_count += n
 
     def row_values(self, n: int):
         if n == 1:

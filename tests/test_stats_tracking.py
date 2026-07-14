@@ -174,6 +174,51 @@ def test_sync_core_full_pipeline(fake_sb, monkeypatch):
     assert "completed_at" in patch, "100% sent must auto-stamp completed_at"
 
 
+def test_sync_core_skips_unchanged_rows(fake_sb, monkeypatch):
+    """Steady state: every sent row already stored with identical dates →
+    zero DELETE/INSERT churn on contacted_prospects (the diff optimisation)."""
+    send_day = auto_sync._next_working_day(date.today()).isoformat()
+    written = _patch_sheet_reads(monkeypatch, [], SENT)
+
+    # Existing rows exactly match what the sync would write:
+    # lead1: sheet date + chaser back-filled to send_day; fresh: back-filled date, no chaser.
+    fake_sb.route("GET", "contacted_prospects", lambda c: FakeResponse(200, [
+        {"email": "lead1@acme.com", "contacted_at": "2026-06-01",
+         "chaser_contacted_at": send_day},
+        {"email": "fresh@corp.com", "contacted_at": send_day,
+         "chaser_contacted_at": None},
+    ]))
+    fake_sb.route("PATCH", "campaigns", lambda c: FakeResponse(204))
+
+    result = auto_sync.sync_campaign_core("camp-1", "sheet-1", "client-1", "June Campaign")
+
+    assert result["error"] == ""
+    assert result["contacted_added"] == 0, "unchanged rows must not be rewritten"
+    assert fake_sb.calls_to("DELETE", "contacted_prospects") == []
+    assert fake_sb.calls_to("POST",   "contacted_prospects") == []
+    # Counters still refresh every run
+    assert fake_sb.calls_to("PATCH", "campaigns")
+
+
+def test_sync_core_rewrites_when_existing_fetch_fails(fake_sb, monkeypatch):
+    """If the diff fetch errors, fall back to rewriting everything (the old,
+    always-correct behaviour) rather than skipping writes on unknown state."""
+    _patch_sheet_reads(monkeypatch, [], SENT)
+    fake_sb.route("GET", "contacted_prospects",
+                  lambda c: FakeResponse(500, [], text="boom"))
+    fake_sb.route("POST", "contacted_prospects", lambda c: FakeResponse(201))
+    fake_sb.route("PATCH", "campaigns", lambda c: FakeResponse(204))
+
+    result = auto_sync.sync_campaign_core("camp-1", "sheet-1", "client-1", "June Campaign")
+
+    assert result["contacted_added"] == 2, "unknown existing state → write all"
+    assert fake_sb.calls_to("POST", "contacted_prospects")
+    # Stale cleanup must NOT run on unknown state (could wipe valid history)
+    deletes = fake_sb.calls_to("DELETE", "contacted_prospects")
+    stale_deletes = [d for d in deletes if param_values(d, "source") == ["eq.auto_sync"]]
+    assert stale_deletes == []
+
+
 def test_sync_core_failed_sheet_read_never_wipes_history(fake_sb, monkeypatch):
     def boom(sid):
         raise RuntimeError("quota exceeded")

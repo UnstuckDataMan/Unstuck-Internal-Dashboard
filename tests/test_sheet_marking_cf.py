@@ -317,3 +317,72 @@ def test_records_cache_hits_and_invalidation(monkeypatch):
     gs._invalidate_sheet_cache("cache-test")
     gs._get_all_records(ws, "cache-test", value_render_option="UNFORMATTED_VALUE")
     assert calls["n"] == 2, "write invalidation must force a fresh read"
+
+
+# ── Transient-error retry + grid expansion ────────────────────────────────────
+
+class _FakeAPIError(gs.APIError):
+    """gspread APIError stand-in carrying only a status code."""
+    def __init__(self, status: int):
+        from types import SimpleNamespace
+        self.response = SimpleNamespace(status_code=status)
+
+
+def test_get_all_records_retries_transient_5xx(monkeypatch):
+    monkeypatch.setattr(gs.time, "sleep", lambda s: None)   # no real backoff waits
+    ws = make_ws(["a@acme.com"])
+    calls = {"n": 0}
+    real = ws.get_all_values
+    def flaky(**kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _FakeAPIError(503)   # "The service is currently unavailable."
+        return real(**kw)
+    ws.get_all_values = flaky
+
+    gs._records_cache.clear()
+    records = gs._get_all_records(ws, "retry-503", value_render_option="UNFORMATTED_VALUE")
+    assert calls["n"] == 2 and len(records) == 1, "503 must retry, not fail the sync"
+
+
+def test_get_all_records_does_not_retry_client_errors(monkeypatch):
+    monkeypatch.setattr(gs.time, "sleep", lambda s: None)
+    ws = make_ws(["a@acme.com"])
+    calls = {"n": 0}
+    def always_400(**kw):
+        calls["n"] += 1
+        raise _FakeAPIError(400)
+    ws.get_all_values = always_400
+
+    gs._records_cache.clear()
+    with pytest.raises(gs.APIError):
+        gs._get_all_records(ws, "no-retry-400", value_render_option="UNFORMATTED_VALUE")
+    assert calls["n"] == 1, "a 400 is not transient — retrying just burns quota"
+
+
+def test_write_date_column_expands_tight_grid(monkeypatch):
+    """A sheet whose grid is exactly as wide as its headers must grow before the
+    new 'Sent Date' header is written — writing past the edge 400s forever."""
+    ws = FakeWorksheet(SHEET_HEADERS, [["", "s0@x.com", "a@acme.com", ""]])
+    assert ws.col_count == len(SHEET_HEADERS)   # tight grid — the failing case
+    monkeypatch.setattr(gs, "_client", lambda: FakeGC({"grid-1": FakeSpreadsheet(ws)}))
+
+    gs._records_cache.clear()
+    gs.write_sent_dates("grid-1", [(2, "2026-07-14")])
+
+    assert ws.added_cols == [1], "grid must be expanded by exactly one column"
+    new_idx = len(SHEET_HEADERS) + 1
+    assert ("cell", 1, new_idx, "Sent Date") in ws.updates
+    assert ws.batch_updates, "the date write must still go through"
+
+
+def test_write_date_column_no_expansion_when_grid_has_room(monkeypatch):
+    ws = FakeWorksheet(SHEET_HEADERS, [["", "s0@x.com", "a@acme.com", ""]],
+                       col_count=len(SHEET_HEADERS) + 5)
+    monkeypatch.setattr(gs, "_client", lambda: FakeGC({"grid-2": FakeSpreadsheet(ws)}))
+
+    gs._records_cache.clear()
+    gs.write_sent_dates("grid-2", [(2, "2026-07-14")])
+
+    assert ws.added_cols == [], "no expansion when spare columns exist"
+    assert ("cell", 1, len(SHEET_HEADERS) + 1, "Sent Date") in ws.updates

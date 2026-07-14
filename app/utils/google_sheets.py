@@ -52,6 +52,10 @@ _records_cache: dict[str, tuple[float, list]] = {}
 _records_cache_lock = threading.Lock()
 _RECORDS_CACHE_TTL  = 45  # seconds
 
+# 429 = quota exhausted; 5xx = transient Google-side failures ("the service is
+# currently unavailable").  Both classes clear on retry — anything else raises.
+_RETRYABLE_STATUSES = (429, 500, 502, 503, 504)
+
 
 def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
     """
@@ -81,7 +85,10 @@ def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
         if entry and (now - entry[0]) < _RECORDS_CACHE_TTL:
             return entry[1]
 
-    # Cache miss — fetch from API with exponential backoff on 429
+    # Cache miss — fetch from API with exponential backoff on 429 (quota) and
+    # transient 5xx (Google-side hiccups like "the service is currently
+    # unavailable" — these usually clear within seconds and previously failed
+    # the whole campaign's sync for the hour).
     wait_times = (10, 20, 40)
     for attempt in range(len(wait_times) + 1):
         try:
@@ -114,7 +121,7 @@ def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
             return records
         except APIError as exc:
             status = getattr(exc.response, "status_code", 0)
-            if status == 429 and attempt < len(wait_times):
+            if status in _RETRYABLE_STATUSES and attempt < len(wait_times):
                 time.sleep(wait_times[attempt])
             else:
                 raise
@@ -922,6 +929,11 @@ def _write_date_column(
         # (including trailing empties that get_all_records may trim).
         raw_headers = ws.row_values(1)
         new_col_idx = len(raw_headers) + 1       # 1-based
+        # Older sheets can have a grid exactly as wide as their headers —
+        # writing one column past the edge 400s with "exceeds grid limits"
+        # on EVERY sync, forever.  Grow the grid first when needed.
+        if new_col_idx > ws.col_count:
+            ws.add_cols(new_col_idx - ws.col_count)
         ws.update_cell(1, new_col_idx, col_name)
         date_col = new_col_idx
         _invalidate_sheet_cache(sheet_id)        # header changed
@@ -935,8 +947,8 @@ def _write_date_column(
     if not updates:
         return
 
-    # Retry once on quota errors (429) — the read path already consumed some
-    # quota, and large sheets can tip the burst budget on the write.
+    # Retry on quota errors (429) and transient 5xx — the read path already
+    # consumed some quota, and large sheets can tip the burst budget on the write.
     wait_times = (10, 20)
     for attempt in range(len(wait_times) + 1):
         try:
@@ -944,7 +956,7 @@ def _write_date_column(
             break
         except APIError as exc:
             status = getattr(exc.response, "status_code", 0)
-            if status == 429 and attempt < len(wait_times):
+            if status in _RETRYABLE_STATUSES and attempt < len(wait_times):
                 time.sleep(wait_times[attempt])
             else:
                 raise
