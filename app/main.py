@@ -2,7 +2,6 @@ import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -24,49 +23,27 @@ logger = logging.getLogger(__name__)
 # per-day send stats stay close to real time.  Campaigns are synced sequentially
 # inside run_auto_sync (not in parallel) to stay under the Sheets read quota.
 #
-# AUTO_SYNC_HOURS controls which UTC hours fire:
-#   "*"     → every hour at :00 (default)
-#   "9,21"  → twice daily (the old behaviour), if ever needed
-# AUTO_SYNC_MINUTE offsets the minute within the hour (default "0").
-_AUTO_SYNC_HOURS  = os.environ.get("AUTO_SYNC_HOURS", "*").strip() or "*"
-_AUTO_SYNC_MINUTE = os.environ.get("AUTO_SYNC_MINUTE", "0").strip() or "0"
+# Implemented as a plain daemon thread (see app/utils/auto_sync.py) rather than
+# APScheduler — the event-loop-based scheduler proved unreliable under uvicorn
+# (first run fired, hourly ticks then stopped). The thread runs once ~20s after
+# boot, then at the top of every hour, for as long as the process is alive.
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    from app.utils.auto_sync import start_scheduler, stop_scheduler
     try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from apscheduler.triggers.cron import CronTrigger
-        from app.utils.auto_sync import run_auto_sync
-
-        scheduler = AsyncIOScheduler()
-        scheduler.add_job(
-            run_auto_sync,
-            CronTrigger(hour=_AUTO_SYNC_HOURS, minute=_AUTO_SYNC_MINUTE),
-            id="auto_sync",
-            name="Hourly campaign sync",
-            replace_existing=True,
-            # A run that overruns the hour must not overlap the next tick; skip
-            # the next fire instead (the per-campaign lock is a second guard).
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=600,
-            # A pure cron trigger would not fire until the next top-of-hour, so a
-            # fresh deploy shows no sync (and an empty status pill) for up to an
-            # hour.  Kick the first run ~20s after boot, then follow the cron.
-            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=20),
-        )
-        scheduler.start()
-        logger.info("Auto-sync scheduler started (UTC hours=%s minute=%s; first run ~20s after boot).",
-                    _AUTO_SYNC_HOURS, _AUTO_SYNC_MINUTE)
+        start_scheduler()
+        logger.info("Auto-sync scheduler started (hourly daemon thread; first run ~20s after boot).")
     except Exception as exc:
         logger.warning("Auto-sync scheduler could not start: %s", exc)
-        scheduler = None
 
     yield  # app runs here
 
-    if scheduler and scheduler.running:
-        scheduler.shutdown(wait=False)
+    try:
+        stop_scheduler()
         logger.info("Auto-sync scheduler stopped.")
+    except Exception:
+        pass
 
 
 app = FastAPI(title="Data Enrichment Dashboard", lifespan=_lifespan)

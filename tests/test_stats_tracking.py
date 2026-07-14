@@ -412,6 +412,23 @@ def test_sync_now_skips_when_already_running(client):
     _reset_sync_status()
 
 
+def test_run_auto_sync_skips_when_run_lock_held():
+    """A second trigger while a run holds the run-lock is a no-op (no status
+    change), so the hourly tick can't clobber a manual run and vice versa."""
+    _reset_sync_status()
+    assert auto_sync._run_lock.acquire(blocking=False)
+    try:
+        auto_sync.run_auto_sync()   # should return immediately, record nothing
+        assert auto_sync.get_sync_status()["started_at"] is None
+    finally:
+        auto_sync._run_lock.release()
+
+
+def test_seconds_to_next_hour_within_bounds():
+    s = auto_sync._seconds_to_next_hour()
+    assert 0 < s <= 3600
+
+
 def _now_utc():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc)

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import date as _date, datetime as _datetime, timezone as _tz
+from datetime import date as _date, datetime as _datetime, timedelta as _timedelta, timezone as _tz
 
 import requests as http_req
 
@@ -511,14 +511,31 @@ def _mark_run_end(started: _datetime, ok: int, failed: int, total: int) -> None:
                          duration_s=round((end - started).total_seconds(), 1))
 
 
+# Only one full run at a time — a trigger (hourly tick or a manual "Run now")
+# that arrives while a run is in progress is skipped, since the running pass
+# already does the same work.
+_run_lock = threading.Lock()
+
+
 def run_auto_sync() -> None:
     """
-    Called by APScheduler once an hour (see app/main.py).
+    Runs the hourly campaign sync (see the scheduler thread below, and the
+    manual /api/campaigns/sync-now trigger).
     Fetches every campaign that has a sheet_id and syncs them one at a time —
     sequential on purpose, to stay under the Google Sheets read quota and avoid
     hammering Supabase with a burst.  Records a run-status snapshot (start/end,
     counts) so the Campaigns panel can show the sync actually ran.
     """
+    if not _run_lock.acquire(blocking=False):
+        logger.info("Auto-sync: a run is already in progress — skipping this trigger.")
+        return
+    try:
+        _run_auto_sync_locked()
+    finally:
+        _run_lock.release()
+
+
+def _run_auto_sync_locked() -> None:
     from app.utils.google_sheets import is_configured
 
     started = _mark_run_start()
@@ -587,3 +604,52 @@ def run_auto_sync() -> None:
         logger.info("Auto-sync complete: %d succeeded, %d failed.", ok, failed)
     finally:
         _mark_run_end(started, ok, failed, len(campaigns))
+
+
+# ── In-process hourly scheduler ───────────────────────────────────────────────
+# A plain daemon thread rather than APScheduler: APScheduler's AsyncIOScheduler
+# fires jobs off the uvicorn event loop, which proved unreliable here (the first
+# run fired but hourly ticks silently stopped).  A thread that simply sleeps
+# until the next top-of-hour has no dependency on the event loop and fires
+# reliably for as long as the web process is alive.
+_scheduler_thread: threading.Thread | None = None
+_scheduler_stop = threading.Event()
+_STARTUP_DELAY_S = 20   # let the app finish booting before the first run
+
+
+def _seconds_to_next_hour() -> float:
+    now = _datetime.now(_tz.utc)
+    nxt = now.replace(minute=0, second=0, microsecond=0) + _timedelta(hours=1)
+    return max(1.0, (nxt - now).total_seconds())
+
+
+def _scheduler_loop() -> None:
+    # Run once shortly after boot so a fresh deploy reflects immediately instead
+    # of waiting up to an hour for the first top-of-hour tick.
+    if _scheduler_stop.wait(_STARTUP_DELAY_S):
+        return
+    while not _scheduler_stop.is_set():
+        try:
+            run_auto_sync()
+        except Exception as exc:   # never let the loop die on one bad run
+            logger.error("Auto-sync scheduler loop error: %s", exc)
+        # Interruptible sleep until the next top of the hour.
+        if _scheduler_stop.wait(_seconds_to_next_hour()):
+            break
+
+
+def start_scheduler() -> None:
+    """Start the hourly auto-sync thread (idempotent)."""
+    global _scheduler_thread
+    if _scheduler_thread and _scheduler_thread.is_alive():
+        return
+    _scheduler_stop.clear()
+    _scheduler_thread = threading.Thread(
+        target=_scheduler_loop, name="auto-sync-scheduler", daemon=True,
+    )
+    _scheduler_thread.start()
+
+
+def stop_scheduler() -> None:
+    """Signal the scheduler thread to exit (used on app shutdown)."""
+    _scheduler_stop.set()
