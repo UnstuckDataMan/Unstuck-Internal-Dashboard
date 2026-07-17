@@ -59,6 +59,23 @@ def test_chaser_default_absent_returns_empty(fake_sb, client):
     assert resp.json()["bodies"] == []
 
 
+# ── Profiles endpoint carries per-profile senders ──────────────────────────────
+
+def test_profiles_endpoint_includes_per_profile_senders(fake_sb, client):
+    """The Mail Merge copy loader offers sign-off names for the selected client,
+    so /profiles must expose profile.senders (the global __cb_senders__ row is
+    legacy and ignored by Copy Bank)."""
+    fake_sb.route("GET", "copy_bank_templates", lambda c: FakeResponse(200, [{"content": [
+        {"client_id": "c1", "name": "Acme", "type": "client",
+         "territories": ["US"], "industries": ["SaaS"], "senders": ["Robyn", "Glen"]},
+        {"client_id": "c2", "name": "Beta", "type": "client",
+         "territories": ["UK"], "industries": ["PR"]},   # no senders configured
+    ]}]))
+    rows = client.get("/api/copy-bank/profiles").json()
+    assert rows[0]["senders"] == ["Robyn", "Glen"]
+    assert rows[1]["senders"] == [], "a profile with no senders must return an empty list"
+
+
 # ── A/B winner tracing ─────────────────────────────────────────────────────────
 
 def test_ab_winner_aggregates_and_maps_indices(fake_sb, client, monkeypatch):

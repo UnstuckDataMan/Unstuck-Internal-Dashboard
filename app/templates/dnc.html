@@ -4167,22 +4167,24 @@
   // ── Copy Bank loader ─────────────────────────────────────
   let _mmCbProfiles = [];
 
-  async function mmInitCopyBankSenders() {
-    try {
-      const resp = await fetch('/api/copy-bank/senders');
-      const senders = await resp.json();
-      const sel = $('mm-cb-sender');
-      if (!sel) return;
-      sel.innerHTML = '<option value="">— No sender —</option>' +
-        senders.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
-    } catch(e) {
-      const sel = $('mm-cb-sender');
-      if (sel) sel.innerHTML = '<option value="">— Could not load —</option>';
+  // Senders are per-profile in Copy Bank (profile.senders) — the old global
+  // /api/copy-bank/senders row is ignored there and only ever returned a stale
+  // hard-coded list, which is why the wrong names showed up here. Populate from
+  // whichever client is selected instead.
+  function mmSetCopyBankSenders(profile) {
+    const sel = $('mm-cb-sender');
+    if (!sel) return;
+    const senders = (profile && profile.senders) || [];
+    if (!profile) {
+      sel.innerHTML = '<option value="">— Select client first —</option>';
+      return;
     }
+    sel.innerHTML = '<option value="">— No sender —</option>' +
+      senders.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
   }
 
   async function mmInitCopyBankLoader() {
-    mmInitCopyBankSenders();
+    mmSetCopyBankSenders(null);
     try {
       const resp = await fetch('/api/copy-bank/profiles');
       _mmCbProfiles = await resp.json();
@@ -4209,6 +4211,7 @@
     if (!profile) {
       terSel.innerHTML = '<option value="">— Select client first —</option>';
       indSel.innerHTML = '<option value="">— Select client first —</option>';
+      mmSetCopyBankSenders(null);
       if (chanWrap) chanWrap.style.display = 'none';
       loadBtn.disabled = true;
       return;
@@ -4218,6 +4221,7 @@
       `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
     indSel.innerHTML = profile.industries.map(i =>
       `<option value="${escHtml(i)}">${escHtml(i.replace(/_/g,' '))}</option>`).join('');
+    mmSetCopyBankSenders(profile);   // this client's own sign-off names
 
     // Show channel dropdown only for Biz Dev profile
     if (chanWrap) chanWrap.style.display = profile.type === 'bizdev' ? '' : 'none';

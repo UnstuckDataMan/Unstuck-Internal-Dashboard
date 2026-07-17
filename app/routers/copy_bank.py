@@ -64,6 +64,10 @@ def copy_bank_profiles():
             "type":        p.get("type", "client"),
             "territories": p.get("territories", []),
             "industries":  p.get("industries", []),
+            # Senders are per-profile (the legacy global __cb_senders__ row is
+            # ignored by Copy Bank) — callers need them to offer the right
+            # sign-off names for the selected client.
+            "senders":     p.get("senders", []),
         }
         for p in rows[0]["content"]
     ]
