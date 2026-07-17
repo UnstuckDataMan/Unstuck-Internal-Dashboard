@@ -3551,6 +3551,9 @@
     scheduledCount: 0,
     senderProfileName: '',
     outputFormat: 'excel',   // 'excel' | 'sheets'
+    // Copy Bank source of the loaded copy (client_id/territory/industry) — stamped
+    // onto the created campaign so Copy Bank can trace the A/B winner back.
+    copySource: null,
   };
 
   // ── Helpers ──────────────────────────────────────────────────
@@ -4077,6 +4080,8 @@
           campaign_name:       campaign,
           sender_profile_name: mm.senderProfileName,
           total_prospects:     mm.scheduledCount,
+          copy_territory:      mm.copySource ? mm.copySource.territory : '',
+          copy_industry:       mm.copySource ? mm.copySource.industry  : '',
         }),
       }).then(r => r.json());
 
@@ -4289,6 +4294,12 @@
           chaserNote = chSteps.length > 1 ? `, chaser (step 1 of ${chSteps.length})` : ', chaser';
         }
       } catch(e) { /* chaser is optional — never block the main load */ }
+
+      // Remember where this copy came from so the created campaign records it
+      // (only for email/flyout loads — chaser-only pulls aren't the A/B source).
+      if (channel === 'email' || channel === 'flyout') {
+        mm.copySource = { client_id: clientId, territory: territory, industry: industry };
+      }
 
       feedback.textContent = `✅ Loaded ${data.subjects.length} subject(s), ${data.bodies.length} body variation(s)${chaserNote}`;
       feedback.style.color = 'var(--green, #10b981)';

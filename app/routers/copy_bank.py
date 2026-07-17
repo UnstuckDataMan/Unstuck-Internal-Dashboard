@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 
 import requests as http_req
 from fastapi import APIRouter, Depends, Request
@@ -97,10 +98,7 @@ def copy_bank_template(client_id: str, territory: str, industry: str, channel: s
         )
         rows = resp.json()
 
-    if not rows:
-        return {"subjects": [], "bodies": []}
-
-    c = rows[0].get("content") or {}
+    c = (rows[0].get("content") or {}) if rows else {}
 
     # LinkedIn and Chaser are ordered, body-only "steps" sequences; email and
     # flyout have subject lines + body variations.
@@ -108,13 +106,139 @@ def copy_bank_template(client_id: str, territory: str, industry: str, channel: s
         ch       = c.get(channel) or {}
         subjects = []
         bodies   = [s["body"] for s in (ch.get("steps") or []) if s.get("body", "").strip()]
-    else:
-        # flyout only available for Biz Dev; anything else falls back to email
-        ch_key   = "flyout" if channel == "flyout" else "email"
-        ch       = c.get(ch_key) or {}
-        subjects = [s for s in (ch.get("subjects") or []) if s and s.strip()]
-        bodies   = [v["body"] for v in (ch.get("variations") or []) if v.get("body", "").strip()]
+        # Chaser fallback: when this industry has no chaser of its own, use the
+        # client's profile-level default chaser (Copy Bank seeds it the same way).
+        if channel == "chaser" and not bodies:
+            bodies = _profile_default_chaser(url, client_id)
+        return {"subjects": subjects, "bodies": bodies}
+
+    if not rows:
+        return {"subjects": [], "bodies": []}
+
+    # flyout only available for Biz Dev; anything else falls back to email
+    ch_key   = "flyout" if channel == "flyout" else "email"
+    ch       = c.get(ch_key) or {}
+    subjects = [s for s in (ch.get("subjects") or []) if s and s.strip()]
+    bodies   = [v["body"] for v in (ch.get("variations") or []) if v.get("body", "").strip()]
     return {"subjects": subjects, "bodies": bodies}
+
+
+_VARIANT_RE = re.compile(r"^\s*S(\d+)\s*/\s*B(\d+)\s*$")
+
+
+def _parse_variant(v: str) -> tuple[int | None, int | None]:
+    """'S2/B1' → (subject_idx=1, body_idx=0), 0-based to match Copy Bank arrays."""
+    m = _VARIANT_RE.match(str(v or ""))
+    if not m:
+        return (None, None)
+    return (int(m.group(1)) - 1, int(m.group(2)) - 1)
+
+
+@router.get("/api/copy-bank/ab-winner")
+def copy_bank_ab_winner(client_id: str, territory: str, industry: str):
+    """A/B winner for the given Copy Bank copy, aggregated across every campaign
+    that pulled it (linked via campaigns.copy_territory/copy_industry).
+
+    Returns the winning subject/variation indices so Copy Bank can badge them.
+    Silent {has_data:false} when nothing links up or the columns aren't migrated.
+    """
+    from app.utils.google_sheets import is_configured, read_ab_stats
+
+    url = os.environ.get("SUPABASE_URL", "")
+    if not url or not is_configured():
+        return {"has_data": False}
+
+    try:
+        resp = http_req.get(
+            f"{url}/rest/v1/campaigns",
+            params={
+                "select":         "campaign_name,sheet_id",
+                "client_id":      f"eq.{client_id}",
+                "copy_territory": f"eq.{territory}",
+                "copy_industry":  f"eq.{industry}",
+            },
+            headers=_sb_headers(),
+            timeout=10,
+        )
+        if resp.status_code >= 400:   # copy-source columns not migrated yet
+            return {"has_data": False}
+        campaigns = resp.json()
+    except Exception:
+        return {"has_data": False}
+
+    if not campaigns:
+        return {"has_data": False}
+
+    # Aggregate per-variant stats across every matching campaign's sheet.
+    agg: dict[str, dict] = {}
+    used: list[str] = []
+    for c in campaigns:
+        sid = (c.get("sheet_id") or "").strip()
+        if not sid:
+            continue
+        try:
+            variants = read_ab_stats(sid)
+        except Exception:
+            continue
+        if variants:
+            name = c.get("campaign_name") or ""
+            if name:
+                used.append(name)
+        for v in variants:
+            a = agg.setdefault(v["variant"],
+                               {"lead": 0, "interested": 0, "reply": 0,
+                                "unsubscribe": 0, "total": 0})
+            for f in ("lead", "interested", "reply", "unsubscribe", "total"):
+                a[f] += v.get(f, 0)
+
+    if not agg:
+        return {"has_data": False, "campaigns": used}
+
+    out: list[dict] = []
+    for variant, a in agg.items():
+        positive = a["lead"] + a["interested"]
+        si, bi = _parse_variant(variant)
+        out.append({
+            "variant": variant, "subject_idx": si, "body_idx": bi,
+            "lead": a["lead"], "interested": a["interested"], "reply": a["reply"],
+            "unsubscribe": a["unsubscribe"], "total": a["total"], "positive": positive,
+            "rate": round(positive / a["total"] * 100, 1) if a["total"] else 0,
+        })
+    out.sort(key=lambda x: (x["positive"], x["reply"]), reverse=True)
+
+    max_pos = out[0]["positive"]
+    winners = [v for v in out if v["positive"] == max_pos and max_pos > 0]
+    return {
+        "has_data":     True,
+        "campaigns":    used,
+        "variants":     out,
+        "winner":       winners[0] if len(winners) == 1 else None,
+        "is_tie":       len(winners) > 1,
+        "no_responses": max_pos == 0,
+    }
+
+
+def _profile_default_chaser(url: str, client_id: str) -> list[str]:
+    """Return the client profile's default-chaser step bodies (empty if none).
+
+    The default chaser lives on the profile object inside the __cb_profiles__
+    row (saved directly from the Copy Bank profile editor, no approval)."""
+    try:
+        resp = http_req.get(
+            f"{url}/rest/v1/copy_bank_templates",
+            params={"key": "eq.__cb_profiles__", "select": "content"},
+            headers=_sb_headers(),
+            timeout=10,
+        )
+        rows = resp.json()
+        profiles = rows[0]["content"] if rows and isinstance(rows[0].get("content"), list) else []
+        for p in profiles:
+            if str(p.get("client_id")) == str(client_id):
+                steps = (p.get("defaultChaser") or {}).get("steps") or []
+                return [s["body"] for s in steps if (s.get("body") or "").strip()]
+    except Exception:
+        pass
+    return []
 
 
 # ── Approval workflow helpers ──────────────────────────────────────────────────

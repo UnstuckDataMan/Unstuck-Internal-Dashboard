@@ -378,6 +378,8 @@ async def upload_to_sheets(request: Request):
     campaign            = (data.get("campaign_name") or "").strip()
     sender_profile_name = (data.get("sender_profile_name") or "").strip()
     total_prospects     = int(data.get("total_prospects") or 0)
+    copy_territory      = (data.get("copy_territory") or "").strip()
+    copy_industry       = (data.get("copy_industry") or "").strip()
 
     if not is_configured():
         return JSONResponse(
@@ -410,24 +412,38 @@ async def upload_to_sheets(request: Request):
 
     # ── Save campaign record to Supabase (best-effort — don't block on failure) ──
     if _sb_configured():
-        try:
-            http_req.post(
-                f"{SUPABASE_URL}/rest/v1/campaigns",
-                headers=_sb_headers("return=minimal"),
-                json={
-                    "campaign_name":       campaign or title,
-                    "sender_profile_name": sender_profile_name,
-                    "client_id":           client_id or None,
-                    "client_name":         client_name,
-                    "sheet_id":            result["sheet_id"],
-                    "sheet_url":           result["sheet_url"],
-                    "total_prospects":     total_prospects,
-                    "sent_count":          0,
-                },
-                timeout=10,
-            )
-        except Exception:
-            pass  # Campaign tracking is non-critical; sheet upload already succeeded
+        base_row = {
+            "campaign_name":       campaign or title,
+            "sender_profile_name": sender_profile_name,
+            "client_id":           client_id or None,
+            "client_name":         client_name,
+            "sheet_id":            result["sheet_id"],
+            "sheet_url":           result["sheet_url"],
+            "total_prospects":     total_prospects,
+            "sent_count":          0,
+        }
+        has_copy_source = bool(copy_territory or copy_industry)
+        row = dict(base_row)
+        if has_copy_source:
+            row["copy_territory"] = copy_territory or None
+            row["copy_industry"]  = copy_industry or None
+
+        def _insert(payload: dict) -> bool:
+            try:
+                r = http_req.post(
+                    f"{SUPABASE_URL}/rest/v1/campaigns",
+                    headers=_sb_headers("return=minimal"),
+                    json=payload,
+                    timeout=10,
+                )
+                return r.status_code < 400
+            except Exception:
+                return False
+
+        # Copy-source columns may not be migrated yet; PostgREST rejects the whole
+        # insert on any unknown column, so retry without them on failure.
+        if not _insert(row) and has_copy_source:
+            _insert(base_row)
 
     return result  # {"sheet_id": ..., "sheet_url": ..., "title": ...}
 

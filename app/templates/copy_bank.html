@@ -1131,6 +1131,56 @@
     .pe-title  { font-size: 17px; font-weight: 700; }
     .pe-field  { margin-bottom: 16px; }
     .pe-label  { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; }
+    .pe-sublabel { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-3); font-size: 11px; margin-left: 6px; }
+    .pe-chaser-input {
+      width: 100%; background: rgba(255,255,255,.05); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px; color: var(--text); font-family: var(--font);
+      font-size: 13px; line-height: 1.5; resize: vertical; min-height: 76px; outline: none;
+    }
+    .pe-chaser-input:focus { border-color: var(--border-focus); box-shadow: var(--sh-glow); }
+    .pe-chaser-input::placeholder { color: var(--text-3); }
+
+    .cb-chaser-note {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      background: rgba(139,92,246,.07); border: 1px solid rgba(139,92,246,.22);
+      border-radius: 10px; padding: 9px 13px; margin-bottom: 14px;
+      font-size: 12.5px; color: var(--text-2); line-height: 1.5;
+    }
+    .cb-chaser-note b { color: var(--text); font-weight: 600; }
+    .cb-chaser-note .cn-dot { width: 7px; height: 7px; border-radius: 50%; background: #a78bfa; flex-shrink: 0; }
+    .cb-chaser-note .cn-dot.cn-empty { background: var(--text-3); }
+    .cb-chaser-note .cn-dot.cn-override { background: #4ade80; }
+    .cb-chaser-note .cn-edit {
+      margin-left: auto; background: transparent; border: 1px solid rgba(139,92,246,.35);
+      color: #c4b5fd; border-radius: 8px; padding: 4px 12px; font-family: var(--font);
+      font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+      transition: background .15s, color .15s;
+    }
+    .cb-chaser-note .cn-edit:hover { background: var(--purple); color: #fff; }
+
+    /* A/B winner banner + card badge */
+    .cb-ab-banner {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      background: linear-gradient(135deg, rgba(245,166,35,.14), rgba(245,166,35,.05));
+      border: 1px solid rgba(245,166,35,.4); border-radius: 11px;
+      padding: 11px 15px; margin-bottom: 16px;
+      font-size: 13px; color: #fde68a; line-height: 1.5;
+    }
+    .cb-ab-banner b { color: #fff; font-weight: 700; }
+    .cb-ab-banner .cb-ab-ico { font-size: 14px; }
+    .cb-ab-banner.cb-ab-neutral {
+      background: rgba(255,255,255,.05); border-color: var(--border); color: var(--text-2);
+    }
+    .cb-ab-winner-card {
+      border-color: rgba(245,166,35,.55) !important;
+      box-shadow: 0 0 0 1px rgba(245,166,35,.3), 0 4px 18px rgba(245,166,35,.12);
+    }
+    .cb-ab-badge {
+      display: inline-flex; align-items: center;
+      background: linear-gradient(135deg, #f5a623, #e8890b); color: #241800;
+      font-size: 10.5px; font-weight: 800; letter-spacing: .02em;
+      padding: 3px 9px; border-radius: 20px; margin-left: 8px; white-space: nowrap;
+    }
     .pe-actions { display: flex; gap: 10px; justify-content: space-between; align-items: center; margin-top: 20px; }
     .pe-actions-right { display: flex; gap: 10px; }
     #pe-remove {
@@ -2372,6 +2422,11 @@
       <div class="tag-editor" id="pe-snd-editor"></div>
     </div>
     <div class="pe-field">
+      <div class="pe-label">Default Chaser <span class="pe-sublabel">used for every industry with no chaser of its own</span></div>
+      <textarea id="pe-default-chaser" class="pe-chaser-input" rows="4"
+                placeholder="One follow-up message applied as the default chaser across all of this client's industries…"></textarea>
+    </div>
+    <div class="pe-field">
       <div class="pe-label">Card Colour</div>
       <div class="pe-color-swatches" id="pe-color-swatches"></div>
     </div>
@@ -2579,10 +2634,29 @@ async function copyText(text, btn, label) {
   setTimeout(function(){ btn.textContent = label; btn.classList.remove('success'); }, 2000);
 }
 
+// The profile-level default chaser (steps array) — a single follow-up seeded
+// into every industry that has no chaser of its own. Stored on the profile,
+// saved directly with the profile (no approval flow).
+function profileDefaultChaserSteps(profile) {
+  const dc = profile && profile.defaultChaser;
+  if (dc && Array.isArray(dc.steps)) return dc.steps;
+  return [];
+}
+function hasRealSteps(steps) {
+  return Array.isArray(steps) && steps.some(function(s){ return s && (s.body||'').trim(); });
+}
+
 function getChData(key, ch) {
   const t = TEMPLATES[key];
-  if (!t) return (ch==='linkedin'||ch==='chaser') ? {steps:[]} : {subjects:[],variations:[]};
-  if (ch==='linkedin'||ch==='chaser') return {steps:(t[ch]&&t[ch].steps)||[]};
+  if (ch === 'chaser') {
+    // Per-industry chaser wins when it has real content; otherwise fall back to
+    // the active profile's default chaser (so new/empty industries inherit it).
+    const own = (t && t.chaser && t.chaser.steps) || [];
+    if (hasRealSteps(own)) return { steps: own, isDefault: false };
+    return { steps: profileDefaultChaserSteps(activeProfile), isDefault: true };
+  }
+  if (!t) return (ch==='linkedin') ? {steps:[]} : {subjects:[],variations:[]};
+  if (ch==='linkedin') return {steps:(t[ch]&&t[ch].steps)||[]};
   return {subjects:(t[ch]&&t[ch].subjects)||[],variations:(t[ch]&&t[ch].variations)||[]};
 }
 
@@ -3277,12 +3351,112 @@ function render() {
   if (activeChannel === 'linkedin') {
     renderStepsSection(container, getChData(key,'linkedin').steps, sender, 'linkedin', 'LinkedIn Sequence');
   } else if (activeChannel === 'chaser') {
-    renderStepsSection(container, getChData(key,'chaser').steps, sender, 'chaser', 'Chaser Sequence');
+    const cd = getChData(key,'chaser');
+    container.appendChild(_chaserDefaultNote(cd.isDefault, hasRealSteps(cd.steps)));
+    renderStepsSection(container, cd.steps, sender, 'chaser', 'Chaser Sequence');
   } else {
     const d = getChData(key, activeChannel);
     renderSubjectsSection(container, d.subjects);
     renderVariationsSection(container, activeChannel, d.variations, sender);
+    // Overlay the A/B winner (pulled from campaigns that used this copy).
+    // Async + best-effort — never blocks or breaks the render.
+    if (activeChannel === 'email' || activeChannel === 'flyout') {
+      loadAbWinner(container, key);
+    }
   }
+}
+
+// Fetch + badge the A/B winner for the current copy. The winner is pulled from
+// the campaigns that pulled this exact copy (client + territory + industry) and
+// mapped back to the winning subject/variation index.
+let _abWinnerToken = 0;
+async function loadAbWinner(container, key) {
+  const token = ++_abWinnerToken;   // guard against out-of-order responses
+  if (!activeProfile) return;
+  const ind = document.getElementById('industry');
+  const clientId = activeProfile.type === 'bizdev' ? 'bizdev' : activeProfile.client_id;
+  const industry = ind ? ind.value : '';
+  if (!industry) return;
+  let data;
+  try {
+    const res = await fetch('/api/copy-bank/ab-winner?client_id=' + encodeURIComponent(clientId)
+      + '&territory=' + encodeURIComponent(territory)
+      + '&industry='  + encodeURIComponent(industry));
+    data = await res.json();
+  } catch (e) { return; }
+  // Stale response (user switched tab/filter) or nothing to show — bail quietly.
+  if (token !== _abWinnerToken || !data || !data.has_data) return;
+  if (currentKey() !== key) return;
+
+  const banner = document.createElement('div');
+  banner.className = 'cb-ab-banner';
+  const camps = (data.campaigns || []).filter(Boolean);
+  const campNote = camps.length
+    ? ' · from ' + escHtml(camps.length === 1 ? camps[0] : camps.length + ' campaigns')
+    : '';
+  if (data.no_responses) {
+    banner.classList.add('cb-ab-neutral');
+    banner.innerHTML = '<span class="cb-ab-ico">📊</span> A/B data is in, but no positive responses yet' + campNote + '.';
+  } else if (data.is_tie) {
+    banner.classList.add('cb-ab-neutral');
+    banner.innerHTML = '<span class="cb-ab-ico">📊</span> A/B result is a tie so far' + campNote + '.';
+  } else if (data.winner) {
+    const w = data.winner;
+    const si = (w.subject_idx != null && w.subject_idx >= 0) ? (w.subject_idx + 1) : null;
+    const bi = (w.body_idx != null && w.body_idx >= 0) ? (w.body_idx + 1) : null;
+    const combo = [si ? 'Subject ' + si : '', bi ? 'Variation ' + bi : ''].filter(Boolean).join(' + ');
+    banner.innerHTML = '<span class="cb-ab-ico">★</span> <b>A/B winner:</b> ' + escHtml(combo || w.variant)
+      + ' — <b>' + w.rate + '%</b> positive over ' + w.total + ' sends' + campNote + '.';
+    // Badge the winning cards
+    _badgeWinnerCard(container, 'subject',   w.subject_idx, w.rate);
+    _badgeWinnerCard(container, 'variation', w.body_idx,    w.rate);
+  } else {
+    return;
+  }
+  container.insertBefore(banner, container.firstChild);
+}
+
+function _badgeWinnerCard(container, type, idx, rate) {
+  if (idx == null || idx < 0) return;
+  // Match by render position (nth non-empty card of this type), which is how the
+  // A/B variant index is numbered — makeCard's data-card-idx is the raw array
+  // index and would drift if any subject/variation is blank.
+  const card = container.querySelector('.variation-card[data-card-type="' + type + '"][data-card-pos="' + idx + '"]');
+  if (!card || card.querySelector('.cb-ab-badge')) return;
+  card.classList.add('cb-ab-winner-card');
+  const badge = document.createElement('span');
+  badge.className = 'cb-ab-badge';
+  badge.textContent = '★ A/B Winner · ' + rate + '%';
+  const top = card.querySelector('.var-card-top');
+  if (top) top.appendChild(badge); else card.appendChild(badge);
+}
+
+// Banner shown on the Chaser tab explaining default-vs-override state.
+function _chaserDefaultNote(isDefault, hasContent) {
+  const note = document.createElement('div');
+  note.className = 'cb-chaser-note';
+  const key = currentKey();
+  const ind = document.getElementById('industry');
+  const scope = territory + ' · ' + (ind ? industryLabel(ind.value) : '');
+  let html;
+  if (isDefault && hasContent) {
+    html = '<span class="cn-dot"></span>Showing this client’s <b>default chaser</b> — applies to every industry. '
+         + 'Editing here overrides it for <b>' + escHtml(scope) + '</b> only.';
+  } else if (isDefault && !hasContent) {
+    html = '<span class="cn-dot cn-empty"></span>No default chaser set. Add one in the profile so every industry inherits it automatically.';
+  } else {
+    html = '<span class="cn-dot cn-override"></span>Custom chaser for <b>' + escHtml(scope) + '</b> (overrides the client default).';
+  }
+  note.innerHTML = html + ' <button type="button" class="cn-edit" onclick="openActiveProfileEdit()">'
+                 + (isDefault && !hasContent ? 'Set default chaser' : 'Edit default') + '</button>';
+  return note;
+}
+
+// Open the profile edit modal for whichever profile is currently active.
+function openActiveProfileEdit() {
+  if (!activeProfile) return;
+  const idx = profiles.findIndex(function(p){ return p.client_id === activeProfile.client_id; });
+  if (idx >= 0) openProfileEditModal(idx);
 }
 
 function renderSubjectsSection(container, subjects) {
@@ -3294,12 +3468,16 @@ function renderSubjectsSection(container, subjects) {
     if (text) await copyText(text, btn, 'Copy all Subjects');
   });
   if (!hasAny) section.appendChild(emptyEl('No subject lines yet — add one below.'));
-  else subjects.forEach(function(s,i){
-    if(s.trim()) section.appendChild(makeCard(
-      'Subject '+(i+1), s, s,
-      { key: currentKey(), channel: activeChannel, type: 'subject', idx: i, rawValue: s }
-    ));
-  });
+  else { let _pos = 0; subjects.forEach(function(s,i){
+    if(s.trim()) {
+      const card = makeCard(
+        'Subject '+(i+1), s, s,
+        { key: currentKey(), channel: activeChannel, type: 'subject', idx: i, rawValue: s }
+      );
+      card.dataset.cardPos = String(_pos++);   // non-empty position for A/B badging
+      section.appendChild(card);
+    }
+  }); }
   const addBtn = document.createElement('button'); addBtn.className = 'add-template-btn';
   addBtn.textContent = '+ Add Subject Line';
   addBtn.addEventListener('click', function(){ addNewEntry('subject'); });
@@ -3331,12 +3509,16 @@ function renderVariationsSection(container, ch, variations, sender) {
     await copyText(assembled.filter(function(a){ return a.body; }).map(function(a){ return a.body; }).join('\n\n'), btn, 'Copy all Variations');
   });
   if (!hasAny) section.appendChild(emptyEl('No variations yet — add one below.'));
-  else assembled.forEach(function(a){
-    if(a.body) section.appendChild(makeCard(
-      a.label, a.body, a.body,
-      { key: currentKey(), channel: ch, type: 'variation', idx: a.idx, rawValue: a.raw }
-    ));
-  });
+  else { let _pos = 0; assembled.forEach(function(a){
+    if(a.body) {
+      const card = makeCard(
+        a.label, a.body, a.body,
+        { key: currentKey(), channel: ch, type: 'variation', idx: a.idx, rawValue: a.raw }
+      );
+      card.dataset.cardPos = String(_pos++);   // non-empty position for A/B badging
+      section.appendChild(card);
+    }
+  }); }
   const addBtn = document.createElement('button'); addBtn.className = 'add-template-btn';
   addBtn.textContent = '+ Add Variation';
   addBtn.addEventListener('click', function(){ addNewEntry('variation'); });
@@ -3406,6 +3588,11 @@ function updateApprovalBtn() {
 
 function makeCard(label, displayText, copyPayload, editInfo) {
   const card=document.createElement('div'); card.className='variation-card';
+  // Tag with type/idx so the A/B-winner decorator can find a specific card.
+  if (editInfo && editInfo.type != null && editInfo.idx != null) {
+    card.dataset.cardType = editInfo.type;
+    card.dataset.cardIdx  = String(editInfo.idx);
+  }
   const top=document.createElement('div'); top.className='var-card-top';
   const labelEl=document.createElement('span'); labelEl.className='var-card-label'; labelEl.textContent=label;
   const btn=document.createElement('button'); btn.className='copy-var-btn'; btn.textContent='Copy';
@@ -3597,6 +3784,11 @@ function openProfileEditModal(idx) {
   const p = profiles[idx];
   document.getElementById('pe-title').textContent = 'Edit ' + p.name;
   document.getElementById('pe-remove').style.display = (p.type === 'bizdev') ? 'none' : '';
+  const dcInput = document.getElementById('pe-default-chaser');
+  if (dcInput) {
+    const steps = profileDefaultChaserSteps(p);
+    dcInput.value = steps.map(function(s){ return (s && s.body) || ''; }).join('\n\n').trim();
+  }
   renderPeModalTags();
   document.getElementById('profile-edit-modal').style.display = 'flex';
 }
@@ -3904,6 +4096,13 @@ document.getElementById('pe-save').addEventListener('click', async function(){
   const btn = this;
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
+    // Persist the default chaser (single follow-up) onto the profile. Stored as
+    // a steps array to match the chaser channel model; blank clears it.
+    const dcInput = document.getElementById('pe-default-chaser');
+    if (dcInput && profiles[peEditIdx]) {
+      const body = normaliseApostrophes(dcInput.value.trim());
+      profiles[peEditIdx].defaultChaser = body ? { steps: [{ body: body }] } : { steps: [] };
+    }
     await saveProfiles();
     document.getElementById('profile-edit-modal').style.display = 'none';
     showToast('Profile saved');
@@ -3915,6 +4114,7 @@ document.getElementById('pe-save').addEventListener('click', async function(){
       rebuildTerritoryToggles();
       rebuildIndustryDropdown(curInd);
       renderTabs();
+      render();   // refresh content so an updated default chaser shows immediately
     }
     renderProfileScreen();
   } catch(e) {
