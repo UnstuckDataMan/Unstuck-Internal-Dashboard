@@ -55,9 +55,19 @@
       -webkit-backdrop-filter: saturate(160%) blur(22px);
       gap: 10px;
     }
+    .topbar-left { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-width: 140px; }
+    .nav-back-btn {
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; color: rgba(255,255,255,0.35);
+      cursor: pointer; border-radius: 6px; flex-shrink: 0;
+      transition: background 0.14s, color 0.14s;
+    }
+    .nav-back-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    .nav-back-btn svg { width: 14px; height: 14px; }
     .home-link {
       display: flex; align-items: center; gap: 10px;
-      text-decoration: none; flex-shrink: 0; min-width: 140px;
+      text-decoration: none; flex-shrink: 0;
     }
     .home-mark {
       width: 34px; height: 34px; border-radius: 9px;
@@ -67,11 +77,6 @@
       transition: transform 0.22s cubic-bezier(.34,1.56,.64,1), box-shadow 0.22s ease;
     }
     .home-link:hover .home-mark { transform: scale(1.1) rotate(-4deg); box-shadow: 0 4px 18px rgba(124,58,237,0.5); }
-    .home-back-arrow {
-      width: 13px; height: 13px; color: rgba(255,255,255,0.35);
-      flex-shrink: 0; transition: transform 0.18s ease, color 0.18s ease;
-    }
-    .home-link:hover .home-back-arrow { color: rgba(255,255,255,0.65); transform: translateX(-2px); }
     .home-label {
       font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.45);
       letter-spacing: 0.01em; transition: color 0.18s ease;
@@ -571,20 +576,24 @@
 <body>
 
 <header class="topbar">
-  <a href="/" class="home-link">
-    <svg class="home-back-arrow" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="15 18 9 12 15 6"/>
-    </svg>
-    <div class="home-mark">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-           stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-        <polyline points="9 22 9 12 15 12 15 22"/>
+  <div class="topbar-left">
+    <button class="nav-back-btn" onclick="history.back()" title="Go back">
+      <svg viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"/>
       </svg>
-    </div>
-    <span class="home-label">Dashboard</span>
-  </a>
+    </button>
+    <a href="/" class="home-link">
+      <div class="home-mark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+      </div>
+      <span class="home-label">Dashboard</span>
+    </a>
+  </div>
   <h1 class="topbar-title">Launch Checker</h1>
   <div class="topbar-right">
     <button class="btn-header" onclick="openRecords()">All Records</button>

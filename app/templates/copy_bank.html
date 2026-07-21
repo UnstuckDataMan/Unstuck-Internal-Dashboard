@@ -169,11 +169,16 @@
       transition: color .18s var(--ease);
     }
     .home-link:hover .home-label { color: var(--text); }
-    .home-back-arrow {
-      width: 13px; height: 13px; color: rgba(255,255,255,.3);
-      flex-shrink: 0; transition: transform .18s var(--ease), color .18s var(--ease);
+    .topbar-left { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-width: 140px; }
+    .nav-back-btn {
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; color: rgba(255,255,255,.3);
+      cursor: pointer; border-radius: 6px; flex-shrink: 0;
+      transition: background .14s, color .14s;
     }
-    .home-link:hover .home-back-arrow { color: rgba(255,255,255,.65); transform: translateX(-2px); }
+    .nav-back-btn:hover { background: rgba(255,255,255,.07); color: rgba(255,255,255,.9); }
+    .nav-back-btn svg { width: 14px; height: 14px; }
 
     .topbar-sep {
       width: 1px;
@@ -2198,20 +2203,24 @@
 
   <!-- Topbar with home-mark -->
   <div class="ps-topbar">
-    <a href="/" class="home-link">
-      <svg class="home-back-arrow" viewBox="0 0 24 24" fill="none"
-           stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="15 18 9 12 15 6"/>
-      </svg>
-      <div class="home-mark">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-             stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-          <polyline points="9 22 9 12 15 12 15 22"/>
+    <div class="topbar-left">
+      <button class="nav-back-btn" onclick="history.back()" title="Go back">
+        <svg viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
         </svg>
-      </div>
-      <span class="home-label">Dashboard</span>
-    </a>
+      </button>
+      <a href="/" class="home-link">
+        <div class="home-mark">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+               stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+        </div>
+        <span class="home-label">Dashboard</span>
+      </a>
+    </div>
     <div class="ps-topbar-title">Copy Bank</div>
     <div class="ps-topbar-spacer" style="display:flex;align-items:center;justify-content:flex-end">
       <button class="sop-info-btn" data-sop-key="{{ sop_key }}" title="View SOP for this page" aria-label="Open SOP">ⓘ</button>
@@ -2279,21 +2288,19 @@
      MAIN HEADER (shown after profile selected)
 ══════════════════════════════════════════════════════════ -->
 <header id="main-header" class="topbar" style="display:none">
-  <a href="/" class="home-link" id="main-header-home">
-    <svg class="home-back-arrow" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="15 18 9 12 15 6"/>
-    </svg>
-    <div class="home-mark">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-           stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-        <polyline points="9 22 9 12 15 12 15 22"/>
-      </svg>
-    </div>
-    <span class="home-label">Dashboard</span>
-  </a>
-  <button class="topbar-back-btn" id="back-to-profiles-btn">&#8592; Profiles</button>
+  <div class="topbar-left">
+    <a href="/" class="home-link" id="main-header-home">
+      <div class="home-mark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+      </div>
+      <span class="home-label">Dashboard</span>
+    </a>
+    <button class="topbar-back-btn" id="back-to-profiles-btn">&#8592; Profiles</button>
+  </div>
   <h1 class="topbar-center" id="header-title">Copy Bank</h1>
   <div class="topbar-right">
     <button class="sop-info-btn" data-sop-key="{{ sop_key }}" title="View SOP for this page" aria-label="Open SOP">ⓘ</button>

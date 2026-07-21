@@ -76,9 +76,19 @@ header {
   align-items: center; justify-content: flex-end; gap: 10px;
 }
 
+.topbar-left { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-width: 140px; }
+.nav-back-btn {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; border-radius: 6px; flex-shrink: 0;
+  transition: background 0.14s, color 0.14s;
+}
+.nav-back-btn:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+.nav-back-btn svg { width: 14px; height: 14px; }
 .home-link {
   display: flex; align-items: center; gap: 10px;
-  text-decoration: none; flex-shrink: 0; min-width: 140px;
+  text-decoration: none; flex-shrink: 0;
 }
 .home-mark {
   width: 32px; height: 32px; border-radius: 9px;
@@ -89,11 +99,6 @@ header {
 }
 .home-mark svg { display: block; }
 .home-link:hover .home-mark { transform: scale(1.1) rotate(-4deg); box-shadow: 0 4px 18px rgba(124,58,237,0.5); }
-.home-back-arrow {
-  width: 13px; height: 13px; color: var(--text-muted);
-  flex-shrink: 0; transition: transform 0.18s ease, color 0.18s ease;
-}
-.home-link:hover .home-back-arrow { color: var(--text); transform: translateX(-2px); }
 .home-label {
   font-size: 12px; font-weight: 500; color: var(--text-muted);
   letter-spacing: 0.01em; transition: color 0.18s ease;
@@ -531,20 +536,24 @@ tbody tr.row-approved:hover td { background: rgba(99,102,241,.11); }
 </head>
 <body>
 <header>
-  <a href="/" class="home-link" title="Back to Dashboard">
-    <svg class="home-back-arrow" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="15 18 9 12 15 6"/>
-    </svg>
-    <div class="home-mark">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-           stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 12L12 3l9 9"/>
-        <path d="M9 21V12h6v9"/>
+  <div class="topbar-left">
+    <button class="nav-back-btn" onclick="history.back()" title="Go back">
+      <svg viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"/>
       </svg>
-    </div>
-    <span class="home-label">Dashboard</span>
-  </a>
+    </button>
+    <a href="/" class="home-link" title="Back to Dashboard">
+      <div class="home-mark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12L12 3l9 9"/>
+          <path d="M9 21V12h6v9"/>
+        </svg>
+      </div>
+      <span class="home-label">Dashboard</span>
+    </a>
+  </div>
   <h1 class="topbar-title">Targeting QA</h1>
   <div class="topbar-right">
     <button class="sop-info-btn" data-sop-key="{{ sop_key }}" title="View SOP for this page" aria-label="Open SOP">ⓘ</button>
