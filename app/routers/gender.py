@@ -109,7 +109,7 @@ def _apply_overrides(df: pd.DataFrame, name_col: str, new_col: str) -> pd.DataFr
 
 @router.get("/gender")
 async def gender_page(request: Request):
-    return templates.TemplateResponse("gender.html", {"request": request, "active": "gender"})
+    return templates.TemplateResponse("gender.html", {"request": request, "active": "gender", "sop_key": "gender_classifier"})
 
 
 @router.post("/api/gender")

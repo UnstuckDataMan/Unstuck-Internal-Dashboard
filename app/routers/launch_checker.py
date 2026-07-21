@@ -38,7 +38,7 @@ def _sb_url() -> str:
 
 @router.get("/launch-checker")
 async def launch_checker(request: Request):
-    return templates.TemplateResponse("launch_checker.html", {"request": request})
+    return templates.TemplateResponse("launch_checker.html", {"request": request, "active": "launch_checker", "sop_key": "launch_checker"})
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────────

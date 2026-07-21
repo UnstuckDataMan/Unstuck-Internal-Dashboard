@@ -5090,4 +5090,18 @@
 })();
 </script>
 
+{% block extra_scripts %}
+<script>
+// Map DNC tab data-tab values → SOP page keys so the ⓘ button
+// in the topbar always shows the SOP for the currently active tab.
+window._sopKeyMap = {
+  'tab-scrub':             'dnc_scrub',
+  'tab-merge':             'dnc_merge',
+  'tab-campaigns':         'dnc_campaigns',
+  'tab-manage':            'dnc_manage',
+  'tab-manage-contacted':  'dnc_contacted',
+};
+</script>
+{% endblock %}
+
 {% endblock %}

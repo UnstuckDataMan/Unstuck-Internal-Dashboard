@@ -13,7 +13,7 @@ from app.deps import templates
 from app.routers import (
     gender, city, dnc, reply_bank, mail_merge, copy_bank, copy_bank_export,
     campaigns, launch_checker, targeting_checker, bd_targeting, profiles,
-    auth as auth_router, admin,
+    auth as auth_router, admin, sops,
 )
 
 logger = logging.getLogger(__name__)
@@ -94,6 +94,7 @@ app.include_router(profiles.router)
 app.include_router(launch_checker.router)
 app.include_router(targeting_checker.router)
 app.include_router(bd_targeting.router)
+app.include_router(sops.router)
 
 
 @app.exception_handler(404)
@@ -121,6 +122,7 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {
         "request": request,
         "active":  "home",
+        "sop_key": "home",
         "user":    user,
         "tools":   tools,
     })

@@ -122,7 +122,7 @@ def write_output(df: pd.DataFrame, ext: str) -> tuple[bytes, str]:
 
 @router.get("/city-state")
 async def city_page(request: Request):
-    return templates.TemplateResponse("city.html", {"request": request, "active": "city"})
+    return templates.TemplateResponse("city.html", {"request": request, "active": "city", "sop_key": "city_state"})
 
 
 @router.post("/api/normalize")

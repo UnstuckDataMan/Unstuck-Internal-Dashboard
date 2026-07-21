@@ -263,7 +263,7 @@ def _mirror_campaign_client_name(profile: dict) -> None:
 @router.get("/client-profiles")
 async def client_profiles_page(request: Request):
     return templates.TemplateResponse(
-        "client_profiles.html", {"request": request, "active": "client_profiles"}
+        "client_profiles.html", {"request": request, "active": "client_profiles", "sop_key": "client_profiles"}
     )
 
 

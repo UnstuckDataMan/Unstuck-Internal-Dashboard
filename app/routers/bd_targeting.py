@@ -257,7 +257,7 @@ def _industry_display(key: str, labels: dict) -> str:
 async def bd_targeting_page(request: Request):
     return templates.TemplateResponse(
         "bd_targeting.html",
-        {"request": request, "active": "bd_targeting"},
+        {"request": request, "active": "bd_targeting", "sop_key": "bd_targeting"},
     )
 
 

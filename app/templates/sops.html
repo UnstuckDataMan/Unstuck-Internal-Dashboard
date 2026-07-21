@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+{% block title %}SOP Centre{% endblock %}
+{% block heading %}SOP Centre{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jodit@4/build/jodit.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/jodit@4/build/jodit.min.js"></script>
+<style>
+  /* Override page padding so the split layout fills the viewport */
+  .page { padding: 0 !important; }
+  .page-inner { max-width: 100% !important; width: 100%; padding: 0; }
+
+  /* ── SOP Centre layout ───────────────────────────────────────── */
+  .sop-layout {
+    display: flex;
+    height: calc(100vh - 58px);
+    overflow: hidden;
+  }
+
+  /* Sidebar */
+  .sop-sidebar {
+    width: 230px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    background: rgba(8,8,18,.5);
+    overflow-y: auto;
+    padding: 12px 0 40px;
+  }
+  .sop-group-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    padding: 14px 16px 5px;
+  }
+  .sop-nav-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-left: 2px solid transparent;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-family: var(--font);
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background .14s, color .14s, border-color .14s;
+  }
+  .sop-nav-btn:hover {
+    background: rgba(139,92,246,.1);
+    color: var(--text);
+  }
+  .sop-nav-btn.active {
+    background: rgba(139,92,246,.16);
+    color: var(--purple);
+    font-weight: 600;
+    border-left-color: var(--purple);
+  }
+
+  /* Main panel */
+  .sop-main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 36px 44px 80px;
+    min-width: 0;
+  }
+
+  /* Header row */
+  .sop-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 6px;
+  }
+  .sop-title-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    border-bottom: 1.5px solid transparent;
+    font-size: 1.5rem;
+    font-family: var(--font-display);
+    font-weight: 700;
+    color: var(--text);
+    padding: 4px 0;
+    outline: none;
+    transition: border-color .18s;
+  }
+  .sop-title-input:focus { border-bottom-color: var(--purple); }
+  .sop-title-input[readonly] { cursor: default; pointer-events: none; }
+  .sop-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+  /* Meta line */
+  .sop-meta {
+    font-size: 12px;
+    color: var(--text-3);
+    margin-bottom: 28px;
+    min-height: 18px;
+  }
+
+  /* Empty state */
+  .sop-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 60%;
+    text-align: center;
+    color: var(--text-3);
+    gap: 8px;
+  }
+  .sop-empty-icon { font-size: 2.8rem; }
+
+  /* No content placeholder */
+  .sop-no-content {
+    padding: 56px 32px;
+    text-align: center;
+    border: 1.5px dashed var(--border);
+    border-radius: 14px;
+    color: var(--text-3);
+  }
+
+  /* ── Rendered SOP content ───────────────────────────── */
+  .sop-view {
+    line-height: 1.75;
+    color: var(--text);
+    font-size: 15px;
+  }
+  .sop-view h1, .sop-view h2, .sop-view h3 {
+    font-family: var(--font-display);
+    color: var(--text);
+    margin: 1.3em 0 .45em;
+  }
+  .sop-view h1 { font-size: 1.55rem; }
+  .sop-view h2 { font-size: 1.2rem; }
+  .sop-view h3 { font-size: 1rem; font-weight: 700; }
+  .sop-view p { margin-bottom: .8em; }
+  .sop-view ul, .sop-view ol { padding-left: 1.6em; margin-bottom: .8em; }
+  .sop-view li { margin-bottom: .3em; }
+  .sop-view table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 1.2em;
+    font-size: 14px;
+  }
+  .sop-view table th, .sop-view table td {
+    border: 1px solid var(--border);
+    padding: 8px 13px;
+    text-align: left;
+  }
+  .sop-view table th {
+    background: rgba(139,92,246,.12);
+    font-weight: 600;
+  }
+  .sop-view table tr:nth-child(even) td {
+    background: rgba(255,255,255,.025);
+  }
+  .sop-view img { max-width: 100%; border-radius: 8px; display: block; margin: .6em 0; }
+  .sop-view iframe {
+    width: 100%;
+    aspect-ratio: 16/9;
+    border: none;
+    border-radius: 10px;
+    display: block;
+    margin: .8em 0;
+  }
+  .sop-view blockquote {
+    border-left: 3px solid var(--purple);
+    margin: .8em 0;
+    padding: .5em 1em;
+    background: rgba(139,92,246,.07);
+    border-radius: 0 8px 8px 0;
+  }
+  .sop-view code {
+    background: rgba(255,255,255,.08);
+    border-radius: 4px;
+    padding: 2px 5px;
+    font-size: .84em;
+    font-family: monospace;
+  }
+  .sop-view pre { background: rgba(255,255,255,.06); border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin-bottom: .8em; }
+  .sop-view pre code { background: none; padding: 0; }
+  .sop-view a { color: var(--purple); text-decoration: underline; }
+
+  /* Jodit editor area */
+  #sop-editor-area { display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sop-layout">
+
+  <!-- ── Sidebar ── -->
+  <nav class="sop-sidebar" aria-label="SOP pages">
+    {% for grp in sop_groups %}
+    <div class="sop-group-label">{{ grp.group }}</div>
+    {% for item in grp.items %}
+    <button class="sop-nav-btn" data-key="{{ item.key }}">{{ item.label }}</button>
+    {% endfor %}
+    {% endfor %}
+  </nav>
+
+  <!-- ── Main panel ── -->
+  <div class="sop-main" id="sop-main">
+    <div class="sop-empty">
+      <div class="sop-empty-icon">📋</div>
+      <strong style="color:var(--text-2);font-size:1.05rem">Select an SOP</strong>
+      <p style="font-size:13px;margin:0">Choose a page from the sidebar to view or edit its instructions.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function() {
+  const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+  let _key    = null;
+  let _editor = null;
+
+  // ── Sidebar wiring ────────────────────────────────────────────
+  document.querySelectorAll('.sop-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => loadSop(btn.dataset.key, btn));
+  });
+
+  // Auto-open if hash matches a key
+  const hash = location.hash.slice(1);
+  if (hash) {
+    const hashBtn = document.querySelector(`.sop-nav-btn[data-key="${hash}"]`);
+    if (hashBtn) loadSop(hash, hashBtn);
+  }
+
+  // ── Load SOP ──────────────────────────────────────────────────
+  async function loadSop(key, btn) {
+    _key = key;
+    destroyEditor();
+    location.hash = key;
+
+    document.querySelectorAll('.sop-nav-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+
+    const main = document.getElementById('sop-main');
+    main.innerHTML = '<div style="padding:60px;text-align:center;color:var(--text-3);font-size:14px">Loading…</div>';
+
+    try {
+      const resp = await fetch('/api/sops/' + encodeURIComponent(key));
+      if (!resp.ok) throw new Error(resp.statusText);
+      const sop = await resp.json();
+      renderView(sop);
+    } catch(e) {
+      main.innerHTML = '<div style="padding:40px;color:var(--red,#f87171)">Failed to load — ' + e.message + '</div>';
+    }
+  }
+
+  // ── View mode ─────────────────────────────────────────────────
+  function renderView(sop) {
+    const main    = document.getElementById('sop-main');
+    const hasContent = sop.content && sop.content.trim();
+    const updated = sop.updated_at
+      ? 'Last updated ' + new Date(sop.updated_at).toLocaleString('en-GB', {dateStyle:'medium',timeStyle:'short'})
+        + (sop.updated_by ? ' by ' + esc(sop.updated_by) : '')
+      : 'No instructions written yet';
+
+    main.innerHTML = `
+      <div class="sop-header">
+        <input id="sop-title-view" class="sop-title-input" readonly
+               value="${esc(sop.title || label(_key) || '')}" />
+        ${CAN_EDIT ? `<div class="sop-actions"><button class="btn btn-download" id="sop-edit-btn">Edit</button></div>` : ''}
+      </div>
+      <div class="sop-meta">${updated}</div>
+      ${hasContent
+        ? `<div class="sop-view" id="sop-view">${sop.content}</div>`
+        : `<div class="sop-no-content">
+             <div style="font-size:1.6rem;margin-bottom:8px">📝</div>
+             <strong style="color:var(--text-2)">No instructions yet</strong>
+             ${CAN_EDIT ? '<p style="margin-top:6px;font-size:13px">Click <strong>Edit</strong> to add them.</p>' : ''}
+           </div>`
+      }
+    `;
+
+    if (CAN_EDIT) {
+      document.getElementById('sop-edit-btn').addEventListener('click', () => {
+        const content = hasContent ? document.getElementById('sop-view').innerHTML : '';
+        renderEdit(sop.title || label(_key) || '', content);
+      });
+    }
+  }
+
+  // ── Edit mode ─────────────────────────────────────────────────
+  function renderEdit(currentTitle, currentContent) {
+    destroyEditor();
+    const main = document.getElementById('sop-main');
+    main.innerHTML = `
+      <div class="sop-header">
+        <input id="sop-title-edit" class="sop-title-input" placeholder="SOP title…"
+               value="${esc(currentTitle)}" />
+        <div class="sop-actions">
+          <button class="btn btn-primary" id="sop-save-btn">Save</button>
+          <button class="btn btn-download" id="sop-cancel-btn">Cancel</button>
+        </div>
+      </div>
+      <div class="sop-meta" style="color:var(--purple);font-weight:500">Editing…</div>
+      <textarea id="sop-editor-area">${escRaw(currentContent)}</textarea>
+    `;
+
+    document.getElementById('sop-save-btn').addEventListener('click', saveSop);
+    document.getElementById('sop-cancel-btn').addEventListener('click', () => {
+      const btn = document.querySelector(`.sop-nav-btn[data-key="${_key}"]`);
+      loadSop(_key, btn);
+    });
+
+    _editor = Jodit.make('#sop-editor-area', {
+      height: Math.max(500, window.innerHeight - 260),
+      theme: 'dark',
+      showCharsCounter: false,
+      showWordsCounter: false,
+      showXPathInStatusbar: false,
+      toolbarSticky: true,
+      buttons: [
+        'bold','italic','underline','strikethrough','|',
+        {name:'Heading 1', exec(e){e.execCommand('formatBlock',false,'H1');}},
+        {name:'Heading 2', exec(e){e.execCommand('formatBlock',false,'H2');}},
+        {name:'Heading 3', exec(e){e.execCommand('formatBlock',false,'H3');}},
+        '|','ul','ol','|','table','|','image','video','|',
+        'link','|','align','indent','outdent','|',
+        'undo','redo','|','hr','fullsize',
+      ],
+      uploader: {
+        url: '/api/sops/upload-image',
+        format: 'json',
+        method: 'POST',
+        isSuccess: r => !!(r && r.url),
+        getMsg:    r => r.url || 'Upload failed',
+        process:   r => ({ files: [r.url], baseurl: '' }),
+        defaultHandlerSuccess(data) {
+          data.files.forEach(url => this.j.selection.insertImage(url, null, 400));
+        },
+      },
+    });
+  }
+
+  // ── Save ──────────────────────────────────────────────────────
+  async function saveSop() {
+    if (!_key || !_editor) return;
+    const btn = document.getElementById('sop-save-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+
+    try {
+      const resp = await fetch('/api/sops/' + encodeURIComponent(_key), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title:   document.getElementById('sop-title-edit')?.value || '',
+          content: _editor.value,
+        }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const navBtn = document.querySelector(`.sop-nav-btn[data-key="${_key}"]`);
+      loadSop(_key, navBtn);
+    } catch(e) {
+      btn.disabled = false; btn.textContent = 'Save';
+      alert('Save failed: ' + e.message);
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────
+  function destroyEditor() {
+    if (_editor) { try { _editor.destruct(); } catch(_){} _editor = null; }
+  }
+
+  function label(key) {
+    const all = document.querySelectorAll('.sop-nav-btn');
+    for (const b of all) { if (b.dataset.key === key) return b.textContent.trim(); }
+    return key || '';
+  }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function escRaw(s) {
+    return String(s).replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+})();
+</script>
+{% endblock %}

@@ -242,7 +242,7 @@ def _fetch_contacted_matches(
 
 @router.get("/dnc-removal")
 async def dnc_page(request: Request):
-    return templates.TemplateResponse("dnc.html", {"request": request, "active": "dnc"})
+    return templates.TemplateResponse("dnc.html", {"request": request, "active": "dnc", "sop_key": "dnc_scrub"})
 
 
 @router.get("/api/dnc/clients")
