@@ -2204,7 +2204,9 @@
       <span class="home-label">Dashboard</span>
     </a>
     <div class="ps-topbar-title">Copy Bank</div>
-    <div class="ps-topbar-spacer"></div>
+    <div class="ps-topbar-spacer" style="display:flex;align-items:center;justify-content:flex-end">
+      <button class="sop-info-btn" data-sop-key="{{ sop_key }}" title="View SOP for this page" aria-label="Open SOP">ⓘ</button>
+    </div>
   </div>
 
   <!-- Scrollable content -->
@@ -2280,7 +2282,9 @@
   <div class="topbar-sep"></div>
   <button class="topbar-back-btn" id="back-to-profiles-btn">&#8592; Profiles</button>
   <h1 class="topbar-center" id="header-title">Copy Bank</h1>
-  <div class="topbar-right"></div>
+  <div class="topbar-right">
+    <button class="sop-info-btn" data-sop-key="{{ sop_key }}" title="View SOP for this page" aria-label="Open SOP">ⓘ</button>
+  </div>
 </header>
 
 <!-- TAB BAR -->
@@ -5555,5 +5559,6 @@ loadFromSupabase();
   </div>
 </div>
 
+{% include "partials/_sop_widget.html" %}
 </body>
 </html>

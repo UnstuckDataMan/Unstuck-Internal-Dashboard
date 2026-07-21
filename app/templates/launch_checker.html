@@ -582,6 +582,7 @@
     <span class="app-title">Launch Checker</span>
   </div>
   <button class="btn-header" onclick="openRecords()">All Records</button>
+  <button class="sop-info-btn" data-sop-key="{{ sop_key }}" title="View SOP for this page" aria-label="Open SOP">ⓘ</button>
 </header>
 
 <!-- ═══ HOME ═══ -->
@@ -1484,5 +1485,6 @@ document.querySelectorAll('input[name="role"]').forEach(el => {
 renderHome();
 loadClients();
 </script>
+{% include "partials/_sop_widget.html" %}
 </body>
 </html>

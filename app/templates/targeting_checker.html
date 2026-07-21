@@ -521,6 +521,7 @@ tbody tr.row-approved:hover td { background: rgba(99,102,241,.11); }
         <h1>Targeting QA</h1>
         <p class="subtitle">Lead Scrubber &mdash; Unstuck Operations</p>
       </div>
+      <button class="sop-info-btn" data-sop-key="{{ sop_key }}" title="View SOP for this page" aria-label="Open SOP">ⓘ</button>
       <a href="/" class="home-link" title="Back to Dashboard">
         <div class="home-mark">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -2203,5 +2204,6 @@ document.addEventListener('DOMContentLoaded', () => {
   goToStep(1);
 });
 </script>
+{% include "partials/_sop_widget.html" %}
 </body>
 </html>

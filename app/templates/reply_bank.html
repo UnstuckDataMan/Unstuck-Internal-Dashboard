@@ -631,7 +631,10 @@
     <span class="home-label">Home</span>
   </a>
   <h1>Reply Bank</h1>
-  <button class="gear-btn" id="gear-btn" title="Admin">⚙</button>
+  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+    <button class="sop-info-btn" data-sop-key="{{ sop_key }}" title="View SOP for this page" aria-label="Open SOP">ⓘ</button>
+    <button class="gear-btn" id="gear-btn" title="Admin">⚙</button>
+  </div>
 </header>
 <div class="main">
   <!-- LEFT PANEL -->
@@ -2599,5 +2602,6 @@ document.getElementById('adm-export').addEventListener('click', () => {
   URL.revokeObjectURL(a.href);
 });
 </script>
+{% include "partials/_sop_widget.html" %}
 </body>
 </html>
