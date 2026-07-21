@@ -154,6 +154,17 @@
     }
     .home-link:hover .home-label { color: var(--text); }
 
+    .home-back-arrow {
+      width: 13px; height: 13px;
+      color: var(--text-3);
+      flex-shrink: 0;
+      transition: transform .18s var(--ease), color .18s var(--ease);
+    }
+    .home-link:hover .home-back-arrow {
+      color: var(--text-2);
+      transform: translateX(-2px);
+    }
+
     .topbar-title {
       flex: 1;
       text-align: center;
@@ -724,6 +735,10 @@
   <!-- Topbar -->
   <header class="topbar">
     <a href="/" class="home-link">
+      <svg class="home-back-arrow" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
       <div class="home-mark">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
              stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">

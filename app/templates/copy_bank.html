@@ -169,6 +169,11 @@
       transition: color .18s var(--ease);
     }
     .home-link:hover .home-label { color: var(--text); }
+    .home-back-arrow {
+      width: 13px; height: 13px; color: rgba(255,255,255,.3);
+      flex-shrink: 0; transition: transform .18s var(--ease), color .18s var(--ease);
+    }
+    .home-link:hover .home-back-arrow { color: rgba(255,255,255,.65); transform: translateX(-2px); }
 
     .topbar-sep {
       width: 1px;
@@ -2194,6 +2199,10 @@
   <!-- Topbar with home-mark -->
   <div class="ps-topbar">
     <a href="/" class="home-link">
+      <svg class="home-back-arrow" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
       <div class="home-mark">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
              stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -2271,6 +2280,10 @@
 ══════════════════════════════════════════════════════════ -->
 <header id="main-header" class="topbar" style="display:none">
   <a href="/" class="home-link" id="main-header-home">
+    <svg class="home-back-arrow" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="15 18 9 12 15 6"/>
+    </svg>
     <div class="home-mark">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
            stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -2278,8 +2291,8 @@
         <polyline points="9 22 9 12 15 12 15 22"/>
       </svg>
     </div>
+    <span class="home-label">Dashboard</span>
   </a>
-  <div class="topbar-sep"></div>
   <button class="topbar-back-btn" id="back-to-profiles-btn">&#8592; Profiles</button>
   <h1 class="topbar-center" id="header-title">Copy Bank</h1>
   <div class="topbar-right">
