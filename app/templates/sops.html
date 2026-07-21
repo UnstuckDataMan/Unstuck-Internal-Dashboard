@@ -196,7 +196,7 @@
   <nav class="sop-sidebar" aria-label="SOP pages">
     {% for grp in sop_groups %}
     <div class="sop-group-label">{{ grp.group }}</div>
-    {% for item in grp.items %}
+    {% for item in grp['items'] %}
     <button class="sop-nav-btn" data-key="{{ item.key }}">{{ item.label }}</button>
     {% endfor %}
     {% endfor %}
