@@ -28,6 +28,9 @@ os.environ["SUPABASE_ANON_KEY"] = "test-anon-key"
 # so SessionMiddleware is deterministic across the suite.
 os.environ.setdefault("AUTH_DISABLED", "1")
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
+# Disable auto-sync pacing so the sequential-loop tests don't sleep between
+# campaigns (pacing is a production quota measure, not test-relevant).
+os.environ["AUTO_SYNC_PACING_MS"] = "0"
 # Non-empty so google_sheets.is_configured() returns True; only decoded if a
 # test forgets to patch the gspread layer (decoding works, auth never runs).
 os.environ["GOOGLE_SHEETS_SA_JSON"] = base64.b64encode(

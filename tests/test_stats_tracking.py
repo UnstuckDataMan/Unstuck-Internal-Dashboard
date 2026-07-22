@@ -409,6 +409,23 @@ def test_run_auto_sync_is_sequential_and_records_status(fake_sb, monkeypatch):
     assert fail["status"] in ("active", "paused", "past")
 
 
+def test_run_auto_sync_records_sheet_reads(fake_sb, monkeypatch):
+    _reset_sync_status()
+    fake_sb.route("GET", "campaigns", lambda c: FakeResponse(200, [
+        {"id": "1", "sheet_id": "s1", "client_id": "c1", "client_name": "X",
+         "campaign_name": "A", "total_prospects": 0, "completed_at": None},
+    ]))
+    # Each campaign sync consumes some real Sheets reads — the run must total them.
+    def core_that_reads(**kw):
+        gs._bump_sheet_reads(3)
+        return {"error": "", "leads_added": 0, "interested_added": 0,
+                "unsubscribes_added": 0, "reply_count": 0, "contacted_added": 0}
+    monkeypatch.setattr(auto_sync, "sync_campaign_core", core_that_reads)
+
+    auto_sync.run_auto_sync()
+    assert auto_sync.get_sync_status()["sheet_reads"] == 3
+
+
 def test_run_auto_sync_classifies_and_reports_failed_campaign_status(fake_sb, monkeypatch):
     _reset_sync_status()
     rows = [

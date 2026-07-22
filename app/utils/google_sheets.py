@@ -56,6 +56,34 @@ _RECORDS_CACHE_TTL  = 45  # seconds
 # currently unavailable").  Both classes clear on retry — anything else raises.
 _RETRYABLE_STATUSES = (429, 500, 502, 503, 504)
 
+# ── Sheets read counter ───────────────────────────────────────────────────────
+# Counts actual (non-cached) Sheets read API calls so the sync can report how
+# much of the 60-reads/min-per-user quota a run consumed.  Display-only; a plain
+# int guarded by a lock (reads happen on the single sync thread + occasional
+# ad-hoc endpoints — exact-enough for a burst-rate gauge).
+_sheet_reads = 0
+_sheet_reads_lock = threading.Lock()
+
+
+def _bump_sheet_reads(n: int = 1) -> None:
+    global _sheet_reads
+    with _sheet_reads_lock:
+        _sheet_reads += n
+
+
+def sheet_reads_count() -> int:
+    with _sheet_reads_lock:
+        return _sheet_reads
+
+
+def reset_sheet_reads() -> int:
+    """Zero the counter and return its previous value."""
+    global _sheet_reads
+    with _sheet_reads_lock:
+        prev = _sheet_reads
+        _sheet_reads = 0
+        return prev
+
 
 def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
     """
@@ -92,6 +120,7 @@ def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
     wait_times = (10, 20, 40)
     for attempt in range(len(wait_times) + 1):
         try:
+            _bump_sheet_reads()   # one real read request against the quota
             all_values = ws.get_all_values(value_render_option=render)
             if not all_values:
                 records: list = []
@@ -1402,11 +1431,13 @@ def read_stats_cells(sheet_id: str) -> dict:
     """
     gc = _client()
     try:
+        _bump_sheet_reads()   # worksheet("Stats") is a metadata read
         ws = gc.open_by_key(sheet_id).worksheet("Stats")
     except Exception:
         return {}  # sheet predates Stats tab — skip silently
 
     try:
+        _bump_sheet_reads()
         rows = ws.batch_get(["B2:D4"])[0]
 
         def _i(r, c):

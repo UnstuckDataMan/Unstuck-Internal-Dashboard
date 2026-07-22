@@ -8,7 +8,9 @@ default "9,21" → 09:00 and 21:00 UTC).
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import time
 from datetime import date as _date, datetime as _datetime, timedelta as _timedelta, timezone as _tz
 
 import requests as http_req
@@ -23,6 +25,16 @@ from app.utils.supabase import (
 logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 500
+
+# Pause between campaigns in the sequential auto-sync loop so Sheets reads spread
+# across the minute instead of bursting past the 60-reads/min-per-user quota
+# (the whole app shares one service account = one "user").  ~1 campaign ≈ 1–2
+# reads, so ~1.5s/campaign keeps a run comfortably under the limit. Tune via
+# AUTO_SYNC_PACING_MS; 0 disables pacing.
+try:
+    _PACING_SECONDS = max(0.0, int(os.environ.get("AUTO_SYNC_PACING_MS", "1500")) / 1000.0)
+except ValueError:
+    _PACING_SECONDS = 1.5
 
 
 # ── Auto-sync run status ──────────────────────────────────────────────────────
@@ -39,6 +51,7 @@ _last_run: dict = {
     "total":       0,
     "duration_s":  None,
     "failures":    [],     # [{name, client, status, reason}] for the last run
+    "sheet_reads": None,   # approx Sheets read API calls consumed by the run
 }
 _last_run_lock = threading.Lock()
 _MAX_FAILURES_KEPT = 100
@@ -540,22 +553,26 @@ def _sync_campaign_core_unlocked(
 # ── Scheduled job ─────────────────────────────────────────────────────────────
 
 def _mark_run_start() -> _datetime:
+    from app.utils.google_sheets import reset_sheet_reads
+    reset_sheet_reads()   # zero the Sheets-read counter for this run
     now = _datetime.now(_tz.utc)
     with _last_run_lock:
         _last_run.update(started_at=now.isoformat(), finished_at=None,
                          running=True, ok=0, failed=0, total=0, duration_s=None,
-                         failures=[])
+                         failures=[], sheet_reads=None)
     return now
 
 
 def _mark_run_end(started: _datetime, ok: int, failed: int, total: int,
                   failures: list | None = None) -> None:
+    from app.utils.google_sheets import sheet_reads_count
     end = _datetime.now(_tz.utc)
     with _last_run_lock:
         _last_run.update(finished_at=end.isoformat(), running=False,
                          ok=ok, failed=failed, total=total,
                          duration_s=round((end - started).total_seconds(), 1),
-                         failures=(failures or [])[:_MAX_FAILURES_KEPT])
+                         failures=(failures or [])[:_MAX_FAILURES_KEPT],
+                         sheet_reads=sheet_reads_count())
 
 
 # Select tiers for the campaigns fetch — try the richest first and fall back so
@@ -644,10 +661,15 @@ def _run_auto_sync_locked() -> None:
             logger.info("Auto-sync: no campaigns with linked sheets — nothing to do.")
             return
 
-        logger.info("Auto-sync: starting sync for %d campaign(s) across all clients.", len(campaigns))
+        logger.info("Auto-sync: starting sync for %d campaign(s) across all clients (pacing %.1fs).",
+                    len(campaigns), _PACING_SECONDS)
 
-        # Sequential by design — one campaign finishes before the next starts.
-        for c in campaigns:
+        # Sequential by design — one campaign finishes before the next starts,
+        # with a pause between them so Sheets reads stay under the per-user quota.
+        for i, c in enumerate(campaigns):
+            if i > 0 and _PACING_SECONDS > 0:
+                time.sleep(_PACING_SECONDS)
+
             cid    = c.get("id", "")
             name   = c.get("campaign_name", "") or "(unnamed)"
             client = c.get("client_name", "") or ""

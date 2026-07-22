@@ -319,6 +319,19 @@ def test_records_cache_hits_and_invalidation(monkeypatch):
     assert calls["n"] == 2, "write invalidation must force a fresh read"
 
 
+def test_sheet_reads_counter_counts_only_real_reads():
+    ws = make_ws(["a@acme.com"])
+    gs._records_cache.clear()
+    gs.reset_sheet_reads()
+    gs._get_all_records(ws, "count-test", value_render_option="UNFORMATTED_VALUE")
+    gs._get_all_records(ws, "count-test", value_render_option="UNFORMATTED_VALUE")  # cached
+    assert gs.sheet_reads_count() == 1, "a cache hit is not an API read"
+    gs._invalidate_sheet_cache("count-test")
+    gs._get_all_records(ws, "count-test", value_render_option="UNFORMATTED_VALUE")
+    assert gs.sheet_reads_count() == 2
+    assert gs.reset_sheet_reads() == 2 and gs.sheet_reads_count() == 0
+
+
 # ── Transient-error retry + grid expansion ────────────────────────────────────
 
 class _FakeAPIError(gs.APIError):

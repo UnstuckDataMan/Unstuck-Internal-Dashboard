@@ -1,6 +1,6 @@
 {% if sync_status %}
 <div class="sync-status ss-{{ sync_status.state }}"
-     title="Campaign stats auto-sync runs every hour (UTC). Last activity: {{ sync_status.when_iso or 'none yet' }}">
+     title="Campaign stats auto-sync runs every hour (UTC). Last activity: {{ sync_status.when_iso or 'none yet' }}{% if sync_status.duration_s is not none %} · took {{ sync_status.duration_s }}s{% endif %}{% if sync_status.sheet_reads is not none %} · ~{{ sync_status.sheet_reads }} Sheets reads{% endif %}">
   <span class="ss-dot"></span>
   <span class="ss-text">
     {%- if sync_status.state == 'idle' -%}

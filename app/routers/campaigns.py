@@ -74,6 +74,7 @@ def _sync_status_view() -> dict:
         "state":     "idle",     # idle | running | ok | warn | stale
         "when_iso":  st.get("finished_at") or st.get("started_at") or "",
         "failures":  st.get("failures", []),
+        "sheet_reads": st.get("sheet_reads"),
     }
 
     if st.get("running") and started:
