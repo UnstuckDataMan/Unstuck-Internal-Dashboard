@@ -209,6 +209,7 @@
     .cb-row:hover { border-color: rgba(139,92,246,.5); }
     .cb-row input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #8b5cf6; }
     .cb-row span { font-size: 12px; color: var(--text-2); }
+    .cb-row .cb-hint { display: block; font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
 
     /* ── Right panel ── */
     .right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -710,6 +711,16 @@
       <div class="checkbox-group" id="modifiers-group"></div>
     </div>
 
+    <div class="panel-section">
+      <div class="section-label">Availability</div>
+      <div class="checkbox-group">
+        <label class="cb-row">
+          <input type="checkbox" id="leo-ooo-toggle">
+          <span>Leo OOO <span class="cb-hint">route to Director, Kelton</span></span>
+        </label>
+      </div>
+    </div>
+
   </div>
 
   <!-- RIGHT PANEL -->
@@ -1103,6 +1114,17 @@ function migrateTemplates() {
 //  MESSAGE ASSEMBLY
 // ════════════════════════════════════════════════════════
 
+// "Leo OOO" cover: when Leo is out of office, the CEO-routing fallback (used for
+// senders without their own Calendly link) points to the covering Director
+// instead. Only the CEO reference + link change; the wording is otherwise kept.
+const LEO_OOO = {
+  fromName: /\bCEO Leo\b/g,
+  toName:   'Director, Kelton',
+  link:     'https://calendly.com/kelton-unstuck-agency/30-minute-meeting',
+};
+let leoOOO = false;
+try { leoOOO = localStorage.getItem('rb_leo_ooo') === '1'; } catch(e) {}
+
 // A meeting variation that routes the call to the CEO (used when the sender has
 // no own Calendly link). Detected by wording so it works no matter how the
 // stored variation is sender-scoped (real-name arrays, 'all', 'Leo'/'others'…).
@@ -1175,10 +1197,13 @@ function assemble() {
     return isBlock ? resolved + '\n\n' : resolved;
   });
 
-  // ── 1b. Inject the resolved Calendly link ──
-  // The link always comes from the per-sender config now, so swap both a
-  // [CALENDLY] token and any hardcoded calendly.com URL in the stored snippet.
-  const targetLink = senderLink || _leoCalendly();
+  // ── 1b. Inject the resolved Calendly link + apply Leo-OOO cover ──
+  // Own link if the sender has one; otherwise the CEO fallback — which points to
+  // the covering Director (name + link) while "Leo OOO" is on.
+  let targetLink;
+  if (hasOwnLink)      targetLink = senderLink;
+  else if (leoOOO)     { targetLink = LEO_OOO.link; msg = msg.replace(LEO_OOO.fromName, LEO_OOO.toName); }
+  else                 targetLink = _leoCalendly();
   msg = msg.replace(/\[CALENDLY\]/g, targetLink)
            .replace(/https:\/\/calendly\.com\/[^\s)\]]+/g, targetLink);
 
@@ -1242,6 +1267,18 @@ function render() {
 
 // Re-render modifier toggles when sender changes (some may be Leo-only or others-only)
 document.getElementById('sender').addEventListener('change', renderModifiers);
+
+// Leo OOO toggle — persists per browser so the cover state survives reloads.
+(function(){
+  const ooo = document.getElementById('leo-ooo-toggle');
+  if (!ooo) return;
+  ooo.checked = leoOOO;
+  ooo.addEventListener('change', () => {
+    leoOOO = ooo.checked;
+    try { localStorage.setItem('rb_leo_ooo', leoOOO ? '1' : '0'); } catch(e) {}
+    render();
+  });
+})();
 
 document.querySelectorAll('[data-style]').forEach(btn => {
   btn.addEventListener('click', () => {
