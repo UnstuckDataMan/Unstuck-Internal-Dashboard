@@ -1118,9 +1118,11 @@ function migrateTemplates() {
 // senders without their own Calendly link) points to the covering Director
 // instead. Only the CEO reference + link change; the wording is otherwise kept.
 const LEO_OOO = {
-  fromName: /\bCEO Leo\b/g,
-  toName:   'Director, Kelton',
-  link:     'https://calendly.com/kelton-unstuck-agency/30-minute-meeting',
+  link:  'https://calendly.com/kelton-unstuck-agency/30-minute-meeting',
+  swaps: [
+    [/\bCEO Leo\b/g, 'Director, Kelton'],  // meetingLink:   "our CEO Leo" → "our Director, Kelton"
+    [/\bmy CEO\b/g,  'my Director'],        // meetingPhrase: "…with me and my CEO" → "…and my Director"
+  ],
 };
 let leoOOO = false;
 try { leoOOO = localStorage.getItem('rb_leo_ooo') === '1'; } catch(e) {}
@@ -1202,7 +1204,7 @@ function assemble() {
   // the covering Director (name + link) while "Leo OOO" is on.
   let targetLink;
   if (hasOwnLink)      targetLink = senderLink;
-  else if (leoOOO)     { targetLink = LEO_OOO.link; msg = msg.replace(LEO_OOO.fromName, LEO_OOO.toName); }
+  else if (leoOOO)     { targetLink = LEO_OOO.link; LEO_OOO.swaps.forEach(([re, to]) => { msg = msg.replace(re, to); }); }
   else                 targetLink = _leoCalendly();
   msg = msg.replace(/\[CALENDLY\]/g, targetLink)
            .replace(/https:\/\/calendly\.com\/[^\s)\]]+/g, targetLink);
