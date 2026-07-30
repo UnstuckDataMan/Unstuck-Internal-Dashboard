@@ -1,9 +1,14 @@
 """
-Scheduled twice-daily sync for all campaigns that have a linked Google Sheet.
+Hourly sync for all campaigns that have a linked Google Sheet.
 
-Runs for every client automatically — no manual trigger needed.
-Times are controlled by the AUTO_SYNC_HOURS env var (comma-separated UTC hours,
-default "9,21" → 09:00 and 21:00 UTC).
+Runs for every client automatically — no manual trigger needed. The schedule is
+an in-process daemon thread (see start_scheduler below): once ~20s after boot,
+then at the top of every hour. Campaigns are synced sequentially, paced by
+AUTO_SYNC_PACING_MS, to stay under the Sheets 60-reads/min-per-user quota.
+
+Dates: a ticked Send Status with no Sent Date is stamped with TODAY (UTC, via
+app.utils.dates.today_utc) — the day it was ticked. campaigns.py builds its
+Today/Week/Month buckets off the same clock, so the two always agree.
 """
 from __future__ import annotations
 
@@ -11,10 +16,11 @@ import logging
 import os
 import threading
 import time
-from datetime import date as _date, datetime as _datetime, timedelta as _timedelta, timezone as _tz
+from datetime import datetime as _datetime, timedelta as _timedelta, timezone as _tz
 
 import requests as http_req
 
+from app.utils.dates import today_utc
 from app.utils.supabase import (
     SUPABASE_URL,
     sb_headers as _sb_headers,
@@ -63,15 +69,6 @@ def get_sync_status() -> dict:
         snap = dict(_last_run)
         snap["failures"] = list(_last_run["failures"])
         return snap
-
-
-def _next_working_day(from_date: _date) -> _date:
-    """Return the first Monday–Friday after from_date (skips weekends)."""
-    from datetime import timedelta
-    d = from_date + timedelta(days=1)
-    while d.weekday() >= 5:   # 5 = Saturday, 6 = Sunday
-        d += timedelta(days=1)
-    return d
 
 
 # ── Core per-campaign sync (shared with the manual endpoint) ──────────────────
@@ -170,9 +167,12 @@ def _sync_campaign_core_unlocked(
     # For every sent row that has no Sent Date yet, stamp today.
     # For every chased row (Chaser Sent? = TRUE) with no Chaser Date, stamp today.
     # Existing dates are kept so contacted_at always reflects the real send date.
+    #
+    # "Today" — not the next working day.  Ticking Send Status means "I have
+    # sent this", so the date must be the day it was ticked; stamping tomorrow
+    # pushed every send out of the Today bucket (and Friday's out of the week).
     if sent_data:
-        today_str      = _date.today().isoformat()
-        send_date_str  = _next_working_day(_date.today()).isoformat()
+        send_date_str  = today_utc().isoformat()
         sent_to_write:   list[tuple[int, str]] = []
         chaser_to_write: list[tuple[int, str]] = []
         for entry in sent_data:

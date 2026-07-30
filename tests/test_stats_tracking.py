@@ -13,6 +13,7 @@ from conftest import FakeResponse, in_list_values, param_values, params_list
 import app.routers.campaigns as campaigns
 import app.utils.auto_sync as auto_sync
 import app.utils.google_sheets as gs
+from app.utils.dates import today_utc   # same clock the app uses — never date.today()
 
 
 def count_response(n: int):
@@ -72,12 +73,22 @@ def test_time_breakdown_sums_initial_plus_chasers_per_bucket(fake_sb):
     assert out["month"] == 7 and out["all_time"] == 7
     assert len(fake_sb.calls_to("GET", "contacted_prospects")) == 8  # 4 buckets × 2
 
-    today  = date.today()
+    today  = today_utc()
     monday = today - timedelta(days=today.weekday())
+    friday = monday + timedelta(days=4)
     today_calls = [c for c in fake_sb.calls_to("GET", "contacted_prospects")
                    if f"eq.{today.isoformat()}" in param_values(c, "contacted_at")]
     assert today_calls, "today bucket must filter contacted_at = today"
     assert monday.strftime("%b") in out["week_label"]
+
+    # The working week ends FRIDAY — sends never go out at weekends, so a
+    # Sunday end-boundary would widen the window and mislabel the range.
+    week_calls = [c for c in fake_sb.calls_to("GET", "contacted_prospects")
+                  if f"gte.{monday.isoformat()}" in param_values(c, "contacted_at")]
+    assert week_calls, "week bucket must start on Monday"
+    assert all(f"lte.{friday.isoformat()}" in param_values(c, "contacted_at")
+               for c in week_calls), "week bucket must end on Friday, not Sunday"
+    assert str(friday.day) in out["week_label"]
 
 
 # ── sync_campaign_core: counters, date back-fill, stale cleanup ───────────────
@@ -108,11 +119,39 @@ SENT = [
 ]
 
 
+def test_sync_core_stamps_today_not_a_future_date(fake_sb, monkeypatch):
+    """Regression: a row ticked sent with a blank Sent Date must be stamped with
+    TODAY, never a future date.
+
+    The sync used to stamp the *next working day*, so a send ticked today landed
+    on tomorrow (or, on a Friday, on next Monday). That pushed every same-day
+    send out of the Today bucket and out of the month-to-date window, and moved
+    Friday's sends into the following week.
+    """
+    today = today_utc()
+    written = _patch_sheet_reads(monkeypatch, [], SENT)
+    fake_sb.route("POST", "contacted_prospects", lambda c: FakeResponse(201))
+    fake_sb.route("GET",  "contacted_prospects", lambda c: FakeResponse(200, []))
+    fake_sb.route("PATCH", "campaigns", lambda c: FakeResponse(204))
+
+    auto_sync.sync_campaign_core("camp-1", "sheet-1", "client-1", "June Campaign")
+
+    # Written to the sheet: exactly today, for both Sent Date and Chaser Date.
+    stamped = [d for _row, d in written["sent"] + written["chaser"]]
+    assert stamped, "the blank Sent Date row should have been back-filled"
+    assert set(stamped) == {today.isoformat()}
+    assert all(date.fromisoformat(d) <= today for d in stamped), \
+        "a send must never be stamped with a future date"
+
+    # And the same date reaches contacted_at, which is what the stats count.
+    ins = fake_sb.calls_to("POST", "contacted_prospects")[0]["json"]
+    fresh = next(r for r in ins if r["email"] == "fresh@corp.com")
+    assert fresh["contacted_at"] == today.isoformat()
+
+
 def test_sync_core_full_pipeline(fake_sb, monkeypatch):
-    # Back-fill stamps the NEXT working day, not today (commit e5a4084) —
-    # sheets are synced ahead of the send, so a blank Sent Date means the
-    # row will go out on the next business day.
-    send_day = auto_sync._next_working_day(date.today()).isoformat()
+    # A ticked row with no Sent Date is stamped TODAY — the day it was ticked.
+    send_day = today_utc().isoformat()
     written = _patch_sheet_reads(monkeypatch, LEADS, SENT)
 
     fake_sb.route("POST", "dnc_entries", lambda c: FakeResponse(201))
@@ -133,7 +172,7 @@ def test_sync_core_full_pipeline(fake_sb, monkeypatch):
                       "unsubscribes_added": 1, "reply_count": 1,
                       "contacted_added": 2, "error": ""}
 
-    # Date back-fill: missing Sent Date / Chaser Date stamped next working day
+    # Date back-fill: missing Sent Date / Chaser Date stamped today
     assert written["sent"]   == [(3, send_day)]
     assert written["chaser"] == [(2, send_day)]
 
@@ -177,7 +216,7 @@ def test_sync_core_full_pipeline(fake_sb, monkeypatch):
 def test_sync_core_skips_unchanged_rows(fake_sb, monkeypatch):
     """Steady state: every sent row already stored with identical dates →
     zero DELETE/INSERT churn on contacted_prospects (the diff optimisation)."""
-    send_day = auto_sync._next_working_day(date.today()).isoformat()
+    send_day = today_utc().isoformat()
     written = _patch_sheet_reads(monkeypatch, [], SENT)
 
     # Existing rows exactly match what the sync would write:

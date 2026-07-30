@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date as _date, datetime as _datetime, timedelta, timezone as _tz
+from datetime import datetime as _datetime, timedelta, timezone as _tz
 from html import escape as _html_escape
 
 import requests as http_req
@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, HTMLResponse
 
 from app import auth
 from app.deps import templates
+from app.utils.dates import today_utc
 from app.utils.supabase import (
     SUPABASE_URL,
     sb_headers as _sb_headers,
@@ -196,16 +197,19 @@ def _time_breakdown(
     Each bucket includes both initial sends (contacted_at) and chaser sends
     (chaser_contacted_at) so the stats reflect total email touches per period.
     """
-    today       = _date.today()
+    today       = today_utc()
     monday      = today - timedelta(days=today.weekday())
-    sunday      = monday + timedelta(days=6)
+    # The working week is Mon–Fri — sends never go out at weekends, so ending
+    # the window on Sunday only widened the label and let stray weekend-dated
+    # rows inflate the count.
+    friday      = monday + timedelta(days=4)
     month_start = today.replace(day=1)
     # Day numbers formatted manually — strftime('%-d') is Linux-only and
     # raises ValueError on Windows, which would break the whole breakdown.
     week_label  = (
-        f"{monday.strftime('%b')} {monday.day}–{sunday.day}"
-        if monday.month == sunday.month
-        else f"{monday.strftime('%b')} {monday.day}–{sunday.strftime('%b')} {sunday.day}"
+        f"{monday.strftime('%b')} {monday.day}–{friday.day}"
+        if monday.month == friday.month
+        else f"{monday.strftime('%b')} {monday.day}–{friday.strftime('%b')} {friday.day}"
     )
     kw = {"campaign_names": campaign_names}
 
@@ -214,7 +218,7 @@ def _time_breakdown(
     # sequentially: the panel load drops from ~8× to ~1× round-trip latency.
     buckets = {
         "today":    {"date_eq": today.isoformat()},
-        "week":     {"date_gte": monday.isoformat(), "date_lte": sunday.isoformat()},
+        "week":     {"date_gte": monday.isoformat(), "date_lte": friday.isoformat()},
         "month":    {"date_gte": month_start.isoformat(), "date_lte": today.isoformat()},
         "all_time": {},
     }
