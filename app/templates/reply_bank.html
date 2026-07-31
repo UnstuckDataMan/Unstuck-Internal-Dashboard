@@ -1302,6 +1302,29 @@ document.querySelectorAll('[data-channel]').forEach(btn => {
 
 // Territory buttons are rendered dynamically — see renderTerritoryButtons()
 
+// Manual selection copy from message-box — strip dark-theme CSS so Gmail
+// doesn't paste white-on-black. Intercept the native copy event and rewrite
+// the clipboard with clean HTML (only <b>/<i>/<u>, no colour/background).
+document.getElementById('message-box').addEventListener('copy', e => {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const frag = sel.getRangeAt(0).cloneContents();
+  const tmp  = document.createElement('div');
+  tmp.appendChild(frag);
+  function cleanNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+    if (node.tagName === 'BR') return '<br>';
+    const KEEP = { B:'b', I:'i', U:'u', STRONG:'b', EM:'i' };
+    const inner = Array.from(node.childNodes).map(cleanNode).join('');
+    return KEEP[node.tagName] ? `<${KEEP[node.tagName]}>${inner}</${KEEP[node.tagName]}>` : inner;
+  }
+  const cleanHtml = Array.from(tmp.childNodes).map(cleanNode).join('');
+  e.clipboardData.setData('text/plain', sel.toString());
+  e.clipboardData.setData('text/html', `<meta charset="utf-8">${cleanHtml}`);
+  e.preventDefault();
+});
+
 // Copy button
 document.getElementById('copy-btn').addEventListener('click', async () => {
   const box = document.getElementById('message-box');
