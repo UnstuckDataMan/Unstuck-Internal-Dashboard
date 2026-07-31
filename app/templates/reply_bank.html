@@ -1308,12 +1308,18 @@ document.getElementById('copy-btn').addEventListener('click', async () => {
   if (box.classList.contains('placeholder') ||
       box.classList.contains('not-available')) return;
 
-  // Plain text only — no text/html flavour so Gmail pastes with its own
-  // default styling and no hidden font/colour/size formatting is carried over.
-  const plainText = _lastMsg.replace(/<[^>]+>/g, ''); // strip all tags
+  const plainText = _lastMsg.replace(/<[^>]+>/g, '');
+  // Include text/html so <b>/<i>/<u> survive the paste, but use only bare
+  // formatting tags with no colour or font CSS — Gmail applies its own defaults.
+  const htmlText = `<meta charset="utf-8">${sanitizeHtml(_lastMsg)}`;
 
   try {
-    await navigator.clipboard.writeText(plainText);
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'text/html':  new Blob([htmlText],  { type: 'text/html' }),
+        'text/plain': new Blob([plainText], { type: 'text/plain' }),
+      })
+    ]);
   } catch {
     const range = document.createRange();
     range.selectNodeContents(box);
