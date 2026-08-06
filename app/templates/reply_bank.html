@@ -1118,6 +1118,7 @@ function migrateTemplates() {
 // senders without their own Calendly link) points to Kelton instead. Only the
 // CEO reference + link change; the wording is otherwise kept.
 const LEO_OOO = {
+  awaySender: 'Leo',   // the sender whose own calendar is unavailable while OOO
   link:  'https://calendly.com/kelton-unstuck-agency/30-minute-meeting',
   swaps: [
     // meetingLink: "…the meeting link for our CEO Leo, who will be leading the
@@ -1166,6 +1167,10 @@ function assemble() {
   // link?" basis.
   const senderLink = calendlyLinkFor(sender);
   const hasOwnLink = !!senderLink;
+  // Leo is the person who is away, so with "Leo OOO" on his calendar must not
+  // be offered even when HE is the selected sender — otherwise picking Leo
+  // handed out his own link and ignored the cover entirely.
+  const routeToCover = leoOOO && (!hasOwnLink || sender === LEO_OOO.awaySender);
 
   // ── 1. Resolve [[key]] snippet markers ──
   msg = msg.replace(/\[\[(\w+)\]\]/g, (match, snipKey, offset, str) => {
@@ -1180,7 +1185,13 @@ function assemble() {
     // Calendly link (own → "my Calendly"; none → route to CEO Leo), resolved by
     // content so any stored sender-scoping still produces a result.
     let resolved;
-    if (snipKey === 'meetingLink' || snipKey === 'meetingPhrase') {
+    if (snipKey === 'meetingLink') {
+      // Cover routing overrides own-link wording — the link being handed out
+      // belongs to the cover, so it must not read "a link to my Calendly".
+      resolved = _resolveMeetingVariation(snip, routeToCover ? false : hasOwnLink, territory);
+    } else if (snipKey === 'meetingPhrase') {
+      // Keyed on the sender's own identity, not the cover: Leo's variation is
+      // empty, so his copy never claims he'll attend a call he's away for.
       resolved = _resolveMeetingVariation(snip, hasOwnLink, territory);
     } else {
       // Find best-matching variation (score: 2=exact match, 1=wildcard "all", 0=mismatch → skip)
@@ -1206,17 +1217,26 @@ function assemble() {
   });
 
   // ── 1b. Inject the resolved Calendly link + apply Leo-OOO cover ──
-  // Own link if the sender has one; otherwise the CEO fallback — which points to
-  // the covering Director (name + link) while "Leo OOO" is on.
+  // Cover first: while Leo is OOO every booking that would have landed on his
+  // calendar (his own, or a rep with no link of their own) goes to Kelton.
+  // Otherwise the sender's own link, else the standing CEO fallback.
   let targetLink;
-  if (hasOwnLink)      targetLink = senderLink;
-  else if (leoOOO)     { targetLink = LEO_OOO.link; LEO_OOO.swaps.forEach(([re, to]) => { msg = msg.replace(re, to); }); }
+  if (routeToCover)    { targetLink = LEO_OOO.link; LEO_OOO.swaps.forEach(([re, to]) => { msg = msg.replace(re, to); }); }
+  else if (hasOwnLink) targetLink = senderLink;
   else                 targetLink = _leoCalendly();
   msg = msg.replace(/\[CALENDLY\]/g, targetLink)
            .replace(/https:\/\/calendly\.com\/[^\s)\]]+/g, targetLink);
 
-  // ── 2. Clean up blank lines left by removed snippets ──
-  msg = msg.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\n\n$/, '');
+  // ── 2. Normalise whitespace left by removed snippets / edited templates ──
+  // Order matters. Trailing spaces are stripped per line FIRST so a "blank"
+  // line that actually holds a space or NBSP ("\n \n") collapses with the
+  // rest — /\n{3,}/ never matched those, which is what left a double gap
+  // before "For context…". Then drop ALL leading whitespace, not just
+  // newlines, so a copied message can never start with " Hi …".
+  msg = msg
+    .replace(/[ \t\u00A0]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^\s+/, '');
 
   // ── 3. Insert name in greeting ──
   const displayName = name || '[NAME]';
@@ -1229,8 +1249,10 @@ function assemble() {
   // ── 4. Fix sign-off ──
   const lastBest = msg.lastIndexOf('Best,');
   if (lastBest !== -1) {
-    msg = msg.substring(0, lastBest) + 'Best,\n\n' + sender + '\n';
+    msg = msg.substring(0, lastBest) + 'Best,\n\n' + sender;
   }
+  // No trailing whitespace — it pastes as a stray blank line under the name.
+  msg = msg.replace(/\s+$/, '');
 
   return msg;
 }
