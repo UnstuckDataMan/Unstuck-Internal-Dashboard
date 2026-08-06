@@ -1018,6 +1018,10 @@ function applyFormat(tag) {
 // Read a contenteditable div back to a clean string (newlines + <b>/<i>/<u> only)
 function getRichContent(el) {
   let html = el.innerHTML;
+  // innerHTML returns "&nbsp;" as literal text — decode before anything else so
+  // padding the browser inserted is saved as a real space, not a 6-char string
+  // that later survives every whitespace rule and shows up as a stray gap.
+  html = decodeNbsp(html);
   // Chrome wraps new paragraphs in <div> — convert those to line breaks
   html = html.replace(/<div>/gi, '\n').replace(/<\/div>/gi, '');
   html = html.replace(/<p>/gi,   '\n').replace(/<\/p>/gi,   '');
@@ -1027,14 +1031,24 @@ function getRichContent(el) {
   html = html.replace(/<em>/gi,     '<i>').replace(/<\/em>/gi,     '</i>');
   // Strip anything else (span, style attributes, etc.)
   html = html.replace(/<(?!\/?(?:b|i|u)\b)[^>]+>/gi, '');
-  // Tidy up extra blank lines Chrome can add at the start
-  html = html.replace(/^\n+/, '').replace(/\n{3,}/g, '\n\n');
+  // Tidy up extra blank lines Chrome can add at the start. Trailing spaces go
+  // per line first so a line left holding only a decoded &nbsp; collapses too.
+  html = html.replace(/[ \t\u00A0]+$/gm, '').replace(/^\n+/, '').replace(/\n{3,}/g, '\n\n');
   return html;
 }
 
 // Load a clean string into a contenteditable div
 function setRichContent(el, str) {
   el.innerHTML = sanitizeHtml(str || '');
+}
+
+// Chrome's contenteditable inserts literal "&nbsp;" entities for blank lines and
+// padding, so template text saved from the admin editor holds the 6-character
+// string — not a real space. Whitespace collapsing can't see those, which is how
+// a "blank" line survived as a double gap (e.g. before "For context…"). Decode
+// them to real spaces so the normal whitespace rules apply.
+function decodeNbsp(str) {
+  return (str || '').replace(/&nbsp;|&#160;|&#xa0;/gi, ' ');
 }
 
 function sanitizeHtml(str) {
@@ -1228,6 +1242,9 @@ function assemble() {
            .replace(/https:\/\/calendly\.com\/[^\s)\]]+/g, targetLink);
 
   // ── 2. Normalise whitespace left by removed snippets / edited templates ──
+  // Entities first: a stored "&nbsp;" is text, not whitespace, so it has to
+  // become a real space before any of the rules below can collapse it.
+  msg = decodeNbsp(msg);
   // Order matters. Trailing spaces are stripped per line FIRST so a "blank"
   // line that actually holds a space or NBSP ("\n \n") collapses with the
   // rest — /\n{3,}/ never matched those, which is what left a double gap
