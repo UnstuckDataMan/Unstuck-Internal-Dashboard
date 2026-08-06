@@ -716,7 +716,7 @@
       <div class="checkbox-group">
         <label class="cb-row">
           <input type="checkbox" id="leo-ooo-toggle">
-          <span>Leo OOO <span class="cb-hint">route to Director, Kelton</span></span>
+          <span>Leo OOO <span class="cb-hint">route to Kelton</span></span>
         </label>
       </div>
     </div>
@@ -1115,13 +1115,19 @@ function migrateTemplates() {
 // ════════════════════════════════════════════════════════
 
 // "Leo OOO" cover: when Leo is out of office, the CEO-routing fallback (used for
-// senders without their own Calendly link) points to the covering Director
-// instead. Only the CEO reference + link change; the wording is otherwise kept.
+// senders without their own Calendly link) points to Kelton instead. Only the
+// CEO reference + link change; the wording is otherwise kept.
 const LEO_OOO = {
   link:  'https://calendly.com/kelton-unstuck-agency/30-minute-meeting',
   swaps: [
-    [/\bCEO Leo\b/g, 'Director, Kelton'],  // meetingLink:   "our CEO Leo" → "our Director, Kelton"
-    [/\bmy CEO\b/g,  'my colleague'],      // meetingPhrase: "…with me and my CEO" → "…and my colleague"
+    // meetingLink: "…the meeting link for our CEO Leo, who will be leading the
+    //   call" → "…the meeting link for my colleague Kelton, who will…".
+    // The article is absorbed so it reads "my colleague", never "our my
+    // colleague"; the bare second rule covers variations stored without one.
+    [/\b(?:our|the|my)\s+CEO Leo\b/g, 'my colleague Kelton'],
+    [/\bCEO Leo\b/g,                  'my colleague Kelton'],
+    // meetingPhrase: "…with me and my CEO" → "…with me and my colleague"
+    [/\bmy CEO\b/g,                   'my colleague'],
   ],
 };
 let leoOOO = false;
