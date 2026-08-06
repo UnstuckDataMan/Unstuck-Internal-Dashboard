@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import threading
 import time
+from collections import deque
 
 import gspread
 from gspread.exceptions import APIError
@@ -36,6 +38,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+logger = logging.getLogger(__name__)
+
 _DRIVE_FILES_URL      = "https://www.googleapis.com/drive/v3/files"
 _SHEETS_BASE_URL      = "https://sheets.googleapis.com/v4/spreadsheets"
 _SEPARATOR_TEXT       = "No More Emails For Today."
@@ -46,8 +50,9 @@ _SEPARATOR_TEXT       = "No More Emails For Today."
 # per campaign within seconds and quickly exhaust the 60 reads/min quota.
 #
 # Strategy: cache the raw records for 45 seconds per (sheet_id, render_option).
-# All reads within the same sync window share one API call.  Writes (date
-# back-fills) call _invalidate_sheet_cache so the next read sees fresh data.
+# All reads within the same sync window share one API call.  Date back-fills
+# patch the cached rows in place (_patch_cached_records) so the cache stays both
+# warm and correct; only a header change drops it (_invalidate_sheet_cache).
 _records_cache: dict[str, tuple[float, list]] = {}
 _records_cache_lock = threading.Lock()
 _RECORDS_CACHE_TTL  = 45  # seconds
@@ -85,6 +90,125 @@ def reset_sheet_reads() -> int:
         return prev
 
 
+# ── Quota limiters ────────────────────────────────────────────────────────────
+# The Sheets API allows 60 read and 60 write requests per minute PER USER, and
+# the whole app authenticates as one service account — so every caller in this
+# process (the hourly sync, a user's Sync click, the A/B panel) spends from a
+# single shared budget.  Pacing the sync loop alone could never enforce that: it
+# assumed a fixed 1–2 reads per campaign, was blind to the extra metadata fetch
+# each helper made (see _worksheet), and had no visibility of ad-hoc panel reads
+# happening concurrently.
+#
+# These sliding-window limiters gate every real request instead, so the budget
+# is enforced where it is actually spent.  A caller that would overrun the
+# window blocks until the oldest request in it ages out.
+_READS_PER_MIN  = max(1, int(os.environ.get("SHEETS_READS_PER_MIN",  "55") or 55))
+_WRITES_PER_MIN = max(1, int(os.environ.get("SHEETS_WRITES_PER_MIN", "55") or 55))
+
+
+class _RateLimiter:
+    """Sliding-window limiter: at most `limit` acquisitions per 60 seconds."""
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._hits: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def acquire(self) -> None:
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                while self._hits and (now - self._hits[0]) >= 60.0:
+                    self._hits.popleft()
+                if len(self._hits) < self._limit:
+                    self._hits.append(now)
+                    return
+                # Wait just long enough for the oldest hit to age out of the
+                # window.  Computed under the lock, slept outside it.
+                wait = 60.0 - (now - self._hits[0]) + 0.05
+            time.sleep(min(wait, 60.0))
+
+
+_read_limiter  = _RateLimiter(_READS_PER_MIN)
+_write_limiter = _RateLimiter(_WRITES_PER_MIN)
+
+
+def _sheets_call(fn, limiter: _RateLimiter, count_read: bool):
+    """Run one Sheets API request: rate-limited, counted, retried on 429/5xx.
+
+    Every request this module sends to Google goes through here.  Retries wait
+    10s → 20s → 40s: a 429 means the per-minute window is full, so the backoff
+    has to be long enough for that window to actually drain.
+    """
+    wait_times = (10, 20, 40)
+    for attempt in range(len(wait_times) + 1):
+        limiter.acquire()
+        if count_read:
+            _bump_sheet_reads()
+        try:
+            return fn()
+        except APIError as exc:
+            status = getattr(exc.response, "status_code", 0)
+            if status in _RETRYABLE_STATUSES and attempt < len(wait_times):
+                time.sleep(wait_times[attempt])
+            else:
+                raise
+
+
+def _sheets_read(fn):
+    """Run one Sheets *read* request (counts against the read quota)."""
+    return _sheets_call(fn, _read_limiter, count_read=True)
+
+
+def _sheets_write(fn):
+    """Run one Sheets *write* request (counts against the write quota)."""
+    return _sheets_call(fn, _write_limiter, count_read=False)
+
+
+# ── Worksheet handle cache ────────────────────────────────────────────────────
+# gspread's `Spreadsheet.sheet1` is NOT a free attribute lookup — it calls
+# fetch_sheet_metadata(), i.e. a real spreadsheets.get request billed against
+# the 60-reads/min-per-user quota.  Every read/write helper below used to open
+# the sheet for itself, so a single campaign sync burned 3–4 of its reads
+# re-fetching metadata that had not changed.  Those reads were invisible to the
+# gauge below and — worse — were the only Sheets calls with no 429 retry around
+# them, which is exactly where syncs failed.  Cache the handle per sheet.
+_ws_cache: dict[str, tuple[float, object]] = {}
+_ws_cache_lock = threading.Lock()
+_WS_CACHE_TTL  = 600   # seconds — gid/title/grid size change very rarely
+
+
+def _worksheet(sheet_id: str, title: str | None = None):
+    """Return a worksheet handle (first tab by default), cached per sheet."""
+    cache_key = f"{sheet_id}:{title or ''}"
+    now = time.time()
+    with _ws_cache_lock:
+        entry = _ws_cache.get(cache_key)
+        if entry and (now - entry[0]) < _WS_CACHE_TTL:
+            return entry[1]
+
+    def _open():
+        sh = _client().open_by_key(sheet_id)
+        return sh.worksheet(title) if title else sh.sheet1
+
+    ws = _sheets_read(_open)
+    with _ws_cache_lock:
+        fresh = time.time()
+        for k in [k for k, (ts, _) in _ws_cache.items()
+                  if (fresh - ts) >= _WS_CACHE_TTL]:
+            del _ws_cache[k]
+        _ws_cache[cache_key] = (fresh, ws)
+    return ws
+
+
+def _invalidate_worksheet_cache(sheet_id: str) -> None:
+    """Drop cached handles for a sheet (call after the grid or header changes)."""
+    prefix = f"{sheet_id}:"
+    with _ws_cache_lock:
+        for k in [k for k in _ws_cache if k.startswith(prefix)]:
+            del _ws_cache[k]
+
+
 def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
     """
     Fetch records from a worksheet with caching + 429-backoff.
@@ -93,9 +217,9 @@ def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
       happened within _RECORDS_CACHE_TTL seconds.  Cuts API calls from 2–3 per
       campaign (sync + A/B) to 1 per campaign per 45-second window.
 
-    • Retry: on HTTP 429 (quota exceeded) waits 10 s, 20 s, 40 s before the
-      final re-raise so transient quota bursts self-heal rather than propagating
-      an error to the user.
+    • Quota + retry: the fetch goes through _sheets_read, so it waits for a slot
+      in the per-minute read budget and, on HTTP 429/5xx, backs off 10 s, 20 s,
+      40 s before the final re-raise.
 
     Uses get_all_values + manual dict construction instead of get_all_records
     because gspread raises GSpreadException when the sheet header row contains
@@ -113,47 +237,37 @@ def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
         if entry and (now - entry[0]) < _RECORDS_CACHE_TTL:
             return entry[1]
 
-    # Cache miss — fetch from API with exponential backoff on 429 (quota) and
-    # transient 5xx (Google-side hiccups like "the service is currently
-    # unavailable" — these usually clear within seconds and previously failed
-    # the whole campaign's sync for the hour).
-    wait_times = (10, 20, 40)
-    for attempt in range(len(wait_times) + 1):
-        try:
-            _bump_sheet_reads()   # one real read request against the quota
-            all_values = ws.get_all_values(value_render_option=render)
-            if not all_values:
-                records: list = []
+    # Cache miss — fetch from the API, rate-limited and with backoff on 429
+    # (quota) and transient 5xx (Google-side hiccups like "the service is
+    # currently unavailable" — these usually clear within seconds and previously
+    # failed the whole campaign's sync for the hour).
+    all_values = _sheets_read(lambda: ws.get_all_values(value_render_option=render))
+    if not all_values:
+        records: list = []
+    else:
+        raw_headers = all_values[0]
+        # Deduplicate headers: keep first occurrence, mark repeats None.
+        seen: set[str] = set()
+        headers: list = []
+        for h in raw_headers:
+            if h not in seen:
+                seen.add(h)
+                headers.append(h)
             else:
-                raw_headers = all_values[0]
-                # Deduplicate headers: keep first occurrence, mark repeats None.
-                seen: set[str] = set()
-                headers: list = []
-                for h in raw_headers:
-                    if h not in seen:
-                        seen.add(h)
-                        headers.append(h)
-                    else:
-                        headers.append(None)
-                records = [
-                    {h: v for h, v in zip(headers, row) if h is not None}
-                    for row in all_values[1:]
-                ]
-            with _records_cache_lock:
-                # Drop expired entries while we hold the lock so the cache
-                # doesn't grow without bound across many sheets.
-                fresh_now = time.time()
-                for k in [k for k, (ts, _) in _records_cache.items()
-                          if (fresh_now - ts) >= _RECORDS_CACHE_TTL]:
-                    del _records_cache[k]
-                _records_cache[cache_key] = (fresh_now, records)
-            return records
-        except APIError as exc:
-            status = getattr(exc.response, "status_code", 0)
-            if status in _RETRYABLE_STATUSES and attempt < len(wait_times):
-                time.sleep(wait_times[attempt])
-            else:
-                raise
+                headers.append(None)
+        records = [
+            {h: v for h, v in zip(headers, row) if h is not None}
+            for row in all_values[1:]
+        ]
+    with _records_cache_lock:
+        # Drop expired entries while we hold the lock so the cache doesn't grow
+        # without bound across many sheets.
+        fresh_now = time.time()
+        for k in [k for k, (ts, _) in _records_cache.items()
+                  if (fresh_now - ts) >= _RECORDS_CACHE_TTL]:
+            del _records_cache[k]
+        _records_cache[cache_key] = (fresh_now, records)
+    return records
 
 
 def _invalidate_sheet_cache(sheet_id: str) -> None:
@@ -163,6 +277,27 @@ def _invalidate_sheet_cache(sheet_id: str) -> None:
         stale = [k for k in _records_cache if k.startswith(prefix)]
         for k in stale:
             del _records_cache[k]
+
+
+def _patch_cached_records(sheet_id: str, col_name: str,
+                          row_date_pairs: list[tuple[int, str]]) -> None:
+    """Apply a just-written date column to the cached records for a sheet.
+
+    Dropping the whole cache after a write (the old behaviour) meant the second
+    date back-fill of a sync re-read the entire sheet from the API — a full read
+    spent re-fetching rows we had just written and already hold in memory.  The
+    written values are known exactly, so patch them in instead: the cache stays
+    warm for the rest of the sync AND reflects the new dates.
+    """
+    prefix = f"{sheet_id}:"
+    with _records_cache_lock:
+        for key, (_ts, records) in _records_cache.items():
+            if not key.startswith(prefix):
+                continue
+            for row_num, value in row_date_pairs:
+                idx = row_num - 2   # row 1 = header, so row 2 = records[0]
+                if 0 <= idx < len(records):
+                    records[idx][col_name] = value
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -908,9 +1043,7 @@ def read_sent_with_dates(sheet_id: str) -> list[dict]:
     "" if the column doesn't exist yet or has not been populated for that row).
     row_num is 1-based sheet row number (row 1 = header, row 2 = first data row).
     """
-    gc = _client()
-    sh = gc.open_by_key(sheet_id)
-    ws = sh.sheet1
+    ws = _worksheet(sheet_id)
     records = _get_all_records(ws, sheet_id, value_render_option="UNFORMATTED_VALUE")
 
     results: list[dict] = []
@@ -941,31 +1074,32 @@ def _write_date_column(
     if not row_date_pairs:
         return
 
-    gc = _client()
-    sh = gc.open_by_key(sheet_id)
-    ws = sh.sheet1
+    ws = _worksheet(sheet_id)
 
     # Prefer the already-cached records (populated by read_sent_with_dates
     # moments earlier during the same sync) over a fresh row_values(1) call.
-    # This avoids an extra uncached API round-trip that has no quota-retry
-    # protection and often pushes syncs over the 60-reads/min quota when
-    # multiple campaigns sync in quick succession.
+    # This avoids an extra API round-trip that would otherwise be spent
+    # re-reading a header row we already hold.
     records = _get_all_records(ws, sheet_id, value_render_option="UNFORMATTED_VALUE")
-    headers: list[str] = list(records[0].keys()) if records else ws.row_values(1)
+    headers: list[str] = (
+        list(records[0].keys()) if records
+        else _sheets_read(lambda: ws.row_values(1))
+    )
 
+    header_changed = False
     if col_name not in headers:
         # Column absent — append it.  Use the raw row to count all columns
         # (including trailing empties that get_all_records may trim).
-        raw_headers = ws.row_values(1)
+        raw_headers = _sheets_read(lambda: ws.row_values(1))
         new_col_idx = len(raw_headers) + 1       # 1-based
         # Older sheets can have a grid exactly as wide as their headers —
         # writing one column past the edge 400s with "exceeds grid limits"
         # on EVERY sync, forever.  Grow the grid first when needed.
         if new_col_idx > ws.col_count:
-            ws.add_cols(new_col_idx - ws.col_count)
-        ws.update_cell(1, new_col_idx, col_name)
+            _sheets_write(lambda: ws.add_cols(new_col_idx - ws.col_count))
+        _sheets_write(lambda: ws.update_cell(1, new_col_idx, col_name))
         date_col = new_col_idx
-        _invalidate_sheet_cache(sheet_id)        # header changed
+        header_changed = True
     else:
         date_col = headers.index(col_name) + 1   # 1-based
 
@@ -976,22 +1110,19 @@ def _write_date_column(
     if not updates:
         return
 
-    # Retry on quota errors (429) and transient 5xx — the read path already
-    # consumed some quota, and large sheets can tip the burst budget on the write.
-    wait_times = (10, 20)
-    for attempt in range(len(wait_times) + 1):
-        try:
-            ws.batch_update(updates)
-            break
-        except APIError as exc:
-            status = getattr(exc.response, "status_code", 0)
-            if status in _RETRYABLE_STATUSES and attempt < len(wait_times):
-                time.sleep(wait_times[attempt])
-            else:
-                raise
+    _sheets_write(lambda: ws.batch_update(updates))
 
-    # Invalidate cache so the next read sees the freshly written dates.
-    _invalidate_sheet_cache(sheet_id)
+    if header_changed:
+        # The header row itself moved — cached records (and the cached grid
+        # width on the worksheet handle) no longer describe the sheet.
+        _invalidate_sheet_cache(sheet_id)
+        _invalidate_worksheet_cache(sheet_id)
+    else:
+        # Only data cells changed, and we know exactly which — patch them into
+        # the cache rather than dropping it.  Dropping it here used to force the
+        # very next back-fill (Chaser Date, right after Sent Date) to re-read the
+        # whole sheet, doubling the read cost of every campaign that had sends.
+        _patch_cached_records(sheet_id, col_name, row_date_pairs)
 
 
 def write_sent_dates(sheet_id: str, row_date_pairs: list[tuple[int, str]]) -> None:
@@ -1034,10 +1165,8 @@ def read_ab_stats(sheet_id: str) -> list[dict]:
     """
     from collections import defaultdict
 
-    gc     = _client()
-    sh     = gc.open_by_key(sheet_id)
-    gsheet = sh.sheet1
-    records = _get_all_records(gsheet, sheet_id, value_render_option="UNFORMATTED_VALUE")
+    ws = _worksheet(sheet_id)
+    records = _get_all_records(ws, sheet_id, value_render_option="UNFORMATTED_VALUE")
 
     stats: dict = defaultdict(
         lambda: {"total": 0, "lead": 0, "interested": 0, "reply": 0, "unsubscribe": 0}
@@ -1085,10 +1214,8 @@ def read_leads(sheet_id: str) -> list[dict]:
     Uses UNFORMATTED_VALUE so the result is shared with read_sent_with_dates
     in the cache — sync_campaign_core calls both, halving API calls per campaign.
     """
-    gc = _client()
-    sh = gc.open_by_key(sheet_id)
-    gsheet = sh.sheet1
-    records = _get_all_records(gsheet, sheet_id, value_render_option="UNFORMATTED_VALUE")
+    ws = _worksheet(sheet_id)
+    records = _get_all_records(ws, sheet_id, value_render_option="UNFORMATTED_VALUE")
 
     results: list[dict] = []
     for record in records:
@@ -1361,12 +1488,10 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
     if "@" not in target:
         return 0
 
-    gc = _client()
-    sh = gc.open_by_key(sheet_id)
-    ws = sh.sheet1
+    ws = _worksheet(sheet_id)
 
     # Find column positions from the header row
-    headers = ws.row_values(1)
+    headers = _sheets_read(lambda: ws.row_values(1))
     try:
         email_col_idx = headers.index("Recipient Email") + 1   # 1-based
         ls_col_idx    = headers.index("Lead Status")    + 1
@@ -1374,7 +1499,7 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
         return 0   # sheet doesn't have the expected columns
 
     # Fetch the entire email column and build exact-match updates
-    col_values = ws.col_values(email_col_idx)
+    col_values = _sheets_read(lambda: ws.col_values(email_col_idx))
 
     updates = []
     for row_num, cell_val in enumerate(col_values, start=1):
@@ -1385,7 +1510,10 @@ def mark_email_in_sheet(sheet_id: str, email_or_domain: str, reason: str = "manu
                              "values": [[lead_status]]})
 
     if updates:
-        ws.batch_update(updates)
+        _sheets_write(lambda: ws.batch_update(updates))
+        # The Lead Status cells just changed — drop the cached rows so the next
+        # sync reads the new statuses rather than serving them from the cache.
+        _invalidate_sheet_cache(sheet_id)
 
         # Ensure the CF rules are present on this sheet (retroactive for old
         # sheets created before the rules were baked into _apply_sheet_formatting).
@@ -1429,16 +1557,13 @@ def read_stats_cells(sheet_id: str) -> dict:
 
     Returns {} on any failure — never raises, never breaks sync.
     """
-    gc = _client()
     try:
-        _bump_sheet_reads()   # worksheet("Stats") is a metadata read
-        ws = gc.open_by_key(sheet_id).worksheet("Stats")
+        ws = _worksheet(sheet_id, "Stats")
     except Exception:
         return {}  # sheet predates Stats tab — skip silently
 
     try:
-        _bump_sheet_reads()
-        rows = ws.batch_get(["B2:D4"])[0]
+        rows = _sheets_read(lambda: ws.batch_get(["B2:D4"]))[0]
 
         def _i(r, c):
             try:

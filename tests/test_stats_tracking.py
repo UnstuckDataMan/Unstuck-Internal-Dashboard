@@ -272,6 +272,39 @@ def test_sync_core_failed_sheet_read_never_wipes_history(fake_sb, monkeypatch):
         "a transient read failure must never trigger the stale-row cleanup"
 
 
+def test_sync_core_failed_sheet_read_never_zeroes_send_counters(fake_sb, monkeypatch):
+    """A failed sent-status read must leave sent_count/chaser_count untouched.
+
+    Regression: sent_count was patched from `len(sent_data)`, and a failed read
+    left sent_data as an empty list — so a single 429 from Sheets wrote
+    sent_count = 0 over a live campaign's real total (and reported the sync as
+    a clean success), until some later run happened to restore it.  No data is
+    not the same as zero data.
+    """
+    def boom(sid):
+        raise RuntimeError("APIError: [429]: Quota exceeded")
+    monkeypatch.setattr(gs, "read_leads", lambda sid: list(LEADS))
+    monkeypatch.setattr(gs, "read_sent_with_dates", boom)
+
+    patched = []
+    fake_sb.route("PATCH", "campaigns",
+                  lambda c: (patched.append(c["json"]), FakeResponse(204))[1])
+
+    result = auto_sync.sync_campaign_core(
+        "camp-1", "sheet-1", "client-1", "June", total_prospects=100,
+    )
+
+    assert patched, "the counters that ARE known must still be written"
+    body = patched[0]
+    assert "sent_count" not in body, "a failed read must not overwrite sent_count"
+    assert "chaser_count" not in body, "nor chaser_count — same empty-list source"
+    assert "completed_at" not in body, "nor auto-complete the campaign at 0 sent"
+    # Counters sourced from the read that DID succeed are still updated.
+    assert body["lead_count"] == 2 and body["unsubscribe_count"] == 1
+    # ...and the run must record this campaign as failed, not silently OK.
+    assert "429" in result["error"]
+
+
 def test_sync_core_chaser_column_missing_falls_back(fake_sb, monkeypatch):
     """PATCH with chaser_count rejected (column absent) → base PATCH retried."""
     _patch_sheet_reads(monkeypatch, [], SENT[:1])

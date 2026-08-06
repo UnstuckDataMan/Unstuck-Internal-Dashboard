@@ -146,6 +146,28 @@ def client():
     return TestClient(app, raise_server_exceptions=True)
 
 
+@pytest.fixture(autouse=True)
+def _reset_sheets_state():
+    """Clear the google_sheets module caches and quota windows between tests.
+
+    They are deliberately process-global in production (one service account =
+    one shared quota), so without this a cached worksheet handle or a spent
+    read budget would leak from one test into the next.
+    """
+    import app.utils.google_sheets as gs
+
+    def _clear():
+        gs._records_cache.clear()
+        gs._ws_cache.clear()
+        gs._read_limiter._hits.clear()
+        gs._write_limiter._hits.clear()
+        gs.reset_sheet_reads()
+
+    _clear()
+    yield
+    _clear()
+
+
 # ── Fake gspread / Sheets REST layer ──────────────────────────────────────────
 
 class FakeWorksheet:
@@ -160,6 +182,8 @@ class FakeWorksheet:
         self.added_cols: list[int] = []
         self.batch_updates: list[list] = []
         self.updates: list[tuple] = []    # generic recorded calls
+        # batch_get payload (read_stats_cells); set to an Exception to raise.
+        self.batch_get_result: object = [[]]
 
     def add_cols(self, n: int):
         self.added_cols.append(n)
@@ -183,6 +207,12 @@ class FakeWorksheet:
     def get_all_values(self, value_render_option=None, **kwargs):
         return [list(self.headers)] + [list(r) for r in self.rows]
 
+    def batch_get(self, ranges, **kwargs):
+        self.updates.append(("batch_get", ranges))
+        if isinstance(self.batch_get_result, Exception):
+            raise self.batch_get_result
+        return self.batch_get_result
+
     def get_all_records(self, **kwargs):
         return [dict(zip(self.headers, r)) for r in self.rows]
 
@@ -195,9 +225,30 @@ class FakeWorksheet:
 
 
 class FakeSpreadsheet:
-    def __init__(self, ws: FakeWorksheet):
-        self.sheet1 = ws
+    """Stands in for gspread's Spreadsheet.
+
+    `sheet1` is a PROPERTY, not an attribute, because that is what it is in
+    gspread: reading it calls fetch_sheet_metadata() — a real API request against
+    the read quota.  Tests count those accesses (`metadata_fetches`) to prove the
+    sync isn't re-fetching metadata it already holds.
+    """
+
+    def __init__(self, ws: FakeWorksheet, tabs: dict | None = None):
+        self._ws = ws
+        self._tabs = tabs or {}
         self.shares: list[tuple] = []
+        self.metadata_fetches = 0
+
+    @property
+    def sheet1(self) -> FakeWorksheet:
+        self.metadata_fetches += 1
+        return self._ws
+
+    def worksheet(self, title: str) -> FakeWorksheet:
+        self.metadata_fetches += 1
+        if title not in self._tabs:
+            raise KeyError(f"no worksheet named {title!r}")
+        return self._tabs[title]
 
     def share(self, *a, **kw):
         self.shares.append((a, kw))

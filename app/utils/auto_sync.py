@@ -3,8 +3,9 @@ Hourly sync for all campaigns that have a linked Google Sheet.
 
 Runs for every client automatically — no manual trigger needed. The schedule is
 an in-process daemon thread (see start_scheduler below): once ~20s after boot,
-then at the top of every hour. Campaigns are synced sequentially, paced by
-AUTO_SYNC_PACING_MS, to stay under the Sheets 60-reads/min-per-user quota.
+then at the top of every hour. Campaigns are synced sequentially and spread by
+AUTO_SYNC_PACING_MS; the Sheets 60-reads/min-per-user quota itself is enforced
+per request by the limiter in app.utils.google_sheets.
 
 Dates: a ticked Send Status with no Sent Date is stamped with TODAY (UTC, via
 app.utils.dates.today_utc) — the day it was ticked. campaigns.py builds its
@@ -32,11 +33,17 @@ logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 500
 
-# Pause between campaigns in the sequential auto-sync loop so Sheets reads spread
-# across the minute instead of bursting past the 60-reads/min-per-user quota
-# (the whole app shares one service account = one "user").  ~1 campaign ≈ 1–2
-# reads, so ~1.5s/campaign keeps a run comfortably under the limit. Tune via
-# AUTO_SYNC_PACING_MS; 0 disables pacing.
+# Pause between campaigns in the sequential auto-sync loop, to spread Sheets
+# reads across the minute rather than bursting.
+#
+# This is now a courtesy spread, NOT the quota guard — it never could be one.
+# It assumed ~1–2 reads per campaign and was blind to the metadata fetch every
+# sheet helper made for itself, so the real cost was 3–7 reads per campaign and
+# a paced run still sailed past the 60-reads/min-per-user quota (the whole app
+# shares one service account = one "user").  The budget is now enforced per
+# request by the limiter in app.utils.google_sheets, which also covers the
+# ad-hoc panel reads this loop can't see.  Tune via AUTO_SYNC_PACING_MS;
+# 0 disables pacing and lets the limiter do all the pacing.
 try:
     _PACING_SECONDS = max(0.0, int(os.environ.get("AUTO_SYNC_PACING_MS", "1500")) / 1000.0)
 except ValueError:
@@ -159,9 +166,14 @@ def _sync_campaign_core_unlocked(
     sent_read_ok = True
     try:
         sent_data = read_sent_with_dates(sheet_id)
-    except Exception:
+    except Exception as exc:
         sent_data = []
         sent_read_ok = False
+        # Surface it: a swallowed failure here used to report the campaign as a
+        # clean sync while every send counter below was computed from an empty
+        # list (see the counter guard at the end of this function).
+        logger.warning("read_sent_with_dates failed for sheet %s: %s", sheet_id, exc)
+        result["error"] = f"Sent-status read failed: {exc}"
 
     # ── Back-fill missing Sent Date and Chaser Date cells ────────────
     # For every sent row that has no Sent Date yet, stamp today.
@@ -489,37 +501,46 @@ def _sync_campaign_core_unlocked(
             pass   # Non-fatal — stale rows are retried on the next sync
 
     # ── Update campaign counters ──────────────────────────────────────
+    # sent_count / chaser_count are derived from sent_data, so they are only
+    # meaningful when the sent-status read actually succeeded.  When it did not
+    # (a 429 from Sheets is the common case), sent_data is an empty list — and
+    # patching from it wrote sent_count = 0, wiping a live campaign's send total
+    # until the next successful sync happened to restore it.  Same reasoning as
+    # the stale-row cleanup above: no data is not the same as zero data.
     new_sent     = len(sent_data)
     chaser_count = sum(1 for e in sent_data if e.get("chaser_sent"))
     patch_body: dict = {
-        "sent_count":        new_sent,
         "lead_count":        result["leads_added"],
         "reply_count":       result["reply_count"],
         "interested_count":  result["interested_added"],
         "unsubscribe_count": result["unsubscribes_added"],
     }
+    if sent_read_ok:
+        patch_body["sent_count"] = new_sent
 
     # Auto-stamp completed_at the first time this campaign hits 100 %
-    if total_prospects and new_sent >= total_prospects and not completed_at:
+    if sent_read_ok and total_prospects and new_sent >= total_prospects and not completed_at:
         patch_body["completed_at"] = _datetime.now(_tz.utc).isoformat()
 
-    # chaser_count is always included (so unticking every chaser resets it to
-    # 0), but the column may not exist yet — and PostgREST rejects the ENTIRE
-    # patch when any column is unknown, which would silently freeze sent_count
-    # and every other counter.  On failure, retry with the base body alone.
+    # chaser_count is included whenever the sent read succeeded (so unticking
+    # every chaser resets it to 0 — but a failed read never zeroes it), and the
+    # column may not exist yet.  PostgREST rejects the ENTIRE patch when any
+    # column is unknown, which would silently freeze sent_count and every other
+    # counter, so on failure we retry with the base body alone.
+    full_body = {**patch_body, "chaser_count": chaser_count} if sent_read_ok else patch_body
     try:
         pr = http_req.patch(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             headers=_sb_headers("return=minimal"),
             params={"id": f"eq.{campaign_id}"},
-            json={**patch_body, "chaser_count": chaser_count},
+            json=full_body,
             timeout=10,
         )
         patch_ok = pr.status_code < 400
     except Exception:
         patch_ok = False
 
-    if not patch_ok:
+    if not patch_ok and full_body is not patch_body:
         try:
             http_req.patch(
                 f"{SUPABASE_URL}/rest/v1/campaigns",
@@ -534,7 +555,14 @@ def _sync_campaign_core_unlocked(
     # ── Cache stats-tab cell values (Test client only for initial rollout) ──
     # Remove the client_name guard to roll out to all clients.
     if client_name == "Test":
-        stats = read_stats_cells(sheet_id)
+        # Never let the stats cache break the sync that already succeeded: this
+        # is a display-only extra, but it used to run unguarded and take the
+        # whole campaign down with it when the Stats read failed.
+        try:
+            stats = read_stats_cells(sheet_id)
+        except Exception as exc:
+            logger.warning("read_stats_cells failed for %s: %s", sheet_id, exc)
+            stats = {}
         if stats:
             try:
                 http_req.patch(
