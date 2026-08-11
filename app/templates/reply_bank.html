@@ -1128,20 +1128,28 @@ function migrateTemplates() {
 //  MESSAGE ASSEMBLY
 // ════════════════════════════════════════════════════════
 
-// "Leo OOO" cover: when Leo is out of office, the CEO-routing fallback (used for
-// senders without their own Calendly link) points to Kelton instead. Only the
-// CEO reference + link change; the wording is otherwise kept.
+// "Leo OOO" cover: while Leo is out of office every booking that would land on
+// his calendar goes to Kelton instead. The two meeting snippets are replaced
+// with the approved cover copy verbatim — not word-swapped — so the wording is
+// exact regardless of how the underlying variation has been edited.
 const LEO_OOO = {
   awaySender: 'Leo',   // the sender whose own calendar is unavailable while OOO
   link:  'https://calendly.com/kelton-unstuck-agency/30-minute-meeting',
+
+  // Sits inline after "…a short virtual meeting" — leading space, no full stop
+  // (the template supplies the "." and the times that follow).
+  meetingPhrase: ' with me and my colleague Kelton',
+
+  // Its own paragraph. [CALENDLY] is substituted with `link` below.
+  meetingLink: "If those times don't work, here is Kelton's meeting link. "
+             + 'He will be leading the call, so please find a time that suits '
+             + 'you: [CALENDLY]',
+
+  // Safety net only: catches a stray "CEO Leo" / "my CEO" left elsewhere in a
+  // template body. The meeting snippets above never reach these.
   swaps: [
-    // meetingLink: "…the meeting link for our CEO Leo, who will be leading the
-    //   call" → "…the meeting link for my colleague Kelton, who will…".
-    // The article is absorbed so it reads "my colleague", never "our my
-    // colleague"; the bare second rule covers variations stored without one.
     [/\b(?:our|the|my)\s+CEO Leo\b/g, 'my colleague Kelton'],
     [/\bCEO Leo\b/g,                  'my colleague Kelton'],
-    // meetingPhrase: "…with me and my CEO" → "…with me and my colleague"
     [/\bmy CEO\b/g,                   'my colleague'],
   ],
 };
@@ -1200,13 +1208,13 @@ function assemble() {
     // content so any stored sender-scoping still produces a result.
     let resolved;
     if (snipKey === 'meetingLink') {
-      // Cover routing overrides own-link wording — the link being handed out
-      // belongs to the cover, so it must not read "a link to my Calendly".
-      resolved = _resolveMeetingVariation(snip, routeToCover ? false : hasOwnLink, territory);
+      // While covering, use the approved cover copy verbatim; otherwise pick
+      // the variation matching whether this sender books on their own calendar.
+      resolved = routeToCover ? LEO_OOO.meetingLink
+                              : _resolveMeetingVariation(snip, hasOwnLink, territory);
     } else if (snipKey === 'meetingPhrase') {
-      // Keyed on the sender's own identity, not the cover: Leo's variation is
-      // empty, so his copy never claims he'll attend a call he's away for.
-      resolved = _resolveMeetingVariation(snip, hasOwnLink, territory);
+      resolved = routeToCover ? LEO_OOO.meetingPhrase
+                              : _resolveMeetingVariation(snip, hasOwnLink, territory);
     } else {
       // Find best-matching variation (score: 2=exact match, 1=wildcard "all", 0=mismatch → skip)
       const variations = snip.variations || [];
