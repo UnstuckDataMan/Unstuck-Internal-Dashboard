@@ -188,6 +188,7 @@ async def generate_merge(request: Request):
             row = merged_rows[entry["prospect_id"] - 1]
             row["__send_date__"]      = entry["date"]
             row["__send_time__"]      = entry["send_time"]
+            row["__send_instant__"]   = entry.get("send_instant", 0.0)
             row["__sender_number__"]  = entry["sender_number"]
             row["__sender_account__"] = entry["sender"]
             chaser_offset = _dvariance(
@@ -199,12 +200,17 @@ async def generate_merge(request: Request):
                 f"{total_chaser_mins // 60:02d}:{total_chaser_mins % 60:02d}"
             )
 
-        # Sort: date → sender profile order → send time
+        # Sort: date → sender profile order → chronological send instant.
+        # Ordering on the absolute instant, not the "HH:MM" text: when the
+        # sender's zone is far enough ahead of the recipient's, the day's last
+        # sends fall after midnight on the sender's clock, and sorting those
+        # strings put "00:13"/"01:07" at the TOP of a block that should end
+        # with them.
         sender_order = {email: idx for idx, email in enumerate(sender_emails)}
         merged_rows.sort(key=lambda r: (
             r.get("__send_date__", ""),
             sender_order.get(r.get("__sender_account__", ""), 999),
-            r.get("__send_time__", ""),
+            r.get("__send_instant__", 0.0),
         ))
         merged_rows = [r for r in merged_rows if r.get("__send_date__")]
 

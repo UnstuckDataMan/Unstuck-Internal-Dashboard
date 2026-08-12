@@ -324,6 +324,11 @@ def generate_schedule(
                 'date':        work_day.isoformat(),
                 'day_of_week': work_day.strftime('%A'),
                 'send_time':   sender_local.strftime('%H:%M'),
+                # Absolute instant of this slot. 'send_time' is a wall clock in
+                # the SENDER's zone, so when the two zones differ enough the last
+                # sends of a day land after midnight ("00:13") and sort before
+                # the morning ones as text. Callers order on this instead.
+                'send_instant': slot_aware.timestamp(),
                 'sender':      sender,
                 'sender_number': s_num,
                 'prospect_id': prospect_idx + 1,

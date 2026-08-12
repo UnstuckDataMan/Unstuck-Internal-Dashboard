@@ -144,6 +144,47 @@ def test_schedule_rejects_short_window():
         generate_schedule(5, SENDERS, window_start="09:00", window_end="12:00")
 
 
+def test_send_instant_orders_across_midnight():
+    """Sends must order chronologically even when the sender's clock rolls past
+    midnight relative to the recipient's window.
+
+    With a PT recipient window and a SAST sender (9h ahead), 08:30-15:30 PT maps
+    to 17:30-00:30 SAST, so a day's last sends read "00:13"/"01:07". Sorting on
+    that text put them at the TOP of the block instead of the end; 'send_instant'
+    is the absolute instant and sorts correctly.
+    """
+    senders = ["a@x.com", "b@x.com"]
+    sched = generate_schedule(
+        40, senders, campaign_seed="tzseed", max_per_sender_per_day=10,
+        window_start="08:30", window_end="15:30",
+        recipient_tz="America/Vancouver", sender_tz="Africa/Johannesburg",
+    )
+
+    after_midnight = [s for s in sched if s["send_time"] < "08:00"]
+    assert after_midnight, "fixture must actually cross midnight, or this proves nothing"
+
+    order = {e: i for i, e in enumerate(senders)}
+    by_instant = sorted(sched, key=lambda s: (s["date"], order[s["sender"]], s["send_instant"]))
+
+    blocks: dict[tuple, list] = {}
+    for s in by_instant:
+        blocks.setdefault((s["date"], s["sender"]), []).append(s)
+
+    for key, rows in blocks.items():
+        instants = [r["send_instant"] for r in rows]
+        assert instants == sorted(instants), f"{key} not chronological"
+        # The block must END after midnight, never start there.
+        if any(r["send_time"] < "08:00" for r in rows):
+            assert rows[-1]["send_time"] < "08:00", \
+                f"{key}: post-midnight send should be last, got {[r['send_time'] for r in rows]}"
+            assert rows[0]["send_time"] > "12:00", \
+                f"{key}: block should open with an afternoon-SAST time"
+
+    # And confirm the old text sort really was broken, so this test has teeth.
+    by_text = sorted(sched, key=lambda s: (s["date"], order[s["sender"]], s["send_time"]))
+    assert by_text != by_instant, "text sort should differ — fixture no longer exercises the bug"
+
+
 # ── Excel writer ──────────────────────────────────────────────────────────────
 
 def _build_workbook(tmp_path, has_chaser=True):
