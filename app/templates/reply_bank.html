@@ -928,6 +928,29 @@ const SNIPPETS = {
       { content: "", territory: "all", sender: "Leo" },
     ],
   },
+  // ── Leo-OOO cover copy (editable) ──────────────────────────────────────
+  // Used in place of the two snippets above whenever the "Leo OOO" toggle is on
+  // and the booking would otherwise land on Leo's calendar. Edit the wording
+  // here — no code change needed. Leave a variation blank (or delete the
+  // snippet) to fall back to the built-in copy.
+  oooMeetingPhrase: {
+    label: "Leo OOO — meeting phrase",
+    isToggle: false, toggleGroup: null,
+    variations: [
+      // Sits inline after "…a short virtual meeting" — keep the leading space
+      // and no full stop; the template supplies the "." and the times.
+      { content: " with me and my colleague Kelton", territory: "all", sender: "all" },
+    ],
+  },
+  oooMeetingLink: {
+    label: "Leo OOO — meeting link",
+    isToggle: false, toggleGroup: null,
+    variations: [
+      // Its own paragraph. [CALENDLY] is swapped for the cover's booking link —
+      // or paste a different Calendly URL here to point the cover at someone else.
+      { content: "If those times don't work, here is Kelton's meeting link. He will be leading the call, so please find a time that suits you: [CALENDLY]", territory: "all", sender: "all" },
+    ],
+  },
   pricing: {
     label: "Pricing",
     isToggle: true, toggleGroup: null,
@@ -1136,11 +1159,10 @@ const LEO_OOO = {
   awaySender: 'Leo',   // the sender whose own calendar is unavailable while OOO
   link:  'https://calendly.com/kelton-unstuck-agency/30-minute-meeting',
 
-  // Sits inline after "…a short virtual meeting" — leading space, no full stop
-  // (the template supplies the "." and the times that follow).
+  // Built-in fallbacks only. The live wording comes from the oooMeetingPhrase /
+  // oooMeetingLink snippets, which are editable in Settings → Snippets; these
+  // are used solely when a snippet is missing or blank.
   meetingPhrase: ' with me and my colleague Kelton',
-
-  // Its own paragraph. [CALENDLY] is substituted with `link` below.
   meetingLink: "If those times don't work, here is Kelton's meeting link. "
              + 'He will be leading the call, so please find a time that suits '
              + 'you: [CALENDLY]',
@@ -1155,6 +1177,35 @@ const LEO_OOO = {
 };
 let leoOOO = false;
 try { leoOOO = localStorage.getItem('rb_leo_ooo') === '1'; } catch(e) {}
+
+// Best territory/sender match for a snippet, using the same scoring as the main
+// resolver. Returns null when the snippet has no usable variation.
+function _bestVariation(snip, terr, sender) {
+  let best = null, bestScore = -1;
+  for (const v of (snip.variations || [])) {
+    const tScore = v.territory === terr ? 2 : (!v.territory || v.territory === 'all') ? 1 : 0;
+    let sScore;
+    if (!v.sender || v.sender === 'all') sScore = 1;
+    else if (Array.isArray(v.sender))    sScore = v.sender.includes(sender) ? 2 : 0;
+    else                                 sScore = v.sender === sender ? 2 : 0;
+    if (tScore === 0 || sScore === 0) continue;
+    const score = tScore + sScore;
+    if (score > bestScore) { bestScore = score; best = v; }
+  }
+  return best ? (best.content || '') : null;
+}
+
+// Leo-OOO cover copy, read from its editable snippet so the wording can be
+// changed in Settings → Snippets without a deploy. Falls back to the built-in
+// text when the snippet has been deleted or left blank.
+function coverCopy(snipKey, fallback, terr, sender) {
+  const snip = SNIPPETS[snipKey];
+  if (snip) {
+    const content = _bestVariation(snip, terr, sender);
+    if (content && content.trim()) return content;
+  }
+  return fallback;
+}
 
 // A meeting variation that routes the call to the CEO (used when the sender has
 // no own Calendly link). Detected by wording so it works no matter how the
@@ -1194,6 +1245,13 @@ function assemble() {
   // handed out his own link and ignored the cover entirely.
   const routeToCover = leoOOO && (!hasOwnLink || sender === LEO_OOO.awaySender);
 
+  // Cover copy is resolved up front because the link substitution below needs
+  // to know whether the (editable) cover text names a Calendly URL of its own.
+  const coverPhrase = routeToCover
+    ? coverCopy('oooMeetingPhrase', LEO_OOO.meetingPhrase, territory, sender) : '';
+  const coverLinkText = routeToCover
+    ? coverCopy('oooMeetingLink', LEO_OOO.meetingLink, territory, sender) : '';
+
   // ── 1. Resolve [[key]] snippet markers ──
   msg = msg.replace(/\[\[(\w+)\]\]/g, (match, snipKey, offset, str) => {
     const snip = SNIPPETS[snipKey];
@@ -1208,12 +1266,12 @@ function assemble() {
     // content so any stored sender-scoping still produces a result.
     let resolved;
     if (snipKey === 'meetingLink') {
-      // While covering, use the approved cover copy verbatim; otherwise pick
-      // the variation matching whether this sender books on their own calendar.
-      resolved = routeToCover ? LEO_OOO.meetingLink
+      // While covering, use the editable cover copy; otherwise pick the
+      // variation matching whether this sender books on their own calendar.
+      resolved = routeToCover ? coverLinkText
                               : _resolveMeetingVariation(snip, hasOwnLink, territory);
     } else if (snipKey === 'meetingPhrase') {
-      resolved = routeToCover ? LEO_OOO.meetingPhrase
+      resolved = routeToCover ? coverPhrase
                               : _resolveMeetingVariation(snip, hasOwnLink, territory);
     } else {
       // Find best-matching variation (score: 2=exact match, 1=wildcard "all", 0=mismatch → skip)
@@ -1243,7 +1301,13 @@ function assemble() {
   // calendar (his own, or a rep with no link of their own) goes to Kelton.
   // Otherwise the sender's own link, else the standing CEO fallback.
   let targetLink;
-  if (routeToCover)    { targetLink = LEO_OOO.link; LEO_OOO.swaps.forEach(([re, to]) => { msg = msg.replace(re, to); }); }
+  if (routeToCover) {
+    // A Calendly URL typed straight into the cover snippet wins, so the cover
+    // can be pointed at a different person from Settings alone.
+    const own = coverLinkText.match(/https:\/\/calendly\.com\/[^\s)\]]+/);
+    targetLink = own ? own[0] : LEO_OOO.link;
+    LEO_OOO.swaps.forEach(([re, to]) => { msg = msg.replace(re, to); });
+  }
   else if (hasOwnLink) targetLink = senderLink;
   else                 targetLink = _leoCalendly();
   msg = msg.replace(/\[CALENDLY\]/g, targetLink)
