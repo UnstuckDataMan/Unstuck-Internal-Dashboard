@@ -940,6 +940,9 @@ const SNIPPETS = {
       // Sits inline after "…a short virtual meeting" — keep the leading space
       // and no full stop; the template supplies the "." and the times.
       { content: " with me and my colleague Kelton", territory: "all", sender: "all" },
+      // Leo writing while he's the one away: he won't be on the call, so it's
+      // Kelton alone — no "me and".
+      { content: " with my colleague Kelton", territory: "all", sender: ["Leo"] },
     ],
   },
   oooMeetingLink: {
@@ -1163,6 +1166,8 @@ const LEO_OOO = {
   // oooMeetingLink snippets, which are editable in Settings → Snippets; these
   // are used solely when a snippet is missing or blank.
   meetingPhrase: ' with me and my colleague Kelton',
+  // Leo writing while he's the one away — he won't be on the call, so no "me and".
+  meetingPhraseAway: ' with my colleague Kelton',
   meetingLink: "If those times don't work, here is Kelton's meeting link. "
              + 'He will be leading the call, so please find a time that suits '
              + 'you: [CALENDLY]',
@@ -1248,7 +1253,10 @@ function assemble() {
   // Cover copy is resolved up front because the link substitution below needs
   // to know whether the (editable) cover text names a Calendly URL of its own.
   const coverPhrase = routeToCover
-    ? coverCopy('oooMeetingPhrase', LEO_OOO.meetingPhrase, territory, sender) : '';
+    ? coverCopy('oooMeetingPhrase',
+                sender === LEO_OOO.awaySender ? LEO_OOO.meetingPhraseAway
+                                              : LEO_OOO.meetingPhrase,
+                territory, sender) : '';
   const coverLinkText = routeToCover
     ? coverCopy('oooMeetingLink', LEO_OOO.meetingLink, territory, sender) : '';
 
