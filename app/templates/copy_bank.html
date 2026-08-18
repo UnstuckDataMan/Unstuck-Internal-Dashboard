@@ -1796,6 +1796,60 @@
     }
     .approver-cancel:hover { border-color: rgba(255,255,255,.25); color: var(--text); }
 
+    /* Approver settings dialog */
+    #approver-settings-dialog {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0;
+      box-shadow: var(--sh-md);
+      color: var(--text);
+      max-width: 460px;
+      width: 94vw;
+      overflow: hidden;
+    }
+    #approver-settings-dialog::backdrop {
+      background: rgba(0,0,0,.6);
+      backdrop-filter: blur(8px);
+    }
+    .approver-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .approver-row:last-child { border-bottom: none; }
+    .approver-row-name { font-size: 14px; font-weight: 600; color: var(--text); min-width: 80px; flex-shrink: 0; }
+    .approver-row-slack { flex: 1; font-size: 12px; color: var(--text-3); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .approver-remove-btn {
+      background: none; border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text-3);
+      cursor: pointer; padding: 4px 9px; font-size: 12px; flex-shrink: 0;
+      transition: border-color .15s, color .15s;
+    }
+    .approver-remove-btn:hover { border-color: var(--red-bdr); color: var(--red); }
+    .approver-add-section {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px;
+    }
+    .approver-input {
+      flex: 1; min-width: 0;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--surface);
+      color: var(--text);
+      font-family: var(--font); font-size: 13px;
+      outline: none;
+      transition: border-color .18s var(--ease);
+    }
+    .approver-input:focus { border-color: var(--border-focus); }
+    .approver-input::placeholder { color: var(--text-3); }
+    .approver-settings-footer {
+      display: flex; gap: 10px; margin-top: 20px;
+      align-items: center; flex-wrap: wrap;
+    }
+
     /* Requester dialog — card-style, centered */
     #requester-dialog {
       background: var(--surface);
@@ -2222,7 +2276,15 @@
       </a>
     </div>
     <div class="ps-topbar-title">Copy Bank</div>
-    <div class="ps-topbar-spacer" style="display:flex;align-items:center;justify-content:flex-end">
+    <div class="ps-topbar-spacer" style="display:flex;align-items:center;justify-content:flex-end;gap:8px">
+      {% if is_admin %}
+      <button class="gear-btn" id="approver-settings-btn" onclick="openApproverSettings()" title="Approver settings" aria-label="Approver settings">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+      {% endif %}
       <button class="sop-info-btn" data-sop-key="{{ sop_key }}" title="View SOP for this page" aria-label="Open SOP">ⓘ</button>
     </div>
   </div>
@@ -2303,6 +2365,14 @@
   </div>
   <h1 class="topbar-center" id="header-title">Copy Bank</h1>
   <div class="topbar-right">
+    {% if is_admin %}
+    <button class="gear-btn" onclick="openApproverSettings()" title="Approver settings" aria-label="Approver settings">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+    {% endif %}
     <button class="sop-info-btn" data-sop-key="{{ sop_key }}" title="View SOP for this page" aria-label="Open SOP">ⓘ</button>
   </div>
 </header>
@@ -2385,12 +2455,31 @@
   <div class="approver-dialog-inner">
     <div class="approver-dialog-title">Who is approving?</div>
     <div class="approver-dialog-sub">This will be logged alongside the published copy.</div>
-    <div class="approver-btns">
-      <button class="approver-btn" onclick="approveCopy('Ollie')">Ollie</button>
-      <button class="approver-btn" onclick="approveCopy('Chris')">Chris</button>
-      <button class="approver-btn" onclick="approveCopy('Leo')">Leo</button>
+    <div class="approver-btns" id="approver-btns-container">
+      <!-- Populated dynamically from /api/copy-bank/approvers -->
     </div>
     <button class="approver-cancel" onclick="document.getElementById('approver-dialog').close()">Cancel</button>
+  </div>
+</dialog>
+
+<!-- ══════════════════════════════════════════════════════════
+     APPROVER SETTINGS DIALOG (admin only)
+══════════════════════════════════════════════════════════ -->
+<dialog id="approver-settings-dialog">
+  <div class="approver-dialog-inner">
+    <div class="approver-dialog-title">Approver Settings</div>
+    <div class="approver-dialog-sub">Manage who gets tagged in Slack when copy approval is requested. Add their name and Slack member ID (starts with U).</div>
+    <div id="approver-settings-list"></div>
+    <div class="approver-add-section">
+      <input id="new-approver-name" class="approver-input" type="text" placeholder="Name" style="max-width:130px" onkeydown="if(event.key==='Enter')addApproverRow()">
+      <input id="new-approver-slack" class="approver-input" type="text" placeholder="Slack ID (e.g. U012AB3CD)" onkeydown="if(event.key==='Enter')addApproverRow()">
+      <button class="adm-add-btn" style="width:auto;padding:8px 16px;flex-shrink:0" onclick="addApproverRow()">+ Add</button>
+    </div>
+    <div class="approver-settings-footer">
+      <button id="approver-settings-save-btn" class="admin-save-btn" onclick="saveApprovers()">Save</button>
+      <button class="approver-cancel" style="width:auto;padding:9px 18px" onclick="document.getElementById('approver-settings-dialog').close()">Cancel</button>
+      <span id="approver-settings-status" class="save-status" style="margin-left:auto"></span>
+    </div>
   </div>
 </dialog>
 
@@ -4289,10 +4378,100 @@ document.getElementById('requester-name-input').addEventListener('keydown', func
   }
 });
 
+// ── Approver list (loaded once, shared by dialog + settings) ─
+var _cachedApprovers = [];
+
+async function _loadApprovers() {
+  try {
+    var resp = await fetch('/api/copy-bank/approvers');
+    var data = await resp.json();
+    _cachedApprovers = data.approvers || [];
+  } catch(e) {
+    _cachedApprovers = [{name:'Ollie',slack_id:''},{name:'Chris',slack_id:''},{name:'Leo',slack_id:''}];
+  }
+  return _cachedApprovers;
+}
+
+function _escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 // ── Approve & Publish button ──────────────────────────────
-document.getElementById('approve-btn').addEventListener('click', function() {
+document.getElementById('approve-btn').addEventListener('click', async function() {
+  var approvers = _cachedApprovers.length ? _cachedApprovers : await _loadApprovers();
+  var container = document.getElementById('approver-btns-container');
+  container.innerHTML = approvers.map(function(a) {
+    return '<button class="approver-btn" onclick="approveCopy(\'' + _escHtml(a.name) + '\')">' + _escHtml(a.name) + '</button>';
+  }).join('');
   document.getElementById('approver-dialog').showModal();
 });
+
+// ── Approver Settings ─────────────────────────────────────
+async function openApproverSettings() {
+  await _loadApprovers();
+  _renderApproverSettingsList();
+  document.getElementById('new-approver-name').value = '';
+  document.getElementById('new-approver-slack').value = '';
+  document.getElementById('approver-settings-status').textContent = '';
+  document.getElementById('approver-settings-save-btn').textContent = 'Save';
+  document.getElementById('approver-settings-dialog').showModal();
+}
+
+function _renderApproverSettingsList() {
+  var list = document.getElementById('approver-settings-list');
+  if (!_cachedApprovers.length) {
+    list.innerHTML = '<p style="color:var(--text-3);font-size:13px;margin-bottom:8px">No approvers configured yet.</p>';
+    return;
+  }
+  list.innerHTML = _cachedApprovers.map(function(a, i) {
+    return '<div class="approver-row">' +
+      '<span class="approver-row-name">' + _escHtml(a.name) + '</span>' +
+      '<span class="approver-row-slack">' + _escHtml(a.slack_id || '—') + '</span>' +
+      '<button class="approver-remove-btn" onclick="_removeApprover(' + i + ')">Remove</button>' +
+    '</div>';
+  }).join('');
+}
+
+function _removeApprover(idx) {
+  _cachedApprovers.splice(idx, 1);
+  _renderApproverSettingsList();
+}
+
+function addApproverRow() {
+  var name = document.getElementById('new-approver-name').value.trim();
+  var slack = document.getElementById('new-approver-slack').value.trim();
+  if (!name) { document.getElementById('new-approver-name').focus(); return; }
+  _cachedApprovers.push({ name: name, slack_id: slack });
+  document.getElementById('new-approver-name').value = '';
+  document.getElementById('new-approver-slack').value = '';
+  _renderApproverSettingsList();
+}
+
+async function saveApprovers() {
+  var btn = document.getElementById('approver-settings-save-btn');
+  var status = document.getElementById('approver-settings-status');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  status.textContent = ''; status.className = 'save-status';
+  try {
+    var resp = await fetch('/api/copy-bank/approvers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approvers: _cachedApprovers }),
+    });
+    var data = await resp.json();
+    if (data.ok) {
+      status.textContent = 'Saved!'; status.className = 'save-status ok';
+      setTimeout(function() { document.getElementById('approver-settings-dialog').close(); }, 900);
+    } else {
+      var errMsg = typeof data.error === 'object' ? JSON.stringify(data.error) : (data.error || 'Unknown error');
+      status.textContent = 'Error: ' + errMsg; status.className = 'save-status err';
+      btn.disabled = false; btn.textContent = 'Save';
+    }
+  } catch(e) {
+    status.textContent = 'Network error'; status.className = 'save-status err';
+    btn.disabled = false; btn.textContent = 'Save';
+  }
+}
 
 async function approveCopy(approvedBy) {
   document.getElementById('approver-dialog').close();

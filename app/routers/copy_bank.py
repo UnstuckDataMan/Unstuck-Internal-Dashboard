@@ -18,11 +18,14 @@ router = APIRouter()
 
 @router.get("/copy-bank")
 async def copy_bank(request: Request):
+    user = request.session.get("user", {})
+    role = (user.get("role") or "").lower()
     return templates.TemplateResponse("copy_bank.html", {
         "request":           request,
         "supabase_url":      os.environ.get("SUPABASE_URL", ""),
         "supabase_anon_key": os.environ.get("SUPABASE_ANON_KEY", ""),
         "sop_key":           "copy_bank",
+        "is_admin":          role == "admin" or not auth.auth_enabled(),
     })
 
 
@@ -277,8 +280,35 @@ def _send_slack_approval_notification(client_name: str, territory: str, industry
         return {"ok": False, "error": str(exc)}
 
 
+def _default_approvers() -> list[dict]:
+    """Build the approver list from legacy env vars (backwards compatibility)."""
+    result = []
+    for name, key in [("Ollie", "SLACK_OLLIE_ID"), ("Chris", "SLACK_CHRIS_ID"), ("Leo", "SLACK_LEO_ID")]:
+        result.append({"name": name, "slack_id": os.environ.get(key, "")})
+    return result
+
+
+def _get_approvers() -> list[dict]:
+    """Fetch the dynamic approver list from Supabase; falls back to env-var defaults."""
+    url = os.environ.get("SUPABASE_URL", "")
+    if url:
+        try:
+            resp = http_req.get(
+                f"{url}/rest/v1/copy_bank_templates",
+                params={"key": "eq.__cb_approvers__", "select": "content"},
+                headers=_sb_headers(),
+                timeout=5,
+            )
+            rows = resp.json()
+            if rows and isinstance(rows[0].get("content"), list) and rows[0]["content"]:
+                return rows[0]["content"]
+        except Exception:
+            pass
+    return _default_approvers()
+
+
 def _send_slack_notification(client_name: str, territory: str, industry: str) -> dict:
-    """Fire a Slack incoming-webhook message tagging the three reviewers.
+    """Fire a Slack incoming-webhook message tagging the current approvers.
     Returns {"ok": True} on success or {"ok": False, "error": "..."} on failure."""
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
     if not webhook_url:
@@ -286,20 +316,18 @@ def _send_slack_notification(client_name: str, territory: str, industry: str) ->
         log.warning("%s — skipping Slack notification", msg)
         return {"ok": False, "error": msg}
 
-    ollie = os.environ.get("SLACK_OLLIE_ID", "Ollie")
-    chris = os.environ.get("SLACK_CHRIS_ID", "Chris")
-    leo   = os.environ.get("SLACK_LEO_ID", "Leo")
+    approvers = _get_approvers()
 
-    # Format mentions: if the value looks like a Slack member ID use <@ID>, else plain name
-    def mention(val: str) -> str:
-        return f"<@{val}>" if val.startswith("U") and len(val) >= 9 else val
+    def mention(a: dict) -> str:
+        sid = (a.get("slack_id") or "").strip()
+        return f"<@{sid}>" if sid.startswith("U") and len(sid) >= 9 else a.get("name", "Unknown")
 
+    mentions = " ".join(mention(a) for a in approvers)
     payload = {
         "text": (
             f"📋 *Copy Approval Request*\n"
             f"*Client:* {client_name}  |  *Territory:* {territory}  |  *Industry:* {industry}\n"
-            f"{mention(ollie)} {mention(chris)} {mention(leo)} — "
-            f"please review in the Copy Bank admin panel."
+            f"{mentions} — please review in the Copy Bank admin panel."
         )
     }
     try:
@@ -326,6 +354,38 @@ def test_slack():
     }
     slack_result = _send_slack_notification("Test Client", "US", "PR")
     return JSONResponse({"env": env_status, "slack": slack_result})
+
+
+# ── Approver management endpoints ─────────────────────────────────────────────
+
+@router.get("/api/copy-bank/approvers")
+def get_approvers_endpoint():
+    """Return the current approver list (falls back to env-var defaults)."""
+    return JSONResponse({"approvers": _get_approvers()})
+
+
+class ApproversBody(BaseModel):
+    approvers: list[dict]
+
+
+@router.post("/api/copy-bank/approvers", dependencies=[Depends(auth.require_admin)])
+def save_approvers_endpoint(body: ApproversBody):
+    """Save the updated approver list to Supabase (admin only)."""
+    url = os.environ.get("SUPABASE_URL", "")
+    resp = http_req.post(
+        f"{url}/rest/v1/copy_bank_templates",
+        params={"on_conflict": "key"},
+        headers=_sb_write_headers("resolution=merge-duplicates,return=minimal"),
+        json={"key": "__cb_approvers__", "content": body.approvers},
+        timeout=10,
+    )
+    if not resp.ok:
+        try:
+            err_body = resp.json()
+        except Exception:
+            err_body = resp.text
+        return JSONResponse({"ok": False, "error": err_body}, status_code=500)
+    return JSONResponse({"ok": True})
 
 
 # ── Pydantic request bodies ────────────────────────────────────────────────────
