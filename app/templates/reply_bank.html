@@ -1445,10 +1445,15 @@ document.getElementById('message-box').addEventListener('copy', e => {
     return KEEP[node.tagName] ? `<${KEEP[node.tagName]}>${inner}</${KEEP[node.tagName]}>` : inner;
   }
   const cleanHtml = Array.from(tmp.childNodes).map(cleanNode).join('');
-  e.clipboardData.setData('text/plain', sel.toString());
-  e.clipboardData.setData('text/html', `<meta charset="utf-8">${cleanHtml}`);
+  e.clipboardData.setData('text/plain', sel.toString().replace(/^\s+/, ''));
+  e.clipboardData.setData('text/html', `<meta charset="utf-8">${trimBr(cleanHtml)}`);
   e.preventDefault();
 });
+
+// Strip leading/trailing <br> tags so Gmail doesn't add a blank line before or after pasted text
+function trimBr(html) {
+  return html.replace(/^(<br\s*\/?>)+/i, '').replace(/(<br\s*\/?>)+$/i, '');
+}
 
 // Copy button
 document.getElementById('copy-btn').addEventListener('click', async () => {
@@ -1456,10 +1461,10 @@ document.getElementById('copy-btn').addEventListener('click', async () => {
   if (box.classList.contains('placeholder') ||
       box.classList.contains('not-available')) return;
 
-  const plainText = _lastMsg.replace(/<[^>]+>/g, '');
+  const plainText = _lastMsg.replace(/<[^>]+>/g, '').replace(/^\s+/, '');
   // Include text/html so <b>/<i>/<u> survive the paste, but use only bare
   // formatting tags with no colour or font CSS — Gmail applies its own defaults.
-  const htmlText = `<meta charset="utf-8">${sanitizeHtml(_lastMsg)}`;
+  const htmlText = `<meta charset="utf-8">${trimBr(sanitizeHtml(_lastMsg))}`;
 
   try {
     await navigator.clipboard.write([
