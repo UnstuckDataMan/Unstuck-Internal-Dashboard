@@ -1,0 +1,83 @@
+{# Internal overview: agency-wide funnel + one card per client.
+   Context: rows, totals, total_sent, by_channel, unmapped, range, range_query, channel #}
+
+{% if unmapped %}
+<div class="pulse-warn">
+  <strong>{{ unmapped | length }}</strong> synced campaign{{ "" if unmapped | length == 1 else "s" }}
+  {{ "is" if unmapped | length == 1 else "are" }} not mapped to a client, so their
+  events are missing from every funnel below.
+  <button type="button" class="link-btn" onclick="document.getElementById('pulse-campaigns-panel').scrollIntoView({behavior:'smooth'})">
+    Map them →
+  </button>
+</div>
+{% endif %}
+
+{% if not rows %}
+<div class="pulse-empty">
+  <h3>No outbound activity in {{ range.label | lower }}</h3>
+  <p>
+    Either no events have been synced yet, or nothing happened in this range.
+    Check the connector status above, widen the range, or run a sync.
+  </p>
+</div>
+{% else %}
+
+<div class="pulse-section">
+  <div class="pulse-section-head">
+    <p class="section-label" style="margin:0">Everything, {{ range.label | lower }}</p>
+    <span class="pulse-meta">
+      {{ rows | length }} client{{ "" if rows | length == 1 else "s" }} with activity
+    </span>
+  </div>
+
+  <div class="pulse-total-card">
+    <div class="pulse-total-funnel">
+      {% with funnel = totals %}{% include "partials/pulse_funnel.html" %}{% endwith %}
+    </div>
+
+    {% if by_channel and by_channel | length > 1 %}
+    <div class="pulse-channel-split">
+      <p class="section-label" style="margin-bottom:10px">By channel</p>
+      {# Shown whenever both channels have data: a blended open rate mixes email
+         opens with LinkedIn connection acceptances, so the split is how anyone
+         checks what a combined number is actually made of. #}
+      {% for channel_name, counts in by_channel.items() %}
+      <div class="channel-row">
+        <span class="channel-name">
+          {{ "LinkedIn" if channel_name == "linkedin" else "Email" }}
+        </span>
+        <span class="channel-stats">
+          <b>{{ "{:,}".format(counts.sent) }}</b> sent
+          · <b>{{ "{:,}".format(counts.replied) }}</b> replied
+          · <b>{{ "{:,}".format(counts.meeting_booked) }}</b> meeting{{ "" if counts.meeting_booked == 1 else "s" }}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="pulse-section">
+  <p class="section-label">Per client</p>
+  <div class="pulse-client-grid">
+    {% for row in rows %}
+    <a class="pulse-client-card"
+       href="/outbound-pulse/clients/{{ row.client.id }}?{{ range_query }}{% if channel %}&channel={{ channel }}{% endif %}"
+       style="{% if row.client.color %}--card-accent: {{ row.client.color }};{% endif %}">
+      <div class="pulse-client-head">
+        <span class="pulse-client-emoji">{{ row.client.emoji or "📈" }}</span>
+        <span class="pulse-client-name">{{ row.client.name }}</span>
+        <span class="pulse-client-meetings" title="Meetings booked in range">
+          {{ row.meetings }}
+        </span>
+      </div>
+      {% with funnel = row.funnel, compact = True %}
+        {% include "partials/pulse_funnel.html" %}
+      {% endwith %}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+{% endif %}

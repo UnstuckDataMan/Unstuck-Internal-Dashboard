@@ -1,0 +1,45 @@
+{# Campaign → client mapping. Unmapped rows sort first — their events are the
+   ones missing from a client's funnel. Context: campaigns, clients, client_index #}
+{% if not campaigns %}
+<div class="pulse-empty" style="padding:24px">
+  <p>No campaigns synced yet. Run a connector sync, or import a Meet Alfred CSV.</p>
+</div>
+{% else %}
+<div class="tbl-wrap" style="margin-bottom:0">
+  <table>
+    <thead>
+      <tr>
+        <th>Campaign</th><th>Source</th><th>Channel</th>
+        <th>Status</th><th>Last synced</th><th>Client</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in campaigns %}
+      <tr{% if not c.client_id %} class="row-unmapped"{% endif %}>
+        <td title="{{ c.name }}">{{ (c.name or "(unnamed)")[:48] }}</td>
+        <td>{{ c.source_tool.replace("_", " ") }}</td>
+        <td>{{ "LinkedIn" if c.channel == "linkedin" else "Email" }}</td>
+        <td>{{ c.status }}</td>
+        <td>{{ c.last_synced_at[:16].replace("T", " ") if c.last_synced_at else "never" }}</td>
+        <td>
+          <select class="map-select"
+                  name="client_id"
+                  hx-post="/api/outbound-pulse/campaigns/{{ c.id }}/client"
+                  hx-target="#pulse-campaigns-list"
+                  hx-swap="innerHTML"
+                  hx-trigger="change">
+            <option value="" {% if not c.client_id %}selected{% endif %}>— unmapped —</option>
+            {% for client in clients %}
+            <option value="{{ client.id }}"
+                    {% if c.client_id and client.id | string == c.client_id | string %}selected{% endif %}>
+              {{ client.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}

@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}{{ client.name if client else "Client" }} — Outbound Pulse{% endblock %}
+{% block heading %}{{ client.name if client else "Outbound Pulse" }}{% endblock %}
+
+{% block content %}
+{% include "pulse_styles.html" %}
+
+{% if error %}
+<div class="err-box">{{ error }}</div>
+{% elif not client %}
+<div class="pulse-empty"><h3>Client not found</h3></div>
+{% else %}
+
+<div class="pulse-toolbar">
+  <a href="/outbound-pulse" class="btn btn-download" style="font-size:12px;padding:7px 15px">
+    ← All clients
+  </a>
+  <div class="spacer"></div>
+  <label for="range-select">Range</label>
+  <select id="range-select" onchange="applyFilters()">
+    {% for key, label in presets.items() %}
+    <option value="{{ key }}" {% if key == range.preset %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <label for="channel-select" style="margin-left:6px">Channel</label>
+  <select id="channel-select" onchange="applyFilters()">
+    <option value="" {% if not channel %}selected{% endif %}>Both</option>
+    <option value="email" {% if channel == "email" %}selected{% endif %}>Email</option>
+    <option value="linkedin" {% if channel == "linkedin" %}selected{% endif %}>LinkedIn</option>
+  </select>
+</div>
+
+<!-- ── Funnel + channel split ───────────────────────────────────── -->
+<div class="pulse-section">
+  <div class="pulse-section-head">
+    <p class="section-label" style="margin:0">Funnel — {{ range.label | lower }}</p>
+    <span class="pulse-meta">{{ campaign_rows | length }} campaign{{ "" if campaign_rows | length == 1 else "s" }} with activity</span>
+  </div>
+  <div class="pulse-total-card">
+    <div>{% include "partials/pulse_funnel.html" %}</div>
+    <div class="pulse-channel-split">
+      {% if by_channel %}
+      <p class="section-label" style="margin-bottom:10px">By channel</p>
+      {% for channel_name, counts in by_channel.items() %}
+      <div class="channel-row">
+        <span class="channel-name">{{ "LinkedIn" if channel_name == "linkedin" else "Email" }}</span>
+        <span class="channel-stats">
+          <b>{{ "{:,}".format(counts.sent) }}</b> sent
+          · <b>{{ "{:,}".format(counts.replied) }}</b> replied
+          · <b>{{ "{:,}".format(counts.meeting_booked) }}</b> meeting{{ "" if counts.meeting_booked == 1 else "s" }}
+        </span>
+      </div>
+      {% endfor %}
+      {% if by_channel | length > 1 %}
+      <p class="pulse-meta" style="margin-top:12px;line-height:1.55">
+        LinkedIn "opened" means a connection request was accepted — the closest
+        equivalent stage, not an email open.
+      </p>
+      {% endif %}
+      {% else %}
+      <p class="pulse-meta">No activity in this range.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Daily trend ──────────────────────────────────────────────── -->
+{% if timeseries %}
+{% set max_sent = (timeseries | map(attribute='sent') | max) or 1 %}
+<div class="pulse-section">
+  <p class="section-label">Daily sends</p>
+  <div class="pulse-panel" style="margin-bottom:0">
+    <div class="trend-strip">
+      {% for day in timeseries %}
+      <div class="trend-col"
+           style="height: {{ (day.sent * 100.0 / max_sent) if max_sent else 0 }}%"
+           title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied, {{ day.meeting_booked }} booked"></div>
+      {% endfor %}
+    </div>
+    <div class="trend-axis">
+      <span>{{ timeseries[0].day }}</span>
+      <span>{{ timeseries[-1].day }}</span>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Campaign breakdown ───────────────────────────────────────── -->
+<div class="pulse-section">
+  <p class="section-label">Campaigns</p>
+  {% if not campaign_rows %}
+  <div class="pulse-empty" style="padding:30px">
+    <p>No campaign activity for this client in {{ range.label | lower }}.</p>
+  </div>
+  {% else %}
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Campaign</th><th>Channel</th>
+          <th>Sent</th><th>Opened</th><th>Replied</th>
+          <th>Positive</th><th>Booked</th><th>Reply rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in campaign_rows %}
+        <tr>
+          <td title="{{ row.campaign.name }}">{{ (row.campaign.name or "(unnamed)")[:44] }}</td>
+          <td>{{ "LinkedIn" if row.campaign.channel == "linkedin" else "Email" }}</td>
+          <td>{{ "{:,}".format(row.counts.sent) }}</td>
+          <td>{{ "{:,}".format(row.counts.opened) }}</td>
+          <td>{{ "{:,}".format(row.counts.replied) }}</td>
+          <td>{{ "{:,}".format(row.counts.positive_reply) }}</td>
+          <td>{{ "{:,}".format(row.counts.meeting_booked) }}</td>
+          <td>{{ row.funnel[2].overall if row.funnel[2].overall is not none else "—" }}{{ "%" if row.funnel[2].overall is not none else "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Client portal access ─────────────────────────────────────── -->
+<div class="pulse-panel">
+  <h3>Client portal access</h3>
+  <p class="panel-hint">
+    A read-only link to this client's funnel — no login, no access to anything
+    else. The link is shown once when created; after that it can only be revoked
+    and re-issued, because only its hash is stored.
+  </p>
+  <form hx-post="/api/outbound-pulse/clients/{{ client.id }}/access"
+        hx-target="#pulse-access"
+        hx-swap="innerHTML"
+        style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div class="form-group" style="flex:1;min-width:220px;margin-bottom:0">
+      <label>Label <span class="opt">optional</span></label>
+      <input type="text" name="label" placeholder="e.g. Sarah (Head of Marketing)">
+    </div>
+    <button type="submit" class="btn btn-primary">Create link</button>
+  </form>
+  <div id="pulse-access"
+       hx-get="/api/outbound-pulse/clients/{{ client.id }}/access"
+       hx-trigger="load"
+       hx-swap="innerHTML"
+       style="margin-top:14px"></div>
+</div>
+
+<script>
+  function applyFilters() {
+    const range   = document.getElementById('range-select').value;
+    const channel = document.getElementById('channel-select').value;
+    // Full navigation rather than an HTMX swap: this page's URL is what gets
+    // shared and bookmarked, so the filters belong in it.
+    const params = new URLSearchParams({ range: range });
+    if (channel) params.set('channel', channel);
+    window.location.search = params.toString();
+  }
+</script>
+
+{% endif %}
+{% endblock %}

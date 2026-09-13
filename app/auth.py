@@ -42,6 +42,7 @@ TOOLS: tuple[str, ...] = (
     "bd_targeting",
     "campaigns",
     "client_profiles",      # central client-profile manager
+    "outbound_pulse",       # Smartlead / Meet Alfred funnel reporting
     "launch_checker",
     "targeting_checker",
     "gender",
@@ -64,6 +65,8 @@ ROUTE_TOOL_MAP: tuple[tuple[str, str], ...] = (
     ("/bd-targeting",                     "bd_targeting"),
     ("/api/bd-targeting",                 "bd_targeting"),
     ("/api/campaigns",                    "campaigns"),
+    ("/outbound-pulse",                   "outbound_pulse"),
+    ("/api/outbound-pulse",               "outbound_pulse"),
     ("/client-profiles",                  "client_profiles"),
     ("/api/client-profiles",              "client_profiles"),
     ("/launch-checker",                   "launch_checker"),
@@ -95,7 +98,10 @@ COPY_APPROVER_ROLES = {"admin", "reviewer"}
 
 # Paths reachable without a session.
 _PUBLIC_EXACT = {"/healthz", "/login", "/logout", "/favicon.ico"}
-_PUBLIC_PREFIXES = ("/auth/", "/static/")
+# /portal/ is the client-facing magic-link report (app/routers/pulse_portal.py).
+# It is public to the gate because its callers are clients, not staff — the
+# route does its own token check and is read-only by construction.
+_PUBLIC_PREFIXES = ("/auth/", "/static/", "/portal/")
 
 
 # ── Config helpers ───────────────────────────────────────────────────────────

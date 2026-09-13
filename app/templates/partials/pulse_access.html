@@ -1,0 +1,57 @@
+{# Portal links for one client. Context: links, client_id, new_link.
+   new_link is the plaintext token URL, shown exactly once at creation — only
+   its hash is stored, so it cannot be recovered later, only re-issued. #}
+
+{% if new_link %}
+<div class="access-new">
+  <p class="access-new-label">
+    Copy this link now — it is shown once and cannot be retrieved again.
+  </p>
+  <div class="access-new-row">
+    <input type="text" readonly value="{{ new_link }}" id="new-portal-link">
+    <button type="button" class="btn btn-primary" onclick="
+      const el = document.getElementById('new-portal-link');
+      el.select();
+      navigator.clipboard.writeText(el.value).then(() => {
+        this.textContent = 'Copied';
+        setTimeout(() => { this.textContent = 'Copy'; }, 1600);
+      });
+    ">Copy</button>
+  </div>
+</div>
+{% endif %}
+
+{% if not links %}
+<p class="pulse-meta" style="margin-top:12px">
+  No portal links yet. Create one to give this client read-only access to their funnel.
+</p>
+{% else %}
+<div class="tbl-wrap" style="margin-top:12px;margin-bottom:0">
+  <table>
+    <thead>
+      <tr><th>Label</th><th>Created</th><th>Expires</th><th>Views</th><th>Last viewed</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for link in links %}
+      <tr{% if link.revoked_at %} class="row-revoked"{% endif %}>
+        <td>{{ link.label or "(unlabelled)" }}{% if link.revoked_at %} · revoked{% endif %}</td>
+        <td>{{ link.created_at[:10] if link.created_at else "—" }}</td>
+        <td>{{ link.expires_at[:10] if link.expires_at else "never" }}</td>
+        <td>{{ link.view_count or 0 }}</td>
+        <td>{{ link.last_used_at[:16].replace("T", " ") if link.last_used_at else "never" }}</td>
+        <td>
+          {% if not link.revoked_at %}
+          <button type="button" class="btn-delete"
+                  hx-delete="/api/outbound-pulse/clients/{{ client_id }}/access/{{ link.id }}"
+                  hx-target="#pulse-access"
+                  hx-swap="innerHTML"
+                  hx-confirm="Revoke this portal link? Anyone holding it loses access immediately."
+                  title="Revoke link">✕</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
