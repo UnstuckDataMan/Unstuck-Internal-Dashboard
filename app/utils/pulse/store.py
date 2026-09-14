@@ -203,6 +203,9 @@ def upsert_campaign(
     }
     if client_id:
         payload["client_id"] = client_id
+    # Single-row path, used by the CSV import. The scheduled sync uses
+    # upsert_campaigns() below — one request per campaign does not scale to an
+    # account with a thousand of them.
 
     try:
         r = http_req.post(
@@ -221,6 +224,90 @@ def upsert_campaign(
             source_tool, external_campaign_id, exc,
         )
         return None
+
+
+def upsert_campaigns(entries: list[dict], *, source_tool: str, channel: str) -> int:
+    """Bulk-upsert the campaign list from a connector. Returns rows written.
+
+    Deliberately omits BOTH client_id and last_synced_at from the payload:
+
+      * client_id — under resolution=merge-duplicates PostgREST only updates
+        the columns actually present, so leaving it out preserves whatever a
+        human mapped in the UI. Sending it would mean reading every existing
+        mapping first and racing anyone editing one mid-sync.
+      * last_synced_at — that means "we synced this campaign's events", not
+        "we saw it in the campaign list". Stamping it here would make every
+        campaign look freshly synced and break the rolling backfill order in
+        app/utils/pulse/sync.py. mark_campaigns_synced() sets it instead.
+    """
+    if not entries:
+        return 0
+    now = datetime.now(timezone.utc).isoformat()
+    agency = current_agency_id()
+    rows = [{
+        "agency_id":            agency,
+        "source_tool":          source_tool,
+        "external_campaign_id": str(e["external_id"]),
+        "channel":              channel,
+        "name":                 e.get("name") or "",
+        "status":               e.get("status") or "unknown",
+        "updated_at":           now,
+        "raw_payload":          e.get("raw") or {},
+    } for e in entries]
+
+    written = 0
+    for start in range(0, len(rows), INSERT_CHUNK):
+        chunk = rows[start:start + INSERT_CHUNK]
+        try:
+            r = http_req.post(
+                f"{SUPABASE_URL}/rest/v1/pulse_campaigns",
+                headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
+                params={"on_conflict": "agency_id,source_tool,external_campaign_id"},
+                json=chunk,
+                timeout=45,
+            )
+            r.raise_for_status()
+            written += len(chunk)
+        except Exception as exc:
+            logger.warning("Pulse: bulk campaign upsert chunk failed: %s", exc)
+    return written
+
+
+def mark_campaigns_synced(campaign_ids: list[str]) -> None:
+    """Stamp last_synced_at on campaigns whose events were just synced.
+
+    One request for the whole batch rather than one per campaign. This is what
+    the rolling backfill orders by, so it must only ever be set after a
+    successful event sync.
+    """
+    if not campaign_ids:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    for start in range(0, len(campaign_ids), INSERT_CHUNK):
+        chunk = campaign_ids[start:start + INSERT_CHUNK]
+        try:
+            http_req.patch(
+                f"{SUPABASE_URL}/rest/v1/pulse_campaigns",
+                headers=_sb_headers("return=minimal"),
+                params=_scoped({"id": f"in.{_pg_in_list(chunk)}"}),
+                json={"last_synced_at": now},
+                timeout=30,
+            )
+        except Exception as exc:
+            logger.warning("Pulse: could not stamp last_synced_at: %s", exc)
+
+
+def campaigns_for_sync(source_tool: str) -> list[dict]:
+    """Stored campaign rows for a connector, least-recently-synced first.
+
+    nullsfirst puts never-synced campaigns at the head, so a first run starts
+    backfilling immediately instead of re-walking whatever happens to sort low.
+    """
+    return _get("pulse_campaigns", _scoped({
+        "select":      "id,client_id,external_campaign_id,name,status,last_synced_at",
+        "source_tool": f"eq.{source_tool}",
+        "order":       "last_synced_at.asc.nullsfirst",
+    }))
 
 
 def list_campaigns(

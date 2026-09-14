@@ -184,6 +184,32 @@ _CSV_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Mirrors the same rule as the Smartlead connector: an event's raw_payload is
+# for diagnosing a mapping problem, not for archiving prospect content. Message
+# text and personal names are dropped; the prospect's identity is already in
+# `lead_key`. Keys are matched case-insensitively so a CSV export's own column
+# capitalisation does not change what gets stored.
+_RAW_DROP = frozenset({
+    "message", "message body", "body", "note", "notes", "conversation",
+    "name", "full name", "full_name", "first name", "last name",
+    "firstname", "lastname", "headline", "summary", "about",
+})
+
+
+def _trim_row(row: dict) -> dict:
+    out = {}
+    for key, value in row.items():
+        if value in (None, "", []):
+            continue
+        if str(key).strip().lower() in _RAW_DROP:
+            continue
+        text = str(value)
+        # Guard against a stray wide column (a pasted message, an HTML blob)
+        # bloating every event row.
+        out[key] = text if len(text) <= 200 else text[:200] + "…"
+    return out
+
+
 def events_from_activities(
     rows: list[dict],
     *,
@@ -211,7 +237,7 @@ def events_from_activities(
             lead=lead,
             source_tool=SOURCE_MEET_ALFRED,
             sequence_ref=str(_first(raw, "step", "sequence_step", default="") or ""),
-            raw={"source": SOURCE_MEET_ALFRED, "row": raw},
+            raw={"source": SOURCE_MEET_ALFRED, "row": _trim_row(raw)},
         ))
 
     for row in rows:

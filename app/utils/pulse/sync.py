@@ -41,6 +41,45 @@ _SYNC_INTERVAL_HOURS = 1
 _STARTUP_DELAY_S = 45   # after auto_sync's 20s, so the two don't boot together
 _PACING_SECONDS = max(0.0, float(os.environ.get("PULSE_PACING_MS", "500")) / 1000.0)
 
+# ── How much a single run is allowed to do ────────────────────────────────────
+# A real Smartlead account accumulates campaigns indefinitely — the live one has
+# 1082, of which 34 are ACTIVE. Paging every campaign's statistics every hour
+# would cost thousands of API calls, blow through the rate limit, and take
+# longer than the hour it has to finish in, so runs would pile up on each other.
+#
+# Each run therefore does bounded work:
+#   * DRAFTED / ARCHIVED — never synced. Drafts have no sends; archived
+#     campaigns were deliberately shelved.
+#   * ACTIVE             — synced every run. This is what clients are watching.
+#   * everything else    — a rolling slice per run, least-recently-synced first
+#     (never-synced first of all), so history backfills steadily and stays
+#     reasonably fresh without a thundering herd.
+#
+# With the live numbers that is 34 + 25 = 59 campaigns per run instead of 1082.
+# Raise PULSE_BACKFILL_PER_RUN temporarily to pull historical data in faster.
+SKIP_STATUSES = frozenset({"DRAFTED", "ARCHIVED"})
+LIVE_STATUSES = frozenset({"ACTIVE"})
+
+try:
+    _BACKFILL_PER_RUN = max(0, int(os.environ.get("PULSE_BACKFILL_PER_RUN", "25")))
+except ValueError:
+    _BACKFILL_PER_RUN = 25
+
+
+def select_campaigns_for_run(stored: list[dict]) -> list[dict]:
+    """Pick the bounded set of campaigns this run will sync.
+
+    `stored` must already be ordered least-recently-synced first — see
+    store.campaigns_for_sync(). Returns live campaigns plus the rolling slice.
+    """
+    live, rolling = [], []
+    for row in stored:
+        status = str(row.get("status") or "").upper()
+        if status in SKIP_STATUSES:
+            continue
+        (live if status in LIVE_STATUSES else rolling).append(row)
+    return live + rolling[:_BACKFILL_PER_RUN]
+
 # In-memory view of the run in progress, for the status pill.  Display-only and
 # recomputed every run — the durable record is pulse_sync_logs.
 _running: dict[str, bool] = {}
@@ -94,30 +133,28 @@ def sync_source(source_tool: str, triggered_by: str = "schedule") -> dict:
 
     try:
         agency_id = store.current_agency_id()
+
+        # Refresh the campaign list first (names and statuses change), then
+        # decide from the STORED rows which subset to actually pull events for
+        # — the stored rows carry last_synced_at, which the rolling order needs.
         remote = connector.fetch_campaigns()
+        store.upsert_campaigns(
+            remote, source_tool=source_tool, channel=connector.CHANNEL,
+        )
 
-        # Existing mappings, so a sync never blanks a client a human assigned.
-        known = {
-            str(c.get("external_campaign_id")): c
-            for c in store.list_campaigns(source_tool=source_tool)
-        }
+        stored = store.campaigns_for_sync(source_tool)
+        selected = select_campaigns_for_run(stored)
+        logger.info(
+            "Pulse %s: %d campaigns known, %d selected for this run.",
+            source_tool, len(stored), len(selected),
+        )
 
-        for entry in remote:
-            external_id = entry["external_id"]
-            existing = known.get(external_id)
-            row = store.upsert_campaign(
-                source_tool=source_tool,
-                external_campaign_id=external_id,
-                channel=connector.CHANNEL,
-                name=entry["name"],
-                status=entry["status"],
-                client_id=(existing or {}).get("client_id"),
-                raw=entry.get("raw") or {},
-            )
-            if not row:
-                failures.append(f"{entry['name'] or external_id}: campaign upsert failed")
+        synced_ids: list[str] = []
+        for row in selected:
+            external_id = str(row.get("external_campaign_id") or "")
+            label = row.get("name") or external_id
+            if not external_id:
                 continue
-
             try:
                 events = connector.sync_campaign(
                     external_campaign_id=external_id,
@@ -128,13 +165,19 @@ def sync_source(source_tool: str, triggered_by: str = "schedule") -> dict:
             except Exception as exc:
                 logger.warning("Pulse %s: campaign %s failed: %s",
                                source_tool, external_id, exc)
-                failures.append(f"{entry['name'] or external_id}: {exc}")
+                failures.append(f"{label}: {exc}")
                 continue
 
             events_inserted += store.insert_events(events)
             campaigns_synced += 1
+            # Stamped only after a successful sync, so a failing campaign stays
+            # at the head of the rolling order and is retried next run rather
+            # than being rotated to the back as though it had succeeded.
+            synced_ids.append(str(row["id"]))
             if _PACING_SECONDS:
                 time.sleep(_PACING_SECONDS)
+
+        store.mark_campaigns_synced(synced_ids)
 
         if failures and campaigns_synced:
             status = "partial"

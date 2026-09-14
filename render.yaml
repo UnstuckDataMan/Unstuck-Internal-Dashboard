@@ -33,4 +33,8 @@ services:
         sync: false
       - key: MEET_ALFRED_API_KEY
         sync: false
+      # Non-active campaigns backfilled per hourly run (default 25).
+      # Raise temporarily to pull campaign history in faster.
+      # - key: PULSE_BACKFILL_PER_RUN
+      #   value: "25"
     healthCheckPath: /healthz

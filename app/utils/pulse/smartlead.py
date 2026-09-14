@@ -100,6 +100,30 @@ def _first(row: dict, *names, default=None):
     return default
 
 
+# Fields kept in an event's raw_payload. Everything else in a statistics row is
+# discarded, for two reasons measured against the live API: a full row is ~2.4KB
+# because it embeds `email_message` and `email_subject`, which across millions of
+# events is gigabytes of duplicated message bodies; and those bodies plus
+# `lead_name` are prospect content that a reporting table has no reason to hold.
+# The lead's identity already lives in the event's `lead_key`.
+_RAW_KEEP = (
+    "stats_id",
+    "sequence_number",
+    "seq_variant_id",
+    "email_campaign_seq_id",
+    "lead_category",
+    "open_count",
+    "click_count",
+    "is_bounced",
+    "is_unsubscribed",
+)
+
+
+def _trim_row(row: dict) -> dict:
+    """Diagnostic subset of a statistics row, safe to store on every event."""
+    return {k: row[k] for k in _RAW_KEEP if k in row and row[k] not in (None, "")}
+
+
 def _rows(payload: object) -> list[dict]:
     """Normalize the several envelope shapes Smartlead returns to a plain list."""
     if isinstance(payload, list):
@@ -203,7 +227,7 @@ def events_from_statistics(
 
         step = str(_first(row, "sequence_number", "step", "email_sequence_number",
                           "sequence_step_id", default="") or "")
-        raw = {"source": SOURCE_SMARTLEAD, "row": row}
+        raw = {"source": SOURCE_SMARTLEAD, "row": _trim_row(row)}
 
         add(EVENT_SENT, _first(row, "sent_time", "sent_at", "email_sent_time"),
             lead, step, raw)

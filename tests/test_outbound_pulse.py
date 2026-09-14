@@ -836,14 +836,19 @@ def test_sync_skips_an_unconfigured_connector(monkeypatch):
     assert "not configured" in result["error"]
 
 
+def _stored(cid, external, status, name="c", last_synced=None, client=None):
+    return {"id": cid, "client_id": client, "external_campaign_id": external,
+            "name": name, "status": status, "last_synced_at": last_synced}
+
+
 def test_sync_reports_partial_when_one_campaign_fails(monkeypatch, fake_sb):
     """A single broken campaign must not be reported as a clean run."""
     from app.utils.pulse import sync as pulse_sync
 
     monkeypatch.setenv("SMARTLEAD_API_KEY", "k")
     monkeypatch.setattr(smartlead, "fetch_campaigns", lambda: [
-        {"external_id": "1", "name": "Good", "status": "active", "raw": {}},
-        {"external_id": "2", "name": "Bad",  "status": "active", "raw": {}},
+        {"external_id": "1", "name": "Good", "status": "ACTIVE", "raw": {}},
+        {"external_id": "2", "name": "Bad",  "status": "ACTIVE", "raw": {}},
     ])
 
     def fake_sync_campaign(*, external_campaign_id, **kw):
@@ -854,9 +859,11 @@ def test_sync_reports_partial_when_one_campaign_fails(monkeypatch, fake_sb):
     monkeypatch.setattr(smartlead, "sync_campaign", fake_sync_campaign)
     monkeypatch.setattr(pulse_sync, "_PACING_SECONDS", 0)
 
-    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
-    fake_sb.route("POST", "pulse_campaigns",
-                  lambda call: FakeResponse(201, [{"id": CAMPAIGN, "client_id": None}]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, [
+        _stored("id1", "1", "ACTIVE", "Good"),
+        _stored("id2", "2", "ACTIVE", "Bad"),
+    ]))
+    fake_sb.route("POST", "pulse_campaigns", lambda call: FakeResponse(201, []))
     fake_sb.route("POST", "pulse_sync_logs", lambda call: FakeResponse(201, [{"id": "log1"}]))
 
     result = pulse_sync.sync_source("smartlead", "test")
@@ -865,27 +872,157 @@ def test_sync_reports_partial_when_one_campaign_fails(monkeypatch, fake_sb):
     assert "upstream 500" in result["error"]
 
 
-def test_sync_never_blanks_a_human_assigned_client(monkeypatch, fake_sb):
+def test_only_the_succeeding_campaign_is_stamped_as_synced(monkeypatch, fake_sb):
+    """A failed campaign must stay at the head of the rolling order so the next
+    run retries it, rather than being rotated to the back as if it succeeded."""
+    from tests.conftest import param_values
     from app.utils.pulse import sync as pulse_sync
 
     monkeypatch.setenv("SMARTLEAD_API_KEY", "k")
-    monkeypatch.setattr(smartlead, "fetch_campaigns", lambda: [
-        {"external_id": "1", "name": "Mapped", "status": "active", "raw": {}}])
-    monkeypatch.setattr(smartlead, "sync_campaign", lambda **kw: [])
+    monkeypatch.setattr(smartlead, "fetch_campaigns", lambda: [])
     monkeypatch.setattr(pulse_sync, "_PACING_SECONDS", 0)
 
+    def fake_sync_campaign(*, external_campaign_id, **kw):
+        if external_campaign_id == "2":
+            raise smartlead.SmartleadError("boom")
+        return []
+
+    monkeypatch.setattr(smartlead, "sync_campaign", fake_sync_campaign)
     fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, [
-        {"id": CAMPAIGN, "client_id": CLIENT, "external_campaign_id": "1",
-         "name": "Mapped", "channel": "email", "source_tool": "smartlead",
-         "status": "active", "last_synced_at": None, "created_at": None}]))
-    fake_sb.route("POST", "pulse_campaigns",
-                  lambda call: FakeResponse(201, [{"id": CAMPAIGN, "client_id": CLIENT}]))
+        _stored("id1", "1", "ACTIVE"), _stored("id2", "2", "ACTIVE"),
+    ]))
     fake_sb.route("POST", "pulse_sync_logs", lambda call: FakeResponse(201, [{"id": "log1"}]))
 
     pulse_sync.sync_source("smartlead", "test")
 
-    upsert = fake_sb.calls_to("POST", "pulse_campaigns")[0]["json"]
-    assert upsert["client_id"] == CLIENT
+    patches = fake_sb.calls_to("PATCH", "pulse_campaigns")
+    assert len(patches) == 1
+    ids = param_values(patches[0], "id")[0]
+    assert "id1" in ids and "id2" not in ids
+
+
+def test_bulk_campaign_upsert_omits_client_id(monkeypatch, fake_sb):
+    """Under merge-duplicates PostgREST only updates columns present in the
+    payload, so omitting client_id is what preserves a human's mapping. Sending
+    it — even as null — would blank every mapping on the next sync."""
+    from app.utils.pulse import sync as pulse_sync
+
+    monkeypatch.setenv("SMARTLEAD_API_KEY", "k")
+    monkeypatch.setattr(smartlead, "fetch_campaigns", lambda: [
+        {"external_id": "1", "name": "Mapped", "status": "ACTIVE", "raw": {}}])
+    monkeypatch.setattr(smartlead, "sync_campaign", lambda **kw: [])
+    monkeypatch.setattr(pulse_sync, "_PACING_SECONDS", 0)
+
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(
+        200, [_stored(CAMPAIGN, "1", "ACTIVE", "Mapped", client=CLIENT)]))
+    fake_sb.route("POST", "pulse_campaigns", lambda call: FakeResponse(201, []))
+    fake_sb.route("POST", "pulse_sync_logs", lambda call: FakeResponse(201, [{"id": "log1"}]))
+
+    pulse_sync.sync_source("smartlead", "test")
+
+    body = fake_sb.calls_to("POST", "pulse_campaigns")[0]["json"]
+    assert isinstance(body, list)                    # bulk, not one call each
+    assert "client_id" not in body[0]
+    # Nor last_synced_at — that would make every campaign look freshly synced
+    # and destroy the rolling backfill order.
+    assert "last_synced_at" not in body[0]
+
+
+def test_campaign_selection_is_bounded_and_prioritised(monkeypatch):
+    """The live account has 1082 campaigns, 34 active. A run must not walk them
+    all, must never skip an active one, and must ignore drafts and archives."""
+    from app.utils.pulse import sync as pulse_sync
+
+    monkeypatch.setattr(pulse_sync, "_BACKFILL_PER_RUN", 25)
+    stored = (
+        [_stored(f"a{i}", str(i), "ACTIVE") for i in range(34)]
+        + [_stored(f"c{i}", str(i), "COMPLETED") for i in range(577)]
+        + [_stored(f"p{i}", str(i), "PAUSED") for i in range(390)]
+        + [_stored(f"d{i}", str(i), "DRAFTED") for i in range(47)]
+        + [_stored(f"r{i}", str(i), "ARCHIVED") for i in range(7)]
+    )
+    selected = pulse_sync.select_campaigns_for_run(stored)
+
+    statuses = [s["status"] for s in selected]
+    assert statuses.count("ACTIVE") == 34          # every live campaign, always
+    assert "DRAFTED" not in statuses               # no sends to report
+    assert "ARCHIVED" not in statuses              # deliberately shelved
+    assert len(selected) == 34 + 25                # bounded, not 1082
+
+
+def test_backfill_slice_follows_the_stored_order(monkeypatch):
+    """store.campaigns_for_sync orders least-recently-synced first; the slice
+    must respect that or the same campaigns get picked every run."""
+    from app.utils.pulse import sync as pulse_sync
+
+    monkeypatch.setattr(pulse_sync, "_BACKFILL_PER_RUN", 2)
+    stored = [
+        _stored("never", "1", "COMPLETED", last_synced=None),
+        _stored("old",   "2", "COMPLETED", last_synced="2020-01-01T00:00:00+00:00"),
+        _stored("fresh", "3", "COMPLETED", last_synced="2026-09-11T00:00:00+00:00"),
+    ]
+    assert [c["id"] for c in pulse_sync.select_campaigns_for_run(stored)] == ["never", "old"]
+
+
+def test_zero_backfill_still_syncs_active_campaigns(monkeypatch):
+    from app.utils.pulse import sync as pulse_sync
+
+    monkeypatch.setattr(pulse_sync, "_BACKFILL_PER_RUN", 0)
+    stored = [_stored("a", "1", "ACTIVE"), _stored("c", "2", "COMPLETED")]
+    assert [c["id"] for c in pulse_sync.select_campaigns_for_run(stored)] == ["a"]
+
+
+# ── raw_payload hygiene ───────────────────────────────────────────────────────
+
+def test_smartlead_raw_payload_drops_message_bodies_and_names():
+    """Live rows are ~2.4KB because they embed the email body. Storing that on
+    every event is gigabytes of duplicated prospect content in a reporting
+    table that has no use for it."""
+    events = _smartlead_events([{
+        "lead_email":    "jo@acme.com",
+        "lead_name":     "Jo Bloggs",
+        "email_subject": "Quick question about your Q4 plans",
+        "email_message": "<html>" + ("x" * 4000) + "</html>",
+        "sent_time":     "2025-03-01T09:00:00Z",
+        "sequence_number": 1,
+        "stats_id":      "s1",
+        "open_count":    0,
+    }])
+    assert events
+    stored = events[0]["raw_payload"]["row"]
+    assert "email_message" not in stored
+    assert "email_subject" not in stored
+    assert "lead_name" not in stored
+    # Diagnostics that make a mapping bug traceable are kept.
+    assert stored["stats_id"] == "s1"
+    assert stored["sequence_number"] == 1
+    # The lead is still identifiable via the event's own lead_key.
+    assert events[0]["lead_key"] == "jo@acme.com"
+
+
+def test_smartlead_raw_payload_stays_small():
+    import json
+    events = _smartlead_events([{
+        "lead_email":  "jo@acme.com",
+        "email_message": "y" * 20000,
+        "sent_time":   "2025-03-01T09:00:00Z",
+    }])
+    assert len(json.dumps(events[0]["raw_payload"])) < 400
+
+
+def test_alfred_raw_payload_drops_names_and_truncates_wide_columns():
+    events = _alfred_events([{
+        "profile url": "https://linkedin.com/in/jo",
+        "full name":   "Jo Bloggs",
+        "message":     "hello there",
+        "notes":       "z" * 5000,
+        "sent at":     "2025-03-01T09:00:00Z",
+    }])
+    stored = events[0]["raw_payload"]["row"]
+    assert "full name" not in stored
+    assert "message" not in stored
+    assert "notes" not in stored
+    assert stored["profile url"] == "https://linkedin.com/in/jo"
 
 
 def test_past_runs_do_not_make_an_unconfigured_connector_look_healthy(
