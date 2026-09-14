@@ -49,7 +49,7 @@
 <!-- ── Funnel ───────────────────────────────────────────────────── -->
 <div id="pulse-overview"
      hx-get="/api/outbound-pulse/overview"
-     hx-trigger="load, pulseRefresh from:body, pulseSynced from:body"
+     hx-trigger="load, pulseRefresh from:body, pulseSynced from:body, pulseMappingChanged from:body"
      hx-include="#range-select, #channel-select"
      hx-indicator="#pulse-spinner"
      hx-swap="innerHTML">
@@ -70,6 +70,7 @@
   <div id="pulse-campaigns-list"
        hx-get="/api/outbound-pulse/campaigns"
        hx-trigger="load, pulseSynced from:body"
+       hx-include="#pulse-campaign-filters"
        hx-swap="innerHTML">
     <div class="skel-stack" role="status" aria-label="Loading campaigns">
       <div class="skel-card"><span class="skel skel-line lg"></span><span class="skel skel-line md"></span></div>

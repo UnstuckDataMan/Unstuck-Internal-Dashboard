@@ -315,7 +315,18 @@ def list_campaigns(
     client_id: str = "",
     channel: str = "",
     source_tool: str = "",
+    status: str = "",
+    synced: str = "",
 ) -> list[dict]:
+    """Campaign rows, optionally filtered.
+
+    Filtering is done here rather than in the browser because a real account
+    has ~1000 campaigns: shipping them all as HTML and hiding rows with CSS
+    would mean a multi-megabyte partial on every keystroke.
+
+    `synced` accepts "never" or "synced" — whether the campaign's events have
+    ever been pulled, which is not the same as its status in the source tool.
+    """
     params = {
         "select": ("id,client_id,channel,source_tool,external_campaign_id,"
                    "name,status,last_synced_at,created_at"),
@@ -327,7 +338,47 @@ def list_campaigns(
         params["channel"] = f"eq.{channel}"
     if source_tool:
         params["source_tool"] = f"eq.{source_tool}"
+    if status:
+        params["status"] = f"eq.{status}"
+    if synced == "never":
+        params["last_synced_at"] = "is.null"
+    elif synced == "synced":
+        params["last_synced_at"] = "not.is.null"
     return _get("pulse_campaigns", _scoped(params))
+
+
+def campaign_filter_options() -> dict:
+    """Distinct values (with counts) for the mapping table's filter dropdowns.
+
+    Selects one narrow column across all rows rather than reusing the filtered
+    query, so the options always describe the whole set — a status filter that
+    only ever offers the status already selected would be a dead end.
+    """
+    rows = _get("pulse_campaigns", _scoped({
+        "select": "status,source_tool,channel,last_synced_at",
+    }))
+    statuses: dict[str, int] = {}
+    sources: dict[str, int] = {}
+    channels: dict[str, int] = {}
+    never = 0
+    for row in rows:
+        statuses[str(row.get("status") or "unknown")] = \
+            statuses.get(str(row.get("status") or "unknown"), 0) + 1
+        sources[str(row.get("source_tool") or "")] = \
+            sources.get(str(row.get("source_tool") or ""), 0) + 1
+        channels[str(row.get("channel") or "")] = \
+            channels.get(str(row.get("channel") or ""), 0) + 1
+        if not row.get("last_synced_at"):
+            never += 1
+    return {
+        # Busiest first: with six statuses the useful one should not be hunted for.
+        "statuses": sorted(statuses.items(), key=lambda kv: -kv[1]),
+        "sources":  sorted(sources.items()),
+        "channels": sorted(channels.items()),
+        "never":    never,
+        "synced":   len(rows) - never,
+        "total":    len(rows),
+    }
 
 
 def set_campaign_client(campaign_id: str, client_id: str | None) -> bool:

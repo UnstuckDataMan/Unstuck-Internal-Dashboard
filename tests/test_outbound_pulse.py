@@ -1059,3 +1059,147 @@ def test_a_configured_connector_with_an_old_run_reads_as_stale(
 
     r = client.get("/api/outbound-pulse/sync-status")
     assert "state-stale" in r.text
+
+
+# ── Campaign mapping filters ──────────────────────────────────────────────────
+# The live account has 1082 campaigns, mostly DRAFTED. Without filtering, the
+# mapping table is unusable for its actual job: finding the 34 ACTIVE ones.
+
+def _filter_routes(fake_sb, campaigns=None):
+    rows = campaigns if campaigns is not None else [
+        {"id": "a1", "client_id": None, "channel": "email", "source_tool": "smartlead",
+         "external_campaign_id": "1", "name": "Live one", "status": "ACTIVE",
+         "last_synced_at": "2026-09-14T09:00:00+00:00", "created_at": None},
+        {"id": "d1", "client_id": None, "channel": "email", "source_tool": "smartlead",
+         "external_campaign_id": "2", "name": "Draft one", "status": "DRAFTED",
+         "last_synced_at": None, "created_at": None},
+    ]
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, rows))
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+
+
+def test_status_filter_is_pushed_to_the_query(client, fake_sb):
+    """Filtering must happen in the database, not by hiding rows in the browser
+    — 1082 campaigns of HTML per keystroke is not a filter."""
+    from tests.conftest import param_values
+
+    _filter_routes(fake_sb)
+    client.get("/api/outbound-pulse/campaigns?status=ACTIVE")
+
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "status")]
+    assert listing, "status filter never reached PostgREST"
+    assert param_values(listing[0], "status") == ["eq.ACTIVE"]
+
+
+def test_synced_filter_maps_to_null_checks(client, fake_sb):
+    from tests.conftest import param_values
+
+    _filter_routes(fake_sb)
+    client.get("/api/outbound-pulse/campaigns?synced=never")
+    never = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+             if param_values(c, "last_synced_at")]
+    assert param_values(never[0], "last_synced_at") == ["is.null"]
+
+    fake_sb.calls.clear()
+    client.get("/api/outbound-pulse/campaigns?synced=synced")
+    synced = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+              if param_values(c, "last_synced_at")]
+    assert param_values(synced[0], "last_synced_at") == ["not.is.null"]
+
+
+def test_filters_combine(client, fake_sb):
+    from tests.conftest import param_values
+
+    _filter_routes(fake_sb)
+    client.get("/api/outbound-pulse/campaigns"
+               "?status=ACTIVE&source_tool=smartlead&channel=email&synced=synced")
+
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "status")]
+    call = listing[0]
+    assert param_values(call, "status") == ["eq.ACTIVE"]
+    assert param_values(call, "source_tool") == ["eq.smartlead"]
+    assert param_values(call, "channel") == ["eq.email"]
+    assert param_values(call, "last_synced_at") == ["not.is.null"]
+    # The tenant filter must survive the extra filters.
+    assert param_values(call, "agency_id") == [f"eq.{AGENCY}"]
+
+
+def test_unknown_filter_values_are_ignored_not_passed_through(client, fake_sb):
+    """Filter values reach a query builder, so anything not recognised is
+    dropped rather than forwarded."""
+    from tests.conftest import param_values
+
+    _filter_routes(fake_sb)
+    client.get("/api/outbound-pulse/campaigns?channel=bogus&synced=bogus")
+
+    for call in fake_sb.calls_to("GET", "pulse_campaigns"):
+        assert param_values(call, "channel") == []
+        assert param_values(call, "last_synced_at") == []
+
+
+def test_filter_dropdowns_show_every_status_with_counts(client, fake_sb):
+    """Options describe the whole set, not the filtered view — otherwise
+    selecting ACTIVE would leave ACTIVE as the only option left."""
+    _filter_routes(fake_sb)
+    r = client.get("/api/outbound-pulse/campaigns?status=ACTIVE")
+    assert r.status_code == 200
+    assert "ACTIVE (1)" in r.text
+    assert "DRAFTED (1)" in r.text          # still offered while ACTIVE is applied
+    assert 'value="ACTIVE" selected' in r.text
+
+
+def test_active_filter_shows_a_clear_control(client, fake_sb):
+    _filter_routes(fake_sb)
+    assert "Clear filters" in client.get(
+        "/api/outbound-pulse/campaigns?status=ACTIVE").text
+    assert "Clear filters" not in client.get("/api/outbound-pulse/campaigns").text
+
+
+def test_empty_filter_result_says_so(client, fake_sb):
+    _filter_routes(fake_sb, campaigns=[])
+    r = client.get("/api/outbound-pulse/campaigns?status=ACTIVE")
+    assert "No campaigns match these filters" in r.text
+    # The never-synced explanation must not masquerade as an empty-filter result.
+    assert "No campaigns synced yet" not in r.text
+
+
+def test_draft_filter_warns_that_drafts_are_never_synced(client, fake_sb):
+    _filter_routes(fake_sb)
+    r = client.get("/api/outbound-pulse/campaigns?status=DRAFTED")
+    assert "never synced" in r.text
+
+
+def test_mapping_a_campaign_keeps_the_active_filters(client, fake_sb):
+    """Mapping is done in batches inside a filtered view. Resetting to all 1082
+    campaigns after each one would make the job unworkable."""
+    from tests.conftest import param_values
+
+    _filter_routes(fake_sb)
+    fake_sb.route("PATCH", "pulse_campaigns", lambda call: FakeResponse(204, []))
+    fake_sb.route("PATCH", "pulse_campaign_events", lambda call: FakeResponse(204, []))
+
+    r = client.post("/api/outbound-pulse/campaigns/a1/client",
+                    data={"client_id": CLIENT, "status": "ACTIVE",
+                          "source_tool": "smartlead", "channel": "", "synced": ""})
+    assert r.status_code == 200
+    assert 'value="ACTIVE" selected' in r.text
+
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "status")]
+    assert listing, "the re-render dropped the filter"
+    assert param_values(listing[0], "status") == ["eq.ACTIVE"]
+
+
+def test_mapping_does_not_make_the_table_refetch_itself(client, fake_sb):
+    """The POST already returns the table. Firing pulseSynced would make the
+    list re-request itself — a second full render of the filtered set."""
+    _filter_routes(fake_sb)
+    fake_sb.route("PATCH", "pulse_campaigns", lambda call: FakeResponse(204, []))
+    fake_sb.route("PATCH", "pulse_campaign_events", lambda call: FakeResponse(204, []))
+
+    r = client.post("/api/outbound-pulse/campaigns/a1/client",
+                    data={"client_id": CLIENT})
+    assert r.headers.get("hx-trigger") == "pulseMappingChanged"
