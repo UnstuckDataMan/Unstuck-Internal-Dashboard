@@ -1,10 +1,14 @@
 {# Campaign → client mapping. Unmapped rows sort first — their events are the
-   ones missing from a client's funnel. Context: campaigns, clients, client_index #}
-{% if not campaigns %}
-<div class="pulse-empty" style="padding:24px">
-  <p>No campaigns synced yet. Run a connector sync, or import a Meet Alfred CSV.</p>
-</div>
-{% else %}
+   ones missing from a client's funnel.
+   Context: campaigns, clients, client_index, filters, options
+
+   Filters live inside this partial (in the header row, per column) and are
+   echoed into every request from it — the select's own hx-get, and the hidden
+   inputs on each row's mapping form — so the filtered view survives a mapping
+   change and a post-sync refresh. #}
+
+{% set active_filters = filters.status or filters.source_tool or filters.channel or filters.synced %}
+
 <div class="tbl-wrap" style="margin-bottom:0">
   <table>
     <thead>
@@ -12,8 +16,77 @@
         <th>Campaign</th><th>Source</th><th>Channel</th>
         <th>Status</th><th>Last synced</th><th>Client</th>
       </tr>
+      <tr class="filter-row" id="pulse-campaign-filters"
+          hx-get="/api/outbound-pulse/campaigns"
+          hx-target="#pulse-campaigns-list"
+          hx-swap="innerHTML"
+          hx-trigger="change"
+          hx-include="#pulse-campaign-filters">
+        <th>
+          {% if active_filters %}
+          <button type="button" class="filter-clear"
+                  hx-get="/api/outbound-pulse/campaigns"
+                  hx-target="#pulse-campaigns-list"
+                  hx-swap="innerHTML"
+                  hx-include="unset">Clear filters</button>
+          {% endif %}
+        </th>
+        <th>
+          <select name="source_tool" class="filter-select">
+            <option value="">All</option>
+            {% for value, count in options.sources %}
+            <option value="{{ value }}" {% if filters.source_tool == value %}selected{% endif %}>
+              {{ value.replace("_", " ") }} ({{ count }})
+            </option>
+            {% endfor %}
+          </select>
+        </th>
+        <th>
+          <select name="channel" class="filter-select">
+            <option value="">All</option>
+            {% for value, count in options.channels %}
+            <option value="{{ value }}" {% if filters.channel == value %}selected{% endif %}>
+              {{ "LinkedIn" if value == "linkedin" else "Email" }} ({{ count }})
+            </option>
+            {% endfor %}
+          </select>
+        </th>
+        <th>
+          <select name="status" class="filter-select">
+            <option value="">All</option>
+            {% for value, count in options.statuses %}
+            <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>
+              {{ value }} ({{ count }})
+            </option>
+            {% endfor %}
+          </select>
+        </th>
+        <th>
+          <select name="synced" class="filter-select">
+            <option value="">All</option>
+            <option value="synced" {% if filters.synced == "synced" %}selected{% endif %}>
+              Synced ({{ options.synced }})
+            </option>
+            <option value="never" {% if filters.synced == "never" %}selected{% endif %}>
+              Never ({{ options.never }})
+            </option>
+          </select>
+        </th>
+        <th></th>
+      </tr>
     </thead>
     <tbody>
+      {% if not campaigns %}
+      <tr>
+        <td colspan="6" style="text-align:center;padding:26px;color:var(--text-3)">
+          {% if active_filters %}
+            No campaigns match these filters.
+          {% else %}
+            No campaigns synced yet. Run a connector sync, or import a Meet Alfred CSV.
+          {% endif %}
+        </td>
+      </tr>
+      {% endif %}
       {% for c in campaigns %}
       <tr{% if not c.client_id %} class="row-unmapped"{% endif %}>
         <td title="{{ c.name }}">{{ (c.name or "(unnamed)")[:48] }}</td>
@@ -22,24 +95,38 @@
         <td>{{ c.status }}</td>
         <td>{{ c.last_synced_at[:16].replace("T", " ") if c.last_synced_at else "never" }}</td>
         <td>
-          <select class="map-select"
-                  name="client_id"
-                  hx-post="/api/outbound-pulse/campaigns/{{ c.id }}/client"
-                  hx-target="#pulse-campaigns-list"
-                  hx-swap="innerHTML"
-                  hx-trigger="change">
-            <option value="" {% if not c.client_id %}selected{% endif %}>— unmapped —</option>
-            {% for client in clients %}
-            <option value="{{ client.id }}"
-                    {% if c.client_id and client.id | string == c.client_id | string %}selected{% endif %}>
-              {{ client.name }}
-            </option>
-            {% endfor %}
-          </select>
+          <form hx-post="/api/outbound-pulse/campaigns/{{ c.id }}/client"
+                hx-target="#pulse-campaigns-list"
+                hx-swap="innerHTML"
+                hx-trigger="change"
+                style="margin:0">
+            {# Carry the active filters through the mapping post so the table
+               comes back filtered the same way instead of resetting. #}
+            <input type="hidden" name="status"      value="{{ filters.status }}">
+            <input type="hidden" name="source_tool" value="{{ filters.source_tool }}">
+            <input type="hidden" name="channel"     value="{{ filters.channel }}">
+            <input type="hidden" name="synced"      value="{{ filters.synced }}">
+            <select class="map-select" name="client_id">
+              <option value="" {% if not c.client_id %}selected{% endif %}>— unmapped —</option>
+              {% for client in clients %}
+              <option value="{{ client.id }}"
+                      {% if c.client_id and client.id | string == c.client_id | string %}selected{% endif %}>
+                {{ client.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </form>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-{% endif %}
+
+<p class="pulse-meta" style="margin-top:10px">
+  Showing <strong>{{ campaigns | length }}</strong> of {{ options.total }} campaign{{ "" if options.total == 1 else "s" }}.
+  {% if filters.status in ("DRAFTED", "ARCHIVED") %}
+  These are never synced — drafts have no sends and archived campaigns are
+  deliberately shelved — so mapping them has no effect until their status changes.
+  {% endif %}
+</p>

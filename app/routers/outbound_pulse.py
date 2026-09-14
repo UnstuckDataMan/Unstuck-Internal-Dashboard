@@ -381,22 +381,58 @@ async def sync_status(request: Request):
     )
 
 
-@router.get("/api/outbound-pulse/campaigns")
-async def campaign_mapping(request: Request):
-    """Campaign → client mapping table. Unmapped campaigns sort to the top —
-    they are the ones whose events are missing from a client's funnel."""
-    try:
-        campaigns = store.list_campaigns()
-        clients = store.list_clients()
-    except PulseNotReady as exc:
-        return _not_ready_box(exc)
+def _campaign_table(request: Request, filters: dict):
+    """Render the mapping table for a filter set.
+
+    Shared by the list endpoint and the mapping POST so a mapping change
+    re-renders the same filtered view the user was working in, rather than
+    dumping them back to all ~1000 campaigns after every single mapping.
+    """
+    campaigns = store.list_campaigns(
+        status=filters["status"],
+        source_tool=filters["source_tool"],
+        channel=filters["channel"],
+        synced=filters["synced"],
+    )
+    clients = store.list_clients()
+    options = store.campaign_filter_options()
+    # Unmapped first: those are the ones whose events are missing from a funnel.
     campaigns.sort(key=lambda c: (bool(c.get("client_id")), c.get("name") or ""))
     return templates.TemplateResponse("partials/pulse_campaigns.html", {
-        "request":   request,
-        "campaigns": campaigns,
-        "clients":   clients,
+        "request":      request,
+        "campaigns":    campaigns,
+        "clients":      clients,
         "client_index": {str(c["id"]): c for c in clients},
+        "filters":      filters,
+        "options":      options,
     })
+
+
+def _campaign_filters(status: str, source_tool: str, channel: str, synced: str) -> dict:
+    return {
+        "status":      (status or "").strip(),
+        "source_tool": (source_tool or "").strip(),
+        "channel":     _channel_filter(channel),
+        "synced":      synced if synced in ("never", "synced") else "",
+    }
+
+
+@router.get("/api/outbound-pulse/campaigns")
+async def campaign_mapping(
+    request:     Request,
+    status:      str = Query(""),
+    source_tool: str = Query(""),
+    channel:     str = Query(""),
+    synced:      str = Query(""),
+):
+    """Campaign → client mapping table, filterable by the source tool's own
+    status/source/channel and by whether events have ever been pulled."""
+    try:
+        return _campaign_table(
+            request, _campaign_filters(status, source_tool, channel, synced),
+        )
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
 
 
 @router.get("/api/outbound-pulse/engagement")
@@ -474,24 +510,29 @@ async def manual_sync(
 
 @router.post("/api/outbound-pulse/campaigns/{campaign_id}/client")
 async def map_campaign(
-    request: Request,
+    request:     Request,
     campaign_id: str,
-    client_id: str = Form(""),
+    client_id:   str = Form(""),
+    status:      str = Form(""),
+    source_tool: str = Form(""),
+    channel:     str = Form(""),
+    synced:      str = Form(""),
 ):
+    """Map one campaign, then re-render the table under the SAME filters.
+
+    The filter values ride along with the form post for that reason: mapping is
+    done in batches within a filtered view, and resetting to all campaigns after
+    each one would make mapping a client's campaigns unworkable.
+    """
+    filters = _campaign_filters(status, source_tool, channel, synced)
     try:
         store.set_campaign_client(campaign_id, client_id.strip() or None)
-        campaigns = store.list_campaigns()
-        clients = store.list_clients()
+        response = _campaign_table(request, filters)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
-    campaigns.sort(key=lambda c: (bool(c.get("client_id")), c.get("name") or ""))
-    response = templates.TemplateResponse("partials/pulse_campaigns.html", {
-        "request":      request,
-        "campaigns":    campaigns,
-        "clients":      clients,
-        "client_index": {str(c["id"]): c for c in clients},
-    })
-    response.headers["HX-Trigger"] = "pulseSynced"
+    # A distinct event from pulseSynced: this response already carries the new
+    # table, so the list must not re-fetch itself. Only the funnel needs to know.
+    response.headers["HX-Trigger"] = "pulseMappingChanged"
     return response
 
 
