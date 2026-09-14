@@ -1203,3 +1203,316 @@ def test_mapping_does_not_make_the_table_refetch_itself(client, fake_sb):
     r = client.post("/api/outbound-pulse/campaigns/a1/client",
                     data={"client_id": CLIENT})
     assert r.headers.get("hx-trigger") == "pulseMappingChanged"
+
+
+# ── Correcting a wrong mapping ────────────────────────────────────────────────
+# Remapping already worked; what was missing was finding the campaign again
+# among ~1000 rows once it had been mapped to the wrong client.
+
+def _remap_routes(fake_sb):
+    rows = [
+        {"id": "a1", "client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "external_campaign_id": "1", "name": "Wrongly mapped", "status": "ACTIVE",
+         "last_synced_at": "2026-09-14T09:00:00+00:00", "created_at": None},
+        {"id": "a2", "client_id": None, "channel": "email", "source_tool": "smartlead",
+         "external_campaign_id": "2", "name": "Still unmapped", "status": "ACTIVE",
+         "last_synced_at": None, "created_at": None},
+    ]
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, rows))
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, [
+        {"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True},
+        {"id": "other", "name": "Globex", "color": None, "emoji": None, "active": True},
+    ]))
+    fake_sb.route("PATCH", "pulse_campaigns", lambda call: FakeResponse(204, []))
+    fake_sb.route("PATCH", "pulse_campaign_events", lambda call: FakeResponse(204, []))
+
+
+def test_filtering_by_client_finds_what_is_mapped_to_them(client, fake_sb):
+    from tests.conftest import param_values
+
+    _remap_routes(fake_sb)
+    r = client.get(f"/api/outbound-pulse/campaigns?client_id={CLIENT}")
+    assert r.status_code == 200
+
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "client_id")]
+    assert param_values(listing[0], "client_id") == [f"eq.{CLIENT}"]
+
+
+def test_unmapped_filter_is_distinct_from_no_filter(client, fake_sb):
+    """"" means no filter; "none" means campaigns with no client. Conflating
+    them would make the unmapped view silently show everything."""
+    from tests.conftest import param_values
+
+    _remap_routes(fake_sb)
+    client.get("/api/outbound-pulse/campaigns?client_id=none")
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "client_id")]
+    assert param_values(listing[0], "client_id") == ["is.null"]
+
+    fake_sb.calls.clear()
+    client.get("/api/outbound-pulse/campaigns")
+    for call in fake_sb.calls_to("GET", "pulse_campaigns"):
+        assert param_values(call, "client_id") == []
+
+
+def _filter_client_select(html: str) -> str:
+    """Just the Client filter dropdown, not the per-row remap dropdowns."""
+    import re
+    match = re.search(
+        r'<select name="client_id" class="filter-select">(.*?)</select>',
+        html, re.S,
+    )
+    assert match, "client filter select not rendered"
+    return match.group(1)
+
+
+def test_client_filter_offers_only_clients_that_have_campaigns(client, fake_sb):
+    """Offering every client when three have campaigns makes the filter a
+    haystack of dead ends. The per-row remap dropdowns still list them all —
+    you must be able to remap TO a client that has nothing yet."""
+    _remap_routes(fake_sb)
+    r = client.get("/api/outbound-pulse/campaigns")
+
+    options = _filter_client_select(r.text)
+    assert "Acme (1)" in options          # has a mapped campaign
+    assert "Globex" not in options        # has none — not worth filtering by
+    assert "— unmapped — (1)" in options
+
+    # ...but Globex is still a remap target on the rows themselves.
+    assert "Globex" in r.text
+
+
+def test_remap_moves_the_campaign_and_its_history(client, fake_sb):
+    """The fix for a wrong mapping: pick a different client. The campaign's
+    events must follow, or the funnel keeps crediting the wrong client."""
+    _remap_routes(fake_sb)
+
+    r = client.post("/api/outbound-pulse/campaigns/a1/client",
+                    data={"client_id": "other"})
+    assert r.status_code == 200
+
+    campaign_patch = fake_sb.calls_to("PATCH", "pulse_campaigns")[0]
+    assert campaign_patch["json"]["client_id"] == "other"
+
+    event_patch = fake_sb.calls_to("PATCH", "pulse_campaign_events")[0]
+    assert event_patch["json"]["client_id"] == "other"
+
+
+def test_remap_to_unmapped_clears_both(client, fake_sb):
+    """Setting a campaign back to unmapped must also detach its events, or they
+    stay credited to the old client while the campaign shows unmapped."""
+    _remap_routes(fake_sb)
+
+    client.post("/api/outbound-pulse/campaigns/a1/client", data={"client_id": ""})
+    assert fake_sb.calls_to("PATCH", "pulse_campaigns")[0]["json"]["client_id"] is None
+    assert fake_sb.calls_to("PATCH", "pulse_campaign_events")[0]["json"]["client_id"] is None
+
+
+def test_remapping_keeps_the_client_filter(client, fake_sb):
+    """The filter field is posted under its own name so it cannot be confused
+    with the client_id being assigned."""
+    from tests.conftest import param_values
+
+    _remap_routes(fake_sb)
+    r = client.post("/api/outbound-pulse/campaigns/a1/client",
+                    data={"client_id": "other", "filter_client_id": CLIENT,
+                          "status": "ACTIVE"})
+    assert r.status_code == 200
+
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "client_id")]
+    assert listing, "the re-render dropped the client filter"
+    assert param_values(listing[0], "client_id") == [f"eq.{CLIENT}"]
+
+
+def test_the_assigned_client_is_not_taken_from_the_filter(client, fake_sb):
+    """Regression guard: two fields named client_id on one form would let the
+    active filter overwrite the mapping the user actually chose."""
+    _remap_routes(fake_sb)
+
+    client.post("/api/outbound-pulse/campaigns/a1/client",
+                data={"client_id": "other", "filter_client_id": CLIENT})
+
+    assert fake_sb.calls_to("PATCH", "pulse_campaigns")[0]["json"]["client_id"] == "other"
+
+
+def test_client_filter_view_explains_that_remapping_removes_the_row(client, fake_sb):
+    _remap_routes(fake_sb)
+    r = client.get(f"/api/outbound-pulse/campaigns?client_id={CLIENT}")
+    assert "removes it from this filtered view" in r.text
+
+
+# ── Name search ───────────────────────────────────────────────────────────────
+
+def test_search_becomes_an_ilike_filter(client, fake_sb):
+    from tests.conftest import param_values
+
+    _remap_routes(fake_sb)
+    client.get("/api/outbound-pulse/campaigns?q=acme")
+
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "name")]
+    assert listing, "search never reached PostgREST"
+    assert param_values(listing[0], "name") == ['ilike."*acme*"']
+
+
+def test_search_quotes_names_containing_commas_and_parens(client, fake_sb):
+    """Real campaign names look like "(CURATED) - 11-480 - B2C Health". An
+    unquoted PostgREST value would have its commas and parens parsed as syntax
+    and return the wrong rows, or none."""
+    from tests.conftest import param_values
+
+    _remap_routes(fake_sb)
+    client.get("/api/outbound-pulse/campaigns?q=(CURATED) - 11-480, UK")
+
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "name")]
+    value = param_values(listing[0], "name")[0]
+    assert value.startswith('ilike."*') and value.endswith('*"')
+    assert "(CURATED)" in value
+
+
+def test_search_escapes_sql_wildcards():
+    """A literal underscore must not match any character — "50_off" should not
+    find "5000ff"."""
+    assert store._ilike_value("50_off") == r'"*50\_off*"'
+    assert store._ilike_value("100%") == r'"*100\%*"'
+
+
+def test_search_term_is_length_capped(client, fake_sb):
+    from tests.conftest import param_values
+
+    _remap_routes(fake_sb)
+    client.get("/api/outbound-pulse/campaigns?q=" + "a" * 500)
+
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "name")]
+    assert len(param_values(listing[0], "name")[0]) < 130
+
+
+def test_search_survives_a_mapping(client, fake_sb):
+    from tests.conftest import param_values
+
+    _remap_routes(fake_sb)
+    client.post("/api/outbound-pulse/campaigns/a1/client",
+                data={"client_id": "other", "q": "acme"})
+
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "name")]
+    assert listing, "the re-render dropped the search term"
+
+
+# ── Bulk mapping ──────────────────────────────────────────────────────────────
+
+def test_bulk_map_assigns_every_selected_campaign(client, fake_sb):
+    from tests.conftest import in_list_values, param_values
+
+    _remap_routes(fake_sb)
+    r = client.post("/api/outbound-pulse/campaigns/bulk-map",
+                    data={"campaign_ids": ["a1", "a2"],
+                          "target_client_id": "other"})
+    assert r.status_code == 200
+
+    patch = fake_sb.calls_to("PATCH", "pulse_campaigns")[0]
+    assert patch["json"]["client_id"] == "other"
+    assert sorted(in_list_values(param_values(patch, "id")[0])) == ["a1", "a2"]
+
+
+def test_bulk_map_repoints_the_events_too(client, fake_sb):
+    """Without this the funnel keeps crediting the old client for everything
+    synced before the remap."""
+    from tests.conftest import in_list_values, param_values
+
+    _remap_routes(fake_sb)
+    client.post("/api/outbound-pulse/campaigns/bulk-map",
+                data={"campaign_ids": ["a1", "a2"], "target_client_id": "other"})
+
+    patch = fake_sb.calls_to("PATCH", "pulse_campaign_events")[0]
+    assert patch["json"]["client_id"] == "other"
+    assert sorted(in_list_values(param_values(patch, "campaign_id")[0])) == ["a1", "a2"]
+
+
+def test_bulk_map_is_agency_scoped(client, fake_sb):
+    from tests.conftest import param_values
+
+    _remap_routes(fake_sb)
+    client.post("/api/outbound-pulse/campaigns/bulk-map",
+                data={"campaign_ids": ["a1"], "target_client_id": "other"})
+
+    for table in ("pulse_campaigns", "pulse_campaign_events"):
+        for call in fake_sb.calls_to("PATCH", table):
+            assert param_values(call, "agency_id") == [f"eq.{AGENCY}"]
+
+
+def test_bulk_map_to_unmapped_clears_the_client(client, fake_sb):
+    _remap_routes(fake_sb)
+    client.post("/api/outbound-pulse/campaigns/bulk-map",
+                data={"campaign_ids": ["a1"], "target_client_id": ""})
+
+    assert fake_sb.calls_to("PATCH", "pulse_campaigns")[0]["json"]["client_id"] is None
+
+
+def test_bulk_map_with_nothing_selected_is_refused(client, fake_sb):
+    _remap_routes(fake_sb)
+    r = client.post("/api/outbound-pulse/campaigns/bulk-map",
+                    data={"target_client_id": "other"})
+    assert "Select at least one campaign" in r.text
+    assert fake_sb.calls_to("PATCH", "pulse_campaigns") == []
+
+
+def test_bulk_map_does_not_reassign_to_the_active_client_filter(client, fake_sb):
+    """The filter and the assignment target are separate fields. If they shared
+    a name, bulk-mapping inside a filtered view would silently reassign every
+    selected campaign back to the client being filtered on."""
+    _remap_routes(fake_sb)
+    client.post("/api/outbound-pulse/campaigns/bulk-map",
+                data={"campaign_ids": ["a1"], "target_client_id": "other",
+                      "client_id": CLIENT})         # the active filter
+
+    assert fake_sb.calls_to("PATCH", "pulse_campaigns")[0]["json"]["client_id"] == "other"
+
+
+def test_bulk_map_keeps_the_filtered_view(client, fake_sb):
+    from tests.conftest import param_values
+
+    _remap_routes(fake_sb)
+    r = client.post("/api/outbound-pulse/campaigns/bulk-map",
+                    data={"campaign_ids": ["a1"], "target_client_id": "other",
+                          "client_id": "none", "status": "ACTIVE"})
+    assert r.status_code == 200
+    assert 'value="ACTIVE" selected' in r.text
+
+    listing = [c for c in fake_sb.calls_to("GET", "pulse_campaigns")
+               if param_values(c, "status")]
+    assert param_values(listing[0], "client_id") == ["is.null"]
+
+
+def test_bulk_map_chunks_large_selections(client, fake_sb):
+    """The ids go into a PostgREST in.(...) filter on the URL; a few hundred
+    UUIDs in one request would exceed the URL length limit and lose the lot."""
+    _remap_routes(fake_sb)
+    client.post("/api/outbound-pulse/campaigns/bulk-map",
+                data={"campaign_ids": [f"id{i}" for i in range(120)],
+                      "target_client_id": "other"})
+
+    patches = fake_sb.calls_to("PATCH", "pulse_campaigns")
+    assert len(patches) == 3                      # 120 ids at 50 per chunk
+    for call in patches:
+        assert len(call["url"]) < 4000
+
+
+def test_bulk_map_fires_the_mapping_event_not_a_sync(client, fake_sb):
+    _remap_routes(fake_sb)
+    r = client.post("/api/outbound-pulse/campaigns/bulk-map",
+                    data={"campaign_ids": ["a1"], "target_client_id": "other"})
+    assert r.headers.get("hx-trigger") == "pulseMappingChanged"
+
+
+def test_rows_carry_a_selection_checkbox(client, fake_sb):
+    _remap_routes(fake_sb)
+    r = client.get("/api/outbound-pulse/campaigns")
+    assert 'name="campaign_ids"' in r.text
+    assert 'id="bulk-select-all"' in r.text
+    # The bulk bar starts hidden — it is an action on a selection, not furniture.
+    assert 'id="pulse-bulk-bar" hidden' in r.text

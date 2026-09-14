@@ -393,6 +393,8 @@ def _campaign_table(request: Request, filters: dict):
         source_tool=filters["source_tool"],
         channel=filters["channel"],
         synced=filters["synced"],
+        client_id=filters["client_id"],
+        q=filters["q"],
     )
     clients = store.list_clients()
     options = store.campaign_filter_options()
@@ -408,12 +410,18 @@ def _campaign_table(request: Request, filters: dict):
     })
 
 
-def _campaign_filters(status: str, source_tool: str, channel: str, synced: str) -> dict:
+def _campaign_filters(status: str, source_tool: str, channel: str,
+                      synced: str, client_id: str = "", q: str = "") -> dict:
     return {
         "status":      (status or "").strip(),
         "source_tool": (source_tool or "").strip(),
         "channel":     _channel_filter(channel),
         "synced":      synced if synced in ("never", "synced") else "",
+        # "none" means "no client mapped" and is distinct from "" (no filter).
+        "client_id":   (client_id or "").strip(),
+        # Capped: this becomes a LIKE pattern, and an unbounded one scans the
+        # whole table for no benefit — nobody searches on 200 characters.
+        "q":           (q or "").strip()[:100],
     }
 
 
@@ -424,12 +432,16 @@ async def campaign_mapping(
     source_tool: str = Query(""),
     channel:     str = Query(""),
     synced:      str = Query(""),
+    client_id:   str = Query(""),
+    q:           str = Query(""),
 ):
     """Campaign → client mapping table, filterable by the source tool's own
-    status/source/channel and by whether events have ever been pulled."""
+    status/source/channel, by whether events have ever been pulled, and by
+    which client a campaign is mapped to."""
     try:
         return _campaign_table(
-            request, _campaign_filters(status, source_tool, channel, synced),
+            request,
+            _campaign_filters(status, source_tool, channel, synced, client_id, q),
         )
     except PulseNotReady as exc:
         return _not_ready_box(exc)
@@ -512,11 +524,13 @@ async def manual_sync(
 async def map_campaign(
     request:     Request,
     campaign_id: str,
-    client_id:   str = Form(""),
-    status:      str = Form(""),
-    source_tool: str = Form(""),
-    channel:     str = Form(""),
-    synced:      str = Form(""),
+    client_id:        str = Form(""),
+    status:           str = Form(""),
+    source_tool:      str = Form(""),
+    channel:          str = Form(""),
+    synced:           str = Form(""),
+    filter_client_id: str = Form(""),
+    q:                str = Form(""),
 ):
     """Map one campaign, then re-render the table under the SAME filters.
 
@@ -524,7 +538,8 @@ async def map_campaign(
     done in batches within a filtered view, and resetting to all campaigns after
     each one would make mapping a client's campaigns unworkable.
     """
-    filters = _campaign_filters(status, source_tool, channel, synced)
+    filters = _campaign_filters(status, source_tool, channel, synced,
+                                filter_client_id, q)
     try:
         store.set_campaign_client(campaign_id, client_id.strip() or None)
         response = _campaign_table(request, filters)
@@ -532,6 +547,40 @@ async def map_campaign(
         return _not_ready_box(exc)
     # A distinct event from pulseSynced: this response already carries the new
     # table, so the list must not re-fetch itself. Only the funnel needs to know.
+    response.headers["HX-Trigger"] = "pulseMappingChanged"
+    return response
+
+
+@router.post("/api/outbound-pulse/campaigns/bulk-map")
+async def bulk_map_campaigns(
+    request:          Request,
+    campaign_ids:     list[str] = Form([]),
+    target_client_id: str = Form(""),
+    status:           str = Form(""),
+    source_tool:      str = Form(""),
+    channel:          str = Form(""),
+    synced:           str = Form(""),
+    client_id:        str = Form(""),
+    q:                str = Form(""),
+):
+    """Map many campaigns to one client at once.
+
+    Two separate client fields, deliberately: `target_client_id` is what the
+    selected campaigns get mapped TO, while `client_id` is the table's current
+    Client *filter* and only decides what to re-render. Reusing one name would
+    make a bulk map performed inside a filtered view silently reassign to the
+    filter's client.
+    """
+    filters = _campaign_filters(status, source_tool, channel, synced, client_id, q)
+    ids = [i for i in campaign_ids if i and i.strip()]
+    if not ids:
+        return _error_box("Select at least one campaign first.")
+
+    try:
+        store.set_campaigns_client(ids, target_client_id.strip() or None)
+        response = _campaign_table(request, filters)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
     response.headers["HX-Trigger"] = "pulseMappingChanged"
     return response
 

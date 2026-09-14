@@ -7,12 +7,37 @@
    inputs on each row's mapping form — so the filtered view survives a mapping
    change and a post-sync refresh. #}
 
-{% set active_filters = filters.status or filters.source_tool or filters.channel or filters.synced %}
+{% set active_filters = filters.status or filters.source_tool or filters.channel or filters.synced or filters.client_id or filters.q %}
+
+{# Bulk mapping. Deliberately not a <form>: each row already has its own form
+   for single remapping, and nesting forms is invalid HTML. hx-include gathers
+   the ticked boxes by selector instead. #}
+<div class="bulk-bar" id="pulse-bulk-bar" hidden>
+  <span class="bulk-count" id="bulk-count">0 selected</span>
+  <label class="bulk-label" for="bulk-target">Map all selected to</label>
+  {# Named target_client_id, not client_id: the filter row's own select is
+     client_id, and a collision would reassign to whatever is being filtered. #}
+  <select name="target_client_id" id="bulk-target" class="filter-select" style="max-width:220px">
+    <option value="">— unmapped —</option>
+    {% for c in clients %}
+    <option value="{{ c.id }}">{{ c.name }}</option>
+    {% endfor %}
+  </select>
+  <button type="button" class="btn btn-primary" id="bulk-apply"
+          hx-post="/api/outbound-pulse/campaigns/bulk-map"
+          hx-include="#pulse-campaigns-list input[name='campaign_ids']:checked, #bulk-target, #pulse-campaign-filters"
+          hx-target="#pulse-campaigns-list"
+          hx-swap="innerHTML"
+          style="padding:7px 16px;font-size:12.5px">Apply</button>
+</div>
 
 <div class="tbl-wrap" style="margin-bottom:0">
   <table>
     <thead>
       <tr>
+        <th class="tick-col">
+          <input type="checkbox" id="bulk-select-all" title="Select all shown">
+        </th>
         <th>Campaign</th><th>Source</th><th>Channel</th>
         <th>Status</th><th>Last synced</th><th>Client</th>
       </tr>
@@ -22,7 +47,17 @@
           hx-swap="innerHTML"
           hx-trigger="change"
           hx-include="#pulse-campaign-filters">
+        <th class="tick-col"></th>
         <th>
+          {# Search runs on keystroke with a debounce. `changed` means an
+             unchanged value (arrow keys, tabbing) fires nothing. #}
+          <input type="search" name="q" class="filter-search"
+                 placeholder="Search name…" value="{{ filters.q }}"
+                 hx-get="/api/outbound-pulse/campaigns"
+                 hx-target="#pulse-campaigns-list"
+                 hx-swap="innerHTML"
+                 hx-trigger="keyup changed delay:350ms, search"
+                 hx-include="#pulse-campaign-filters">
           {% if active_filters %}
           <button type="button" class="filter-clear"
                   hx-get="/api/outbound-pulse/campaigns"
@@ -72,13 +107,32 @@
             </option>
           </select>
         </th>
-        <th></th>
+        <th>
+          {# Filtering by client is how a campaign mapped to the wrong one gets
+             found again: pick the client it was wrongly assigned to, and the
+             handful of rows mapped to them is all that remains. #}
+          <select name="client_id" class="filter-select">
+            <option value="">All</option>
+            <option value="none" {% if filters.client_id == "none" %}selected{% endif %}>
+              — unmapped — ({{ options.unmapped }})
+            </option>
+            {% for client in clients %}
+            {% set mapped = options.per_client.get(client.id | string, 0) %}
+            {% if mapped %}
+            <option value="{{ client.id }}"
+                    {% if filters.client_id == client.id | string %}selected{% endif %}>
+              {{ client.name }} ({{ mapped }})
+            </option>
+            {% endif %}
+            {% endfor %}
+          </select>
+        </th>
       </tr>
     </thead>
     <tbody>
       {% if not campaigns %}
       <tr>
-        <td colspan="6" style="text-align:center;padding:26px;color:var(--text-3)">
+        <td colspan="7" style="text-align:center;padding:26px;color:var(--text-3)">
           {% if active_filters %}
             No campaigns match these filters.
           {% else %}
@@ -89,6 +143,9 @@
       {% endif %}
       {% for c in campaigns %}
       <tr{% if not c.client_id %} class="row-unmapped"{% endif %}>
+        <td class="tick-col">
+          <input type="checkbox" class="row-tick" name="campaign_ids" value="{{ c.id }}">
+        </td>
         <td title="{{ c.name }}">{{ (c.name or "(unnamed)")[:48] }}</td>
         <td>{{ c.source_tool.replace("_", " ") }}</td>
         <td>{{ "LinkedIn" if c.channel == "linkedin" else "Email" }}</td>
@@ -106,6 +163,11 @@
             <input type="hidden" name="source_tool" value="{{ filters.source_tool }}">
             <input type="hidden" name="channel"     value="{{ filters.channel }}">
             <input type="hidden" name="synced"      value="{{ filters.synced }}">
+            {# Named filter_client_id, not client_id: the select below posts
+               client_id to perform the mapping, and two fields of the same name
+               would make the remap ambiguous. #}
+            <input type="hidden" name="filter_client_id" value="{{ filters.client_id }}">
+            <input type="hidden" name="q" value="{{ filters.q }}">
             <select class="map-select" name="client_id">
               <option value="" {% if not c.client_id %}selected{% endif %}>— unmapped —</option>
               {% for client in clients %}
@@ -129,4 +191,52 @@
   These are never synced — drafts have no sends and archived campaigns are
   deliberately shelved — so mapping them has no effect until their status changes.
   {% endif %}
+  {% if filters.client_id and filters.client_id != "none" %}
+  Changing a campaign's client here moves its history to the new client and
+  removes it from this filtered view.
+  {% endif %}
 </p>
+
+<script>
+// Selection state for bulk mapping. Re-runs on every swap of this partial
+// because HTMX replaces these nodes wholesale — selections are intentionally
+// NOT preserved across a swap, since the rows underneath may have changed.
+(function () {
+  const list = document.getElementById('pulse-campaigns-list');
+  if (!list) return;
+  const bar      = list.querySelector('#pulse-bulk-bar');
+  const countEl  = list.querySelector('#bulk-count');
+  const selectAll = list.querySelector('#bulk-select-all');
+  if (!bar || !countEl) return;
+
+  const ticks = () => list.querySelectorAll('.row-tick');
+
+  function sync() {
+    const checked = list.querySelectorAll('.row-tick:checked').length;
+    const total   = ticks().length;
+    countEl.textContent = checked + ' selected';
+    // The bar only appears once something is selected — it is an action on a
+    // selection, not a permanent piece of furniture.
+    bar.hidden = checked === 0;
+    if (selectAll) {
+      selectAll.checked = total > 0 && checked === total;
+      selectAll.indeterminate = checked > 0 && checked < total;
+    }
+  }
+
+  list.addEventListener('change', function (e) {
+    if (e.target.classList.contains('row-tick')) sync();
+  });
+
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      ticks().forEach(t => { t.checked = selectAll.checked; });
+      sync();
+    });
+  }
+
+  sync();
+})();
+</script>
+
+<p style="display:none"></p>
