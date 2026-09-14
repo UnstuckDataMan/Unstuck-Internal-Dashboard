@@ -317,6 +317,7 @@ def list_campaigns(
     source_tool: str = "",
     status: str = "",
     synced: str = "",
+    q: str = "",
 ) -> list[dict]:
     """Campaign rows, optionally filtered.
 
@@ -326,13 +327,19 @@ def list_campaigns(
 
     `synced` accepts "never" or "synced" — whether the campaign's events have
     ever been pulled, which is not the same as its status in the source tool.
+
+    `client_id` accepts a real id, or the literal "none" for campaigns with no
+    client mapped. "none" rather than an empty string because empty already
+    means "no filter", and the difference between those two matters here.
     """
     params = {
         "select": ("id,client_id,channel,source_tool,external_campaign_id,"
                    "name,status,last_synced_at,created_at"),
         "order":  "name.asc",
     }
-    if client_id:
+    if client_id == "none":
+        params["client_id"] = "is.null"
+    elif client_id:
         params["client_id"] = f"eq.{client_id}"
     if channel:
         params["channel"] = f"eq.{channel}"
@@ -344,7 +351,69 @@ def list_campaigns(
         params["last_synced_at"] = "is.null"
     elif synced == "synced":
         params["last_synced_at"] = "not.is.null"
+    if q and q.strip():
+        params["name"] = f"ilike.{_ilike_value(q.strip())}"
     return _get("pulse_campaigns", _scoped(params))
+
+
+def _ilike_value(term: str) -> str:
+    """Build a PostgREST ilike literal that matches `term` anywhere in the name.
+
+    Two layers of escaping, for two different parsers:
+      * `%` and `_` are SQL LIKE wildcards. A campaign name search for "50_off"
+        would otherwise match "5000ff", so they are backslash-escaped.
+      * the whole value is double-quoted because PostgREST parses commas and
+        parentheses out of an unquoted filter value, and campaign names here
+        contain both (e.g. "(CURATED) - 11-480 - B2C Health").
+    """
+    cleaned = (term
+               .replace("\\", "\\\\")
+               .replace("%", "\\%")
+               .replace("_", "\\_")
+               .replace('"', '\\"'))
+    return f'"*{cleaned}*"'
+
+
+def set_campaigns_client(campaign_ids: list[str], client_id: str | None) -> int:
+    """Map many campaigns to one client (or unmap them). Returns rows attempted.
+
+    Chunked because the ids go into a PostgREST `in.(...)` filter on the URL,
+    and a few hundred quoted UUIDs would exceed the server's URL length limit
+    and fail the whole batch.
+    """
+    ids = [str(i) for i in campaign_ids if i]
+    if not ids:
+        return 0
+    now = datetime.now(timezone.utc).isoformat()
+    chunk_size = 50
+    for start in range(0, len(ids), chunk_size):
+        chunk = ids[start:start + chunk_size]
+        try:
+            r = http_req.patch(
+                f"{SUPABASE_URL}/rest/v1/pulse_campaigns",
+                headers=_sb_headers("return=minimal"),
+                params=_scoped({"id": f"in.{_pg_in_list(chunk)}"}),
+                json={"client_id": client_id, "updated_at": now},
+                timeout=30,
+            )
+            r.raise_for_status()
+        except Exception as exc:
+            logger.warning("Pulse: bulk campaign mapping failed: %s", exc)
+            continue
+        # Events carry a denormalised client_id so the portal can filter without
+        # a join — re-point them too, or the funnel keeps crediting the old
+        # client for everything synced before the remap.
+        try:
+            http_req.patch(
+                f"{SUPABASE_URL}/rest/v1/pulse_campaign_events",
+                headers=_sb_headers("return=minimal"),
+                params=_scoped({"campaign_id": f"in.{_pg_in_list(chunk)}"}),
+                json={"client_id": client_id},
+                timeout=60,
+            )
+        except Exception as exc:
+            logger.warning("Pulse: bulk event re-point failed: %s", exc)
+    return len(ids)
 
 
 def campaign_filter_options() -> dict:
@@ -355,13 +424,23 @@ def campaign_filter_options() -> dict:
     only ever offers the status already selected would be a dead end.
     """
     rows = _get("pulse_campaigns", _scoped({
-        "select": "status,source_tool,channel,last_synced_at",
+        "select": "status,source_tool,channel,last_synced_at,client_id",
     }))
     statuses: dict[str, int] = {}
     sources: dict[str, int] = {}
     channels: dict[str, int] = {}
+    # Per-client counts drive the Client filter, which is how a campaign mapped
+    # to the wrong client gets found again — without it, correcting a mistake
+    # means scrolling a thousand rows.
+    per_client: dict[str, int] = {}
+    unmapped = 0
     never = 0
     for row in rows:
+        cid = row.get("client_id")
+        if cid:
+            per_client[str(cid)] = per_client.get(str(cid), 0) + 1
+        else:
+            unmapped += 1
         statuses[str(row.get("status") or "unknown")] = \
             statuses.get(str(row.get("status") or "unknown"), 0) + 1
         sources[str(row.get("source_tool") or "")] = \
@@ -373,11 +452,13 @@ def campaign_filter_options() -> dict:
     return {
         # Busiest first: with six statuses the useful one should not be hunted for.
         "statuses": sorted(statuses.items(), key=lambda kv: -kv[1]),
-        "sources":  sorted(sources.items()),
-        "channels": sorted(channels.items()),
-        "never":    never,
-        "synced":   len(rows) - never,
-        "total":    len(rows),
+        "sources":    sorted(sources.items()),
+        "channels":   sorted(channels.items()),
+        "never":      never,
+        "synced":     len(rows) - never,
+        "total":      len(rows),
+        "per_client": per_client,
+        "unmapped":   unmapped,
     }
 
 

@@ -283,6 +283,47 @@
   }
   .filter-clear:hover { color: var(--text); }
 
+  .filter-search {
+    width: 100%;
+    min-width: 150px;
+    padding: 5px 9px;
+    font-size: 11.5px;
+    font-family: var(--font);
+    color: var(--text);
+    background: rgba(255,255,255,.07);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    outline: none;
+    margin-bottom: 4px;
+  }
+  .filter-search:focus { border-color: var(--border-focus); box-shadow: var(--sh-glow); }
+  .filter-search::placeholder { color: var(--text-3); }
+
+  /* ── Bulk mapping ────────────────────────────────────────── */
+  .tick-col { width: 34px; text-align: center; padding-left: 12px; padding-right: 0; }
+  .tick-col input[type="checkbox"] { cursor: pointer; width: 14px; height: 14px; accent-color: var(--purple); }
+
+  .bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: rgba(139,92,246,.12);
+    border: 1px solid rgba(139,92,246,.35);
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    /* Sticks to the top of the scroll region so the action stays reachable
+       while working down a long filtered list. */
+    position: sticky;
+    top: 58px;
+    z-index: 20;
+    backdrop-filter: saturate(160%) blur(12px);
+    animation: resultIn .2s var(--ease-out) both;
+  }
+  .bulk-count { font-size: 13px; font-weight: 600; color: #c4b5fd; }
+  .bulk-label { font-size: 12px; color: var(--text-2); }
+
   .btn-delete {
     background: var(--red-bg); border: 1px solid var(--red-bdr); color: var(--red);
     border-radius: 8px; width: 26px; height: 26px; cursor: pointer;
