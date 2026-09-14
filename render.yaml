@@ -26,4 +26,15 @@ services:
       # Emergency rollback lever: set to "1" to disable all auth without a deploy.
       # - key: AUTH_DISABLED
       #   value: "1"
+      # ── Outbound Pulse connectors ────────────────────────────────────────────
+      # Optional: with neither key set, the hourly sync doesn't start and the
+      # connectors show as "not configured" on /outbound-pulse.
+      - key: SMARTLEAD_API_KEY
+        sync: false
+      - key: MEET_ALFRED_API_KEY
+        sync: false
+      # Non-active campaigns backfilled per hourly run (default 25).
+      # Raise temporarily to pull campaign history in faster.
+      # - key: PULSE_BACKFILL_PER_RUN
+      #   value: "25"
     healthCheckPath: /healthz

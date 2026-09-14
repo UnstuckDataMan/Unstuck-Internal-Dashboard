@@ -29,6 +29,9 @@ SOP_GROUPS = [
         {"key": "dnc_manage",         "label": "Manage DNC Lists"},
         {"key": "dnc_contacted",      "label": "Manage Contacted"},
     ]},
+    {"group": "Reporting", "items": [
+        {"key": "outbound_pulse",     "label": "Outbound Pulse"},
+    ]},
     {"group": "Outreach", "items": [
         {"key": "reply_bank",         "label": "Reply Bank"},
         {"key": "copy_bank",          "label": "Copy Bank"},

@@ -1,0 +1,97 @@
+{# Connector health. Context: connectors, logs, optional results (manual run). #}
+
+{% if results %}
+<div class="pulse-run-result">
+  {% for r in results %}
+  <div class="run-line run-{{ r.status }}">
+    <b>{{ r.source_tool.replace("_", " ").title() }}</b>
+    {% if r.status == "skipped" %}
+      skipped — {{ r.error }}
+    {% elif r.status == "error" %}
+      failed — {{ r.error }}
+    {% else %}
+      {{ r.status }} — {{ r.campaigns }} campaign{{ "" if r.campaigns == 1 else "s" }},
+      {{ r.events }} new event{{ "" if r.events == 1 else "s" }} in {{ r.duration_s }}s
+      {%- if r.error %} ({{ r.error }}){% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="pulse-connectors">
+  {% for c in connectors %}
+  <div class="connector-card state-{{ c.state }}">
+    <div class="connector-head">
+      <span class="connector-pill"></span>
+      <span class="connector-name">{{ c.label }}</span>
+      <span class="connector-state">
+        {% if c.state == "running" %}syncing…
+        {% elif c.state == "off" %}not configured
+        {% elif c.state == "never" %}never run
+        {% elif c.state == "stale" %}stale
+        {% else %}{{ c.state }}{% endif %}
+      </span>
+    </div>
+    <div class="connector-meta">
+      {% if c.state == "off" %}
+        Set its API key in Render to enable the hourly sync.
+      {% elif c.ago_text %}
+        Last run {{ c.ago_text }} · {{ c.campaigns }} campaign{{ "" if c.campaigns == 1 else "s" }},
+        {{ c.events }} new event{{ "" if c.events == 1 else "s" }}
+      {% else %}
+        No sync has run yet.
+      {% endif %}
+    </div>
+    {% if c.state == "stale" %}
+    <div class="connector-note">
+      The hourly sync has not fired recently — the free Render instance may have
+      slept. Data below could be behind.
+    </div>
+    {% endif %}
+    {% if c.error %}
+    <div class="connector-error">{{ c.error }}</div>
+    {% endif %}
+    <button class="btn btn-download connector-sync-btn"
+            hx-post="/api/outbound-pulse/sync?source_tool={{ c.source_tool }}"
+            hx-target="#pulse-sync-status"
+            hx-swap="innerHTML"
+            {% if not c.configured %}disabled title="No API key configured"{% endif %}>
+      Sync now
+    </button>
+  </div>
+  {% endfor %}
+</div>
+
+{% if logs %}
+<details class="pulse-logs">
+  <summary>Recent sync runs ({{ logs | length }})</summary>
+  <div class="tbl-wrap" style="margin-top:12px;margin-bottom:0">
+    <table>
+      <thead>
+        <tr>
+          <th>Run at</th><th>Tool</th><th>Status</th>
+          <th>Campaigns</th><th>New events</th><th>Took</th>
+          <th>Trigger</th><th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+        <tr>
+          <td>{{ log.run_at[:16].replace("T", " ") if log.run_at else "—" }}</td>
+          <td>{{ log.source_tool }}</td>
+          <td class="log-status log-{{ log.status }}">{{ log.status }}</td>
+          <td>{{ log.campaigns_synced }}</td>
+          <td>{{ log.events_inserted }}</td>
+          <td>{{ (log.duration_s ~ "s") if log.duration_s else "—" }}</td>
+          <td>{{ log.triggered_by }}</td>
+          <td class="log-error" title="{{ log.error_message or '' }}">
+            {{ (log.error_message or "")[:70] }}{{ "…" if log.error_message and log.error_message | length > 70 else "" }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+{% endif %}

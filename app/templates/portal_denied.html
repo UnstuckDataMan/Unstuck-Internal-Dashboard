@@ -1,0 +1,44 @@
+{# Shown for every portal rejection — invalid, revoked, expired, unavailable.
+   The message is passed in and is deliberately vague about which: a client (or
+   anyone who finds a link) should not be able to tell a revoked token from one
+   that never existed. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Report unavailable</title>
+  <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600&family=DM+Sans:opsz,wght@9..40,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: #10101f; color: #f0eeff;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 24px; text-align: center;
+      -webkit-font-smoothing: antialiased;
+    }
+    .orb {
+      position: fixed; width: 620px; height: 620px; top: -240px; left: -180px;
+      border-radius: 50%; pointer-events: none;
+      background: radial-gradient(circle, rgba(91,33,182,.35) 0%, transparent 70%);
+    }
+    .box { position: relative; max-width: 420px; }
+    img { height: 30px; width: auto; margin-bottom: 26px; opacity: .9; }
+    h1 { font-family: 'Bricolage Grotesque', sans-serif; font-size: 21px; font-weight: 600; margin-bottom: 12px; }
+    p { color: rgba(210,205,255,.55); font-size: 14px; line-height: 1.65; }
+  </style>
+</head>
+<body>
+  <div class="orb" aria-hidden="true"></div>
+  <div class="box">
+    <img src="/static/img/logo.png" alt="Unstuck">
+    <h1>Report unavailable</h1>
+    <p>{{ message }}</p>
+  </div>
+</body>
+</html>

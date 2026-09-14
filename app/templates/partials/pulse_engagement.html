@@ -1,0 +1,23 @@
+{# Portal engagement — success-criteria question #2: did clients actually use it?
+   Context: rows [{client, views, last, ago}] #}
+{% if not rows %}
+<p class="pulse-meta">
+  No portal views recorded yet. Views are logged from the moment the first link
+  is opened, so this stays empty until a client visits.
+</p>
+{% else %}
+<div class="tbl-wrap" style="margin-bottom:0">
+  <table>
+    <thead><tr><th>Client</th><th>Views</th><th>Last visit</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.client.emoji or "📈" }} {{ row.client.name }}</td>
+        <td>{{ row.views }}</td>
+        <td>{{ row.ago or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}

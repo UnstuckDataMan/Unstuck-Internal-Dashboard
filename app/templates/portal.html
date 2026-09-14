@@ -1,0 +1,266 @@
+{# Client-facing report. Deliberately does NOT extend base.html: that layout
+   carries internal chrome — the dashboard home link, the SOP button, the tool
+   nav — none of which a client should see or be able to click. Same brand
+   tokens, standalone shell. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ client.name }} — Campaign Report</title>
+  <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+  <link rel="icon" type="image/png" href="/static/img/favicon-32x32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,600;12..96,700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --purple: #8b5cf6; --purple-2: #7c3aed; --pink: #e879f9;
+      --gradient-vivid: linear-gradient(135deg, #7c3aed 0%, #6366f1 50%, #e879f9 100%);
+      --bg: #10101f;
+      --surface: rgba(255,255,255,.07);
+      --border: rgba(255,255,255,.13);
+      --text: #f0eeff;
+      --text-2: rgba(230,225,255,.68);
+      --text-3: rgba(210,205,255,.50);
+      --ease: cubic-bezier(.25,.1,.25,1);
+      --ease-out: cubic-bezier(0,0,.2,1);
+      --font-display: 'Bricolage Grotesque', sans-serif;
+      --font: 'DM Sans', sans-serif;
+      --sh-md: 0 4px 24px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.35);
+    }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--font); background: var(--bg); color: var(--text);
+      -webkit-font-smoothing: antialiased; min-height: 100vh; position: relative;
+    }
+    .bg-orbs { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+    .orb { position: absolute; border-radius: 50%; }
+    .orb-1 { width: 640px; height: 640px; top: -240px; left: -180px;
+             background: radial-gradient(circle, rgba(91,33,182,.40) 0%, transparent 70%); }
+    .orb-2 { width: 440px; height: 440px; bottom: -120px; right: -120px;
+             background: radial-gradient(circle, rgba(49,46,129,.36) 0%, transparent 70%); }
+
+    .wrap { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: 40px 22px 70px; }
+
+    header.report-head {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding-bottom: 22px; margin-bottom: 30px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-mark { height: 30px; width: auto; opacity: .95; }
+    .head-titles { flex: 1; min-width: 200px; }
+    .report-title {
+      font-family: var(--font-display); font-size: 23px; font-weight: 600; letter-spacing: -.01em;
+    }
+    .report-sub { font-size: 13px; color: var(--text-3); margin-top: 3px; }
+
+    .range-nav { display: flex; gap: 7px; flex-wrap: wrap; }
+    .range-nav a {
+      font-size: 12.5px; text-decoration: none; color: var(--text-2);
+      background: rgba(255,255,255,.06); border: 1px solid var(--border);
+      border-radius: 999px; padding: 6px 14px; transition: all .18s var(--ease);
+    }
+    .range-nav a:hover { background: rgba(255,255,255,.11); color: var(--text); }
+    .range-nav a.is-active {
+      background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.45); color: #c4b5fd;
+    }
+
+    .headline-row {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 14px; margin-bottom: 30px;
+    }
+    .headline {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 15px; padding: 17px 19px;
+    }
+    .headline-value {
+      font-family: var(--font-display); font-size: 27px; font-weight: 600;
+      font-variant-numeric: tabular-nums; line-height: 1.1;
+    }
+    .headline-label { font-size: 12px; color: var(--text-3); margin-top: 5px; }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 18px; padding: 24px 26px; margin-bottom: 22px;
+      box-shadow: var(--sh-md), inset 0 1px 0 rgba(255,255,255,.06);
+    }
+    .card h2 {
+      font-family: var(--font-display); font-size: 16px; font-weight: 600; margin-bottom: 4px;
+    }
+    .card .hint { font-size: 12.5px; color: var(--text-3); line-height: 1.55; margin-bottom: 20px; }
+
+    /* Funnel */
+    .stage { margin-bottom: 17px; animation: stageIn .4s var(--ease-out) both; animation-delay: calc(var(--i) * .06s); }
+    .stage:last-child { margin-bottom: 0; }
+    @keyframes stageIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+    .stage-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+    .stage-label { font-size: 13.5px; color: var(--text-2); font-weight: 500; }
+    .stage-value {
+      font-family: var(--font-display); font-size: 19px; font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .stage-track { height: 11px; border-radius: 7px; background: rgba(255,255,255,.06); overflow: hidden; }
+    .stage-bar {
+      height: 100%; border-radius: 7px; background: var(--gradient-vivid);
+      min-width: 2px; transition: width .55s var(--ease-out);
+    }
+    .stage-rate { font-size: 11.5px; color: var(--text-3); margin-top: 5px; }
+    .stage-rate b { color: #c4b5fd; font-weight: 600; }
+
+    .channel-row {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+      padding: 11px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 13px;
+    }
+    .channel-row:last-child { border-bottom: none; }
+    .channel-row .n { color: var(--text-3); font-size: 12.5px; }
+    .channel-row .n b { color: #c4b5fd; font-weight: 600; }
+
+    .trend { display: flex; align-items: flex-end; gap: 2px; height: 78px; }
+    .trend-col {
+      flex: 1; min-width: 2px; border-radius: 2px 2px 0 0;
+      background: linear-gradient(180deg, #a78bfa 0%, #7c3aed 100%); opacity: .85;
+    }
+    .trend-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-top: 8px; }
+
+    .empty { text-align: center; padding: 40px 20px; color: var(--text-3); font-size: 13.5px; line-height: 1.6; }
+
+    footer.report-foot {
+      margin-top: 34px; padding-top: 20px; border-top: 1px solid var(--border);
+      font-size: 11.5px; color: var(--text-3); line-height: 1.7;
+    }
+
+    @media (max-width: 560px) {
+      .wrap { padding: 28px 15px 50px; }
+      .report-title { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true"><div class="orb orb-1"></div><div class="orb orb-2"></div></div>
+
+  <div class="wrap">
+    <header class="report-head">
+      <img src="/static/img/logo.png" alt="Unstuck" class="brand-mark">
+      <div class="head-titles">
+        <div class="report-title">{{ client.name }}</div>
+        <div class="report-sub">Campaign performance · {{ range_label }}</div>
+      </div>
+      <nav class="range-nav">
+        {% for key, label in ranges.items() %}
+        <a href="/portal/{{ token }}?range={{ key }}"
+           class="{{ 'is-active' if key == range_key else '' }}">{{ label }}</a>
+        {% endfor %}
+      </nav>
+    </header>
+
+    {% if not total_sent %}
+    <div class="card">
+      <div class="empty">
+        <p>No campaign activity to report for {{ range_label | lower }}.</p>
+        <p style="margin-top:8px">Try a wider range above, or speak to your account manager.</p>
+      </div>
+    </div>
+    {% else %}
+
+    <div class="headline-row">
+      <div class="headline">
+        <div class="headline-value">{{ "{:,}".format(counts.sent) }}</div>
+        <div class="headline-label">Messages sent</div>
+      </div>
+      <div class="headline">
+        <div class="headline-value">{{ "{:,}".format(counts.replied) }}</div>
+        <div class="headline-label">Replies</div>
+      </div>
+      <div class="headline">
+        <div class="headline-value">{{ "{:,}".format(counts.positive_reply) }}</div>
+        <div class="headline-label">Positive replies</div>
+      </div>
+      <div class="headline">
+        <div class="headline-value">{{ "{:,}".format(counts.meeting_booked) }}</div>
+        <div class="headline-label">Meetings booked</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Your funnel</h2>
+      <p class="hint">
+        Every stage counts people, except sends — one person may receive several
+        messages in a sequence.
+      </p>
+      {% set top = funnel[0].value if funnel and funnel[0].value else 0 %}
+      {% for stage in funnel %}
+      <div class="stage" style="--i: {{ loop.index0 }}">
+        <div class="stage-head">
+          <span class="stage-label">{{ stage.label }}</span>
+          <span class="stage-value">{{ "{:,}".format(stage.value) }}</span>
+        </div>
+        <div class="stage-track">
+          <div class="stage-bar" style="width: {{ (stage.value * 100.0 / top) if top else 0 }}%"></div>
+        </div>
+        {% if stage.step_rate is not none %}
+        <div class="stage-rate">
+          <b>{{ stage.step_rate }}%</b> of {{ funnel[loop.index0 - 1].label | lower }}
+          {%- if stage.overall is not none %} · {{ stage.overall }}% of all sends{% endif %}
+        </div>
+        {% elif not stage.is_top %}
+        {# Nothing reached the stage above, so there is no rate to quote. Say so
+           plainly rather than leaving a gap the client has to interpret. #}
+        <div class="stage-rate">no {{ funnel[loop.index0 - 1].label | lower }} to convert from</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if by_channel and by_channel | length > 1 %}
+    <div class="card">
+      <h2>Email and LinkedIn</h2>
+      <p class="hint">
+        Both channels roll into the funnel above. On LinkedIn, "opened" means a
+        connection request was accepted.
+      </p>
+      {% for channel_name, c in by_channel.items() %}
+      <div class="channel-row">
+        <span>{{ "LinkedIn" if channel_name == "linkedin" else "Email" }}</span>
+        <span class="n">
+          <b>{{ "{:,}".format(c.sent) }}</b> sent ·
+          <b>{{ "{:,}".format(c.replied) }}</b> replied ·
+          <b>{{ "{:,}".format(c.meeting_booked) }}</b> booked
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if timeseries | length > 1 %}
+    {% set max_sent = (timeseries | map(attribute='sent') | max) or 1 %}
+    <div class="card">
+      <h2>Activity over time</h2>
+      <p class="hint">Messages sent per day across both channels.</p>
+      <div class="trend">
+        {% for day in timeseries %}
+        <div class="trend-col"
+             style="height: {{ (day.sent * 100.0 / max_sent) if max_sent else 0 }}%"
+             title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied"></div>
+        {% endfor %}
+      </div>
+      <div class="trend-axis">
+        <span>{{ timeseries[0].day }}</span>
+        <span>{{ timeseries[-1].day }}</span>
+      </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+
+    <footer class="report-foot">
+      Updated automatically from our campaign tools — last refreshed
+      {{ generated.strftime("%d %b %Y, %H:%M") }} UTC.<br>
+      Questions about anything here? Reply to your account manager.
+    </footer>
+  </div>
+</body>
+</html>

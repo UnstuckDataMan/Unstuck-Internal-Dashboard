@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}Outbound Pulse — Unstuck{% endblock %}
+{% block heading %}Outbound Pulse{% endblock %}
+
+{% block content %}
+{% include "pulse_styles.html" %}
+
+<!-- ── Connector health ─────────────────────────────────────────── -->
+<div class="pulse-panel">
+  <h3>Connector status</h3>
+  <p class="panel-hint">
+    Both connectors sync hourly. If a sync breaks, it shows here before a client
+    sees a stale dashboard — that is what this panel is for.
+  </p>
+  <div id="pulse-sync-status"
+       hx-get="/api/outbound-pulse/sync-status"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="skel-stack" role="status" aria-label="Loading connector status">
+      <div class="skel-card"><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Filters ──────────────────────────────────────────────────── -->
+<div class="pulse-toolbar">
+  <label for="range-select">Range</label>
+  <select id="range-select" name="range">
+    {% for key, label in presets.items() %}
+    <option value="{{ key }}" {% if key == "30d" %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="channel-select" style="margin-left:8px">Channel</label>
+  <select id="channel-select" name="channel">
+    <option value="">Both</option>
+    <option value="email">Email</option>
+    <option value="linkedin">LinkedIn</option>
+  </select>
+
+  <div class="spacer"></div>
+  <div id="pulse-spinner" class="spinner htmx-indicator">
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    Loading…
+  </div>
+</div>
+
+<!-- ── Funnel ───────────────────────────────────────────────────── -->
+<div id="pulse-overview"
+     hx-get="/api/outbound-pulse/overview"
+     hx-trigger="load, pulseRefresh from:body, pulseSynced from:body"
+     hx-include="#range-select, #channel-select"
+     hx-indicator="#pulse-spinner"
+     hx-swap="innerHTML">
+  <div class="skel-stack" role="status" aria-label="Loading funnel">
+    <div class="skel-card"><span class="skel skel-line lg"></span><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
+    <div class="skel-card"><span class="skel skel-line lg"></span><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
+  </div>
+</div>
+
+<!-- ── Campaign mapping ─────────────────────────────────────────── -->
+<div class="pulse-panel" id="pulse-campaigns-panel" style="margin-top:30px">
+  <h3>Campaign mapping</h3>
+  <p class="panel-hint">
+    Connectors can't tell which of our clients a campaign belongs to, so map it
+    here once. Until a campaign is mapped its events sit outside every client
+    funnel. A remap moves that campaign's history with it.
+  </p>
+  <div id="pulse-campaigns-list"
+       hx-get="/api/outbound-pulse/campaigns"
+       hx-trigger="load, pulseSynced from:body"
+       hx-swap="innerHTML">
+    <div class="skel-stack" role="status" aria-label="Loading campaigns">
+      <div class="skel-card"><span class="skel skel-line lg"></span><span class="skel skel-line md"></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Meet Alfred import ───────────────────────────────────────── -->
+<div class="pulse-panel">
+  <h3>Import Meet Alfred report</h3>
+  <p class="panel-hint">
+    Meet Alfred's API access isn't confirmed for this account yet, so LinkedIn
+    data can be loaded from a report export in the meantime. It runs through the
+    same mapping as the live connector and lands in the same funnel; re-importing
+    an updated export for the same campaign name adds only what's new.
+  </p>
+  <form id="alfred-import-form"
+        hx-post="/api/outbound-pulse/import/meet-alfred"
+        hx-target="#alfred-import-result"
+        hx-swap="innerHTML"
+        hx-encoding="multipart/form-data"
+        hx-indicator="#alfred-spinner">
+    <div class="form-row" style="margin-bottom:14px">
+      <div class="form-group">
+        <label>Campaign name</label>
+        <input type="text" name="campaign_name" placeholder="e.g. Acme — UK PR Directors" required>
+      </div>
+      <div class="form-group">
+        <label>Client</label>
+        <select name="client_id" id="alfred-client">
+          <option value="">— assign later —</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:14px">
+      <label>Report CSV</label>
+      <input type="file" name="file" accept=".csv,text/csv" required
+             style="font-size:13px;color:var(--text-2)">
+    </div>
+
+    <div class="form-actions" style="margin-top:14px;padding-top:14px">
+      <button type="submit" class="btn btn-primary">Import</button>
+      <div id="alfred-spinner" class="spinner htmx-indicator">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        Importing…
+      </div>
+    </div>
+  </form>
+  <div id="alfred-import-result" style="margin-top:14px"></div>
+</div>
+
+<!-- ── Portal engagement ────────────────────────────────────────── -->
+<div class="pulse-panel">
+  <h3>Client portal engagement</h3>
+  <p class="panel-hint">
+    Views of the read-only client portal. Recorded from the first visit onward —
+    this is how we answer "did clients use it, or ignore it?" at the end of the trial.
+  </p>
+  <div id="pulse-engagement"
+       hx-get="/api/outbound-pulse/engagement"
+       hx-trigger="load"
+       hx-swap="innerHTML"></div>
+</div>
+
+<script>
+(function () {
+  const overview = document.getElementById('pulse-overview');
+  const rangeSel = document.getElementById('range-select');
+  const chanSel  = document.getElementById('channel-select');
+
+  // Filters re-fetch the funnel. Fired as an event rather than wiring hx-get
+  // onto each <select> so both controls share one request path — and so the
+  // manual-sync trigger (pulseSynced) can reuse it.
+  function refresh() { htmx.trigger(document.body, 'pulseRefresh'); }
+  rangeSel.addEventListener('change', refresh);
+  chanSel.addEventListener('change', refresh);
+
+  // Client picker for the import form.
+  fetch('/api/outbound-pulse/clients', { headers: { 'HX-Request': 'true' } })
+    .then(r => r.ok ? r.json() : [])
+    .then(clients => {
+      if (!Array.isArray(clients)) return;
+      const sel = document.getElementById('alfred-client');
+      for (const c of clients) {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.name;
+        sel.appendChild(opt);
+      }
+    })
+    .catch(() => {});
+
+  // Clear the file input after a successful import so a double-submit can't
+  // silently re-post the same file.
+  document.getElementById('alfred-import-form').addEventListener('htmx:afterRequest', function (e) {
+    if (e.detail.successful) this.reset();
+  });
+})();
+</script>
+{% endblock %}

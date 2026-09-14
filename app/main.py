@@ -13,7 +13,7 @@ from app.deps import templates
 from app.routers import (
     gender, city, dnc, reply_bank, mail_merge, copy_bank, copy_bank_export,
     campaigns, launch_checker, targeting_checker, bd_targeting, profiles,
-    auth as auth_router, admin, sops,
+    auth as auth_router, admin, sops, outbound_pulse, pulse_portal,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,17 +31,34 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     from app.utils.auto_sync import start_scheduler, stop_scheduler
+    from app.utils.pulse.sync import (
+        start_scheduler as start_pulse_scheduler,
+        stop_scheduler as stop_pulse_scheduler,
+    )
     try:
         start_scheduler()
         logger.info("Auto-sync scheduler started (hourly daemon thread; first run ~20s after boot).")
     except Exception as exc:
         logger.warning("Auto-sync scheduler could not start: %s", exc)
 
+    # Outbound Pulse connector sync — same daemon-thread pattern, offset start.
+    # No-ops when neither connector has an API key, so an unconfigured
+    # deployment doesn't log an hourly failure.
+    try:
+        start_pulse_scheduler()
+    except Exception as exc:
+        logger.warning("Pulse sync scheduler could not start: %s", exc)
+
     yield  # app runs here
 
     try:
         stop_scheduler()
         logger.info("Auto-sync scheduler stopped.")
+    except Exception:
+        pass
+
+    try:
+        stop_pulse_scheduler()
     except Exception:
         pass
 
@@ -95,6 +112,8 @@ app.include_router(launch_checker.router)
 app.include_router(targeting_checker.router)
 app.include_router(bd_targeting.router)
 app.include_router(sops.router)
+app.include_router(outbound_pulse.router)
+app.include_router(pulse_portal.router)
 
 
 @app.exception_handler(404)

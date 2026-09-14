@@ -1,0 +1,37 @@
+{# Shared funnel bar chart.
+   Context: funnel (from normalize.funnel_with_rates), optional compact flag.
+   Bars are scaled against the top stage, so the shape itself carries the
+   drop-off — the numbers confirm it rather than being the only signal. #}
+{% set top = funnel[0].value if funnel and funnel[0].value else 0 %}
+<div class="pulse-funnel{% if compact %} is-compact{% endif %}">
+  {% for stage in funnel %}
+  <div class="funnel-stage" style="--i: {{ loop.index0 }}">
+    <div class="funnel-stage-head">
+      <span class="funnel-label">{{ stage.label }}</span>
+      <span class="funnel-value">{{ "{:,}".format(stage.value) }}</span>
+    </div>
+    <div class="funnel-track">
+      <div class="funnel-bar"
+           style="width: {{ (stage.value * 100.0 / top) if top else 0 }}%"></div>
+    </div>
+    <div class="funnel-rates">
+      {% if stage.step_rate is not none %}
+        <span class="rate-step" title="Share of the stage above that reached this one">
+          {{ stage.step_rate }}% of {{ funnel[loop.index0 - 1].label | lower }}
+        </span>
+      {% elif stage.is_top %}
+        <span class="rate-step">top of funnel</span>
+      {% else %}
+        {# The stage above is zero — no rate to show. Labelling this "top of
+           funnel" (the old behaviour) claimed the wrong thing entirely. #}
+        <span class="rate-step">—</span>
+      {% endif %}
+      {% if stage.overall is not none %}
+        <span class="rate-overall" title="Share of all sends that reached this stage">
+          {{ stage.overall }}% of sent
+        </span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
