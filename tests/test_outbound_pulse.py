@@ -1516,3 +1516,123 @@ def test_rows_carry_a_selection_checkbox(client, fake_sb):
     assert 'id="bulk-select-all"' in r.text
     # The bulk bar starts hidden — it is an action on a selection, not furniture.
     assert 'id="pulse-bulk-bar" hidden' in r.text
+
+
+# ── Failure messages name the real cause ──────────────────────────────────────
+# A production statement timeout on pulse_funnel_daily surfaced as a bare
+# "500 Server Error" plus advice to re-run a migration that had already run.
+
+def _timeout_response(call):
+    return FakeResponse(500, {
+        "code": "57014",
+        "message": "canceling statement due to statement timeout",
+        "details": None, "hint": None,
+    })
+
+
+def test_timeout_surfaces_the_postgres_error_not_a_bare_500(client, fake_sb):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_funnel_daily", _timeout_response)
+
+    r = client.get("/api/outbound-pulse/overview")
+    assert r.status_code == 200
+    assert "statement timeout" in r.text
+    assert "57014" in r.text
+
+
+def test_timeout_does_not_tell_you_to_rerun_the_schema_migration(client, fake_sb):
+    """The migration had already run. Pointing at it wasted the investigation."""
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_funnel_daily", _timeout_response)
+
+    r = client.get("/api/outbound-pulse/overview")
+    assert "outbound_pulse_schema.sql" not in r.text
+    assert "outbound_pulse_rollup.sql" in r.text
+
+
+def test_missing_relation_still_points_at_the_schema_migration(client, fake_sb):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(404, {
+        "code": "42P01", "message": 'relation "public.pulse_campaigns" does not exist',
+    }))
+    r = client.get("/api/outbound-pulse/overview")
+    assert "outbound_pulse_schema.sql" in r.text
+
+
+def test_unclassified_errors_get_no_misleading_advice(client, fake_sb):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(
+        500, {"code": "XX000", "message": "something unexpected"}))
+
+    r = client.get("/api/outbound-pulse/overview")
+    assert "something unexpected" in r.text
+    assert ".sql" not in r.text
+
+
+def test_error_classification():
+    assert store._describe_postgrest_error("t", FakeResponse(
+        500, {"code": "57014", "message": "canceling statement due to statement timeout"})
+    ).kind == "timeout"
+    assert store._describe_postgrest_error("t", FakeResponse(
+        404, {"code": "42P01", "message": "relation does not exist"})).kind == "missing"
+    assert store._describe_postgrest_error("t", FakeResponse(
+        404, {"code": "PGRST205", "message": "Could not find the table"})).kind == "missing"
+    assert store._describe_postgrest_error("t", FakeResponse(
+        500, {"code": "XX000", "message": "boom"})).kind == "error"
+
+
+def test_non_json_error_body_does_not_mask_the_failure():
+    exc = store._describe_postgrest_error("t", FakeResponse(
+        502, None, text="<html>Bad Gateway</html>"))
+    assert "HTTP 502" in str(exc)
+    assert "Bad Gateway" in str(exc)
+
+
+# ── Rollup migration file ─────────────────────────────────────────────────────
+# The SQL itself is validated against a real Postgres (see the harness used when
+# it was written). These guard the properties that make it safe to run on prod,
+# so an edit cannot quietly remove them.
+
+def _rollup_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1]
+            / "migrations" / "outbound_pulse_rollup.sql").read_text(encoding="utf-8")
+
+
+def test_rollup_migration_is_one_transaction():
+    sql = _rollup_sql()
+    assert sql.index("BEGIN;") < sql.index("CREATE TABLE")
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+def test_rollup_migration_locks_events_before_rebuilding():
+    """Without the lock, a sync inserting mid-rebuild is double counted or lost."""
+    sql = _rollup_sql()
+    assert "LOCK TABLE pulse_campaign_events IN SHARE ROW EXCLUSIVE MODE" in sql
+    assert sql.index("LOCK TABLE") < sql.index("TRUNCATE pulse_funnel_rollup")
+
+
+def test_rollup_trigger_and_rebuild_bucket_days_identically():
+    """If these drift, live and rebuilt rows land on different days near midnight."""
+    sql = _rollup_sql()
+    assert sql.count("(occurred_at AT TIME ZONE 'UTC')::date") == 2
+
+
+def test_rollup_trigger_uses_a_transition_table():
+    """Statement-level with a transition table is what excludes ON CONFLICT
+    DO NOTHING duplicates from the counts."""
+    sql = _rollup_sql()
+    assert "REFERENCING NEW TABLE AS new_rows" in sql
+    assert "FOR EACH STATEMENT" in sql
+
+
+def test_rollup_view_keeps_the_column_contract():
+    sql = _rollup_sql()
+    view = sql[sql.index("CREATE VIEW pulse_funnel_daily"):]
+    cols = ["agency_id", "client_id", "campaign_id", "channel",
+            "source_tool", "event_type", "day", "events"]
+    positions = [view.index(f".{c}") for c in cols]
+    assert positions == sorted(positions), "view column order changed"
+    assert "events      BIGINT" in sql
