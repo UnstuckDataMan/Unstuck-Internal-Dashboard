@@ -39,7 +39,57 @@ AGENCY_NAME = os.environ.get("PULSE_AGENCY_NAME", "Unstuck").strip() or "Unstuck
 
 
 class PulseNotReady(RuntimeError):
-    """Raised when Supabase is unreachable or the migration has not been run."""
+    """Raised when a Supabase read fails.
+
+    `kind` says why, so the UI can give the right advice instead of one generic
+    hint for everything:
+      * "missing" — the table or view does not exist (migration not run)
+      * "timeout" — Postgres cancelled the query (Supabase's anon role stops
+        statements after a few seconds)
+      * "error"   — anything else
+    """
+
+    def __init__(self, message: str, kind: str = "error"):
+        super().__init__(message)
+        self.kind = kind
+
+
+# Postgres / PostgREST codes that mean the relation isn't there.
+_MISSING_CODES = {"42P01", "PGRST205", "PGRST200"}
+# 57014 = query_canceled, which is how a statement timeout surfaces.
+_TIMEOUT_CODES = {"57014"}
+
+
+def _describe_postgrest_error(table: str, response) -> PulseNotReady:
+    """Turn a failed PostgREST response into a message naming the real cause."""
+    code, detail = "", ""
+    try:
+        body = response.json()
+        if isinstance(body, dict):
+            code = str(body.get("code") or "")
+            detail = str(body.get("message") or body.get("details") or "")
+    except ValueError:
+        pass
+    if not detail:
+        # A gateway error page, or JSON with no message: the raw body is still
+        # more useful than an empty explanation.
+        detail = (getattr(response, "text", "") or "").strip()[:200]
+
+    lowered = detail.lower()
+    if code in _TIMEOUT_CODES or "statement timeout" in lowered:
+        kind = "timeout"
+    elif code in _MISSING_CODES or response.status_code == 404 or "does not exist" in lowered:
+        kind = "missing"
+    else:
+        kind = "error"
+
+    parts = [f"Query on {table} failed (HTTP {response.status_code}"]
+    if code:
+        parts.append(f", {code}")
+    parts.append(")")
+    if detail:
+        parts.append(f": {detail}")
+    return PulseNotReady("".join(parts), kind=kind)
 
 
 # ── Agency resolution ─────────────────────────────────────────────────────────
@@ -132,14 +182,20 @@ def list_clients(active_only: bool = False) -> list[dict]:
     # from client_profiles_schema.sql, so ask for them but degrade to id,name
     # rather than 500ing on a project where that migration hasn't run.
     rows: list[dict] = []
+    last_error: PulseNotReady | None = None
     for select in ("id,name,color,emoji,active", "id,name"):
         try:
             rows = _get("clients", {"select": select, "order": "name.asc", "or": scope})
             break
-        except PulseNotReady:
+        except PulseNotReady as exc:
+            last_error = exc
             continue
     else:
-        raise PulseNotReady("Could not read the clients table.")
+        # Re-raise the real failure rather than a generic one: it carries the
+        # Postgres error and its classification, which decide what the UI tells
+        # the user to do. A blanket "could not read clients" hides whether the
+        # table is missing or the query simply timed out.
+        raise last_error or PulseNotReady("Could not read the clients table.")
     if active_only:
         # Filtered in Python, not PostgREST: `active` is one of the optional
         # columns added by client_profiles_schema.sql, and an `active=eq.true`
@@ -864,10 +920,18 @@ def _get(table: str, params) -> list[dict]:
                 params=page,
                 timeout=30,
             )
-            r.raise_for_status()
-            rows = r.json()
         except Exception as exc:
             raise PulseNotReady(f"Query on {table} failed: {exc}") from exc
+
+        if r.status_code >= 400:
+            # raise_for_status() would discard the response body, which is where
+            # PostgREST puts the actual Postgres error. Without it a statement
+            # timeout and a missing table both read as a bare "500 Server Error".
+            raise _describe_postgrest_error(table, r)
+        try:
+            rows = r.json()
+        except ValueError as exc:
+            raise PulseNotReady(f"Query on {table} returned a non-JSON body.") from exc
 
         if not isinstance(rows, list):
             return out

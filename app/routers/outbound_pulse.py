@@ -123,10 +123,23 @@ def _error_box(message: str) -> HTMLResponse:
 
 
 def _not_ready_box(exc: Exception) -> HTMLResponse:
-    return _error_box(
-        f"{exc} If this is the first run, apply "
-        "migrations/outbound_pulse_schema.sql in the Supabase SQL editor."
-    )
+    """Explain a failed read with advice that matches its actual cause.
+
+    This used to append "apply the migration" to every failure. When the real
+    problem was a query timeout on an already-migrated database, that sent
+    people to re-run SQL that was never the issue.
+    """
+    kind = getattr(exc, "kind", "error")
+    if kind == "missing":
+        advice = (" A Pulse table or view is missing — apply "
+                  "migrations/outbound_pulse_schema.sql in the Supabase SQL editor.")
+    elif kind == "timeout":
+        advice = (" The database cancelled the query for running too long. If "
+                  "migrations/outbound_pulse_rollup.sql has not been applied, apply it — "
+                  "it replaces the slow funnel view with a pre-aggregated table.")
+    else:
+        advice = ""
+    return _error_box(f"{exc}{advice}")
 
 
 # ── Shared view assembly ──────────────────────────────────────────────────────
