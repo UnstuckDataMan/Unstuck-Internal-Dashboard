@@ -1,0 +1,22 @@
+{# Reply outcomes and lead rate. Context: counts.
+   The three categories are mutually exclusive, so they sit side by side rather
+   than as funnel steps. Leads = Information requests + Meeting requests;
+   Interested is shown but is not a lead. #}
+<div class="pulse-outcomes">
+  <div class="outcome-lead">
+    <div class="outcome-lead-rate">{{ counts | pulse_lead_rate | pulse_pct }}</div>
+    <div class="outcome-lead-label">
+      Lead rate
+      <span class="outcome-lead-n">{{ "{:,}".format(counts | pulse_leads) }} lead{{ "" if (counts | pulse_leads) == 1 else "s" }}</span>
+    </div>
+  </div>
+  <div class="outcome-list">
+    {% for o in counts | pulse_outcomes %}
+    <div class="outcome-item{% if o.is_lead %} is-lead{% endif %}">
+      <span class="outcome-label">{{ o.label }}</span>
+      <span class="outcome-value">{{ "{:,}".format(o.value) }}</span>
+      <span class="outcome-share">{{ o.of_replies | pulse_pct }} of replies</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>

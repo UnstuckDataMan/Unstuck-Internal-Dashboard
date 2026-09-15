@@ -119,6 +119,23 @@
     .channel-row .n { color: var(--text-3); font-size: 12.5px; }
     .channel-row .n b { color: #c4b5fd; font-weight: 600; }
 
+    .outcomes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+    .outcome {
+      padding: 14px 16px; border-radius: 13px;
+      background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.09);
+    }
+    .outcome.is-lead { border-color: rgba(139,92,246,.38); background: rgba(139,92,246,.08); }
+    .outcome-value {
+      font-family: var(--font-display); font-size: 23px; font-weight: 600;
+      font-variant-numeric: tabular-nums; line-height: 1.1;
+    }
+    .outcome-label { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
+    .outcome-share { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+    .outcome-tag {
+      display: inline-block; font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
+      color: #c4b5fd; margin-left: 6px; vertical-align: 1px;
+    }
+
     .trend { display: flex; align-items: flex-end; gap: 2px; height: 78px; }
     .trend-col {
       flex: 1; min-width: 2px; border-radius: 2px 2px 0 0;
@@ -176,12 +193,12 @@
         <div class="headline-label">Replies</div>
       </div>
       <div class="headline">
-        <div class="headline-value">{{ "{:,}".format(counts.positive_reply) }}</div>
-        <div class="headline-label">Interested</div>
+        <div class="headline-value">{{ "{:,}".format(counts | pulse_leads) }}</div>
+        <div class="headline-label">Leads</div>
       </div>
       <div class="headline">
-        <div class="headline-value">{{ "{:,}".format(counts.meeting_booked) }}</div>
-        <div class="headline-label">Meeting requests</div>
+        <div class="headline-value">{{ counts | pulse_lead_rate | pulse_pct }}</div>
+        <div class="headline-label">Lead rate</div>
       </div>
     </div>
 
@@ -215,6 +232,24 @@
       {% endfor %}
     </div>
 
+    <div class="card">
+      <h2>Reply outcomes</h2>
+      <p class="hint">
+        How replies were categorised. Information and meeting requests count as
+        leads, and together make up the lead rate — {{ counts | pulse_lead_rate | pulse_pct }}
+        of all sends.
+      </p>
+      <div class="outcomes">
+        {% for o in counts | pulse_outcomes %}
+        <div class="outcome{% if o.is_lead %} is-lead{% endif %}">
+          <div class="outcome-value">{{ "{:,}".format(o.value) }}</div>
+          <div class="outcome-label">{{ o.label }}{% if o.is_lead %}<span class="outcome-tag">lead</span>{% endif %}</div>
+          <div class="outcome-share">{{ o.of_replies | pulse_pct }} of replies</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
     {% if by_channel and by_channel | length > 1 %}
     <div class="card">
       <h2>Email and LinkedIn</h2>
@@ -228,7 +263,7 @@
         <span class="n">
           <b>{{ "{:,}".format(c.sent) }}</b> sent ·
           <b>{{ "{:,}".format(c.replied) }}</b> replied ·
-          <b>{{ "{:,}".format(c.meeting_booked) }}</b> meeting requests
+          <b>{{ "{:,}".format(c | pulse_leads) }}</b> leads
         </span>
       </div>
       {% endfor %}
@@ -244,7 +279,7 @@
         {% for day in timeseries %}
         <div class="trend-col"
              style="height: {{ (day.sent * 100.0 / max_sent) if max_sent else 0 }}%"
-             title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied"></div>
+             title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied, {{ day | pulse_leads }} leads"></div>
         {% endfor %}
       </div>
       <div class="trend-axis">

@@ -1,13 +1,24 @@
 """
-The normalized event contract shared by every Outbound Pulse connector.
+The normalized contract shared by every Outbound Pulse connector.
 
-Both connectors produce the same five event types, so the funnel view never
-branches on which tool a data point came from:
+Two kinds of data, stored two ways, because they behave differently:
 
-    sent → opened → replied → positive_reply → meeting_booked
+  Events — sent, opened, replied. Things that happened. Append-only, in
+  pulse_campaign_events, counted through the rollup.
 
-Two rules make the funnel a plain COUNT(*) per event_type, which matters
-because PostgREST cannot express COUNT(DISTINCT):
+  Outcomes — Interested, Information Request, Meeting Request. A lead's
+  CURRENT Smartlead category, one row per replying lead in
+  pulse_lead_outcomes, upserted every sync. Categories are mutually exclusive
+  and change over time (Interested is often re-marked Meeting Request), so
+  they cannot be append-only events: an event can't be un-happened, and the
+  lead would keep counting in the bucket it left.
+
+Leads are Information Request + Meeting Request. Interested is tracked but is
+not a lead.
+
+The rest of this docstring is about events. Two rules make their funnel a plain
+COUNT(*) per event_type, which matters because PostgREST cannot express
+COUNT(DISTINCT):
 
   1. `sent` counts sends.  A 4-step sequence to one lead is 4 events, because
      "emails sent" is a volume figure and that is what a client expects to see.
@@ -28,36 +39,49 @@ import hashlib
 import re
 from datetime import datetime, timezone
 
-# Funnel order.  The dashboard renders stages in this sequence and computes
-# stage-to-stage conversion against the stage above.
-EVENT_SENT           = "sent"
-EVENT_OPENED         = "opened"
-EVENT_REPLIED        = "replied"
-EVENT_POSITIVE_REPLY = "positive_reply"
-EVENT_MEETING_BOOKED = "meeting_booked"
+EVENT_SENT    = "sent"
+EVENT_OPENED  = "opened"
+EVENT_REPLIED = "replied"
 
-FUNNEL_STAGES: tuple[str, ...] = (
-    EVENT_SENT,
-    EVENT_OPENED,
-    EVENT_REPLIED,
+# Outcome stage keys. Two keep their original names because they are stored in
+# existing rows: positive_reply now means exactly "marked Interested", and
+# meeting_booked means "marked Meeting Request" — a request, not a booking.
+EVENT_POSITIVE_REPLY      = "positive_reply"
+EVENT_INFORMATION_REQUEST = "information_request"
+EVENT_MEETING_BOOKED      = "meeting_booked"
+
+# Leads are derived, never stored.
+STAGE_LEADS = "leads"
+
+# Event types the connectors write as append-only events.
+EVENT_STAGES: tuple[str, ...] = (EVENT_SENT, EVENT_OPENED, EVENT_REPLIED)
+
+# Mutually exclusive current-category outcomes.
+OUTCOME_STAGES: tuple[str, ...] = (
     EVENT_POSITIVE_REPLY,
+    EVENT_INFORMATION_REQUEST,
     EVENT_MEETING_BOOKED,
 )
 
-# Labels follow the team's own Smartlead categories. The top stage's key stays
-# `meeting_booked` because it is stored on every existing event row and in the
-# rollup, but what the data actually records is a meeting REQUEST — there is no
-# booked-meeting category. Showing clients "Meetings booked" would read as
-# confirmed calls on their calendar, which the numbers do not support.
+# The outcomes that count as a lead, and so feed the lead rate.
+LEAD_STAGES: tuple[str, ...] = (EVENT_INFORMATION_REQUEST, EVENT_MEETING_BOOKED)
+
+# Every stage type that pulse_funnel_daily can return, for aggregation.
+FUNNEL_STAGES: tuple[str, ...] = EVENT_STAGES + OUTCOME_STAGES
+
 STAGE_LABELS: dict[str, str] = {
-    EVENT_SENT:           "Sent",
-    EVENT_OPENED:         "Opened",
-    EVENT_REPLIED:        "Replied",
-    EVENT_POSITIVE_REPLY: "Interested",
-    EVENT_MEETING_BOOKED: "Meeting requested",
+    EVENT_SENT:                "Sent",
+    EVENT_OPENED:              "Opened",
+    EVENT_REPLIED:             "Replied",
+    EVENT_POSITIVE_REPLY:      "Interested",
+    EVENT_INFORMATION_REQUEST: "Information requests",
+    EVENT_MEETING_BOOKED:      "Meeting requests",
+    STAGE_LEADS:               "Leads",
 }
 
-# Stages counted once per lead per campaign (see rule 2 above).
+# Event stages counted once per lead per campaign (see rule 2 above). Outcome
+# keys are included only so make_event() still accepts them when it is asked to
+# build a legacy row; the connectors no longer emit outcome events.
 _ONCE_PER_LEAD: frozenset[str] = frozenset(FUNNEL_STAGES) - {EVENT_SENT}
 
 CHANNEL_EMAIL    = "email"
@@ -148,25 +172,16 @@ def lead_key(*candidates) -> str:
 # Anything we cannot confidently call positive stays a plain `replied`, so the
 # stages above it under-report rather than flatter the numbers.
 #
-# The team's live Smartlead categories, and how they are used:
-#   Interested          — asks for more info, or shows low-level interest
-#   Information Request — the same intent, so the same stage
-#   Meeting Request     — higher interest, or asks for a meeting: the top stage
-#   Not Interested / Do Not Contact / Out Of Office / Wrong Person — not positive
+# The team's live Smartlead categories each map to exactly one outcome:
+#   Interested          → Interested (tracked, but not a lead)
+#   Information Request → Information requests   ─┐ leads
+#   Meeting Request     → Meeting requests       ─┘
+#   Not Interested / Do Not Contact / Out Of Office / Wrong Person → none
+#
+# These term lists are copied into migrations/outbound_pulse_outcomes.sql for
+# its one-time backfill; a test fails if the two drift apart.
 
-_POSITIVE_CATEGORIES = {
-    "interested",
-    "information request",
-    "positive",
-    "positive reply",
-    "warm",
-    "hot lead",
-}
-
-# "meeting request" belongs here, not in the positive set: it is the team's
-# highest-intent category. It previously sat with Interested, which meant no
-# live category ever reached the top stage and it read as zero for every client.
-_MEETING_CATEGORIES = {
+_MEETING_CATEGORIES = (
     "meeting request",
     "meeting requested",
     "meeting booked",
@@ -175,10 +190,31 @@ _MEETING_CATEGORIES = {
     "booked",
     "demo booked",
     "call booked",
-}
+)
 
-_NEGATIVE_CATEGORIES = {
+_INFORMATION_CATEGORIES = (
+    "information request",
+    "info request",
+    "more information",
+    "more info",
+)
+
+_INTERESTED_CATEGORIES = (
+    "interested",
+    "positive",
+    "positive reply",
+    "warm",
+    "hot lead",
+)
+
+# "no longer interested" and "uninterested" are here because they contain
+# "interested": without them the substring fallback would count a refusal as
+# interest.
+_NEGATIVE_CATEGORIES = (
     "not interested",
+    "no longer interested",
+    "uninterested",
+    "not a fit",
     "negative",
     "do not contact",
     "unsubscribed",
@@ -186,15 +222,16 @@ _NEGATIVE_CATEGORIES = {
     "wrong person",
     "bounced",
     "spam",
-}
+)
 
 
 def classify_reply(category) -> str | None:
-    """Map a source tool's reply category onto a funnel stage.
+    """Map a source tool's reply category onto exactly one outcome stage.
 
-    Returns EVENT_MEETING_BOOKED, EVENT_POSITIVE_REPLY, or None for "replied,
-    but not positively classified".  Unknown categories return None on purpose:
-    a category we have never seen is not evidence of a positive reply.
+    Returns EVENT_MEETING_BOOKED, EVENT_INFORMATION_REQUEST,
+    EVENT_POSITIVE_REPLY, or None for "replied, not positive". Unknown
+    categories return None on purpose: a category we have never seen is not
+    evidence of interest.
     """
     if not category:
         return None
@@ -203,21 +240,55 @@ def classify_reply(category) -> str | None:
         return None
     if key in _MEETING_CATEGORIES:
         return EVENT_MEETING_BOOKED
-    if key in _POSITIVE_CATEGORIES:
+    if key in _INFORMATION_CATEGORIES:
+        return EVENT_INFORMATION_REQUEST
+    if key in _INTERESTED_CATEGORIES:
         return EVENT_POSITIVE_REPLY
     if key in _NEGATIVE_CATEGORIES:
         return None
     # Substring fallback for categories the team renames in-tool
     # ("Interested - pricing", "Meeting Request ✅"). Negative is checked FIRST:
     # "Not interested in a meeting request" contains both a negative and a
-    # meeting phrase, and when in doubt the funnel must under-report.
+    # meeting phrase, and when in doubt the numbers must under-report.
     if any(term in key for term in _NEGATIVE_CATEGORIES):
         return None
     if any(term in key for term in _MEETING_CATEGORIES):
         return EVENT_MEETING_BOOKED
-    if any(term in key for term in _POSITIVE_CATEGORIES):
+    if any(term in key for term in _INFORMATION_CATEGORIES):
+        return EVENT_INFORMATION_REQUEST
+    if any(term in key for term in _INTERESTED_CATEGORIES):
         return EVENT_POSITIVE_REPLY
     return None
+
+
+def make_outcome(
+    *,
+    agency_id:   str,
+    campaign_id: str,
+    lead:        str,
+    category,
+    replied_at:  datetime,
+    stage:       str | None = None,
+) -> dict:
+    """One pulse_lead_outcomes row: a replying lead's CURRENT outcome.
+
+    `stage` is normally derived from `category`; pass it explicitly only when
+    the source signals an outcome without a category (a tracked meeting in a
+    Meet Alfred export). A None stage is still written — that is how a lead
+    re-marked Not Interested drops out of the counts on the next sync.
+    """
+    resolved = stage if stage is not None else classify_reply(category)
+    if resolved is not None and resolved not in OUTCOME_STAGES:
+        raise ValueError(f"unknown outcome stage: {resolved!r}")
+    return {
+        "agency_id":   agency_id,
+        "campaign_id": campaign_id,
+        "lead_key":    lead,
+        "stage":       resolved,
+        "category":    str(category or "").strip()[:200],
+        "day":         replied_at.astimezone(timezone.utc).date().isoformat(),
+        "updated_at":  datetime.now(timezone.utc).isoformat(),
+    }
 
 
 # ── Event construction ────────────────────────────────────────────────────────
@@ -292,20 +363,56 @@ def opens_are_tracked(counts: dict[str, int]) -> bool:
     return opened > 0 and opened >= (counts.get(EVENT_REPLIED, 0) or 0)
 
 
-def funnel_with_rates(counts: dict[str, int]) -> list[dict]:
-    """Funnel stages with both step and top-of-funnel conversion rates.
+def lead_count(counts: dict[str, int]) -> int:
+    """Information requests + meeting requests."""
+    return sum(counts.get(stage, 0) or 0 for stage in LEAD_STAGES)
 
-    Step rate answers "of the leads that reached the previous stage, how many
-    got here"; overall answers "what share of sends ended here". Both are shown
-    because the first is the one to optimise and the second is the one clients
-    quote back.
+
+def lead_rate(counts: dict[str, int]) -> float | None:
+    """Leads as a percentage of sends — the same base as the reply rate, so the
+    two can be read side by side. None when nothing was sent."""
+    return _rate(lead_count(counts), counts.get(EVENT_SENT, 0) or 0)
+
+
+def reply_rate(counts: dict[str, int]) -> float | None:
+    return _rate(counts.get(EVENT_REPLIED, 0) or 0, counts.get(EVENT_SENT, 0) or 0)
+
+
+def outcome_breakdown(counts: dict[str, int]) -> list[dict]:
+    """The three reply outcomes side by side, each with its share of replies.
+
+    Shown as a breakdown rather than as funnel stages: the categories are
+    mutually exclusive, so "Meeting requests as a % of Interested" would be a
+    meaningless step rate.
+    """
+    replied = counts.get(EVENT_REPLIED, 0) or 0
+    return [{
+        "key":        stage,
+        "label":      STAGE_LABELS[stage],
+        "value":      counts.get(stage, 0) or 0,
+        "of_replies": _rate(counts.get(stage, 0) or 0, replied),
+        "is_lead":    stage in LEAD_STAGES,
+    } for stage in OUTCOME_STAGES]
+
+
+def funnel_with_rates(counts: dict[str, int]) -> list[dict]:
+    """The sequential funnel — Sent → Opened → Replied → Leads — with rates.
+
+    Step rate answers "of the stage above, how many got here"; overall answers
+    "what share of sends ended here". For Leads, overall IS the lead rate.
+
+    Only genuinely nested stages belong here. The three outcome categories are
+    siblings, not steps, so they are reported by outcome_breakdown() instead.
     """
     top = counts.get(EVENT_SENT, 0) or 0
     rows: list[dict] = []
     previous = None
-    stages = [s for s in FUNNEL_STAGES if s != EVENT_OPENED or opens_are_tracked(counts)]
+    stages = [EVENT_SENT]
+    if opens_are_tracked(counts):
+        stages.append(EVENT_OPENED)
+    stages += [EVENT_REPLIED, STAGE_LEADS]
     for index, stage in enumerate(stages):
-        value = counts.get(stage, 0) or 0
+        value = lead_count(counts) if stage == STAGE_LEADS else (counts.get(stage, 0) or 0)
         rows.append({
             "key":       stage,
             "label":     STAGE_LABELS[stage],

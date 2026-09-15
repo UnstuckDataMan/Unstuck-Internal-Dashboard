@@ -38,7 +38,10 @@
     <span class="pulse-meta">{{ campaign_rows | length }} campaign{{ "" if campaign_rows | length == 1 else "s" }} with activity</span>
   </div>
   <div class="pulse-total-card">
-    <div>{% include "partials/pulse_funnel.html" %}</div>
+    <div>
+      {% include "partials/pulse_funnel.html" %}
+      {% include "partials/pulse_outcomes.html" %}
+    </div>
     <div class="pulse-channel-split">
       {% if by_channel %}
       <p class="section-label" style="margin-bottom:10px">By channel</p>
@@ -48,7 +51,8 @@
         <span class="channel-stats">
           <b>{{ "{:,}".format(counts.sent) }}</b> sent
           · <b>{{ "{:,}".format(counts.replied) }}</b> replied
-          · <b>{{ "{:,}".format(counts.meeting_booked) }}</b> meeting request{{ "" if counts.meeting_booked == 1 else "s" }}
+          · <b>{{ "{:,}".format(counts | pulse_leads) }}</b> lead{{ "" if (counts | pulse_leads) == 1 else "s" }}
+          · <b>{{ counts | pulse_lead_rate | pulse_pct }}</b> lead rate
         </span>
       </div>
       {% endfor %}
@@ -75,7 +79,7 @@
       {% for day in timeseries %}
       <div class="trend-col"
            style="height: {{ (day.sent * 100.0 / max_sent) if max_sent else 0 }}%"
-           title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied, {{ day.meeting_booked }} meeting requests"></div>
+           title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied, {{ day | pulse_leads }} leads"></div>
       {% endfor %}
     </div>
     <div class="trend-axis">
@@ -100,7 +104,8 @@
         <tr>
           <th>Campaign</th><th>Channel</th>
           <th>Sent</th>{% if show_opened %}<th>Opened</th>{% endif %}<th>Replied</th>
-          <th>Interested</th><th>Meeting req.</th><th>Reply rate</th>
+          <th>Interested</th><th>Info req.</th><th>Meeting req.</th>
+          <th>Leads</th><th>Reply rate</th><th>Lead rate</th>
         </tr>
       </thead>
       <tbody>
@@ -112,8 +117,11 @@
           {% if show_opened %}<td>{{ "{:,}".format(row.counts.opened) }}</td>{% endif %}
           <td>{{ "{:,}".format(row.counts.replied) }}</td>
           <td>{{ "{:,}".format(row.counts.positive_reply) }}</td>
+          <td>{{ "{:,}".format(row.counts.information_request) }}</td>
           <td>{{ "{:,}".format(row.counts.meeting_booked) }}</td>
-          <td>{% if row.counts.sent %}{{ "%.1f" | format(row.counts.replied * 100.0 / row.counts.sent) }}%{% else %}—{% endif %}</td>
+          <td>{{ "{:,}".format(row.counts | pulse_leads) }}</td>
+          <td>{{ row.counts | pulse_reply_rate | pulse_pct }}</td>
+          <td>{{ row.counts | pulse_lead_rate | pulse_pct }}</td>
         </tr>
         {% endfor %}
       </tbody>
