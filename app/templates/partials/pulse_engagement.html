@@ -12,7 +12,7 @@
     <tbody>
       {% for row in rows %}
       <tr>
-        <td>{{ row.client.emoji or "📈" }} {{ row.client.name }}</td>
+        <td>{{ row.client.name }}</td>
         <td>{{ row.views }}</td>
         <td>{{ row.ago or "—" }}</td>
       </tr>
