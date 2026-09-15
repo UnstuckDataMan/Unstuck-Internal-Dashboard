@@ -630,7 +630,6 @@ def test_client_detail_page_renders(client, fake_sb):
     assert "Acme" in r.text
     assert "Acme UK PR" in r.text
     assert "1,000" in r.text                  # 800 email + 200 LinkedIn
-    assert "connection request was accepted" in r.text   # channel caveat shown
 
 
 def test_client_detail_page_404s_for_an_unknown_client(client, fake_sb):
@@ -1636,3 +1635,214 @@ def test_rollup_view_keeps_the_column_contract():
     positions = [view.index(f".{c}") for c in cols]
     assert positions == sorted(positions), "view column order changed"
     assert "events      BIGINT" in sql
+
+
+# ── The team's real Smartlead categories ──────────────────────────────────────
+# Interested / Information Request = low-level interest; Meeting Request = the
+# highest intent. Before this, Meeting Request counted only as a positive reply,
+# so no live category ever reached the top stage and it read zero everywhere.
+
+@pytest.mark.parametrize("category,expected", [
+    ("Interested",          normalize.EVENT_POSITIVE_REPLY),
+    ("Information Request", normalize.EVENT_POSITIVE_REPLY),
+    ("Meeting Request",     normalize.EVENT_MEETING_BOOKED),
+    ("Not Interested",      None),
+    ("Do Not Contact",      None),
+    ("Out Of Office",       None),
+    ("Wrong Person",        None),
+])
+def test_live_smartlead_categories(category, expected):
+    assert normalize.classify_reply(category) == expected
+
+
+def test_meeting_request_is_no_longer_just_a_positive_reply():
+    assert normalize.classify_reply("Meeting Request") != normalize.EVENT_POSITIVE_REPLY
+
+
+def test_renamed_meeting_request_still_reaches_the_top_stage():
+    assert normalize.classify_reply("Meeting Requested") == normalize.EVENT_MEETING_BOOKED
+    assert normalize.classify_reply("Meeting Request ✅") == normalize.EVENT_MEETING_BOOKED
+
+
+def test_negative_wins_when_a_category_contains_both_phrases():
+    """When in doubt the funnel under-reports. A category naming both a refusal
+    and a meeting must not count as a meeting."""
+    assert normalize.classify_reply("Not interested in a meeting request") is None
+
+
+def test_a_meeting_request_lead_counts_as_interested_too():
+    """Every stage is a subset of the one above it: a lead asking for a meeting
+    was also interested, so the funnel never shows more meetings than interest."""
+    events = _smartlead_events([{
+        "lead_email":    "jo@acme.com",
+        "sent_time":     "2026-09-01T09:00:00Z",
+        "reply_time":    "2026-09-02T09:00:00Z",
+        "lead_category": "Meeting Request",
+    }])
+    types = [e["event_type"] for e in events]
+    assert "positive_reply" in types
+    assert "meeting_booked" in types
+
+
+def test_resync_adds_the_meeting_stage_without_duplicating_interest():
+    """History already synced under the old mapping has a positive_reply event
+    but no meeting event. Re-syncing must add the meeting and reuse the existing
+    interested row's dedupe key, so the backfill is automatic and exact."""
+    row = {"lead_email": "jo@acme.com", "reply_time": "2026-09-02T09:00:00Z",
+           "lead_category": "Meeting Request"}
+    first = {e["event_type"]: e["dedupe_key"] for e in _smartlead_events([row])}
+    second = {e["event_type"]: e["dedupe_key"] for e in _smartlead_events([row])}
+    assert first["positive_reply"] == second["positive_reply"]
+    assert first["meeting_booked"] == second["meeting_booked"]
+
+
+def test_stage_labels_use_the_teams_vocabulary():
+    """The top stage records meeting REQUESTS. Calling it "booked" would tell a
+    client they have calls on the calendar that the data doesn't show."""
+    assert normalize.STAGE_LABELS[normalize.EVENT_POSITIVE_REPLY] == "Interested"
+    assert normalize.STAGE_LABELS[normalize.EVENT_MEETING_BOOKED] == "Meeting requested"
+
+
+# ── Opens are shown only when they are tracked ────────────────────────────────
+
+@pytest.mark.parametrize("opened,replied,tracked", [
+    (0,    0,   False),   # nothing tracked, nothing replied
+    (0,    40,  False),   # tracking off — the common case
+    (12,   40,  False),   # tracking on for some campaigns only: incomplete
+    (40,   40,  True),    # boundary: a lead opens before replying
+    (900,  40,  True),    # tracking on
+])
+def test_opens_are_tracked(opened, replied, tracked):
+    assert normalize.opens_are_tracked({"opened": opened, "replied": replied}) is tracked
+
+
+def test_untracked_opens_are_dropped_from_the_funnel():
+    rows = normalize.funnel_with_rates(
+        {"sent": 1000, "opened": 0, "replied": 50,
+         "positive_reply": 10, "meeting_booked": 4})
+    assert [r["key"] for r in rows] == \
+        ["sent", "replied", "positive_reply", "meeting_booked"]
+
+
+def test_reply_rate_is_against_sent_when_opens_are_dropped():
+    """With the Opened row gone, the reply rate must not be computed against a
+    zero it no longer shows."""
+    rows = {r["key"]: r for r in normalize.funnel_with_rates(
+        {"sent": 1000, "opened": 0, "replied": 50,
+         "positive_reply": 10, "meeting_booked": 4})}
+    assert rows["replied"]["step_rate"] == 5.0            # 50 of 1000 sent
+    assert rows["replied"]["overall"] is None             # would just repeat 5.0
+    assert rows["positive_reply"]["step_rate"] == 20.0    # 10 of 50 replied
+    assert rows["meeting_booked"]["step_rate"] == 40.0    # 4 of 10 interested
+
+
+def test_tracked_opens_keep_their_stage():
+    """A LinkedIn funnel (opened = connection accepted) or an email campaign
+    with tracking on must still show the stage."""
+    rows = normalize.funnel_with_rates(
+        {"sent": 1000, "opened": 400, "replied": 50,
+         "positive_reply": 10, "meeting_booked": 4})
+    assert "opened" in [r["key"] for r in rows]
+
+
+def _detail_routes_with(fake_sb, rows):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": "🏢", "active": True}]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(
+        200, [{"id": CAMPAIGN, "client_id": CLIENT, "name": "Acme UK PR",
+               "channel": "email", "source_tool": "smartlead",
+               "external_campaign_id": "1", "status": "ACTIVE",
+               "last_synced_at": None, "created_at": None}]))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, rows))
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, []))
+
+
+def _day(event_type, events, channel="email"):
+    return {"client_id": CLIENT, "campaign_id": CAMPAIGN, "channel": channel,
+            "event_type": event_type, "events": events, "day": "2026-09-10"}
+
+
+def test_client_page_hides_the_opened_column_when_untracked(client, fake_sb):
+    _detail_routes_with(fake_sb, [_day("sent", 1000), _day("replied", 50)])
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert r.status_code == 200
+    assert "<th>Opened</th>" not in r.text
+
+
+def test_client_page_shows_the_opened_column_when_tracked(client, fake_sb):
+    _detail_routes_with(fake_sb, [_day("sent", 1000), _day("opened", 400),
+                                  _day("replied", 50)])
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert "<th>Opened</th>" in r.text
+
+
+def test_client_page_reply_rate_is_replied_over_sent(client, fake_sb):
+    """This column used to read funnel[2] by position. Once Opened can drop out,
+    position 2 is the Interested stage — the column would have shown the wrong
+    metric under the right heading."""
+    _detail_routes_with(fake_sb, [_day("sent", 1000), _day("replied", 50),
+                                  _day("positive_reply", 10)])
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert "<td>5.0%</td>" in r.text
+
+
+def test_linkedin_opened_note_only_appears_with_the_opened_stage(client, fake_sb):
+    untracked = [_day("sent", 800), _day("replied", 40),
+                 _day("sent", 200, "linkedin"), _day("replied", 7, "linkedin")]
+    _detail_routes_with(fake_sb, untracked)
+    assert "connection request was accepted" not in \
+        client.get(f"/outbound-pulse/clients/{CLIENT}").text
+
+    tracked = untracked + [_day("opened", 300), _day("opened", 90, "linkedin")]
+    _detail_routes_with(fake_sb, tracked)
+    assert "connection request was accepted" in \
+        client.get(f"/outbound-pulse/clients/{CLIENT}").text
+
+
+# ── Client names: no icon ─────────────────────────────────────────────────────
+
+def test_overview_client_card_has_no_icon(client, fake_sb):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": "🏢", "active": True}]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "event_type": "sent", "events": 100},
+    ]))
+    r = client.get("/api/outbound-pulse/overview")
+    assert "pulse-client-name" in r.text
+    assert "🏢" not in r.text
+    assert "📈" not in r.text
+    assert "pulse-client-emoji" not in r.text
+
+
+def test_engagement_table_has_no_icon(client, fake_sb):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": "🏢", "active": True}]))
+    fake_sb.route("GET", "pulse_portal_visits", lambda call: FakeResponse(
+        200, [{"client_id": CLIENT, "viewed_at": "2026-09-10T10:00:00+00:00"}]))
+    r = client.get("/api/outbound-pulse/engagement")
+    assert "Acme" in r.text
+    assert "🏢" not in r.text and "📈" not in r.text
+
+
+# ── Client portal wording ─────────────────────────────────────────────────────
+
+def test_portal_never_calls_meeting_requests_booked(client, fake_sb):
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
+        "id": "a1", "client_id": CLIENT, "label": "",
+        "expires_at": None, "revoked_at": None, "view_count": 0,
+    }]))
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"event_type": "sent", "events": 900, "channel": "email", "day": "2026-09-10"},
+        {"event_type": "replied", "events": 45, "channel": "email", "day": "2026-09-10"},
+        {"event_type": "meeting_booked", "events": 3, "channel": "email", "day": "2026-09-10"},
+        {"event_type": "sent", "events": 100, "channel": "linkedin", "day": "2026-09-10"},
+    ]))
+    r = client.get("/portal/valid-token")
+    assert r.status_code == 200
+    assert "Meeting requests" in r.text
+    assert "booked" not in r.text.lower()
+    # Opens aren't tracked here, so the portal must not explain a stage it hides.
+    assert "connection request was accepted" not in r.text

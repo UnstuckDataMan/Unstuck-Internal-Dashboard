@@ -48,11 +48,11 @@
         <span class="channel-stats">
           <b>{{ "{:,}".format(counts.sent) }}</b> sent
           · <b>{{ "{:,}".format(counts.replied) }}</b> replied
-          · <b>{{ "{:,}".format(counts.meeting_booked) }}</b> meeting{{ "" if counts.meeting_booked == 1 else "s" }}
+          · <b>{{ "{:,}".format(counts.meeting_booked) }}</b> meeting request{{ "" if counts.meeting_booked == 1 else "s" }}
         </span>
       </div>
       {% endfor %}
-      {% if by_channel | length > 1 %}
+      {% if by_channel | length > 1 and show_opened %}
       <p class="pulse-meta" style="margin-top:12px;line-height:1.55">
         LinkedIn "opened" means a connection request was accepted — the closest
         equivalent stage, not an email open.
@@ -75,7 +75,7 @@
       {% for day in timeseries %}
       <div class="trend-col"
            style="height: {{ (day.sent * 100.0 / max_sent) if max_sent else 0 }}%"
-           title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied, {{ day.meeting_booked }} booked"></div>
+           title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied, {{ day.meeting_booked }} meeting requests"></div>
       {% endfor %}
     </div>
     <div class="trend-axis">
@@ -99,8 +99,8 @@
       <thead>
         <tr>
           <th>Campaign</th><th>Channel</th>
-          <th>Sent</th><th>Opened</th><th>Replied</th>
-          <th>Positive</th><th>Booked</th><th>Reply rate</th>
+          <th>Sent</th>{% if show_opened %}<th>Opened</th>{% endif %}<th>Replied</th>
+          <th>Interested</th><th>Meeting req.</th><th>Reply rate</th>
         </tr>
       </thead>
       <tbody>
@@ -109,11 +109,11 @@
           <td title="{{ row.campaign.name }}">{{ (row.campaign.name or "(unnamed)")[:44] }}</td>
           <td>{{ "LinkedIn" if row.campaign.channel == "linkedin" else "Email" }}</td>
           <td>{{ "{:,}".format(row.counts.sent) }}</td>
-          <td>{{ "{:,}".format(row.counts.opened) }}</td>
+          {% if show_opened %}<td>{{ "{:,}".format(row.counts.opened) }}</td>{% endif %}
           <td>{{ "{:,}".format(row.counts.replied) }}</td>
           <td>{{ "{:,}".format(row.counts.positive_reply) }}</td>
           <td>{{ "{:,}".format(row.counts.meeting_booked) }}</td>
-          <td>{{ row.funnel[2].overall if row.funnel[2].overall is not none else "—" }}{{ "%" if row.funnel[2].overall is not none else "" }}</td>
+          <td>{% if row.counts.sent %}{{ "%.1f" | format(row.counts.replied * 100.0 / row.counts.sent) }}%{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>

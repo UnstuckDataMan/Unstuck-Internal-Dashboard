@@ -177,11 +177,11 @@
       </div>
       <div class="headline">
         <div class="headline-value">{{ "{:,}".format(counts.positive_reply) }}</div>
-        <div class="headline-label">Positive replies</div>
+        <div class="headline-label">Interested</div>
       </div>
       <div class="headline">
         <div class="headline-value">{{ "{:,}".format(counts.meeting_booked) }}</div>
-        <div class="headline-label">Meetings booked</div>
+        <div class="headline-label">Meeting requests</div>
       </div>
     </div>
 
@@ -219,8 +219,8 @@
     <div class="card">
       <h2>Email and LinkedIn</h2>
       <p class="hint">
-        Both channels roll into the funnel above. On LinkedIn, "opened" means a
-        connection request was accepted.
+        Both channels roll into the funnel above.{% if funnel | selectattr("key", "equalto", "opened") | list %} On LinkedIn, "opened" means a
+        connection request was accepted.{% endif %}
       </p>
       {% for channel_name, c in by_channel.items() %}
       <div class="channel-row">
@@ -228,7 +228,7 @@
         <span class="n">
           <b>{{ "{:,}".format(c.sent) }}</b> sent ·
           <b>{{ "{:,}".format(c.replied) }}</b> replied ·
-          <b>{{ "{:,}".format(c.meeting_booked) }}</b> booked
+          <b>{{ "{:,}".format(c.meeting_booked) }}</b> meeting requests
         </span>
       </div>
       {% endfor %}

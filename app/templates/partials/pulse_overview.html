@@ -49,7 +49,7 @@
         <span class="channel-stats">
           <b>{{ "{:,}".format(counts.sent) }}</b> sent
           · <b>{{ "{:,}".format(counts.replied) }}</b> replied
-          · <b>{{ "{:,}".format(counts.meeting_booked) }}</b> meeting{{ "" if counts.meeting_booked == 1 else "s" }}
+          · <b>{{ "{:,}".format(counts.meeting_booked) }}</b> meeting request{{ "" if counts.meeting_booked == 1 else "s" }}
         </span>
       </div>
       {% endfor %}
@@ -66,9 +66,8 @@
        href="/outbound-pulse/clients/{{ row.client.id }}?{{ range_query }}{% if channel %}&channel={{ channel }}{% endif %}"
        style="{% if row.client.color %}--card-accent: {{ row.client.color }};{% endif %}">
       <div class="pulse-client-head">
-        <span class="pulse-client-emoji">{{ row.client.emoji or "📈" }}</span>
         <span class="pulse-client-name">{{ row.client.name }}</span>
-        <span class="pulse-client-meetings" title="Meetings booked in range">
+        <span class="pulse-client-meetings" title="Meetings requested in range">
           {{ row.meetings }}
         </span>
       </div>

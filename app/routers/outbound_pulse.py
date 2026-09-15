@@ -30,6 +30,7 @@ from app.utils.pulse.normalize import (
     FUNNEL_STAGES,
     SOURCE_MEET_ALFRED,
     funnel_with_rates,
+    opens_are_tracked,
 )
 from app.utils.pulse.store import PulseNotReady
 
@@ -229,6 +230,9 @@ def _client_context(client_id: str, rng: dict, channel: str) -> dict | None:
         "client":       client,
         "counts":       counts,
         "funnel":       funnel_with_rates(counts),
+        # Same rule the funnel uses to drop its Opened stage, so the campaign
+        # table doesn't show a column of zeros the funnel just chose to hide.
+        "show_opened":  opens_are_tracked(counts),
         "by_channel":   store.funnel_by_channel(
                             client_id=client_id,
                             date_from=rng["from"], date_to=rng["to"]),

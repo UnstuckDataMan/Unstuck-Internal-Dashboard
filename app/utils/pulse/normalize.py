@@ -44,12 +44,17 @@ FUNNEL_STAGES: tuple[str, ...] = (
     EVENT_MEETING_BOOKED,
 )
 
+# Labels follow the team's own Smartlead categories. The top stage's key stays
+# `meeting_booked` because it is stored on every existing event row and in the
+# rollup, but what the data actually records is a meeting REQUEST — there is no
+# booked-meeting category. Showing clients "Meetings booked" would read as
+# confirmed calls on their calendar, which the numbers do not support.
 STAGE_LABELS: dict[str, str] = {
     EVENT_SENT:           "Sent",
     EVENT_OPENED:         "Opened",
     EVENT_REPLIED:        "Replied",
-    EVENT_POSITIVE_REPLY: "Positive reply",
-    EVENT_MEETING_BOOKED: "Meeting booked",
+    EVENT_POSITIVE_REPLY: "Interested",
+    EVENT_MEETING_BOOKED: "Meeting requested",
 }
 
 # Stages counted once per lead per campaign (see rule 2 above).
@@ -138,22 +143,32 @@ def lead_key(*candidates) -> str:
     return ""
 
 
-# ── Positive-reply classification ─────────────────────────────────────────────
+# ── Reply classification ──────────────────────────────────────────────────────
 # Smartlead exposes a per-lead category; Meet Alfred does not classify at all.
 # Anything we cannot confidently call positive stays a plain `replied`, so the
-# positive-reply stage under-reports rather than flattering the numbers.
+# stages above it under-report rather than flatter the numbers.
+#
+# The team's live Smartlead categories, and how they are used:
+#   Interested          — asks for more info, or shows low-level interest
+#   Information Request — the same intent, so the same stage
+#   Meeting Request     — higher interest, or asks for a meeting: the top stage
+#   Not Interested / Do Not Contact / Out Of Office / Wrong Person — not positive
 
 _POSITIVE_CATEGORIES = {
     "interested",
+    "information request",
     "positive",
     "positive reply",
-    "meeting request",
-    "information request",
     "warm",
     "hot lead",
 }
 
+# "meeting request" belongs here, not in the positive set: it is the team's
+# highest-intent category. It previously sat with Interested, which meant no
+# live category ever reached the top stage and it read as zero for every client.
 _MEETING_CATEGORIES = {
+    "meeting request",
+    "meeting requested",
     "meeting booked",
     "meeting completed",
     "meeting scheduled",
@@ -193,11 +208,13 @@ def classify_reply(category) -> str | None:
     if key in _NEGATIVE_CATEGORIES:
         return None
     # Substring fallback for categories the team renames in-tool
-    # ("Interested - pricing", "Meeting Booked ✅").
-    if any(term in key for term in _MEETING_CATEGORIES):
-        return EVENT_MEETING_BOOKED
+    # ("Interested - pricing", "Meeting Request ✅"). Negative is checked FIRST:
+    # "Not interested in a meeting request" contains both a negative and a
+    # meeting phrase, and when in doubt the funnel must under-report.
     if any(term in key for term in _NEGATIVE_CATEGORIES):
         return None
+    if any(term in key for term in _MEETING_CATEGORIES):
+        return EVENT_MEETING_BOOKED
     if any(term in key for term in _POSITIVE_CATEGORIES):
         return EVENT_POSITIVE_REPLY
     return None
@@ -258,6 +275,23 @@ def empty_funnel() -> dict[str, int]:
     return {stage: 0 for stage in FUNNEL_STAGES}
 
 
+def opens_are_tracked(counts: dict[str, int]) -> bool:
+    """Whether the Opened stage carries real information for these counts.
+
+    The team rarely turns on open tracking, so for most campaigns `opened` is
+    zero — and showing it both displays a false "0 opened" and zeroes out every
+    reply rate calculated against it. A lead has to open an email before
+    replying, so a genuinely tracked funnel always has at least as many opens as
+    replies. Fewer opens than replies means tracking was off for some or all of
+    the campaigns in view, and the stage is dropped rather than shown wrong.
+
+    Decided per funnel, not globally, so a campaign that does track opens — or a
+    LinkedIn funnel, where this stage is a connection acceptance — still shows it.
+    """
+    opened = counts.get(EVENT_OPENED, 0) or 0
+    return opened > 0 and opened >= (counts.get(EVENT_REPLIED, 0) or 0)
+
+
 def funnel_with_rates(counts: dict[str, int]) -> list[dict]:
     """Funnel stages with both step and top-of-funnel conversion rates.
 
@@ -269,7 +303,8 @@ def funnel_with_rates(counts: dict[str, int]) -> list[dict]:
     top = counts.get(EVENT_SENT, 0) or 0
     rows: list[dict] = []
     previous = None
-    for index, stage in enumerate(FUNNEL_STAGES):
+    stages = [s for s in FUNNEL_STAGES if s != EVENT_OPENED or opens_are_tracked(counts)]
+    for index, stage in enumerate(stages):
         value = counts.get(stage, 0) or 0
         rows.append({
             "key":       stage,
