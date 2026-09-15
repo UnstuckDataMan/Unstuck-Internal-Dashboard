@@ -156,7 +156,7 @@ def sync_source(source_tool: str, triggered_by: str = "schedule") -> dict:
             if not external_id:
                 continue
             try:
-                events = connector.sync_campaign(
+                events, outcomes = connector.sync_campaign(
                     external_campaign_id=external_id,
                     agency_id=agency_id,
                     campaign_id=str(row["id"]),
@@ -169,6 +169,16 @@ def sync_source(source_tool: str, triggered_by: str = "schedule") -> dict:
                 continue
 
             events_inserted += store.insert_events(events)
+
+            written = store.upsert_outcomes(outcomes)
+            if written < len(outcomes):
+                # Report it rather than log a clean run: without this the reply
+                # outcomes for this campaign silently stop updating. Not marked
+                # as synced either, so it stays at the head of the queue.
+                failures.append(
+                    f"{label}: saved {written} of {len(outcomes)} lead outcomes"
+                )
+                continue
             campaigns_synced += 1
             # Stamped only after a successful sync, so a failing campaign stays
             # at the head of the rolling order and is retried next run rather

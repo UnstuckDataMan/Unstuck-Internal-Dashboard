@@ -584,6 +584,39 @@ def insert_events(events: list[dict]) -> int:
     return inserted
 
 
+def upsert_outcomes(outcomes: list[dict]) -> int:
+    """Write replying leads' current outcomes. Returns rows written.
+
+    An upsert, not an insert: each sync overwrites a lead's stage with its
+    current Smartlead category, which is what moves a lead re-marked from
+    Interested to Meeting Request, or drops one re-marked Not Interested.
+
+    Returns the number of rows the database accepted, so the sync can tell a
+    silent shortfall from success rather than logging a clean run over lost data.
+    """
+    if not outcomes:
+        return 0
+    written = 0
+    for start in range(0, len(outcomes), INSERT_CHUNK):
+        chunk = outcomes[start:start + INSERT_CHUNK]
+        try:
+            r = http_req.post(
+                f"{SUPABASE_URL}/rest/v1/pulse_lead_outcomes",
+                headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
+                params={"on_conflict": "agency_id,campaign_id,lead_key"},
+                json=chunk,
+                timeout=45,
+            )
+            if r.status_code >= 400:
+                logger.warning("Pulse: outcome upsert chunk failed: %s",
+                               _describe_postgrest_error("pulse_lead_outcomes", r))
+                continue
+            written += len(chunk)
+        except Exception as exc:
+            logger.warning("Pulse: outcome upsert chunk failed: %s", exc)
+    return written
+
+
 # ── Funnel aggregation ────────────────────────────────────────────────────────
 
 def funnel(

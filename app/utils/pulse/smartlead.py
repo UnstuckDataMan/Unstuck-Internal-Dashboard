@@ -33,15 +33,13 @@ import requests as http_req
 
 from app.utils.pulse.normalize import (
     CHANNEL_EMAIL,
-    EVENT_MEETING_BOOKED,
     EVENT_OPENED,
-    EVENT_POSITIVE_REPLY,
     EVENT_REPLIED,
     EVENT_SENT,
     SOURCE_SMARTLEAD,
-    classify_reply,
     lead_key,
     make_event,
+    make_outcome,
     parse_ts,
 )
 
@@ -194,8 +192,9 @@ def events_from_statistics(
       • sent_time   → a `sent` event per row (real send volume)
       • open_time   → one `opened` event per lead (the dedupe key collapses the
                       repeats across steps)
-      • reply_time  → `replied`, plus `positive_reply` / `meeting_booked` when
-                      the lead's category says so
+      • reply_time  → one `replied` event per lead
+
+    The lead's category is NOT turned into events — see outcomes_from_statistics.
     """
     events: list[dict] = []
 
@@ -234,20 +233,63 @@ def events_from_statistics(
         add(EVENT_OPENED, _first(row, "open_time", "opened_at", "email_open_time"),
             lead, step, raw)
 
-        reply_time = _first(row, "reply_time", "replied_at", "email_reply_time")
-        if reply_time:
-            add(EVENT_REPLIED, reply_time, lead, step, raw)
-            stage = classify_reply(_first(row, "lead_category", "category",
-                                          "lead_category_name", "reply_category"))
-            if stage == EVENT_MEETING_BOOKED:
-                # A booked meeting implies a positive reply — record both so the
-                # funnel never shows more meetings than positive replies.
-                add(EVENT_POSITIVE_REPLY, reply_time, lead, step, raw)
-                add(EVENT_MEETING_BOOKED, reply_time, lead, step, raw)
-            elif stage == EVENT_POSITIVE_REPLY:
-                add(EVENT_POSITIVE_REPLY, reply_time, lead, step, raw)
+        add(EVENT_REPLIED, _first(row, "reply_time", "replied_at", "email_reply_time"),
+            lead, step, raw)
 
     return events
+
+
+_CATEGORY_FIELDS = ("lead_category", "category", "lead_category_name", "reply_category")
+
+
+def outcomes_from_statistics(
+    rows: list[dict],
+    *,
+    agency_id: str,
+    campaign_id: str,
+) -> list[dict]:
+    """One current-outcome row per lead who replied.
+
+    Statistics rows are per sequence step, so a lead appears several times but
+    only the step that drew the reply carries reply_time. Rows are collapsed to
+    one per lead here, and that is required, not tidiness: a single upsert
+    statement containing the same key twice fails in Postgres ("cannot affect
+    row a second time"), which would lose the whole batch.
+
+    The category is lead-level in Smartlead, so it is the lead's CURRENT
+    category on every sync. The earliest reply fixes the reporting day.
+    """
+    by_lead: dict[str, dict] = {}
+    for row in rows:
+        lead = lead_key(
+            _first(row, "lead_email", "email", "to_email"),
+            _first(row, "lead_id", "id"),
+        )
+        if not lead:
+            continue
+        replied_at = parse_ts(_first(row, "reply_time", "replied_at", "email_reply_time"))
+        category = _first(row, *_CATEGORY_FIELDS)
+
+        seen = by_lead.get(lead)
+        if seen is None:
+            by_lead[lead] = {"replied_at": replied_at, "category": category}
+            continue
+        if replied_at and (seen["replied_at"] is None or replied_at < seen["replied_at"]):
+            seen["replied_at"] = replied_at
+        if category and not seen["category"]:
+            seen["category"] = category
+
+    return [
+        make_outcome(
+            agency_id=agency_id,
+            campaign_id=campaign_id,
+            lead=lead,
+            category=data["category"],
+            replied_at=data["replied_at"],
+        )
+        for lead, data in by_lead.items()
+        if data["replied_at"] is not None
+    ]
 
 
 def sync_campaign(
@@ -256,12 +298,20 @@ def sync_campaign(
     agency_id: str,
     campaign_id: str,
     client_id: str | None,
-) -> list[dict]:
-    """Fetch and normalize one campaign's events. Raises SmartleadError."""
+) -> tuple[list[dict], list[dict]]:
+    """Fetch one campaign and return (events, outcomes). Raises SmartleadError.
+
+    One fetch feeds both, so events and outcomes always describe the same
+    snapshot of the campaign.
+    """
     rows = fetch_statistics(external_campaign_id)
-    return events_from_statistics(
+    events = events_from_statistics(
         rows, agency_id=agency_id, campaign_id=campaign_id, client_id=client_id,
     )
+    outcomes = outcomes_from_statistics(
+        rows, agency_id=agency_id, campaign_id=campaign_id,
+    )
+    return events, outcomes
 
 
 CHANNEL = CHANNEL_EMAIL
