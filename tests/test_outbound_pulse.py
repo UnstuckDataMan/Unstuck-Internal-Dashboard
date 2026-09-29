@@ -2129,3 +2129,50 @@ def test_view_reads_outcomes_from_the_table_not_legacy_events():
     assert "WHERE r.event_type IN ('sent', 'opened', 'replied')" in view
     assert "FROM pulse_lead_outcomes o" in view
     assert "WHERE o.stage IS NOT NULL" in view
+
+
+# ── Campaign mapping is its own tab ───────────────────────────────────────────
+
+def test_page_has_a_tab_strip(client, fake_sb):
+    r = client.get("/outbound-pulse")
+    assert r.status_code == 200
+    assert 'role="tablist"' in r.text
+    assert 'data-tab="reporting"' in r.text
+    assert 'data-tab="mapping"' in r.text
+    assert "Campaign mapping" in r.text
+
+
+def test_mapping_lives_in_its_own_panel_hidden_by_default(client, fake_sb):
+    r = client.get("/outbound-pulse")
+    assert '<section id="tab-mapping" role="tabpanel" aria-labelledby="tab-btn-mapping" hidden>' in r.text
+    # The mapping table markup must sit inside that panel, not the reporting one.
+    mapping_panel = r.text.split('<section id="tab-mapping"', 1)[1]
+    assert 'id="pulse-campaigns-list"' in mapping_panel
+    reporting_panel = r.text.split('<section id="tab-reporting"', 1)[1].split('<section id="tab-mapping"', 1)[0]
+    assert 'id="pulse-campaigns-list"' not in reporting_panel
+    assert 'id="pulse-overview"' in reporting_panel
+
+
+def test_mapping_table_is_not_fetched_until_its_tab_is_opened(client, fake_sb):
+    """One row per campaign, and this account has over a thousand — loading it
+    with the page made every visit pay for a table most visits never open."""
+    r = client.get("/outbound-pulse")
+    block = r.text.split('id="pulse-campaigns-list"', 1)[1].split(">", 1)[0]
+    assert 'hx-trigger="pulseMappingTab from:body"' in block
+    assert "load" not in block.replace("pulseMappingTab", "")
+
+
+def test_unmapped_warning_switches_tab_rather_than_scrolling(client, fake_sb):
+    """The mapping panel is on another tab now, so scrolling to it would land
+    on a hidden element."""
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, [
+        {"id": CAMPAIGN, "client_id": None, "name": "Stray", "channel": "email",
+         "source_tool": "smartlead", "external_campaign_id": "1", "status": "ACTIVE",
+         "last_synced_at": None, "created_at": None}]))
+
+    r = client.get("/api/outbound-pulse/overview")
+    assert "not mapped to a client" in r.text
+    assert "pulseShowMapping" in r.text
+    assert "scrollIntoView" not in r.text
