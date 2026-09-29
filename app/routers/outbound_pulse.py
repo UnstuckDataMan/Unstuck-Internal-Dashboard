@@ -27,6 +27,7 @@ from app.utils.pulse.normalize import (
     CHANNEL_LINKEDIN,
     EVENT_SENT,
     FUNNEL_STAGES,
+    SOURCE_LABELS,
     SOURCE_MEET_ALFRED,
     funnel_with_rates,
     opens_are_tracked,
@@ -227,10 +228,24 @@ def _client_context(client_id: str, rng: dict, channel: str) -> dict | None:
         })
     campaign_rows.sort(key=lambda r: r["counts"].get(EVENT_SENT, 0), reverse=True)
 
+    # Per source, from one query. Every tab is rendered up front because the
+    # numbers are already in hand — switching tabs should not cost a request.
+    by_source = store.funnel_by_source(
+        client_id=client_id, date_from=rng["from"], date_to=rng["to"],
+    )
+    sources = [{
+        "key":    key,
+        "label":  SOURCE_LABELS.get(key, key.replace("_", " ").title()),
+        "counts": by_source.get(key, {}),
+        "funnel": funnel_with_rates(by_source.get(key, {})),
+        "active": bool(by_source.get(key)),
+    } for key in SOURCE_LABELS]
+
     return {
         "client":       client,
         "counts":       counts,
         "funnel":       funnel_with_rates(counts),
+        "sources":      sources,
         # Same rule the funnel uses to drop its Opened stage, so the campaign
         # table doesn't show a column of zeros the funnel just chose to hide.
         "show_opened":  opens_are_tracked(counts),

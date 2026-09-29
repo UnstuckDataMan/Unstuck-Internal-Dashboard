@@ -50,6 +50,12 @@ EVENT_POSITIVE_REPLY      = "positive_reply"
 EVENT_INFORMATION_REQUEST = "information_request"
 EVENT_MEETING_BOOKED      = "meeting_booked"
 
+# A manual campaign's lead. The DNC & Merger tool records that a prospect
+# became a lead without saying whether they asked for information or a meeting,
+# so this is its own stage rather than being folded into either — that would
+# invent a distinction the source does not make. It still counts as a lead.
+EVENT_MANUAL_LEAD = "lead"
+
 # Leads are derived, never stored.
 STAGE_LEADS = "leads"
 
@@ -61,10 +67,24 @@ OUTCOME_STAGES: tuple[str, ...] = (
     EVENT_POSITIVE_REPLY,
     EVENT_INFORMATION_REQUEST,
     EVENT_MEETING_BOOKED,
+    EVENT_MANUAL_LEAD,
 )
 
 # The outcomes that count as a lead, and so feed the lead rate.
-LEAD_STAGES: tuple[str, ...] = (EVENT_INFORMATION_REQUEST, EVENT_MEETING_BOOKED)
+LEAD_STAGES: tuple[str, ...] = (
+    EVENT_INFORMATION_REQUEST,
+    EVENT_MEETING_BOOKED,
+    EVENT_MANUAL_LEAD,
+)
+
+SOURCE_MANUAL = "manual"
+
+# How each source is labelled in the per-source tabs.
+SOURCE_LABELS: dict[str, str] = {
+    "smartlead":   "Smartlead",
+    "meet_alfred": "Meet Alfred",
+    SOURCE_MANUAL: "Manual",
+}
 
 # Every stage type that pulse_funnel_daily can return, for aggregation.
 FUNNEL_STAGES: tuple[str, ...] = EVENT_STAGES + OUTCOME_STAGES
@@ -76,6 +96,7 @@ STAGE_LABELS: dict[str, str] = {
     EVENT_POSITIVE_REPLY:      "Interested",
     EVENT_INFORMATION_REQUEST: "Information requests",
     EVENT_MEETING_BOOKED:      "Meeting requests",
+    EVENT_MANUAL_LEAD:         "Manual leads",
     STAGE_LEADS:               "Leads",
 }
 
@@ -392,7 +413,11 @@ def outcome_breakdown(counts: dict[str, int]) -> list[dict]:
         "value":      counts.get(stage, 0) or 0,
         "of_replies": _rate(counts.get(stage, 0) or 0, replied),
         "is_lead":    stage in LEAD_STAGES,
-    } for stage in OUTCOME_STAGES]
+    } for stage in OUTCOME_STAGES
+        # Manual leads only exist for manual campaigns, and the Smartlead
+        # categories only for the tools that classify. Showing a permanent zero
+        # for a stage a source cannot produce reads as a broken number.
+        if (counts.get(stage, 0) or 0) > 0 or stage != EVENT_MANUAL_LEAD]
 
 
 def funnel_with_rates(counts: dict[str, int]) -> list[dict]:

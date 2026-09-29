@@ -624,13 +624,14 @@ def funnel(
     client_id:   str = "",
     channel:     str = "",
     campaign_id: str = "",
+    source_tool: str = "",
     date_from:   date | None = None,
     date_to:     date | None = None,
 ) -> dict[str, int]:
     """Total funnel counts for a filter set, read from pulse_funnel_daily."""
     totals = empty_funnel()
     for row in _funnel_rows(client_id=client_id, channel=channel,
-                            campaign_id=campaign_id,
+                            campaign_id=campaign_id, source_tool=source_tool,
                             date_from=date_from, date_to=date_to,
                             select="event_type,events"):
         stage = row.get("event_type")
@@ -641,9 +642,10 @@ def funnel(
 
 def funnel_by_client(
     *,
-    channel:   str = "",
-    date_from: date | None = None,
-    date_to:   date | None = None,
+    channel:     str = "",
+    source_tool: str = "",
+    date_from:   date | None = None,
+    date_to:     date | None = None,
 ) -> dict[str, dict[str, int]]:
     """Per-client funnel totals in one query — the internal dashboard's grid.
 
@@ -652,7 +654,8 @@ def funnel_by_client(
     rows at most.
     """
     out: dict[str, dict[str, int]] = {}
-    for row in _funnel_rows(channel=channel, date_from=date_from, date_to=date_to,
+    for row in _funnel_rows(channel=channel, source_tool=source_tool,
+                            date_from=date_from, date_to=date_to,
                             select="client_id,event_type,events"):
         cid = str(row.get("client_id") or "")
         stage = row.get("event_type")
@@ -701,14 +704,16 @@ def funnel_by_campaign(
 
 def funnel_timeseries(
     *,
-    client_id: str = "",
-    channel:   str = "",
-    date_from: date | None = None,
-    date_to:   date | None = None,
+    client_id:   str = "",
+    channel:     str = "",
+    source_tool: str = "",
+    date_from:   date | None = None,
+    date_to:     date | None = None,
 ) -> list[dict]:
     """Daily funnel counts, oldest first — the trend strip on the detail views."""
     by_day: dict[str, dict[str, int]] = {}
     for row in _funnel_rows(client_id=client_id, channel=channel,
+                            source_tool=source_tool,
                             date_from=date_from, date_to=date_to,
                             select="day,event_type,events"):
         stage = row.get("event_type")
@@ -721,12 +726,34 @@ def funnel_timeseries(
     return [{"day": day, **counts} for day, counts in sorted(by_day.items())]
 
 
+def funnel_by_source(
+    *,
+    client_id: str = "",
+    date_from: date | None = None,
+    date_to:   date | None = None,
+) -> dict[str, dict[str, int]]:
+    """Funnel totals split by source tool — Smartlead, Meet Alfred, Manual.
+
+    One query for all three rather than one per tab: the daily view is already
+    aggregated, so the whole set is a few hundred rows.
+    """
+    out: dict[str, dict[str, int]] = {}
+    for row in _funnel_rows(client_id=client_id, date_from=date_from, date_to=date_to,
+                            select="source_tool,event_type,events"):
+        stage = row.get("event_type")
+        if stage not in FUNNEL_STAGES:
+            continue
+        out.setdefault(str(row.get("source_tool") or "unknown"), empty_funnel())[stage] +=             int(row.get("events") or 0)
+    return out
+
+
 def _funnel_rows(
     *,
     select:      str,
     client_id:   str = "",
     channel:     str = "",
     campaign_id: str = "",
+    source_tool: str = "",
     date_from:   date | None = None,
     date_to:     date | None = None,
 ) -> list[dict]:
@@ -737,6 +764,8 @@ def _funnel_rows(
         params["channel"] = f"eq.{channel}"
     if campaign_id:
         params["campaign_id"] = f"eq.{campaign_id}"
+    if source_tool:
+        params["source_tool"] = f"eq.{source_tool}"
     if date_from:
         params["day"] = f"gte.{date_from.isoformat()}"
     if date_to:

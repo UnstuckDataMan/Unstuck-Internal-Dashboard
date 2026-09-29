@@ -43,7 +43,14 @@
     {% for key, label in presets.items() %}
     <option value="{{ key }}" {% if key == "30d" %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
+    <option value="custom">Custom range…</option>
   </select>
+  <span id="custom-range" class="date-range" hidden>
+    <input type="date" id="date-from" name="date_from" aria-label="From date">
+    <span class="date-range-sep">→</span>
+    <input type="date" id="date-to" name="date_to" aria-label="To date">
+    <button type="button" class="btn btn-download" id="apply-range">Apply</button>
+  </span>
 
   <label for="channel-select" style="margin-left:8px">Channel</label>
   <select id="channel-select" name="channel">
@@ -63,7 +70,7 @@
 <div id="pulse-overview"
      hx-get="/api/outbound-pulse/overview"
      hx-trigger="load, pulseRefresh from:body, pulseSynced from:body, pulseMappingChanged from:body"
-     hx-include="#range-select, #channel-select"
+     hx-include="#range-select, #channel-select, #date-from, #date-to"
      hx-indicator="#pulse-spinner"
      hx-swap="innerHTML">
   <div class="skel-stack" role="status" aria-label="Loading funnel">
@@ -164,8 +171,23 @@
   // onto each <select> so both controls share one request path — and so the
   // manual-sync trigger (pulseSynced) can reuse it.
   function refresh() { htmx.trigger(document.body, 'pulseRefresh'); }
-  rangeSel.addEventListener('change', refresh);
   chanSel.addEventListener('change', refresh);
+
+  // Custom reveals the date inputs and waits for Apply; every other preset
+  // refreshes immediately. The date inputs are cleared when leaving custom, or
+  // they would keep overriding the preset on the server.
+  const customRange = document.getElementById('custom-range');
+  const dateFrom = document.getElementById('date-from');
+  const dateTo = document.getElementById('date-to');
+  rangeSel.addEventListener('change', function () {
+    const isCustom = rangeSel.value === 'custom';
+    customRange.hidden = !isCustom;
+    if (isCustom) return;            // wait for Apply
+    dateFrom.value = '';
+    dateTo.value = '';
+    refresh();
+  });
+  document.getElementById('apply-range').addEventListener('click', refresh);
 
   // Client picker for the import form.
   fetch('/api/outbound-pulse/clients', { headers: { 'HX-Request': 'true' } })

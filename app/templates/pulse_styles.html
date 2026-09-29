@@ -40,6 +40,45 @@
   .pulse-tab.is-active { color: var(--text); border-bottom-color: var(--purple); }
   .pulse-tab:focus-visible { outline: 2px solid var(--border-focus); outline-offset: -2px; }
 
+  /* ── Source tabs (within a client view) ──────────────────── */
+  .source-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .source-tab {
+    appearance: none; cursor: pointer;
+    background: rgba(255,255,255,.05);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 15px;
+    font-family: var(--font); font-size: 12.5px; font-weight: 500;
+    color: var(--text-2);
+    transition: all .18s var(--ease);
+  }
+  .source-tab:hover:not([disabled]) { background: rgba(255,255,255,.09); color: var(--text); }
+  .source-tab.is-active {
+    background: rgba(139,92,246,.18);
+    border-color: rgba(139,92,246,.45);
+    color: #c4b5fd;
+  }
+  /* Disabled, not hidden: a source with no activity in range should still be
+     visibly a source, so its absence reads as "nothing yet", not "not set up". */
+  .source-tab[disabled] { opacity: .4; cursor: not-allowed; }
+
+  /* ── Date range ──────────────────────────────────────────── */
+  .date-range { display: inline-flex; align-items: center; gap: 8px; }
+  .date-range input[type="date"] {
+    background: rgba(255,255,255,.06);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 7px 10px;
+    font-size: 12.5px; font-family: var(--font);
+    color: var(--text); outline: none;
+    color-scheme: dark;             /* native picker matches the dark surface */
+  }
+  .date-range input[type="date"]:focus {
+    border-color: var(--border-focus); box-shadow: var(--sh-glow);
+  }
+  .date-range-sep { color: var(--text-3); font-size: 12px; }
+  .date-range .btn { padding: 7px 14px; font-size: 12.5px; }
+
   .pulse-meta   { font-size: 12.5px; color: var(--text-3); }
   .section-label {
     font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;

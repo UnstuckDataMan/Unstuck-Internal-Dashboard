@@ -2176,3 +2176,221 @@ def test_unmapped_warning_switches_tab_rather_than_scrolling(client, fake_sb):
     assert "not mapped to a client" in r.text
     assert "pulseShowMapping" in r.text
     assert "scrollIntoView" not in r.text
+
+
+# ── Manual leads count as leads ───────────────────────────────────────────────
+
+def test_manual_lead_is_a_lead_but_not_a_meeting_or_info_request():
+    """The DNC & Merger tool records a lead without saying which kind, so it is
+    its own stage rather than being folded into one that implies more."""
+    assert normalize.EVENT_MANUAL_LEAD in normalize.LEAD_STAGES
+    assert normalize.EVENT_MANUAL_LEAD not in (
+        normalize.EVENT_INFORMATION_REQUEST, normalize.EVENT_MEETING_BOOKED)
+    assert normalize.lead_count({"lead": 4}) == 4
+    assert normalize.lead_count(
+        {"lead": 4, "information_request": 2, "meeting_booked": 1}) == 7
+    assert normalize.lead_rate({"sent": 1000, "lead": 5}) == 0.5
+
+
+def test_interested_still_excludes_manual_leads():
+    counts = {"replied": 50, "positive_reply": 20, "lead": 9}
+    assert normalize.lead_count(counts) == 9
+    by_key = {r["key"]: r for r in normalize.outcome_breakdown(counts)}
+    assert by_key["positive_reply"]["value"] == 20
+    assert by_key["positive_reply"]["is_lead"] is False
+    assert by_key["lead"]["is_lead"] is True
+
+
+def test_manual_lead_stage_is_hidden_when_there_are_none():
+    """A Smartlead-only funnel should not show a permanent zero for a stage
+    that source cannot produce."""
+    keys = [r["key"] for r in normalize.outcome_breakdown(
+        {"replied": 10, "positive_reply": 4, "meeting_booked": 1})]
+    assert "lead" not in keys
+    keys = [r["key"] for r in normalize.outcome_breakdown({"replied": 10, "lead": 3})]
+    assert "lead" in keys
+
+
+# ── Splitting by source ───────────────────────────────────────────────────────
+
+def test_funnel_by_source_groups_the_three_tools(fake_sb):
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"source_tool": "smartlead", "event_type": "sent", "events": 900},
+        {"source_tool": "smartlead", "event_type": "meeting_booked", "events": 4},
+        {"source_tool": "meet_alfred", "event_type": "sent", "events": 200},
+        {"source_tool": "manual", "event_type": "sent", "events": 300},
+        {"source_tool": "manual", "event_type": "lead", "events": 6},
+    ]))
+    out = store.funnel_by_source()
+    assert out["smartlead"]["sent"] == 900
+    assert out["manual"]["lead"] == 6
+    assert normalize.lead_count(out["manual"]) == 6
+    assert normalize.lead_count(out["meet_alfred"]) == 0
+
+
+def test_source_filter_reaches_the_query(fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+    store.funnel(source_tool="manual")
+    call = fake_sb.calls_to("GET", "pulse_funnel_daily")[0]
+    assert param_values(call, "source_tool") == ["eq.manual"]
+    assert param_values(call, "agency_id") == [f"eq.{AGENCY}"]
+
+
+# ── Per-source tabs on the client view ────────────────────────────────────────
+
+def _source_routes(fake_sb, rows):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, rows))
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, []))
+
+
+_MIXED = [
+    {"client_id": CLIENT, "source_tool": "smartlead", "channel": "email",
+     "event_type": "sent", "events": 1000, "day": "2026-09-10"},
+    {"client_id": CLIENT, "source_tool": "smartlead", "channel": "email",
+     "event_type": "replied", "events": 40, "day": "2026-09-10"},
+    {"client_id": CLIENT, "source_tool": "smartlead", "channel": "email",
+     "event_type": "meeting_booked", "events": 5, "day": "2026-09-10"},
+    {"client_id": CLIENT, "source_tool": "manual", "channel": "email",
+     "event_type": "sent", "events": 500, "day": "2026-09-10"},
+    {"client_id": CLIENT, "source_tool": "manual", "channel": "email",
+     "event_type": "lead", "events": 7, "day": "2026-09-10"},
+]
+
+
+def test_client_page_has_a_tab_per_source_plus_combined(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert r.status_code == 200
+    assert 'data-source="all"' in r.text
+    for key, label in (("smartlead", "Smartlead"), ("meet_alfred", "Meet Alfred"),
+                       ("manual", "Manual")):
+        assert f'data-source="{key}"' in r.text
+        assert label in r.text
+
+
+def test_a_source_with_no_activity_is_disabled_not_hidden(client, fake_sb):
+    """Meet Alfred has nothing in this range — the tab should still be visible,
+    so its absence reads as "nothing yet", not "not connected"."""
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    alfred = r.text.split('data-source="meet_alfred"', 1)[1].split(">", 1)[0]
+    assert "disabled" in alfred
+    smartlead = r.text.split('data-source="smartlead"', 1)[1].split(">", 1)[0]
+    assert "disabled" not in smartlead
+
+
+def test_each_source_panel_shows_only_that_source(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    manual = r.text.split('data-source-panel="manual"', 1)[1].split('data-source-panel=', 1)[0]
+    assert "1,000" not in manual          # the Smartlead sends
+    assert "500" in manual                # its own
+    assert "Manual leads" in manual
+    assert "DNC &amp; Merger tool" in manual
+
+
+def test_manual_panel_states_its_caveats(client, fake_sb):
+    """Manual leads are deduplicated by domain and replies carry no date; both
+    make the numbers differ from the DNC & Merger tool, so both are stated."""
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    manual = r.text.split('data-source-panel="manual"', 1)[1].split('data-source-panel=', 1)[0]
+    assert "one per domain per client" in manual
+    assert "manual replies are" in manual
+
+
+def test_combined_notes_that_manual_has_no_replies(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    combined = r.text.split('data-source-panel="all"', 1)[1].split('data-source-panel=', 1)[0]
+    assert "Smartlead and Meet Alfred only" in combined
+
+
+def test_combined_totals_include_manual_leads(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    combined = r.text.split('data-source-panel="all"', 1)[1].split('data-source-panel=', 1)[0]
+    assert "12 leads" in combined          # 5 meeting requests + 7 manual leads
+
+
+# ── Date range selector ───────────────────────────────────────────────────────
+
+def test_client_page_offers_a_custom_range(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert 'value="custom"' in r.text
+    assert 'id="date-from"' in r.text and 'id="date-to"' in r.text
+
+
+def test_custom_dates_filter_the_client_view(client, fake_sb):
+    from tests.conftest import param_values
+
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}"
+                   "?date_from=2026-09-01&date_to=2026-09-15")
+    assert r.status_code == 200
+    # The inputs come back filled in, so the range survives a reload.
+    assert 'value="2026-09-01"' in r.text and 'value="2026-09-15"' in r.text
+
+    call = fake_sb.calls_to("GET", "pulse_funnel_daily")[0]
+    assert sorted(param_values(call, "day")) == ["gte.2026-09-01", "lte.2026-09-15"]
+
+
+def test_overview_accepts_a_custom_range(client, fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+    r = client.get("/api/outbound-pulse/overview?date_from=2026-08-01&date_to=2026-08-31")
+    assert r.status_code == 200
+    call = fake_sb.calls_to("GET", "pulse_funnel_daily")[0]
+    assert sorted(param_values(call, "day")) == ["gte.2026-08-01", "lte.2026-08-31"]
+
+
+def test_overview_sends_the_date_inputs_with_every_refresh(client, fake_sb):
+    """Without them in hx-include, picking a custom range then changing channel
+    would silently drop back to the preset."""
+    r = client.get("/outbound-pulse")
+    overview = r.text.split('id="pulse-overview"', 1)[1].split(">", 1)[0]
+    assert "#date-from" in overview and "#date-to" in overview
+
+
+# ── Manual migration guards ───────────────────────────────────────────────────
+
+def _manual_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1]
+            / "migrations" / "outbound_pulse_manual.sql").read_text(encoding="utf-8")
+
+
+def test_manual_migration_reads_in_place_and_is_one_transaction():
+    sql = _manual_sql()
+    assert sql.index("BEGIN;") < sql.index("CREATE INDEX")
+    assert sql.rstrip().endswith("COMMIT;")
+    assert "pulse_manual_daily" in sql
+
+
+def test_manual_view_counts_only_lead_and_interested_reasons():
+    """opt_out and hand-added DNC entries are not campaign outcomes."""
+    sql = _manual_sql()
+    assert "d.reason IN ('lead', 'interested')" in sql
+    assert "opt_out" not in sql.split("CREATE OR REPLACE VIEW", 1)[-1]
+
+
+def test_manual_view_excludes_clients_without_an_agency():
+    assert _manual_sql().count("c.agency_id IS NOT NULL") >= 2
+
+
+def test_funnel_view_unions_manual_without_duplicating_events():
+    sql = _manual_sql()
+    view = sql.split("CREATE VIEW pulse_funnel_daily AS", 1)[1]
+    assert "WHERE r.event_type IN ('sent', 'opened', 'replied')" in view
+    assert "FROM pulse_lead_outcomes o" in view
+    assert "FROM pulse_manual_daily" in view
