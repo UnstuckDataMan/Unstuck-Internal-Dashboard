@@ -35,10 +35,14 @@
     <button type="button" class="btn btn-download" id="apply-range">Apply</button>
   </span>
   <label for="channel-select" style="margin-left:6px">Channel</label>
+  {# Each option is one source tool, so they do not overlap and together they
+     add up to Both. Manual outreach is email too, but it is its own tool and
+     folding it into Email would make Email and Manual double-count. #}
   <select id="channel-select" onchange="applyFilters()">
     <option value="" {% if not channel %}selected{% endif %}>Both</option>
-    <option value="email" {% if channel == "email" %}selected{% endif %}>Email</option>
-    <option value="linkedin" {% if channel == "linkedin" %}selected{% endif %}>LinkedIn</option>
+    <option value="email" {% if channel == "email" %}selected{% endif %}>Email (Smartlead)</option>
+    <option value="linkedin" {% if channel == "linkedin" %}selected{% endif %}>LinkedIn (Meet Alfred)</option>
+    <option value="manual" {% if channel == "manual" %}selected{% endif %}>Manual</option>
   </select>
 </div>
 
@@ -144,22 +148,11 @@
 </div>
 
 <!-- ── Daily trend ──────────────────────────────────────────────── -->
-{% if timeseries %}
-{% set max_sent = (timeseries | map(attribute='sent') | max) or 1 %}
+{% if trend.buckets %}
 <div class="pulse-section">
   <p class="section-label">Daily sends</p>
   <div class="pulse-panel" style="margin-bottom:0">
-    <div class="trend-strip">
-      {% for day in timeseries %}
-      <div class="trend-col"
-           style="height: {{ (day.sent * 100.0 / max_sent) if max_sent else 0 }}%"
-           title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied, {{ day | pulse_leads }} leads"></div>
-      {% endfor %}
-    </div>
-    <div class="trend-axis">
-      <span>{{ timeseries[0].day }}</span>
-      <span>{{ timeseries[-1].day }}</span>
-    </div>
+    {% include "partials/pulse_trend.html" %}
   </div>
 </div>
 {% endif %}
@@ -205,6 +198,23 @@
 </div>
 
 <!-- ── Client portal access ─────────────────────────────────────── -->
+<div class="pulse-panel">
+  <h3>Notes for this client</h3>
+  <p class="panel-hint">
+    Context the numbers cannot carry — why volume dropped, what changed in the
+    copy, what happens next. Notes marked for the report appear on the client’s
+    portal page under their funnel; the rest stay here.
+  </p>
+  <div id="pulse-notes"
+       hx-get="/api/outbound-pulse/clients/{{ client.id }}/notes"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="skel-stack" role="status" aria-label="Loading notes">
+      <div class="skel-card"><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
+    </div>
+  </div>
+</div>
+
 <div class="pulse-panel">
   <h3>Client portal access</h3>
   <p class="panel-hint">
@@ -280,6 +290,7 @@
   });
 })();
 </script>
+{% include "partials/pulse_trend_js.html" %}
 {% include "partials/pulse_animate.html" %}
 
 {% endif %}

@@ -1,0 +1,102 @@
+{# Account manager notes for one client. Context: notes, client_id, error,
+   draft, on_report.
+
+   Every note is listed here; the client's report shows the most recent few
+   that are marked visible. A note hidden from the report still lives here, so
+   internal context and client commentary sit in one place rather than two. #}
+{% if error %}
+<div class="err-box" style="margin-bottom:12px">{{ error }}</div>
+{% endif %}
+
+<form class="note-form"
+      hx-post="/api/outbound-pulse/clients/{{ client_id }}/notes"
+      hx-target="#pulse-notes"
+      hx-swap="innerHTML">
+  {# No reset handler: this form is inside the swapped region, so a successful
+     save re-renders it empty on its own. A failed save renders `draft` back
+     into it instead of throwing the note away. #}
+  <textarea name="body" rows="3" maxlength="1200"
+            placeholder="What should this client know about the period? e.g. &quot;We paused the founder sequence mid-month to rewrite the opener — volume is down but reply quality is up.&quot;">{{ draft or "" }}</textarea>
+  <div class="note-form-actions">
+    <label class="note-toggle">
+      <input type="checkbox" name="show_on_report" value="1" checked>
+      Show on the client's report
+    </label>
+    <button type="submit" class="btn btn-primary">Add note</button>
+  </div>
+</form>
+
+{% if not notes %}
+<p class="pulse-meta" style="margin-top:14px">
+  No notes yet. The most recent {{ on_report }} visible notes appear on this
+  client's report, newest first.
+</p>
+{% else %}
+<div class="note-list">
+  {% for note in notes %}
+  <div class="note{% if not note.show_on_report %} is-hidden{% endif %}" id="note-{{ note.id }}">
+    <div class="note-meta">
+      <span class="note-author">{{ note.author_name or note.author_email or "Unknown" }}</span>
+      <span class="note-date">{{ (note.created_at or "")[:10] }}</span>
+      {% if note.updated_at and note.updated_at[:19] != note.created_at[:19] %}
+      <span class="note-edited">edited</span>
+      {% endif %}
+      {% if not note.show_on_report %}
+      <span class="note-badge">Internal only</span>
+      {% elif loop.index0 < on_report %}
+      <span class="note-badge is-live">On the report</span>
+      {% else %}
+      {# Visible, but pushed off the report by newer notes. Saying so beats
+         letting someone believe a client is reading it. #}
+      <span class="note-badge">Below the latest {{ on_report }}</span>
+      {% endif %}
+      <span class="spacer"></span>
+      <button type="button" class="note-act" onclick="pulseEditNote('{{ note.id }}')">Edit</button>
+      <form hx-post="/api/outbound-pulse/clients/{{ client_id }}/notes/{{ note.id }}"
+            hx-target="#pulse-notes" hx-swap="innerHTML" style="display:inline">
+        <input type="hidden" name="visibility"
+               value="{{ 'show' if not note.show_on_report else 'hide' }}">
+        <button type="submit" class="note-act">
+          {{ "Show to client" if not note.show_on_report else "Hide from client" }}
+        </button>
+      </form>
+      <button type="button" class="note-act is-danger"
+              hx-delete="/api/outbound-pulse/clients/{{ client_id }}/notes/{{ note.id }}"
+              hx-target="#pulse-notes" hx-swap="innerHTML"
+              hx-confirm="Delete this note?">Delete</button>
+    </div>
+
+    <div class="note-body" data-note-body>{{ note.body }}</div>
+
+    <form class="note-edit" data-note-edit hidden
+          hx-post="/api/outbound-pulse/clients/{{ client_id }}/notes/{{ note.id }}"
+          hx-target="#pulse-notes" hx-swap="innerHTML">
+      <textarea name="body" rows="3" maxlength="1200">{{ note.body }}</textarea>
+      <div class="note-form-actions">
+        <label class="note-toggle">
+          <input type="checkbox" name="show_on_report" value="1"
+                 {% if note.show_on_report %}checked{% endif %}>
+          Show on the client's report
+        </label>
+        <button type="button" class="btn btn-download"
+                onclick="pulseEditNote('{{ note.id }}', false)">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+  // Defined on window because this partial is swapped in by HTMX, so the
+  // handler has to survive being re-parsed on every save.
+  window.pulseEditNote = function (id, open) {
+    var note = document.getElementById('note-' + id);
+    if (!note) return;
+    var editing = open === undefined ? true : open;
+    note.querySelector('[data-note-body]').hidden = editing;
+    note.querySelector('[data-note-edit]').hidden = !editing;
+    if (editing) note.querySelector('[data-note-edit] textarea').focus();
+  };
+</script>

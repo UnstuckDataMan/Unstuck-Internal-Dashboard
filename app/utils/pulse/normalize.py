@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 EVENT_SENT    = "sent"
 EVENT_OPENED  = "opened"
@@ -459,3 +459,97 @@ def _rate(value: int, base: int | None) -> float | None:
     if base is None or base <= 0:
         return None
     return round(value * 100.0 / base, 1)
+
+
+# ── Trend buckets ─────────────────────────────────────────────────────────────
+
+# The trend strip is a fixed-width row of flex columns. Past roughly this many
+# they stop being readable and, because each column has a minimum width, the
+# row overflows its panel instead of shrinking. An all-time range on a client
+# with two years of sends is ~700 days, so the series is grouped into wider
+# buckets rather than drawn one column per day.
+MAX_TREND_COLUMNS = 60
+
+# Widest first. Days are only ever merged into periods a reader can name — a
+# week, a month, a quarter, a year — never into an arbitrary "every N days"
+# window, because a bucket nobody can name is a bucket nobody can check.
+TREND_UNITS = ("day", "week", "month", "quarter", "year")
+
+
+def bucket_timeseries(rows: list[dict], *, max_columns: int = MAX_TREND_COLUMNS) -> dict:
+    """Group a daily series into at most `max_columns` buckets.
+
+    Days are only ever merged into whole weeks or whole months, never into an
+    arbitrary "every N days" window: a bucket a reader cannot name is a bucket
+    they cannot check against anything else. Returns the buckets plus the unit
+    chosen, so the view can say which one it is showing.
+    """
+    series = [r for r in rows if r.get("day")]
+    if not series:
+        return {"unit": "day", "buckets": []}
+
+    days = [_as_date(r["day"]) for r in series]
+
+    # Widen the unit until the series fits. Counting the real buckets rather
+    # than estimating from the span is what makes this reliable at the edges:
+    # partial weeks at each end, and months of uneven length, both made a
+    # calculated guess land one bucket over the limit.
+    unit = TREND_UNITS[-1]
+    for candidate in TREND_UNITS:
+        if len({_bucket_start(day, candidate) for day in days}) <= max_columns:
+            unit = candidate
+            break
+
+    buckets: dict[date, dict] = {}
+    for row, day in zip(series, days):
+        start = _bucket_start(day, unit)
+        bucket = buckets.setdefault(start, {
+            "start": start, "end": start, "unit": unit, **empty_funnel(),
+        })
+        bucket["end"] = max(bucket["end"], day)
+        for stage in FUNNEL_STAGES:
+            bucket[stage] += int(row.get(stage) or 0)
+
+    ordered = [buckets[key] for key in sorted(buckets)]
+    for bucket in ordered:
+        bucket["label"] = _bucket_label(bucket)
+        # `day` keeps the shape a caller gets from funnel_timeseries, so a
+        # template can read either without knowing which it was handed.
+        bucket["day"] = bucket["start"].isoformat()
+    return {"unit": unit, "buckets": ordered}
+
+
+def _as_date(value) -> date:
+    return value if isinstance(value, date) else date.fromisoformat(str(value)[:10])
+
+
+def _bucket_start(day: date, unit: str) -> date:
+    if unit == "week":
+        return day - timedelta(days=day.weekday())     # Monday
+    if unit == "month":
+        return day.replace(day=1)
+    if unit == "quarter":
+        return day.replace(month=(day.month - 1) // 3 * 3 + 1, day=1)
+    if unit == "year":
+        return day.replace(month=1, day=1)
+    return day
+
+
+def _bucket_label(bucket: dict) -> str:
+    start, end, unit = bucket["start"], bucket["end"], bucket["unit"]
+    if unit == "day":
+        return f"{_short(start)} {start.year}"
+    if unit == "year":
+        return str(start.year)
+    if unit == "quarter":
+        return f"Q{(start.month - 1) // 3 + 1} {start.year}"
+    if unit == "month":
+        return start.strftime("%b %Y")
+    if start == end:
+        return f"{_short(start)} {start.year}"     # a week with one day of data
+    return f"{_short(start)} – {_short(end)} {end.year}"
+
+
+def _short(day: date) -> str:
+    # "%-d" is glibc-only and "%#d" is Windows-only, so pad and strip instead.
+    return day.strftime("%d %b").lstrip("0")

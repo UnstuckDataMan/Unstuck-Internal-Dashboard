@@ -46,19 +46,31 @@
 
     .wrap { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: 40px 22px 70px; }
 
+    /* Three columns, not a flex row: the logo has to sit in the true centre
+       of the page, and with flex it would drift as the client name and the
+       range buttons changed width. The outer columns are equal so the middle
+       one is centred whatever they contain. */
     header.report-head {
-      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-      padding-bottom: 22px; margin-bottom: 30px;
+      display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+      gap: 18px; padding-bottom: 22px; margin-bottom: 30px;
       border-bottom: 1px solid var(--border);
     }
-    .brand-mark { height: 30px; width: auto; opacity: .95; }
-    .head-titles { flex: 1; min-width: 200px; }
+    .brand-mark { display: block; height: 30px; width: auto; }
+    .head-titles { min-width: 0; }
     .report-title {
       font-family: var(--font-display); font-size: 23px; font-weight: 600; letter-spacing: -.01em;
     }
     .report-sub { font-size: 13px; color: var(--text-3); margin-top: 3px; }
 
-    .range-nav { display: flex; gap: 7px; flex-wrap: wrap; }
+    @media (max-width: 720px) {
+      /* Stacked, logo first: at this width three columns leave the name and
+         the range buttons squeezed to a couple of words each. */
+      header.report-head { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+      .report-head .range-nav { justify-content: center; }
+      .brand-mark { order: -1; margin-bottom: 4px; }
+    }
+
+    .range-nav { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
     .range-nav a {
       font-size: 12.5px; text-decoration: none; color: var(--text-2);
       background: rgba(255,255,255,.06); border: 1px solid var(--border);
@@ -69,16 +81,18 @@
       background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.45); color: #c4b5fd;
     }
 
+    /* Exactly three, so they divide the row evenly. auto-fit left the last
+       box stretched across the gap the lead-rate box used to fill. */
     .headline-row {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      display: grid; grid-template-columns: repeat(3, 1fr);
       gap: 14px; margin-bottom: 30px;
     }
     .headline {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 15px; padding: 17px 19px;
+      border-radius: 15px; padding: 19px 21px;
     }
     .headline-value {
-      font-family: var(--font-display); font-size: 27px; font-weight: 600;
+      font-family: var(--font-display); font-size: 30px; font-weight: 600;
       font-variant-numeric: tabular-nums; line-height: 1.1;
     }
     .headline-label { font-size: 12px; color: var(--text-3); margin-top: 5px; }
@@ -131,18 +145,46 @@
     }
     .outcome-label { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
     .outcome-share { font-size: 11px; color: var(--text-3); margin-top: 2px; }
-    .outcome-tag {
-      display: inline-block; font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
-      color: #c4b5fd; margin-left: 6px; vertical-align: 1px;
-    }
 
-    .trend { display: flex; align-items: flex-end; gap: 2px; height: 78px; }
+    .trend-wrap { position: relative; }
+    .trend-strip { display: flex; align-items: flex-end; gap: 2px; height: 78px; }
     .trend-col {
-      flex: 1; min-width: 2px; border-radius: 2px 2px 0 0;
+      /* No minimum width: with a long range this row holds sixty columns and
+         a floor would overflow the card instead of shrinking. */
+      flex: 1 1 0; min-width: 0; border-radius: 2px 2px 0 0;
       background: linear-gradient(180deg, #a78bfa 0%, #7c3aed 100%); opacity: .85;
-      transition: height .6s var(--ease-out);
+      box-shadow: inset 0 -2px 0 rgba(167,139,250,.55);
+      transition: opacity .15s var(--ease), height .6s var(--ease-out);
     }
-    .trend-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-top: 8px; }
+    .trend-col:hover, .trend-col.is-hot { opacity: 1; }
+    .trend-col.is-hot { background: linear-gradient(180deg, #c4b5fd 0%, #8b5cf6 100%); }
+    .trend-axis {
+      display: flex; justify-content: space-between; gap: 10px;
+      font-size: 11px; color: var(--text-3); margin-top: 8px;
+    }
+    .trend-unit { text-transform: uppercase; letter-spacing: .06em; opacity: .8; }
+
+    .trend-tip {
+      position: absolute; z-index: 20; pointer-events: none;
+      min-width: 152px; padding: 9px 11px; border-radius: 10px;
+      background: rgba(17,15,28,.97); border: 1px solid var(--border);
+      box-shadow: 0 10px 26px rgba(0,0,0,.45);
+      font-size: 11.5px; color: var(--text-2);
+    }
+    .trend-tip-label {
+      font-size: 11px; font-weight: 600; color: var(--text);
+      margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .trend-tip-row { display: flex; justify-content: space-between; gap: 16px; line-height: 1.75; }
+    .trend-tip-row b { color: #c4b5fd; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+    .note-card { border-color: rgba(139,92,246,.3); }
+    .client-notes { display: flex; flex-direction: column; gap: 16px; }
+    .client-note + .client-note { border-top: 1px solid var(--border); padding-top: 16px; }
+    /* pre-wrap so a note written as two paragraphs arrives as two paragraphs. */
+    .client-note-body { font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
+    .client-note-meta { font-size: 11.5px; color: var(--text-3); margin-top: 8px; }
 
     .empty { text-align: center; padding: 40px 20px; color: var(--text-3); font-size: 13.5px; line-height: 1.6; }
 
@@ -154,6 +196,7 @@
     @media (max-width: 560px) {
       .wrap { padding: 28px 15px 50px; }
       .report-title { font-size: 20px; }
+      .headline-row { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -162,11 +205,11 @@
 
   <div class="wrap">
     <header class="report-head">
-      <img src="/static/img/logo.png" alt="Unstuck" class="brand-mark">
       <div class="head-titles">
         <div class="report-title">{{ client.name }}</div>
-        <div class="report-sub">Campaign performance · {{ range_label }}</div>
+        <div class="report-sub">Campaign performance</div>
       </div>
+      <img src="/static/img/logo-report.png" alt="Unstuck" class="brand-mark">
       <nav class="range-nav">
         {% for key, label in ranges.items() %}
         <a href="/portal/{{ token }}?range={{ key }}"
@@ -196,10 +239,6 @@
       <div class="headline">
         <div class="headline-value" data-ticker>{{ "{:,}".format(counts | pulse_leads) }}</div>
         <div class="headline-label">Leads</div>
-      </div>
-      <div class="headline">
-        <div class="headline-value" data-ticker>{{ counts | pulse_lead_rate | pulse_pct }}</div>
-        <div class="headline-label">Lead rate</div>
       </div>
     </div>
 
@@ -244,7 +283,7 @@
         {% for o in counts | pulse_outcomes %}
         <div class="outcome{% if o.is_lead %} is-lead{% endif %}">
           <div class="outcome-value" data-ticker>{{ "{:,}".format(o.value) }}</div>
-          <div class="outcome-label">{{ o.label }}{% if o.is_lead %}<span class="outcome-tag">lead</span>{% endif %}</div>
+          <div class="outcome-label">{{ o.label }}</div>
           <div class="outcome-share">{{ o.of_replies | pulse_pct }} of replies</div>
         </div>
         {% endfor %}
@@ -271,22 +310,31 @@
     </div>
     {% endif %}
 
-    {% if timeseries | length > 1 %}
-    {% set max_sent = (timeseries | map(attribute='sent') | max) or 1 %}
-    <div class="card">
-      <h2>Activity over time</h2>
-      <p class="hint">Messages sent per day across both channels.</p>
-      <div class="trend">
-        {% for day in timeseries %}
-        <div class="trend-col"
-             style="height: {{ (day.sent * 100.0 / max_sent) if max_sent else 0 }}%"
-             title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied, {{ day | pulse_leads }} leads"></div>
+    {% if notes %}
+    <div class="card note-card">
+      <h2>From your account manager</h2>
+      <div class="client-notes">
+        {% for note in notes %}
+        <div class="client-note">
+          <div class="client-note-body">{{ note.body }}</div>
+          <div class="client-note-meta">
+            {{ note.author_name or "Your account manager" }}
+            {% if note.created_at %} · {{ note.created_at[:10] }}{% endif %}
+          </div>
+        </div>
         {% endfor %}
       </div>
-      <div class="trend-axis">
-        <span>{{ timeseries[0].day }}</span>
-        <span>{{ timeseries[-1].day }}</span>
-      </div>
+    </div>
+    {% endif %}
+
+    {% if trend.buckets | length > 1 %}
+    <div class="card">
+      <h2>Activity over time</h2>
+      <p class="hint">
+        Messages sent per {{ trend.unit }} across every channel. Hover a bar for
+        that {{ trend.unit }}'s figures.
+      </p>
+      {% include "partials/pulse_trend.html" %}
     </div>
     {% endif %}
 
@@ -298,6 +346,7 @@
       Questions about anything here? Reply to your account manager.
     </footer>
   </div>
+{% include "partials/pulse_trend_js.html" %}
 {% include "partials/pulse_animate.html" %}
 </body>
 </html>
