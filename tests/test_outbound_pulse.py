@@ -2584,11 +2584,14 @@ def _portal_routes(fake_sb, funnel_rows=None, notes=None):
                   lambda call: FakeResponse(200, notes or []))
 
 
-def test_the_portal_header_puts_the_logo_between_name_and_range(client, fake_sb):
+def test_the_portal_header_is_the_logo_then_a_rule_then_the_client(client, fake_sb):
+    """The logo's position must not depend on how long the client name is,
+    which is what a single centred row gave us."""
     _portal_routes(fake_sb)
     body = client.get("/portal/valid-token").text
     head = body.split('<header class="report-head">', 1)[1].split("</header>", 1)[0]
-    assert head.index("report-title") < head.index("logo-report.png") < head.index("range-nav")
+    assert head.index("logo-report.png") < head.index("report-title") < head.index("range-nav")
+    assert head.index("head-brand") < head.index("head-row")
 
 
 def test_the_portal_uses_the_current_logo(client, fake_sb):
