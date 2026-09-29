@@ -6,6 +6,19 @@
 {% block content %}
 {% include "pulse_styles.html" %}
 
+<div class="pulse-tabs" role="tablist" aria-label="Outbound Pulse sections">
+  <button type="button" class="pulse-tab is-active" role="tab" id="tab-btn-reporting"
+          aria-controls="tab-reporting" aria-selected="true" data-tab="reporting">
+    Reporting
+  </button>
+  <button type="button" class="pulse-tab" role="tab" id="tab-btn-mapping"
+          aria-controls="tab-mapping" aria-selected="false" data-tab="mapping">
+    Campaign mapping
+  </button>
+</div>
+
+<section id="tab-reporting" role="tabpanel" aria-labelledby="tab-btn-reporting">
+
 <!-- ── Connector health ─────────────────────────────────────────── -->
 <div class="pulse-panel">
   <h3>Connector status</h3>
@@ -30,7 +43,14 @@
     {% for key, label in presets.items() %}
     <option value="{{ key }}" {% if key == "30d" %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
+    <option value="custom">Custom range…</option>
   </select>
+  <span id="custom-range" class="date-range" hidden>
+    <input type="date" id="date-from" name="date_from" aria-label="From date">
+    <span class="date-range-sep">→</span>
+    <input type="date" id="date-to" name="date_to" aria-label="To date">
+    <button type="button" class="btn btn-download" id="apply-range">Apply</button>
+  </span>
 
   <label for="channel-select" style="margin-left:8px">Channel</label>
   <select id="channel-select" name="channel">
@@ -50,31 +70,12 @@
 <div id="pulse-overview"
      hx-get="/api/outbound-pulse/overview"
      hx-trigger="load, pulseRefresh from:body, pulseSynced from:body, pulseMappingChanged from:body"
-     hx-include="#range-select, #channel-select"
+     hx-include="#range-select, #channel-select, #date-from, #date-to"
      hx-indicator="#pulse-spinner"
      hx-swap="innerHTML">
   <div class="skel-stack" role="status" aria-label="Loading funnel">
     <div class="skel-card"><span class="skel skel-line lg"></span><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
     <div class="skel-card"><span class="skel skel-line lg"></span><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
-  </div>
-</div>
-
-<!-- ── Campaign mapping ─────────────────────────────────────────── -->
-<div class="pulse-panel" id="pulse-campaigns-panel" style="margin-top:30px">
-  <h3>Campaign mapping</h3>
-  <p class="panel-hint">
-    Connectors can't tell which of our clients a campaign belongs to, so map it
-    here once. Until a campaign is mapped its events sit outside every client
-    funnel. A remap moves that campaign's history with it.
-  </p>
-  <div id="pulse-campaigns-list"
-       hx-get="/api/outbound-pulse/campaigns"
-       hx-trigger="load, pulseSynced from:body"
-       hx-include="#pulse-campaign-filters"
-       hx-swap="innerHTML">
-    <div class="skel-stack" role="status" aria-label="Loading campaigns">
-      <div class="skel-card"><span class="skel skel-line lg"></span><span class="skel skel-line md"></span></div>
-    </div>
   </div>
 </div>
 
@@ -135,6 +136,30 @@
        hx-trigger="load"
        hx-swap="innerHTML"></div>
 </div>
+</section>
+
+<!-- ── Campaign mapping ─────────────────────────────────────────── -->
+<section id="tab-mapping" role="tabpanel" aria-labelledby="tab-btn-mapping" hidden>
+  <div class="pulse-panel" id="pulse-campaigns-panel">
+    <h3>Campaign mapping</h3>
+    <p class="panel-hint">
+      Connectors can't tell which of our clients a campaign belongs to, so map it
+      here once. Until a campaign is mapped its events sit outside every client
+      funnel. A remap moves that campaign's history with it.
+    </p>
+    {# Loaded when the tab is first opened, not on page load: the table is one
+       row per campaign, and this account has over a thousand. #}
+    <div id="pulse-campaigns-list"
+         hx-get="/api/outbound-pulse/campaigns"
+         hx-trigger="pulseMappingTab from:body"
+         hx-include="#pulse-campaign-filters"
+         hx-swap="innerHTML">
+      <div class="skel-stack" role="status" aria-label="Loading campaigns">
+        <div class="skel-card"><span class="skel skel-line lg"></span><span class="skel skel-line md"></span></div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <script>
 (function () {
@@ -146,8 +171,23 @@
   // onto each <select> so both controls share one request path — and so the
   // manual-sync trigger (pulseSynced) can reuse it.
   function refresh() { htmx.trigger(document.body, 'pulseRefresh'); }
-  rangeSel.addEventListener('change', refresh);
   chanSel.addEventListener('change', refresh);
+
+  // Custom reveals the date inputs and waits for Apply; every other preset
+  // refreshes immediately. The date inputs are cleared when leaving custom, or
+  // they would keep overriding the preset on the server.
+  const customRange = document.getElementById('custom-range');
+  const dateFrom = document.getElementById('date-from');
+  const dateTo = document.getElementById('date-to');
+  rangeSel.addEventListener('change', function () {
+    const isCustom = rangeSel.value === 'custom';
+    customRange.hidden = !isCustom;
+    if (isCustom) return;            // wait for Apply
+    dateFrom.value = '';
+    dateTo.value = '';
+    refresh();
+  });
+  document.getElementById('apply-range').addEventListener('click', refresh);
 
   // Client picker for the import form.
   fetch('/api/outbound-pulse/clients', { headers: { 'HX-Request': 'true' } })
@@ -169,6 +209,55 @@
   document.getElementById('alfred-import-form').addEventListener('htmx:afterRequest', function (e) {
     if (e.detail.successful) this.reset();
   });
+
+  // ── Tabs ──────────────────────────────────────────────────────────
+  // The mapping table is fetched the first time its tab is opened, and
+  // refreshed afterwards only if it has been. A sync while the tab has never
+  // been opened would otherwise render a thousand rows nobody is looking at.
+  const tabs = document.querySelectorAll('.pulse-tab');
+  let mappingLoaded = false;
+
+  function loadMapping() {
+    htmx.trigger(document.body, 'pulseMappingTab');
+    mappingLoaded = true;
+  }
+
+  function showTab(name, pushHash) {
+    let matched = false;
+    tabs.forEach(function (btn) {
+      const on = btn.dataset.tab === name;
+      matched = matched || on;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      document.getElementById('tab-' + btn.dataset.tab).hidden = !on;
+    });
+    if (!matched) return showTab('reporting', pushHash);
+    if (name === 'mapping' && !mappingLoaded) loadMapping();
+    if (pushHash) history.replaceState(null, '', '#' + name);
+  }
+
+  tabs.forEach(function (btn) {
+    btn.addEventListener('click', function () { showTab(btn.dataset.tab, true); });
+  });
+
+  // Keeps the tab across a refresh, and lets a link point straight at one.
+  window.addEventListener('hashchange', function () {
+    showTab((location.hash || '#reporting').slice(1), false);
+  });
+  showTab((location.hash || '#reporting').slice(1), false);
+
+  // A sync or an import can add campaigns; refresh the table only if it is live.
+  document.body.addEventListener('pulseSynced', function () {
+    if (mappingLoaded) loadMapping();
+  });
+
+  // The overview's "Map them →" button switches tab instead of scrolling.
+  document.body.addEventListener('pulseShowMapping', function () {
+    showTab('mapping', true);
+    document.getElementById('pulse-campaigns-panel')
+      .scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 })();
 </script>
+{% include "partials/pulse_animate.html" %}
 {% endblock %}

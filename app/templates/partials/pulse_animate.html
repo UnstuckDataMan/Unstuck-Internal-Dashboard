@@ -1,0 +1,129 @@
+{# Number tickers and bar growth, shared by the internal pages and the client
+   portal.
+
+   Progressive enhancement, deliberately: the final number and the final bar
+   width are already in the HTML, and this only animates from zero up to them.
+   If the script never runs, the page is still correct — it just appears
+   without movement.
+
+   Honours prefers-reduced-motion by leaving everything at its final value. #}
+<script>
+(function () {
+  var reduce = window.matchMedia
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var DURATION = 750;
+
+  // "1,234" · "0.4%" · "7 leads" · "—". Anything without a number is left
+  // alone, which is what keeps the em dash for "no value" intact.
+  var SHAPE = /^([^\d-]*)(-?[\d,]+(?:\.\d+)?)(.*)$/;
+
+  function parse(text) {
+    var m = SHAPE.exec(text.trim());
+    if (!m) return null;
+    var digits = m[2].replace(/,/g, '');
+    var dot = digits.indexOf('.');
+    return {
+      prefix:   m[1],
+      suffix:   m[3],
+      value:    parseFloat(digits),
+      decimals: dot === -1 ? 0 : digits.length - dot - 1
+    };
+  }
+
+  function format(n, spec) {
+    return spec.prefix + n.toLocaleString('en-US', {
+      minimumFractionDigits: spec.decimals,
+      maximumFractionDigits: spec.decimals
+    }) + spec.suffix;
+  }
+
+  function tick(root) {
+    var items = [];
+    root.querySelectorAll('[data-ticker]:not([data-ticked])').forEach(function (el) {
+      el.setAttribute('data-ticked', '');
+      var spec = parse(el.textContent);
+      if (!spec || !spec.value) return;       // nothing to count up to
+      items.push({ el: el, spec: spec });
+      el.textContent = format(0, spec);
+    });
+    if (!items.length) return;
+
+    var done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      // Land exactly on the real number rather than on the eased value.
+      for (var j = 0; j < items.length; j++) {
+        items[j].el.textContent = format(items[j].spec.value, items[j].spec);
+      }
+    }
+    // Safety net on a timer, which keeps running when rAF does not. Without it
+    // anything that stalls the frame loop would leave the numbers at zero.
+    setTimeout(finish, DURATION + 400);
+
+    var start = null;
+    function frame(now) {
+      if (done) return;
+      if (start === null) start = now;
+      var t = Math.min(1, (now - start) / DURATION);
+      var eased = 1 - Math.pow(1 - t, 3);     // ease-out: fast, then settles
+      for (var i = 0; i < items.length; i++) {
+        items[i].el.textContent = format(items[i].spec.value * eased, items[i].spec);
+      }
+      if (t < 1) requestAnimationFrame(frame);
+      else finish();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function grow(root) {
+    var bars = root.querySelectorAll(
+      '.funnel-bar:not([data-grown]), .stage-bar:not([data-grown]), .trend-col:not([data-grown])');
+    bars.forEach(function (el) {
+      el.setAttribute('data-grown', '');
+      var prop = el.classList.contains('trend-col') ? 'height' : 'width';
+      var target = el.style[prop];
+      if (!target) return;
+      el.style[prop] = '0%';
+      function restore() { el.style[prop] = target; }
+      // Two frames: the first commits the zero, the second starts the CSS
+      // transition. Setting both in one frame is coalesced and never animates.
+      requestAnimationFrame(function () { requestAnimationFrame(restore); });
+      // Same safety net as the numbers. If frames stop between zeroing the bar
+      // and restoring it, the bar would sit empty against a real number.
+      setTimeout(restore, 400);
+    });
+  }
+
+  var deferred = false;
+
+  function run(root) {
+    if (reduce) return;
+    // requestAnimationFrame does not fire while the document is hidden, so
+    // zeroing the numbers now would leave them at zero on a background tab
+    // until someone looked at it. Wait for the page to be visible instead —
+    // the final values are already in the HTML, so nothing is lost by waiting.
+    if (document.hidden) { deferred = true; return; }
+    var scope = (root && root.querySelectorAll) ? root : document;
+    tick(scope);
+    grow(scope);
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && deferred) {
+      deferred = false;
+      run(document);      // document, not the swapped node: catches everything
+    }                     // that arrived while the tab was in the background
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { run(document); });
+  } else {
+    run(document);
+  }
+
+  // HTMX replaces the funnel and the campaign table in place; afterSettle is
+  // the point at which the new nodes are in the document and styled.
+  document.addEventListener('htmx:afterSettle', function (e) { run(e.target); });
+})();
+</script>

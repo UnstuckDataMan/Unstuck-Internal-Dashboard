@@ -136,14 +136,16 @@ def test_classify_reply(category, expected):
 
 
 def test_funnel_rates():
-    counts = {"sent": 1000, "opened": 400, "replied": 50,
-              "positive_reply": 10, "meeting_booked": 4}
+    counts = {"sent": 1000, "opened": 400, "replied": 50, "positive_reply": 10,
+              "information_request": 3, "meeting_booked": 1}
     rows = {r["key"]: r for r in normalize.funnel_with_rates(counts)}
     assert rows["sent"]["step_rate"] is None      # nothing above it
     assert rows["opened"]["step_rate"] == 40.0
     assert rows["replied"]["step_rate"] == 12.5   # of opened
     assert rows["replied"]["overall"] == 5.0      # of sent
-    assert rows["meeting_booked"]["overall"] == 0.4
+    assert rows["leads"]["value"] == 4            # 3 info + 1 meeting; not interested
+    assert rows["leads"]["step_rate"] == 8.0      # of replied
+    assert rows["leads"]["overall"] == 0.4        # of sent = the lead rate
 
 
 def test_opened_does_not_print_the_same_rate_twice():
@@ -161,11 +163,11 @@ def test_only_the_first_stage_is_flagged_as_top_of_funnel():
     the top of the funnel and must not be labelled as one."""
     rows = normalize.funnel_with_rates(
         {"sent": 100, "opened": 20, "replied": 0,
-         "positive_reply": 0, "meeting_booked": 0})
+         "positive_reply": 0, "information_request": 0, "meeting_booked": 0})
     by_key = {r["key"]: r for r in rows}
     assert by_key["sent"]["is_top"] is True
-    assert by_key["meeting_booked"]["is_top"] is False
-    assert by_key["meeting_booked"]["step_rate"] is None   # parent is zero
+    assert by_key["leads"]["is_top"] is False
+    assert by_key["leads"]["step_rate"] is None   # parent is zero
 
 
 def test_a_zero_parent_stage_is_not_labelled_top_of_funnel(client, fake_sb):
@@ -205,22 +207,22 @@ def test_smartlead_maps_a_full_lead_journey():
         "lead_category":  "Interested",
     }])
     types = [e["event_type"] for e in events]
-    assert types == ["sent", "opened", "replied", "positive_reply"]
+    # Categories are outcomes now, not events — see the outcome tests.
+    assert types == ["sent", "opened", "replied"]
     assert all(e["agency_id"] == AGENCY for e in events)
     assert all(e["client_id"] == CLIENT for e in events)
 
 
-def test_smartlead_meeting_implies_positive_reply():
-    """The funnel must never show more meetings than positive replies."""
+def test_smartlead_no_longer_emits_outcome_events():
+    """Outcome events were append-only, so a lead could never leave a bucket.
+    The connector must not write them any more."""
     events = _smartlead_events([{
         "lead_email":    "jo@acme.com",
         "sent_time":     "2025-03-01T09:00:00Z",
         "reply_time":    "2025-03-02T08:00:00Z",
-        "lead_category": "Meeting Booked",
+        "lead_category": "Meeting Request",
     }])
-    types = [e["event_type"] for e in events]
-    assert "positive_reply" in types
-    assert "meeting_booked" in types
+    assert {e["event_type"] for e in events}.isdisjoint(normalize.OUTCOME_STAGES)
 
 
 def test_smartlead_tolerates_renamed_fields():
@@ -282,9 +284,16 @@ def test_alfred_meeting_backfills_the_stages_above_it():
         "meeting booked": "2025-03-05T09:00:00Z",
     }])
     types = [e["event_type"] for e in events]
-    assert "replied" in types
-    assert "positive_reply" in types
-    assert "meeting_booked" in types
+    # Replied is backfilled at the meeting time so it never reads below Leads;
+    # the meeting itself becomes an outcome, not an event.
+    assert types.count("replied") == 1
+    assert set(types).isdisjoint(normalize.OUTCOME_STAGES)
+
+    outcomes = meet_alfred.outcomes_from_activities(
+        [{"profile_url": "https://linkedin.com/in/jo",
+          "meeting booked": "2025-03-05T09:00:00Z"}],
+        agency_id=AGENCY, campaign_id=CAMPAIGN)
+    assert [o["stage"] for o in outcomes] == ["meeting_booked"]
 
 
 def test_alfred_csv_import_matches_the_api_path():
@@ -298,8 +307,10 @@ def test_alfred_csv_import_matches_the_api_path():
     assert rows[0]["profile url"] == "https://linkedin.com/in/jo"
 
     events = _alfred_events(rows)
-    assert [e["event_type"] for e in events] == \
-        ["sent", "opened", "replied", "positive_reply"]
+    assert [e["event_type"] for e in events] == ["sent", "opened", "replied"]
+    outcomes = meet_alfred.outcomes_from_activities(
+        rows, agency_id=AGENCY, campaign_id=CAMPAIGN)
+    assert [o["stage"] for o in outcomes] == ["positive_reply"]
 
 
 def test_alfred_csv_handles_a_utf8_bom():
@@ -853,7 +864,7 @@ def test_sync_reports_partial_when_one_campaign_fails(monkeypatch, fake_sb):
     def fake_sync_campaign(*, external_campaign_id, **kw):
         if external_campaign_id == "2":
             raise smartlead.SmartleadError("upstream 500")
-        return []
+        return [], []
 
     monkeypatch.setattr(smartlead, "sync_campaign", fake_sync_campaign)
     monkeypatch.setattr(pulse_sync, "_PACING_SECONDS", 0)
@@ -884,7 +895,7 @@ def test_only_the_succeeding_campaign_is_stamped_as_synced(monkeypatch, fake_sb)
     def fake_sync_campaign(*, external_campaign_id, **kw):
         if external_campaign_id == "2":
             raise smartlead.SmartleadError("boom")
-        return []
+        return [], []
 
     monkeypatch.setattr(smartlead, "sync_campaign", fake_sync_campaign)
     fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, [
@@ -909,7 +920,7 @@ def test_bulk_campaign_upsert_omits_client_id(monkeypatch, fake_sb):
     monkeypatch.setenv("SMARTLEAD_API_KEY", "k")
     monkeypatch.setattr(smartlead, "fetch_campaigns", lambda: [
         {"external_id": "1", "name": "Mapped", "status": "ACTIVE", "raw": {}}])
-    monkeypatch.setattr(smartlead, "sync_campaign", lambda **kw: [])
+    monkeypatch.setattr(smartlead, "sync_campaign", lambda **kw: ([], []))
     monkeypatch.setattr(pulse_sync, "_PACING_SECONDS", 0)
 
     fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(
@@ -1644,7 +1655,7 @@ def test_rollup_view_keeps_the_column_contract():
 
 @pytest.mark.parametrize("category,expected", [
     ("Interested",          normalize.EVENT_POSITIVE_REPLY),
-    ("Information Request", normalize.EVENT_POSITIVE_REPLY),
+    ("Information Request", normalize.EVENT_INFORMATION_REQUEST),
     ("Meeting Request",     normalize.EVENT_MEETING_BOOKED),
     ("Not Interested",      None),
     ("Do Not Contact",      None),
@@ -1670,37 +1681,34 @@ def test_negative_wins_when_a_category_contains_both_phrases():
     assert normalize.classify_reply("Not interested in a meeting request") is None
 
 
-def test_a_meeting_request_lead_counts_as_interested_too():
-    """Every stage is a subset of the one above it: a lead asking for a meeting
-    was also interested, so the funnel never shows more meetings than interest."""
-    events = _smartlead_events([{
-        "lead_email":    "jo@acme.com",
-        "sent_time":     "2026-09-01T09:00:00Z",
-        "reply_time":    "2026-09-02T09:00:00Z",
-        "lead_category": "Meeting Request",
-    }])
-    types = [e["event_type"] for e in events]
-    assert "positive_reply" in types
-    assert "meeting_booked" in types
+def test_a_meeting_request_lead_is_not_also_interested():
+    """Interested counts only prospects marked Interested. The categories are
+    mutually exclusive, so a meeting request is a meeting request and nothing
+    else."""
+    assert normalize.classify_reply("Meeting Request") == normalize.EVENT_MEETING_BOOKED
+    assert normalize.classify_reply("Information Request") == normalize.EVENT_INFORMATION_REQUEST
+    assert normalize.classify_reply("Interested") == normalize.EVENT_POSITIVE_REPLY
 
 
-def test_resync_adds_the_meeting_stage_without_duplicating_interest():
-    """History already synced under the old mapping has a positive_reply event
-    but no meeting event. Re-syncing must add the meeting and reuse the existing
-    interested row's dedupe key, so the backfill is automatic and exact."""
-    row = {"lead_email": "jo@acme.com", "reply_time": "2026-09-02T09:00:00Z",
+def test_resyncing_the_same_lead_produces_the_same_outcome_key():
+    """Outcomes upsert on (agency, campaign, lead). The same lead must map to the
+    same row every sync, or a re-sync would add a lead instead of updating it."""
+    row = {"lead_email": "Jo@Acme.com", "reply_time": "2026-09-02T09:00:00Z",
            "lead_category": "Meeting Request"}
-    first = {e["event_type"]: e["dedupe_key"] for e in _smartlead_events([row])}
-    second = {e["event_type"]: e["dedupe_key"] for e in _smartlead_events([row])}
-    assert first["positive_reply"] == second["positive_reply"]
-    assert first["meeting_booked"] == second["meeting_booked"]
+    a = smartlead.outcomes_from_statistics([row], agency_id=AGENCY, campaign_id=CAMPAIGN)
+    b = smartlead.outcomes_from_statistics([row], agency_id=AGENCY, campaign_id=CAMPAIGN)
+    key = lambda o: (o["agency_id"], o["campaign_id"], o["lead_key"])
+    assert [key(o) for o in a] == [key(o) for o in b]
+    assert a[0]["lead_key"] == "jo@acme.com"
 
 
 def test_stage_labels_use_the_teams_vocabulary():
     """The top stage records meeting REQUESTS. Calling it "booked" would tell a
     client they have calls on the calendar that the data doesn't show."""
     assert normalize.STAGE_LABELS[normalize.EVENT_POSITIVE_REPLY] == "Interested"
-    assert normalize.STAGE_LABELS[normalize.EVENT_MEETING_BOOKED] == "Meeting requested"
+    assert normalize.STAGE_LABELS[normalize.EVENT_INFORMATION_REQUEST] == "Information requests"
+    assert normalize.STAGE_LABELS[normalize.EVENT_MEETING_BOOKED] == "Meeting requests"
+    assert "booked" not in " ".join(normalize.STAGE_LABELS.values()).lower()
 
 
 # ── Opens are shown only when they are tracked ────────────────────────────────
@@ -1719,9 +1727,8 @@ def test_opens_are_tracked(opened, replied, tracked):
 def test_untracked_opens_are_dropped_from_the_funnel():
     rows = normalize.funnel_with_rates(
         {"sent": 1000, "opened": 0, "replied": 50,
-         "positive_reply": 10, "meeting_booked": 4})
-    assert [r["key"] for r in rows] == \
-        ["sent", "replied", "positive_reply", "meeting_booked"]
+         "positive_reply": 10, "information_request": 3, "meeting_booked": 1})
+    assert [r["key"] for r in rows] == ["sent", "replied", "leads"]
 
 
 def test_reply_rate_is_against_sent_when_opens_are_dropped():
@@ -1729,11 +1736,11 @@ def test_reply_rate_is_against_sent_when_opens_are_dropped():
     zero it no longer shows."""
     rows = {r["key"]: r for r in normalize.funnel_with_rates(
         {"sent": 1000, "opened": 0, "replied": 50,
-         "positive_reply": 10, "meeting_booked": 4})}
-    assert rows["replied"]["step_rate"] == 5.0            # 50 of 1000 sent
-    assert rows["replied"]["overall"] is None             # would just repeat 5.0
-    assert rows["positive_reply"]["step_rate"] == 20.0    # 10 of 50 replied
-    assert rows["meeting_booked"]["step_rate"] == 40.0    # 4 of 10 interested
+         "positive_reply": 10, "information_request": 3, "meeting_booked": 1})}
+    assert rows["replied"]["step_rate"] == 5.0    # 50 of 1000 sent
+    assert rows["replied"]["overall"] is None     # would just repeat 5.0
+    assert rows["leads"]["step_rate"] == 8.0      # 4 leads of 50 replied
+    assert rows["leads"]["overall"] == 0.4        # the lead rate
 
 
 def test_tracked_opens_keep_their_stage():
@@ -1846,3 +1853,544 @@ def test_portal_never_calls_meeting_requests_booked(client, fake_sb):
     assert "booked" not in r.text.lower()
     # Opens aren't tracked here, so the portal must not explain a stage it hides.
     assert "connection request was accepted" not in r.text
+
+
+# ── Leads and lead rate ───────────────────────────────────────────────────────
+# Leads = Information requests + Meeting requests. Interested is tracked but is
+# not a lead. Lead rate = leads / sent, the same base as the reply rate.
+
+def test_lead_count_excludes_interested():
+    counts = {"sent": 1000, "replied": 60, "positive_reply": 25,
+              "information_request": 7, "meeting_booked": 3}
+    assert normalize.lead_count(counts) == 10
+
+
+def test_lead_rate_is_leads_over_sent():
+    counts = {"sent": 2000, "positive_reply": 40,
+              "information_request": 12, "meeting_booked": 8}
+    assert normalize.lead_rate(counts) == 1.0
+
+
+def test_lead_rate_has_no_value_without_sends():
+    assert normalize.lead_rate({"information_request": 3}) is None
+
+
+def test_outcome_breakdown_lists_all_three_with_share_of_replies():
+    rows = normalize.outcome_breakdown(
+        {"replied": 50, "positive_reply": 20, "information_request": 5, "meeting_booked": 5})
+    by_key = {r["key"]: r for r in rows}
+    assert [r["label"] for r in rows] == \
+        ["Interested", "Information requests", "Meeting requests"]
+    assert by_key["positive_reply"]["of_replies"] == 40.0
+    assert by_key["positive_reply"]["is_lead"] is False
+    assert by_key["information_request"]["is_lead"] is True
+    assert by_key["meeting_booked"]["is_lead"] is True
+
+
+# ── Outcomes: one current row per replying lead ──────────────────────────────
+
+def _outcomes(rows):
+    return smartlead.outcomes_from_statistics(rows, agency_id=AGENCY, campaign_id=CAMPAIGN)
+
+
+def test_outcomes_collapse_sequence_steps_to_one_row_per_lead():
+    """A single upsert containing the same key twice fails in Postgres ("cannot
+    affect row a second time") and would lose the whole batch."""
+    out = _outcomes([
+        {"lead_email": "jo@acme.com", "sequence_number": 1,
+         "sent_time": "2026-09-01T09:00:00Z", "lead_category": "Interested"},
+        {"lead_email": "jo@acme.com", "sequence_number": 2,
+         "reply_time": "2026-09-03T09:00:00Z", "lead_category": "Interested"},
+        {"lead_email": "jo@acme.com", "sequence_number": 3,
+         "sent_time": "2026-09-05T09:00:00Z", "lead_category": "Interested"},
+    ])
+    assert len(out) == 1
+    assert out[0]["stage"] == "positive_reply"
+    assert out[0]["day"] == "2026-09-03"
+
+
+def test_outcome_day_is_the_earliest_reply():
+    out = _outcomes([
+        {"lead_email": "jo@acme.com", "reply_time": "2026-09-09T09:00:00Z",
+         "lead_category": "Meeting Request"},
+        {"lead_email": "jo@acme.com", "reply_time": "2026-09-04T09:00:00Z",
+         "lead_category": "Meeting Request"},
+    ])
+    assert out[0]["day"] == "2026-09-04"
+
+
+def test_leads_that_never_replied_have_no_outcome():
+    assert _outcomes([{"lead_email": "jo@acme.com", "sent_time": "2026-09-01T09:00:00Z",
+                       "lead_category": "Interested"}]) == []
+
+
+def test_a_non_positive_reply_is_still_written_with_no_stage():
+    """Writing a NULL stage is what removes a lead from the counts when it is
+    re-marked Not Interested — the upsert overwrites its old stage."""
+    out = _outcomes([{"lead_email": "jo@acme.com", "reply_time": "2026-09-02T09:00:00Z",
+                      "lead_category": "Not Interested"}])
+    assert len(out) == 1
+    assert out[0]["stage"] is None
+    assert out[0]["category"] == "Not Interested"
+
+
+def test_recategorised_lead_moves_bucket_on_the_next_sync():
+    """The core reason outcomes are current state: the same lead, re-marked,
+    produces the same row key with a different stage."""
+    before = _outcomes([{"lead_email": "jo@acme.com", "reply_time": "2026-09-02T09:00:00Z",
+                         "lead_category": "Interested"}])
+    after = _outcomes([{"lead_email": "jo@acme.com", "reply_time": "2026-09-02T09:00:00Z",
+                        "lead_category": "Meeting Request"}])
+    assert before[0]["lead_key"] == after[0]["lead_key"]
+    assert (before[0]["stage"], after[0]["stage"]) == ("positive_reply", "meeting_booked")
+
+
+def test_make_outcome_rejects_unknown_stages():
+    with pytest.raises(ValueError):
+        normalize.make_outcome(agency_id=AGENCY, campaign_id=CAMPAIGN, lead="x",
+                               category="", stage="booked_call",
+                               replied_at=normalize.parse_ts("2026-09-02T09:00:00Z"))
+
+
+def test_alfred_negative_category_beats_a_tracked_meeting_date():
+    """The category is the team's latest judgement; an old meeting date in the
+    export must not override an explicit "Not Interested"."""
+    out = meet_alfred.outcomes_from_activities(
+        [{"profile url": "https://linkedin.com/in/jo",
+          "replied at": "2026-09-02T09:00:00Z",
+          "meeting booked": "2026-09-05T09:00:00Z",
+          "category": "Not Interested"}],
+        agency_id=AGENCY, campaign_id=CAMPAIGN)
+    assert out[0]["stage"] is None
+
+
+# ── Writing outcomes ──────────────────────────────────────────────────────────
+
+def test_upsert_outcomes_merges_on_the_lead_key(fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("POST", "pulse_lead_outcomes", lambda call: FakeResponse(201, []))
+    rows = _outcomes([{"lead_email": "jo@acme.com", "reply_time": "2026-09-02T09:00:00Z",
+                       "lead_category": "Interested"}])
+    assert store.upsert_outcomes(rows) == 1
+
+    call = fake_sb.calls_to("POST", "pulse_lead_outcomes")[0]
+    assert param_values(call, "on_conflict") == ["agency_id,campaign_id,lead_key"]
+    assert "merge-duplicates" in call["headers"].get("Prefer", "")
+
+
+def test_upsert_outcomes_reports_a_shortfall(fake_sb, monkeypatch):
+    monkeypatch.setattr(store, "INSERT_CHUNK", 1)
+    calls = {"n": 0}
+
+    def handler(call):
+        calls["n"] += 1
+        return FakeResponse(404 if calls["n"] == 2 else 201,
+                            {"code": "42P01", "message": "relation does not exist"}
+                            if calls["n"] == 2 else [])
+
+    fake_sb.route("POST", "pulse_lead_outcomes", handler)
+    rows = _outcomes([
+        {"lead_email": f"l{i}@acme.com", "reply_time": "2026-09-02T09:00:00Z",
+         "lead_category": "Interested"} for i in range(3)])
+    assert store.upsert_outcomes(rows) == 2
+
+
+def test_sync_flags_campaigns_whose_outcomes_did_not_save(monkeypatch, fake_sb):
+    """Lost outcomes must show on the connector panel, and the campaign must stay
+    at the head of the queue — not be stamped synced and rotated away."""
+    from app.utils.pulse import sync as pulse_sync
+
+    monkeypatch.setenv("SMARTLEAD_API_KEY", "k")
+    monkeypatch.setattr(smartlead, "fetch_campaigns", lambda: [])
+    monkeypatch.setattr(pulse_sync, "_PACING_SECONDS", 0)
+    outcome = _outcomes([{"lead_email": "jo@acme.com",
+                          "reply_time": "2026-09-02T09:00:00Z",
+                          "lead_category": "Interested"}])
+    monkeypatch.setattr(smartlead, "sync_campaign", lambda **kw: ([], outcome))
+
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, [
+        {"id": "id1", "client_id": None, "external_campaign_id": "1",
+         "name": "Acme", "status": "ACTIVE", "last_synced_at": None}]))
+    fake_sb.route("POST", "pulse_lead_outcomes", lambda call: FakeResponse(
+        404, {"code": "42P01", "message": "relation does not exist"}))
+    fake_sb.route("POST", "pulse_sync_logs", lambda call: FakeResponse(201, [{"id": "log1"}]))
+
+    result = pulse_sync.sync_source("smartlead", "test")
+    assert result["status"] == "error"
+    assert "lead outcomes" in result["error"]
+    assert fake_sb.calls_to("PATCH", "pulse_campaigns") == []
+
+
+# ── Views ─────────────────────────────────────────────────────────────────────
+
+_LEAD_ROWS = [
+    {"client_id": CLIENT, "campaign_id": CAMPAIGN, "channel": "email", "day": "2026-09-10",
+     "event_type": "sent", "events": 2000},
+    {"client_id": CLIENT, "campaign_id": CAMPAIGN, "channel": "email", "day": "2026-09-10",
+     "event_type": "replied", "events": 80},
+    {"client_id": CLIENT, "campaign_id": CAMPAIGN, "channel": "email", "day": "2026-09-10",
+     "event_type": "positive_reply", "events": 30},
+    {"client_id": CLIENT, "campaign_id": CAMPAIGN, "channel": "email", "day": "2026-09-10",
+     "event_type": "information_request", "events": 12},
+    {"client_id": CLIENT, "campaign_id": CAMPAIGN, "channel": "email", "day": "2026-09-10",
+     "event_type": "meeting_booked", "events": 8},
+]
+
+
+def test_overview_shows_lead_rate_and_all_three_outcomes(client, fake_sb):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, _LEAD_ROWS))
+
+    r = client.get("/api/outbound-pulse/overview")
+    assert r.status_code == 200
+    assert "Lead rate" in r.text
+    assert "1.0%" in r.text                      # 20 leads / 2000 sent
+    assert "Information requests" in r.text
+    assert "Meeting requests" in r.text
+    assert ">30<" in r.text                      # Interested stays separate
+
+
+def test_client_detail_table_has_lead_columns(client, fake_sb):
+    _detail_routes_with(fake_sb, _LEAD_ROWS)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert r.status_code == 200
+    for heading in ("<th>Interested</th>", "<th>Info req.</th>", "<th>Meeting req.</th>",
+                    "<th>Leads</th>", "<th>Lead rate</th>"):
+        assert heading in r.text
+    assert "<td>20</td>" in r.text               # leads
+    assert "<td>1.0%</td>" in r.text             # lead rate
+    assert "<td>4.0%</td>" in r.text             # reply rate, 80/2000
+
+
+def test_portal_headlines_leads_and_lead_rate(client, fake_sb):
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
+        "id": "a1", "client_id": CLIENT, "label": "",
+        "expires_at": None, "revoked_at": None, "view_count": 0,
+    }]))
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, _LEAD_ROWS))
+
+    r = client.get("/portal/valid-token")
+    assert r.status_code == 200
+    assert "Lead rate" in r.text
+    assert "Reply outcomes" in r.text
+    assert "Information requests" in r.text
+    assert "1.0%" in r.text
+
+
+# ── The SQL backfill must classify exactly like Python ───────────────────────
+
+def _sql_array(sql: str, name: str) -> tuple[str, ...]:
+    import re
+    # [^\]]* rather than .*? — a lazy match starts at the FIRST "ARRAY[" and
+    # would swallow every list before the one named.
+    match = re.search(r"ARRAY\[([^\]]*)\]\s+AS " + name, sql)
+    assert match, f"ARRAY for {name} not found in migration"
+    return tuple(re.findall(r"'([^']*)'", match.group(1)))
+
+
+def _outcomes_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1]
+            / "migrations" / "outbound_pulse_outcomes.sql").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("name,python", [
+    ("meeting",     "_MEETING_CATEGORIES"),
+    ("information", "_INFORMATION_CATEGORIES"),
+    ("interested",  "_INTERESTED_CATEGORIES"),
+    ("negative",    "_NEGATIVE_CATEGORIES"),
+])
+def test_backfill_term_lists_match_the_python_classifier(name, python):
+    """The migration's backfill classifies history in SQL. If its term lists
+    drift from normalize.py, the backfilled numbers disagree with what the next
+    sync writes, and the dashboard shifts for no visible reason."""
+    assert set(_sql_array(_outcomes_sql(), name)) == set(getattr(normalize, python))
+
+
+def test_outcomes_migration_is_one_transaction_and_never_clobbers_live_rows():
+    sql = _outcomes_sql()
+    assert sql.index("BEGIN;") < sql.index("CREATE TABLE")
+    assert sql.rstrip().endswith("COMMIT;")
+    # A re-run must not overwrite a live sync's current category with history.
+    assert "ON CONFLICT (agency_id, campaign_id, lead_key) DO NOTHING" in sql
+    # The backfill classifier must not outlive the transaction.
+    assert "DROP FUNCTION pulse_classify_backfill(text);" in sql
+
+
+def test_view_reads_outcomes_from_the_table_not_legacy_events():
+    """Legacy positive_reply / meeting_booked events stay in the rollup. If the
+    view read them too, every outcome would count twice."""
+    view = _outcomes_sql().split("CREATE VIEW pulse_funnel_daily AS", 1)[1]
+    assert "WHERE r.event_type IN ('sent', 'opened', 'replied')" in view
+    assert "FROM pulse_lead_outcomes o" in view
+    assert "WHERE o.stage IS NOT NULL" in view
+
+
+# ── Campaign mapping is its own tab ───────────────────────────────────────────
+
+def test_page_has_a_tab_strip(client, fake_sb):
+    r = client.get("/outbound-pulse")
+    assert r.status_code == 200
+    assert 'role="tablist"' in r.text
+    assert 'data-tab="reporting"' in r.text
+    assert 'data-tab="mapping"' in r.text
+    assert "Campaign mapping" in r.text
+
+
+def test_mapping_lives_in_its_own_panel_hidden_by_default(client, fake_sb):
+    r = client.get("/outbound-pulse")
+    assert '<section id="tab-mapping" role="tabpanel" aria-labelledby="tab-btn-mapping" hidden>' in r.text
+    # The mapping table markup must sit inside that panel, not the reporting one.
+    mapping_panel = r.text.split('<section id="tab-mapping"', 1)[1]
+    assert 'id="pulse-campaigns-list"' in mapping_panel
+    reporting_panel = r.text.split('<section id="tab-reporting"', 1)[1].split('<section id="tab-mapping"', 1)[0]
+    assert 'id="pulse-campaigns-list"' not in reporting_panel
+    assert 'id="pulse-overview"' in reporting_panel
+
+
+def test_mapping_table_is_not_fetched_until_its_tab_is_opened(client, fake_sb):
+    """One row per campaign, and this account has over a thousand — loading it
+    with the page made every visit pay for a table most visits never open."""
+    r = client.get("/outbound-pulse")
+    block = r.text.split('id="pulse-campaigns-list"', 1)[1].split(">", 1)[0]
+    assert 'hx-trigger="pulseMappingTab from:body"' in block
+    assert "load" not in block.replace("pulseMappingTab", "")
+
+
+def test_unmapped_warning_switches_tab_rather_than_scrolling(client, fake_sb):
+    """The mapping panel is on another tab now, so scrolling to it would land
+    on a hidden element."""
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, [
+        {"id": CAMPAIGN, "client_id": None, "name": "Stray", "channel": "email",
+         "source_tool": "smartlead", "external_campaign_id": "1", "status": "ACTIVE",
+         "last_synced_at": None, "created_at": None}]))
+
+    r = client.get("/api/outbound-pulse/overview")
+    assert "not mapped to a client" in r.text
+    assert "pulseShowMapping" in r.text
+    assert "scrollIntoView" not in r.text
+
+
+# ── Manual leads count as leads ───────────────────────────────────────────────
+
+def test_manual_lead_is_a_lead_but_not_a_meeting_or_info_request():
+    """The DNC & Merger tool records a lead without saying which kind, so it is
+    its own stage rather than being folded into one that implies more."""
+    assert normalize.EVENT_MANUAL_LEAD in normalize.LEAD_STAGES
+    assert normalize.EVENT_MANUAL_LEAD not in (
+        normalize.EVENT_INFORMATION_REQUEST, normalize.EVENT_MEETING_BOOKED)
+    assert normalize.lead_count({"lead": 4}) == 4
+    assert normalize.lead_count(
+        {"lead": 4, "information_request": 2, "meeting_booked": 1}) == 7
+    assert normalize.lead_rate({"sent": 1000, "lead": 5}) == 0.5
+
+
+def test_interested_still_excludes_manual_leads():
+    counts = {"replied": 50, "positive_reply": 20, "lead": 9}
+    assert normalize.lead_count(counts) == 9
+    by_key = {r["key"]: r for r in normalize.outcome_breakdown(counts)}
+    assert by_key["positive_reply"]["value"] == 20
+    assert by_key["positive_reply"]["is_lead"] is False
+    assert by_key["lead"]["is_lead"] is True
+
+
+def test_manual_lead_stage_is_hidden_when_there_are_none():
+    """A Smartlead-only funnel should not show a permanent zero for a stage
+    that source cannot produce."""
+    keys = [r["key"] for r in normalize.outcome_breakdown(
+        {"replied": 10, "positive_reply": 4, "meeting_booked": 1})]
+    assert "lead" not in keys
+    keys = [r["key"] for r in normalize.outcome_breakdown({"replied": 10, "lead": 3})]
+    assert "lead" in keys
+
+
+# ── Splitting by source ───────────────────────────────────────────────────────
+
+def test_funnel_by_source_groups_the_three_tools(fake_sb):
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"source_tool": "smartlead", "event_type": "sent", "events": 900},
+        {"source_tool": "smartlead", "event_type": "meeting_booked", "events": 4},
+        {"source_tool": "meet_alfred", "event_type": "sent", "events": 200},
+        {"source_tool": "manual", "event_type": "sent", "events": 300},
+        {"source_tool": "manual", "event_type": "lead", "events": 6},
+    ]))
+    out = store.funnel_by_source()
+    assert out["smartlead"]["sent"] == 900
+    assert out["manual"]["lead"] == 6
+    assert normalize.lead_count(out["manual"]) == 6
+    assert normalize.lead_count(out["meet_alfred"]) == 0
+
+
+def test_source_filter_reaches_the_query(fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+    store.funnel(source_tool="manual")
+    call = fake_sb.calls_to("GET", "pulse_funnel_daily")[0]
+    assert param_values(call, "source_tool") == ["eq.manual"]
+    assert param_values(call, "agency_id") == [f"eq.{AGENCY}"]
+
+
+# ── Per-source tabs on the client view ────────────────────────────────────────
+
+def _source_routes(fake_sb, rows):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, rows))
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, []))
+
+
+_MIXED = [
+    {"client_id": CLIENT, "source_tool": "smartlead", "channel": "email",
+     "event_type": "sent", "events": 1000, "day": "2026-09-10"},
+    {"client_id": CLIENT, "source_tool": "smartlead", "channel": "email",
+     "event_type": "replied", "events": 40, "day": "2026-09-10"},
+    {"client_id": CLIENT, "source_tool": "smartlead", "channel": "email",
+     "event_type": "meeting_booked", "events": 5, "day": "2026-09-10"},
+    {"client_id": CLIENT, "source_tool": "manual", "channel": "email",
+     "event_type": "sent", "events": 500, "day": "2026-09-10"},
+    {"client_id": CLIENT, "source_tool": "manual", "channel": "email",
+     "event_type": "lead", "events": 7, "day": "2026-09-10"},
+]
+
+
+def test_client_page_has_a_tab_per_source_plus_combined(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert r.status_code == 200
+    assert 'data-source="all"' in r.text
+    for key, label in (("smartlead", "Smartlead"), ("meet_alfred", "Meet Alfred"),
+                       ("manual", "Manual")):
+        assert f'data-source="{key}"' in r.text
+        assert label in r.text
+
+
+def test_a_source_with_no_activity_is_disabled_not_hidden(client, fake_sb):
+    """Meet Alfred has nothing in this range — the tab should still be visible,
+    so its absence reads as "nothing yet", not "not connected"."""
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    alfred = r.text.split('data-source="meet_alfred"', 1)[1].split(">", 1)[0]
+    assert "disabled" in alfred
+    smartlead = r.text.split('data-source="smartlead"', 1)[1].split(">", 1)[0]
+    assert "disabled" not in smartlead
+
+
+def test_each_source_panel_shows_only_that_source(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    manual = r.text.split('data-source-panel="manual"', 1)[1].split('data-source-panel=', 1)[0]
+    assert "1,000" not in manual          # the Smartlead sends
+    assert "500" in manual                # its own
+    assert "Manual leads" in manual
+    assert "DNC &amp; Merger tool" in manual
+
+
+def test_manual_panel_states_its_caveats(client, fake_sb):
+    """Manual leads are deduplicated by domain and replies carry no date; both
+    make the numbers differ from the DNC & Merger tool, so both are stated."""
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    manual = r.text.split('data-source-panel="manual"', 1)[1].split('data-source-panel=', 1)[0]
+    assert "one per domain per client" in manual
+    assert "manual replies are" in manual
+
+
+def test_combined_notes_that_manual_has_no_replies(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    combined = r.text.split('data-source-panel="all"', 1)[1].split('data-source-panel=', 1)[0]
+    assert "Smartlead and Meet Alfred only" in combined
+
+
+def test_combined_totals_include_manual_leads(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    combined = r.text.split('data-source-panel="all"', 1)[1].split('data-source-panel=', 1)[0]
+    assert "12 leads" in combined          # 5 meeting requests + 7 manual leads
+
+
+# ── Date range selector ───────────────────────────────────────────────────────
+
+def test_client_page_offers_a_custom_range(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert 'value="custom"' in r.text
+    assert 'id="date-from"' in r.text and 'id="date-to"' in r.text
+
+
+def test_custom_dates_filter_the_client_view(client, fake_sb):
+    from tests.conftest import param_values
+
+    _source_routes(fake_sb, _MIXED)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}"
+                   "?date_from=2026-09-01&date_to=2026-09-15")
+    assert r.status_code == 200
+    # The inputs come back filled in, so the range survives a reload.
+    assert 'value="2026-09-01"' in r.text and 'value="2026-09-15"' in r.text
+
+    call = fake_sb.calls_to("GET", "pulse_funnel_daily")[0]
+    assert sorted(param_values(call, "day")) == ["gte.2026-09-01", "lte.2026-09-15"]
+
+
+def test_overview_accepts_a_custom_range(client, fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+    r = client.get("/api/outbound-pulse/overview?date_from=2026-08-01&date_to=2026-08-31")
+    assert r.status_code == 200
+    call = fake_sb.calls_to("GET", "pulse_funnel_daily")[0]
+    assert sorted(param_values(call, "day")) == ["gte.2026-08-01", "lte.2026-08-31"]
+
+
+def test_overview_sends_the_date_inputs_with_every_refresh(client, fake_sb):
+    """Without them in hx-include, picking a custom range then changing channel
+    would silently drop back to the preset."""
+    r = client.get("/outbound-pulse")
+    overview = r.text.split('id="pulse-overview"', 1)[1].split(">", 1)[0]
+    assert "#date-from" in overview and "#date-to" in overview
+
+
+# ── Manual migration guards ───────────────────────────────────────────────────
+
+def _manual_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1]
+            / "migrations" / "outbound_pulse_manual.sql").read_text(encoding="utf-8")
+
+
+def test_manual_migration_reads_in_place_and_is_one_transaction():
+    sql = _manual_sql()
+    assert sql.index("BEGIN;") < sql.index("CREATE INDEX")
+    assert sql.rstrip().endswith("COMMIT;")
+    assert "pulse_manual_daily" in sql
+
+
+def test_manual_view_counts_only_lead_and_interested_reasons():
+    """opt_out and hand-added DNC entries are not campaign outcomes."""
+    sql = _manual_sql()
+    assert "d.reason IN ('lead', 'interested')" in sql
+    assert "opt_out" not in sql.split("CREATE OR REPLACE VIEW", 1)[-1]
+
+
+def test_manual_view_excludes_clients_without_an_agency():
+    assert _manual_sql().count("c.agency_id IS NOT NULL") >= 2
+
+
+def test_funnel_view_unions_manual_without_duplicating_events():
+    sql = _manual_sql()
+    view = sql.split("CREATE VIEW pulse_funnel_daily AS", 1)[1]
+    assert "WHERE r.event_type IN ('sent', 'opened', 'replied')" in view
+    assert "FROM pulse_lead_outcomes o" in view
+    assert "FROM pulse_manual_daily" in view

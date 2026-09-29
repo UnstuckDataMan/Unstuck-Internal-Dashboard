@@ -30,10 +30,12 @@ from fastapi.responses import HTMLResponse, Response
 from app.deps import templates
 from app.utils.dates import today_utc
 from app.utils.pulse import store
+from app.utils.pulse import template_filters
 from app.utils.pulse.normalize import EVENT_SENT, funnel_with_rates
 from app.utils.pulse.store import PulseNotReady
 
 router = APIRouter()
+template_filters.register(templates.env)
 
 # Ranges a client can pick. Deliberately a fixed allowlist rather than free
 # dates: it keeps the portal simple, and it means no client-supplied string

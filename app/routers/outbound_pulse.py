@@ -25,16 +25,18 @@ from app.utils.pulse import meet_alfred, store, sync as pulse_sync
 from app.utils.pulse.normalize import (
     CHANNEL_EMAIL,
     CHANNEL_LINKEDIN,
-    EVENT_MEETING_BOOKED,
     EVENT_SENT,
     FUNNEL_STAGES,
+    SOURCE_LABELS,
     SOURCE_MEET_ALFRED,
     funnel_with_rates,
     opens_are_tracked,
 )
+from app.utils.pulse import template_filters
 from app.utils.pulse.store import PulseNotReady
 
 router = APIRouter()
+template_filters.register(templates.env)
 
 # Portal links are long-lived by default — a client should not have a report
 # link die between monthly cycles — but not permanent.
@@ -170,7 +172,6 @@ def _overview_context(rng: dict, channel: str) -> dict:
             "counts":  counts,
             "funnel":  funnel_with_rates(counts),
             "sent":    counts.get(EVENT_SENT, 0),
-            "meetings": counts.get(EVENT_MEETING_BOOKED, 0),
         })
     # Busiest clients first: the internal view is a scan for anomalies, and a
     # client with 40 000 sends matters more than one with 12.
@@ -189,6 +190,7 @@ def _overview_context(rng: dict, channel: str) -> dict:
     return {
         "rows":        rows,
         "totals":      funnel_with_rates(totals),
+        "total_counts": totals,
         "total_sent":  totals[EVENT_SENT],
         "by_channel":  store.funnel_by_channel(date_from=rng["from"], date_to=rng["to"]),
         "unmapped":    unmapped,
@@ -226,10 +228,24 @@ def _client_context(client_id: str, rng: dict, channel: str) -> dict | None:
         })
     campaign_rows.sort(key=lambda r: r["counts"].get(EVENT_SENT, 0), reverse=True)
 
+    # Per source, from one query. Every tab is rendered up front because the
+    # numbers are already in hand — switching tabs should not cost a request.
+    by_source = store.funnel_by_source(
+        client_id=client_id, date_from=rng["from"], date_to=rng["to"],
+    )
+    sources = [{
+        "key":    key,
+        "label":  SOURCE_LABELS.get(key, key.replace("_", " ").title()),
+        "counts": by_source.get(key, {}),
+        "funnel": funnel_with_rates(by_source.get(key, {})),
+        "active": bool(by_source.get(key)),
+    } for key in SOURCE_LABELS]
+
     return {
         "client":       client,
         "counts":       counts,
         "funnel":       funnel_with_rates(counts),
+        "sources":      sources,
         # Same rule the funnel uses to drop its Opened stage, so the campaign
         # table doesn't show a column of zeros the funnel just chose to hide.
         "show_opened":  opens_are_tracked(counts),
@@ -663,6 +679,18 @@ async def import_meet_alfred(
             client_id=campaign.get("client_id"),
         )
         inserted = store.insert_events(events)
+        outcomes = meet_alfred.outcomes_from_activities(
+            rows, agency_id=agency_id, campaign_id=str(campaign["id"]),
+        )
+        saved = store.upsert_outcomes(outcomes)
+        if saved < len(outcomes):
+            message = f"saved {saved} of {len(outcomes)} lead outcomes"
+            store.finish_sync_log(log_id, status="partial", campaigns_synced=1,
+                                  events_inserted=inserted, error_message=message)
+            return _error_box(
+                f"Events imported, but {message}. Has "
+                "migrations/outbound_pulse_outcomes.sql been applied?"
+            )
         store.finish_sync_log(log_id, status="ok", campaigns_synced=1,
                               events_inserted=inserted)
     except PulseNotReady as exc:

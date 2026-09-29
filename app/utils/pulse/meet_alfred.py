@@ -9,8 +9,10 @@ each stage *means* rather than on what it is called in the source tool:
     sent           ← connection request or message sent
     opened         ← connection request ACCEPTED
     replied        ← replied to a message
-    positive_reply ← reply classified positive (tag/label in Meet Alfred)
-    meeting_booked ← meeting tracked against the prospect
+
+Reply outcomes (Interested / Information request / Meeting request) come from
+the prospect's category, as a current-state outcome rather than an event. A
+tracked meeting with no category counts as a meeting request.
 
 `opened` = "accepted" is the load-bearing decision.  Both stages answer the same
 funnel question — the prospect let the touch through — which is what makes a
@@ -50,13 +52,13 @@ from app.utils.pulse.normalize import (
     CHANNEL_LINKEDIN,
     EVENT_MEETING_BOOKED,
     EVENT_OPENED,
-    EVENT_POSITIVE_REPLY,
     EVENT_REPLIED,
     EVENT_SENT,
     SOURCE_MEET_ALFRED,
     classify_reply,
     lead_key,
     make_event,
+    make_outcome,
     parse_ts,
 )
 
@@ -257,25 +259,73 @@ def events_from_activities(
 
         add(EVENT_SENT, sent_at, lead, row)
         add(EVENT_OPENED, accepted_at, lead, row)
-
-        if replied_at:
-            add(EVENT_REPLIED, replied_at, lead, row)
-            stage = classify_reply(category)
-            if stage in (EVENT_POSITIVE_REPLY, EVENT_MEETING_BOOKED):
-                add(EVENT_POSITIVE_REPLY, replied_at, lead, row)
-
-        if meeting_at:
-            # A tracked meeting implies the two stages above it, which may not
-            # have their own timestamps in the export.  Backfill them at the
-            # meeting's time so the funnel never narrows then widens.
-            if not replied_at:
-                add(EVENT_REPLIED, meeting_at, lead, row)
-            add(EVENT_POSITIVE_REPLY, meeting_at, lead, row)
-            add(EVENT_MEETING_BOOKED, meeting_at, lead, row)
-        elif classify_reply(category) == EVENT_MEETING_BOOKED and replied_at:
-            add(EVENT_MEETING_BOOKED, replied_at, lead, row)
+        # A tracked meeting implies a reply that the export may not timestamp;
+        # use the meeting's time so Replied never reads lower than Leads.
+        add(EVENT_REPLIED, replied_at or meeting_at, lead, row)
 
     return events
+
+
+def outcomes_from_activities(
+    rows: list[dict],
+    *,
+    agency_id: str,
+    campaign_id: str,
+) -> list[dict]:
+    """One current-outcome row per replying prospect (API or CSV).
+
+    The category decides the outcome. A tracked meeting with no category, or
+    with one we can't classify, is still a meeting request. An explicitly
+    negative category wins over a tracked meeting date, because the category is
+    the team's latest judgement.
+
+    Collapsed to one row per lead, since a single upsert cannot contain the
+    same key twice.
+    """
+    by_lead: dict[str, dict] = {}
+    for row in rows:
+        lead = lead_key(
+            _first(row, *_CSV_ALIASES["profile"], "profileUrl", "publicIdentifier"),
+            _first(row, *_CSV_ALIASES["email"]),
+            _first(row, "prospect_id", "lead_id", "id"),
+        )
+        if not lead:
+            continue
+        replied_at = parse_ts(_first(row, *_CSV_ALIASES["replied"], "repliedAt", "responseAt"))
+        meeting_at = parse_ts(_first(row, *_CSV_ALIASES["meeting"], "meetingAt", "bookedAt"))
+        when = replied_at or meeting_at
+        if when is None:
+            continue
+        category = _first(row, *_CSV_ALIASES["category"])
+
+        stage = classify_reply(category)
+        if stage is None and meeting_at is not None and not _is_negative(category):
+            stage = EVENT_MEETING_BOOKED
+
+        seen = by_lead.get(lead)
+        if seen is None or when < seen["when"]:
+            by_lead[lead] = {"when": when, "category": category, "stage": stage}
+
+    return [
+        make_outcome(
+            agency_id=agency_id,
+            campaign_id=campaign_id,
+            lead=lead,
+            category=data["category"],
+            replied_at=data["when"],
+            stage=data["stage"],
+        )
+        for lead, data in by_lead.items()
+    ]
+
+
+def _is_negative(category) -> bool:
+    """True when a category was set and classifies as not positive.
+
+    Distinguishes "the team said no" from "no category at all" — only the
+    second should let a tracked meeting date stand in for a meeting request.
+    """
+    return bool(str(category or "").strip()) and classify_reply(category) is None
 
 
 def parse_csv(raw: bytes | str) -> list[dict]:
@@ -308,11 +358,16 @@ def sync_campaign(
     agency_id: str,
     campaign_id: str,
     client_id: str | None,
-) -> list[dict]:
+) -> tuple[list[dict], list[dict]]:
+    """Fetch one campaign and return (events, outcomes) from the same snapshot."""
     rows = fetch_activities(external_campaign_id)
-    return events_from_activities(
+    events = events_from_activities(
         rows, agency_id=agency_id, campaign_id=campaign_id, client_id=client_id,
     )
+    outcomes = outcomes_from_activities(
+        rows, agency_id=agency_id, campaign_id=campaign_id,
+    )
+    return events, outcomes
 
 
 CHANNEL = CHANNEL_LINKEDIN

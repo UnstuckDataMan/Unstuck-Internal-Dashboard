@@ -18,11 +18,22 @@
   </a>
   <div class="spacer"></div>
   <label for="range-select">Range</label>
-  <select id="range-select" onchange="applyFilters()">
+  <select id="range-select" name="range">
     {% for key, label in presets.items() %}
     <option value="{{ key }}" {% if key == range.preset %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
+    <option value="custom" {% if range.preset == "custom" %}selected{% endif %}>Custom range…</option>
   </select>
+  <span id="custom-range" class="date-range" {% if range.preset != "custom" %}hidden{% endif %}>
+    <input type="date" id="date-from" name="date_from"
+           value="{{ range["from"].isoformat() if range["from"] else "" }}"
+           aria-label="From date">
+    <span class="date-range-sep">→</span>
+    <input type="date" id="date-to" name="date_to"
+           value="{{ range["to"].isoformat() if range["to"] else "" }}"
+           aria-label="To date">
+    <button type="button" class="btn btn-download" id="apply-range">Apply</button>
+  </span>
   <label for="channel-select" style="margin-left:6px">Channel</label>
   <select id="channel-select" onchange="applyFilters()">
     <option value="" {% if not channel %}selected{% endif %}>Both</option>
@@ -37,32 +48,99 @@
     <p class="section-label" style="margin:0">Funnel — {{ range.label | lower }}</p>
     <span class="pulse-meta">{{ campaign_rows | length }} campaign{{ "" if campaign_rows | length == 1 else "s" }} with activity</span>
   </div>
-  <div class="pulse-total-card">
-    <div>{% include "partials/pulse_funnel.html" %}</div>
-    <div class="pulse-channel-split">
-      {% if by_channel %}
-      <p class="section-label" style="margin-bottom:10px">By channel</p>
-      {% for channel_name, counts in by_channel.items() %}
-      <div class="channel-row">
-        <span class="channel-name">{{ "LinkedIn" if channel_name == "linkedin" else "Email" }}</span>
-        <span class="channel-stats">
-          <b>{{ "{:,}".format(counts.sent) }}</b> sent
-          · <b>{{ "{:,}".format(counts.replied) }}</b> replied
-          · <b>{{ "{:,}".format(counts.meeting_booked) }}</b> meeting request{{ "" if counts.meeting_booked == 1 else "s" }}
-        </span>
+  {# One tab per source, plus the combination. Every panel is rendered here
+     because all the numbers came from a single query — switching should not
+     cost a request. A source with nothing in range is disabled, not hidden, so
+     it is clear the source exists and simply has no activity. #}
+  <div class="source-tabs" role="tablist" aria-label="Source">
+    <button type="button" class="source-tab is-active" role="tab"
+            aria-selected="true" data-source="all">Combined</button>
+    {% for s in sources %}
+    <button type="button" class="source-tab" role="tab" aria-selected="false"
+            data-source="{{ s.key }}"
+            {% if not s.active %}disabled title="No {{ s.label }} activity in this range"{% endif %}>
+      {{ s.label }}
+    </button>
+    {% endfor %}
+  </div>
+
+  <div class="source-panel" data-source-panel="all">
+    <div class="pulse-total-card">
+      <div>
+        {% include "partials/pulse_funnel.html" %}
+        {% include "partials/pulse_outcomes.html" %}
       </div>
-      {% endfor %}
-      {% if by_channel | length > 1 and show_opened %}
-      <p class="pulse-meta" style="margin-top:12px;line-height:1.55">
-        LinkedIn "opened" means a connection request was accepted — the closest
-        equivalent stage, not an email open.
-      </p>
-      {% endif %}
-      {% else %}
-      <p class="pulse-meta">No activity in this range.</p>
-      {% endif %}
+      <div class="pulse-channel-split">
+        {% if by_channel %}
+        <p class="section-label" style="margin-bottom:10px">By channel</p>
+        {% for channel_name, counts in by_channel.items() %}
+        <div class="channel-row">
+          <span class="channel-name">{{ "LinkedIn" if channel_name == "linkedin" else "Email" }}</span>
+          <span class="channel-stats">
+            <b>{{ "{:,}".format(counts.sent) }}</b> sent
+            · <b>{{ "{:,}".format(counts.replied) }}</b> replied
+            · <b>{{ "{:,}".format(counts | pulse_leads) }}</b> lead{{ "" if (counts | pulse_leads) == 1 else "s" }}
+            · <b>{{ counts | pulse_lead_rate | pulse_pct }}</b> lead rate
+          </span>
+        </div>
+        {% endfor %}
+        {% if by_channel | length > 1 and show_opened %}
+        <p class="pulse-meta" style="margin-top:12px;line-height:1.55">
+          LinkedIn "opened" means a connection request was accepted — the closest
+          equivalent stage, not an email open.
+        </p>
+        {% endif %}
+        {% if sources | selectattr("key", "equalto", "manual") | selectattr("active") | list %}
+        <p class="pulse-meta" style="margin-top:12px;line-height:1.55">
+          Combined includes manual campaigns, which record no reply count — so
+          Replied here covers Smartlead and Meet Alfred only.
+        </p>
+        {% endif %}
+        {% else %}
+        <p class="pulse-meta">No activity in this range.</p>
+        {% endif %}
+      </div>
     </div>
   </div>
+
+  {% for s in sources %}
+  <div class="source-panel" data-source-panel="{{ s.key }}" hidden>
+    <div class="pulse-total-card">
+      <div>
+        {% with funnel = s.funnel %}{% include "partials/pulse_funnel.html" %}{% endwith %}
+        {% with counts = s.counts %}{% include "partials/pulse_outcomes.html" %}{% endwith %}
+      </div>
+      <div class="pulse-channel-split">
+        <p class="section-label" style="margin-bottom:10px">{{ s.label }}</p>
+        {% if not s.active %}
+        <p class="pulse-meta">No {{ s.label }} activity in this range.</p>
+        {% elif s.key == "manual" %}
+        <p class="pulse-meta" style="line-height:1.6">
+          From the DNC &amp; Merger tool. A lead is a prospect marked
+          <b>Lead</b> on the campaign sheet; Interested is the <b>Interested</b>
+          status.
+        </p>
+        <p class="pulse-meta" style="margin-top:10px;line-height:1.6">
+          Leads are dated by when the hourly sync recorded them, and are stored
+          one per domain per client — so a domain that becomes a lead twice
+          counts once, and these totals read slightly lower than the
+          per-campaign figures in the DNC &amp; Merger tool.
+        </p>
+        <p class="pulse-meta" style="margin-top:10px;line-height:1.6">
+          The sheet's <b>Reply</b> status carries no date, so manual replies are
+          not shown here. They remain in the DNC &amp; Merger tool.
+        </p>
+        {% else %}
+        <p class="pulse-meta" style="line-height:1.6">
+          <b>{{ "{:,}".format(s.counts.sent or 0) }}</b> sent
+          · <b>{{ "{:,}".format(s.counts.replied or 0) }}</b> replied
+          · <b>{{ "{:,}".format(s.counts | pulse_leads) }}</b> lead{{ "" if (s.counts | pulse_leads) == 1 else "s" }}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
 </div>
 
 <!-- ── Daily trend ──────────────────────────────────────────────── -->
@@ -75,7 +153,7 @@
       {% for day in timeseries %}
       <div class="trend-col"
            style="height: {{ (day.sent * 100.0 / max_sent) if max_sent else 0 }}%"
-           title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied, {{ day.meeting_booked }} meeting requests"></div>
+           title="{{ day.day }} — {{ day.sent }} sent, {{ day.replied }} replied, {{ day | pulse_leads }} leads"></div>
       {% endfor %}
     </div>
     <div class="trend-axis">
@@ -100,7 +178,8 @@
         <tr>
           <th>Campaign</th><th>Channel</th>
           <th>Sent</th>{% if show_opened %}<th>Opened</th>{% endif %}<th>Replied</th>
-          <th>Interested</th><th>Meeting req.</th><th>Reply rate</th>
+          <th>Interested</th><th>Info req.</th><th>Meeting req.</th>
+          <th>Leads</th><th>Reply rate</th><th>Lead rate</th>
         </tr>
       </thead>
       <tbody>
@@ -112,8 +191,11 @@
           {% if show_opened %}<td>{{ "{:,}".format(row.counts.opened) }}</td>{% endif %}
           <td>{{ "{:,}".format(row.counts.replied) }}</td>
           <td>{{ "{:,}".format(row.counts.positive_reply) }}</td>
+          <td>{{ "{:,}".format(row.counts.information_request) }}</td>
           <td>{{ "{:,}".format(row.counts.meeting_booked) }}</td>
-          <td>{% if row.counts.sent %}{{ "%.1f" | format(row.counts.replied * 100.0 / row.counts.sent) }}%{% else %}—{% endif %}</td>
+          <td>{{ "{:,}".format(row.counts | pulse_leads) }}</td>
+          <td>{{ row.counts | pulse_reply_rate | pulse_pct }}</td>
+          <td>{{ row.counts | pulse_lead_rate | pulse_pct }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -148,16 +230,57 @@
 </div>
 
 <script>
-  function applyFilters() {
-    const range   = document.getElementById('range-select').value;
+(function () {
+  const rangeSel = document.getElementById('range-select');
+  const custom   = document.getElementById('custom-range');
+
+  // Custom only reveals the inputs; nothing is fetched until Apply, so a
+  // half-typed date never triggers a reload.
+  rangeSel.addEventListener('change', function () {
+    const isCustom = rangeSel.value === 'custom';
+    custom.hidden = !isCustom;
+    if (!isCustom) window.applyFilters();
+  });
+  document.getElementById('apply-range').addEventListener('click', function () {
+    window.applyFilters();
+  });
+
+  window.applyFilters = function () {
     const channel = document.getElementById('channel-select').value;
     // Full navigation rather than an HTMX swap: this page's URL is what gets
     // shared and bookmarked, so the filters belong in it.
-    const params = new URLSearchParams({ range: range });
+    const params = new URLSearchParams();
+    if (rangeSel.value === 'custom') {
+      const from = document.getElementById('date-from').value;
+      const to   = document.getElementById('date-to').value;
+      if (from) params.set('date_from', from);
+      if (to)   params.set('date_to', to);
+      if (!from && !to) params.set('range', '30d');
+    } else {
+      params.set('range', rangeSel.value);
+    }
     if (channel) params.set('channel', channel);
     window.location.search = params.toString();
-  }
+  };
+
+  // ── Source tabs ───────────────────────────────────────────────────
+  const tabs = document.querySelectorAll('.source-tab');
+  tabs.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.disabled) return;
+      tabs.forEach(function (other) {
+        const on = other === btn;
+        other.classList.toggle('is-active', on);
+        other.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      document.querySelectorAll('.source-panel').forEach(function (panel) {
+        panel.hidden = panel.dataset.sourcePanel !== btn.dataset.source;
+      });
+    });
+  });
+})();
 </script>
+{% include "partials/pulse_animate.html" %}
 
 {% endif %}
 {% endblock %}

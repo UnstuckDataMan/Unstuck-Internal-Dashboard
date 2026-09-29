@@ -1,12 +1,14 @@
 {# Internal overview: agency-wide funnel + one card per client.
-   Context: rows, totals, total_sent, by_channel, unmapped, range, range_query, channel #}
+   Context: rows, totals, total_counts, total_sent, by_channel, unmapped, range,
+   range_query, channel #}
 
 {% if unmapped %}
 <div class="pulse-warn">
   <strong>{{ unmapped | length }}</strong> synced campaign{{ "" if unmapped | length == 1 else "s" }}
   {{ "is" if unmapped | length == 1 else "are" }} not mapped to a client, so their
   events are missing from every funnel below.
-  <button type="button" class="link-btn" onclick="document.getElementById('pulse-campaigns-panel').scrollIntoView({behavior:'smooth'})">
+  <button type="button" class="link-btn"
+          onclick="htmx.trigger(document.body, 'pulseShowMapping')">
     Map them →
   </button>
 </div>
@@ -33,6 +35,7 @@
   <div class="pulse-total-card">
     <div class="pulse-total-funnel">
       {% with funnel = totals %}{% include "partials/pulse_funnel.html" %}{% endwith %}
+      {% with counts = total_counts %}{% include "partials/pulse_outcomes.html" %}{% endwith %}
     </div>
 
     {% if by_channel and by_channel | length > 1 %}
@@ -49,7 +52,8 @@
         <span class="channel-stats">
           <b>{{ "{:,}".format(counts.sent) }}</b> sent
           · <b>{{ "{:,}".format(counts.replied) }}</b> replied
-          · <b>{{ "{:,}".format(counts.meeting_booked) }}</b> meeting request{{ "" if counts.meeting_booked == 1 else "s" }}
+          · <b>{{ "{:,}".format(counts | pulse_leads) }}</b> lead{{ "" if (counts | pulse_leads) == 1 else "s" }}
+          · <b>{{ counts | pulse_lead_rate | pulse_pct }}</b> lead rate
         </span>
       </div>
       {% endfor %}
@@ -67,8 +71,8 @@
        style="{% if row.client.color %}--card-accent: {{ row.client.color }};{% endif %}">
       <div class="pulse-client-head">
         <span class="pulse-client-name">{{ row.client.name }}</span>
-        <span class="pulse-client-meetings" title="Meetings requested in range">
-          {{ row.meetings }}
+        <span class="pulse-client-meetings" title="Leads (information + meeting requests) as a share of sends">
+          {{ row.counts | pulse_lead_rate | pulse_pct }}
         </span>
       </div>
       {% with funnel = row.funnel, compact = True %}
