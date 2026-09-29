@@ -2065,7 +2065,7 @@ def test_client_detail_table_has_lead_columns(client, fake_sb):
     assert "<td>4.0%</td>" in r.text             # reply rate, 80/2000
 
 
-def test_portal_headlines_leads_and_lead_rate(client, fake_sb):
+def test_portal_headlines_leads_and_states_the_lead_rate(client, fake_sb):
     fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
         "id": "a1", "client_id": CLIENT, "label": "",
         "expires_at": None, "revoked_at": None, "view_count": 0,
@@ -2076,10 +2076,14 @@ def test_portal_headlines_leads_and_lead_rate(client, fake_sb):
 
     r = client.get("/portal/valid-token")
     assert r.status_code == 200
-    assert "Lead rate" in r.text
     assert "Reply outcomes" in r.text
     assert "Information requests" in r.text
     assert "1.0%" in r.text
+    # The lead rate is stated by the outcomes card, not repeated as a headline
+    # box: the same figure in two places invited them to disagree.
+    assert "lead rate" in r.text
+    assert r.text.count('class="headline"') == 3
+    assert "Lead rate" not in r.text
 
 
 # ── The SQL backfill must classify exactly like Python ───────────────────────
@@ -2394,3 +2398,452 @@ def test_funnel_view_unions_manual_without_duplicating_events():
     assert "WHERE r.event_type IN ('sent', 'opened', 'replied')" in view
     assert "FROM pulse_lead_outcomes o" in view
     assert "FROM pulse_manual_daily" in view
+
+
+# ── Trend buckets ─────────────────────────────────────────────────────────────
+
+def _days(n, start="2024-04-11", sent=10):
+    from datetime import date, timedelta
+    d0 = date.fromisoformat(start)
+    return [{"day": (d0 + timedelta(days=i)).isoformat(),
+             "sent": sent, "replied": 1, "meeting_booked": 1} for i in range(n)]
+
+
+def test_a_short_series_stays_one_column_per_day():
+    from app.utils.pulse.normalize import bucket_timeseries
+
+    out = bucket_timeseries(_days(30))
+    assert out["unit"] == "day"
+    assert len(out["buckets"]) == 30
+
+
+def test_a_long_series_is_bucketed_instead_of_overflowing():
+    """The all-time range is years wide. One column per day did not fit."""
+    from app.utils.pulse.normalize import MAX_TREND_COLUMNS, bucket_timeseries
+
+    for span in (61, 200, 413, 414, 900, 3000):
+        out = bucket_timeseries(_days(span))
+        assert len(out["buckets"]) <= MAX_TREND_COLUMNS, (span, out["unit"])
+        assert out["unit"] != "day"
+
+
+def test_bucketing_never_loses_or_invents_events():
+    from app.utils.pulse.normalize import bucket_timeseries
+
+    rows = _days(900)
+    for unit_rows in (rows, _days(61), _days(30)):
+        out = bucket_timeseries(unit_rows)
+        assert sum(b["sent"] for b in out["buckets"]) == sum(r["sent"] for r in unit_rows)
+        assert sum(b["replied"] for b in out["buckets"]) == len(unit_rows)
+
+
+def test_buckets_are_whole_weeks_and_months_not_arbitrary_windows():
+    """A reader must be able to name the period a bar covers."""
+    from datetime import date
+
+    from app.utils.pulse.normalize import bucket_timeseries
+
+    weeks = bucket_timeseries(_days(200))
+    assert weeks["unit"] == "week"
+    for b in weeks["buckets"]:
+        assert date.fromisoformat(b["day"]).weekday() == 0        # Monday
+
+    months = bucket_timeseries(_days(900))
+    assert months["unit"] == "month"
+    for b in months["buckets"]:
+        assert date.fromisoformat(b["day"]).day == 1
+
+
+def test_buckets_come_back_oldest_first():
+    from app.utils.pulse.normalize import bucket_timeseries
+
+    for n in (30, 200, 900):
+        days = [b["day"] for b in bucket_timeseries(_days(n))["buckets"]]
+        assert days == sorted(days)
+
+
+def test_an_empty_series_buckets_to_nothing_rather_than_raising():
+    from app.utils.pulse.normalize import bucket_timeseries
+
+    assert bucket_timeseries([])["buckets"] == []
+
+
+def test_a_bucket_is_labelled_with_the_period_it_covers():
+    from app.utils.pulse.normalize import bucket_timeseries
+
+    assert bucket_timeseries(_days(5))["buckets"][0]["label"] == "11 Apr 2024"
+    assert bucket_timeseries(_days(900))["buckets"][0]["label"] == "Apr 2024"
+    assert "–" in bucket_timeseries(_days(200))["buckets"][0]["label"]
+
+
+# ── Trend tooltip ─────────────────────────────────────────────────────────────
+
+def test_trend_columns_carry_their_figures_for_the_tooltip(client, fake_sb):
+    """A native `title` needed a second of stillness and showed nothing on
+    hover, which is what made the strip look dead."""
+    _detail_routes(fake_sb)
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert 'class="trend-col"' in r.text
+    for attr in ("data-label", "data-sent", "data-replied",
+                 "data-leads", "data-lead-rate"):
+        assert attr in r.text
+    assert "trend-tip" in r.text
+
+
+def test_the_client_portal_gets_the_same_trend_tooltip(client, fake_sb):
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
+        "id": "a1", "client_id": CLIENT, "label": "Sarah",
+        "expires_at": None, "revoked_at": None, "view_count": 0,
+    }]))
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None,
+               "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"event_type": "sent", "events": 900, "channel": "email", "day": "2025-03-01"},
+        {"event_type": "sent", "events": 700, "channel": "email", "day": "2025-03-02"},
+        {"event_type": "replied", "events": 45, "channel": "email", "day": "2025-03-02"},
+    ]))
+
+    r = client.get("/portal/valid-token")
+    assert r.status_code == 200
+    assert "trend-tip" in r.text
+    assert "data-lead-rate" in r.text
+
+
+# ── Manual in the reporting scope picker ──────────────────────────────────────
+
+def test_the_channel_picker_offers_manual(client, fake_sb):
+    _detail_routes(fake_sb)
+    for path in ("/outbound-pulse", f"/outbound-pulse/clients/{CLIENT}"):
+        assert 'value="manual"' in client.get(path).text
+
+
+def test_picking_manual_filters_by_source_not_channel(client, fake_sb):
+    from tests.conftest import param_values
+
+    _detail_routes(fake_sb)
+    client.get(f"/outbound-pulse/clients/{CLIENT}?channel=manual")
+    calls = fake_sb.calls_to("GET", "pulse_funnel_daily")
+    assert calls
+    for call in calls:
+        assert param_values(call, "source_tool") == ["eq.manual"]
+        assert param_values(call, "channel") == []
+
+
+def test_each_scope_is_one_tool_so_they_do_not_double_count(client, fake_sb):
+    """Manual outreach is email. Filtering Email by channel would have counted
+    it under Email and under Manual, so Both stopped being their sum."""
+    from tests.conftest import param_values
+
+    from app.routers.outbound_pulse import REPORT_SCOPES
+
+    assert len(set(REPORT_SCOPES.values())) == len(REPORT_SCOPES)
+
+    for scope, source in REPORT_SCOPES.items():
+        fake_sb.calls.clear()
+        _detail_routes(fake_sb)
+        client.get(f"/outbound-pulse/clients/{CLIENT}?channel={scope}")
+        for call in fake_sb.calls_to("GET", "pulse_funnel_daily"):
+            assert param_values(call, "source_tool") == [f"eq.{source}"]
+
+
+def test_an_unknown_scope_falls_back_to_everything(client, fake_sb):
+    from tests.conftest import param_values
+
+    _detail_routes(fake_sb)
+    client.get(f"/outbound-pulse/clients/{CLIENT}?channel=carrier-pigeon")
+    for call in fake_sb.calls_to("GET", "pulse_funnel_daily"):
+        assert param_values(call, "source_tool") == []
+
+
+def test_the_mapping_filters_still_filter_by_a_real_channel(client, fake_sb):
+    """Campaigns have a channel column; only the reporting toolbar changed."""
+    from app.routers.outbound_pulse import _channel_filter
+
+    assert _channel_filter("email") == "email"
+    assert _channel_filter("manual") == ""
+
+
+# ── Portal chrome ─────────────────────────────────────────────────────────────
+
+def _portal_routes(fake_sb, funnel_rows=None, notes=None):
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
+        "id": "a1", "client_id": CLIENT, "label": "",
+        "expires_at": None, "revoked_at": None, "view_count": 0,
+    }]))
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None,
+               "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(
+        200, funnel_rows if funnel_rows is not None else [
+            {"event_type": "sent", "events": 900, "channel": "email", "day": "2025-03-01"},
+            {"event_type": "sent", "events": 700, "channel": "email", "day": "2025-03-02"},
+            {"event_type": "replied", "events": 45, "channel": "email", "day": "2025-03-02"},
+        ]))
+    fake_sb.route("GET", "pulse_client_notes",
+                  lambda call: FakeResponse(200, notes or []))
+
+
+def test_the_portal_header_puts_the_logo_between_name_and_range(client, fake_sb):
+    _portal_routes(fake_sb)
+    body = client.get("/portal/valid-token").text
+    head = body.split('<header class="report-head">', 1)[1].split("</header>", 1)[0]
+    assert head.index("report-title") < head.index("logo-report.png") < head.index("range-nav")
+
+
+def test_the_portal_uses_the_current_logo(client, fake_sb):
+    _portal_routes(fake_sb)
+    body = client.get("/portal/valid-token").text
+    assert "/static/img/logo-report.png" in body
+    assert "/static/img/logo.png" not in body
+
+
+def test_the_report_logo_file_is_in_the_repo():
+    """The template would render a broken image if this were only on a laptop."""
+    import pathlib
+
+    logo = (pathlib.Path(__file__).resolve().parents[1]
+            / "app" / "static" / "img" / "logo-report.png")
+    assert logo.is_file() and logo.stat().st_size > 1000
+
+
+def test_reply_outcomes_no_longer_tag_each_category_as_a_lead(client, fake_sb):
+    _portal_routes(fake_sb, funnel_rows=_LEAD_ROWS)
+    body = client.get("/portal/valid-token").text
+    assert "Reply outcomes" in body
+    assert "outcome-tag" not in body
+
+
+# ── Account manager notes ─────────────────────────────────────────────────────
+
+def _note(body="Volume dipped while we rewrote the opener.", **kw):
+    row = {
+        "id": "n1", "body": body, "author_email": "am@unstuck.com",
+        "author_name": "Dylan", "show_on_report": True,
+        "created_at": "2025-03-04T09:00:00+00:00",
+        "updated_at": "2025-03-04T09:00:00+00:00",
+    }
+    row.update(kw)
+    return row
+
+
+def test_a_client_page_offers_a_notes_panel(client, fake_sb):
+    _detail_routes(fake_sb)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "Notes for this client" in body
+    assert f"/api/outbound-pulse/clients/{CLIENT}/notes" in body
+
+
+def test_adding_a_note_records_who_wrote_it(client, fake_sb):
+    seen = {}
+
+    def capture(call):
+        seen.update(call.get("json") or {})
+        return FakeResponse(201, [_note()])
+
+    fake_sb.route("POST", "pulse_client_notes", capture)
+    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, [_note()]))
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes",
+                    data={"body": "  Volume dipped.  ", "show_on_report": "1"})
+    assert r.status_code == 200
+    assert seen["body"] == "Volume dipped."          # trimmed
+    assert seen["client_id"] == CLIENT
+    assert seen["show_on_report"] is True
+    assert seen["author_email"]
+
+
+def test_a_failed_save_hands_back_what_was_typed(client, fake_sb):
+    """The form is inside the swapped region, so a bare error would replace it
+    with an empty box and lose the note."""
+    fake_sb.route("POST", "pulse_client_notes", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes",
+                    data={"body": "Worth keeping.", "show_on_report": "1"})
+    assert "Could not save" in r.text
+    assert "Worth keeping." in r.text
+
+
+def test_an_empty_note_is_refused_with_a_reason(client, fake_sb):
+    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
+    fake_sb.route("POST", "pulse_client_notes",
+                  lambda call: FakeResponse(201, [_note()]))
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes",
+                    data={"body": "   ", "show_on_report": "1"})
+    assert r.status_code == 200
+    assert "needs some text" in r.text
+    assert not fake_sb.calls_to("POST", "pulse_client_notes")
+
+
+def test_a_note_is_capped_rather_than_rejected_for_length(client, fake_sb):
+    seen = {}
+
+    def capture(call):
+        seen.update(call.get("json") or {})
+        return FakeResponse(201, [_note()])
+
+    fake_sb.route("POST", "pulse_client_notes", capture)
+    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes",
+                data={"body": "x" * 5000, "show_on_report": "1"})
+    assert len(seen["body"]) == 1200
+
+
+def test_an_unticked_note_is_saved_as_internal_only(client, fake_sb):
+    seen = {}
+
+    def capture(call):
+        seen.update(call.get("json") or {})
+        return FakeResponse(201, [_note(show_on_report=False)])
+
+    fake_sb.route("POST", "pulse_client_notes", capture)
+    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes",
+                data={"body": "Internal context."})
+    assert seen["show_on_report"] is False
+
+
+def test_toggling_visibility_does_not_touch_the_text(client, fake_sb):
+    """The show/hide button sends no body. It must not blank the note."""
+    seen = {}
+
+    def capture(call):
+        seen.update(call.get("json") or {})
+        return FakeResponse(200, [])
+
+    fake_sb.route("PATCH", "pulse_client_notes", capture)
+    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, [_note()]))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes/n1",
+                data={"visibility": "hide"})
+    assert seen["show_on_report"] is False
+    assert "body" not in seen
+
+
+def test_a_note_edit_is_scoped_to_the_agency(client, fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("PATCH", "pulse_client_notes", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, [_note()]))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes/n1",
+                data={"body": "Updated.", "show_on_report": "1"})
+    call = fake_sb.calls_to("PATCH", "pulse_client_notes")[0]
+    assert param_values(call, "agency_id")
+    assert param_values(call, "id") == ["eq.n1"]
+
+
+def test_deleting_a_note_is_scoped_to_the_agency(client, fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("DELETE", "pulse_client_notes", lambda call: FakeResponse(204, []))
+    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
+
+    client.delete(f"/api/outbound-pulse/clients/{CLIENT}/notes/n1")
+    call = fake_sb.calls_to("DELETE", "pulse_client_notes")[0]
+    assert param_values(call, "agency_id")
+    assert param_values(call, "id") == ["eq.n1"]
+
+
+def test_the_report_only_reads_notes_marked_for_it(client, fake_sb):
+    from tests.conftest import param_values
+
+    _portal_routes(fake_sb, notes=[_note()])
+    client.get("/portal/valid-token")
+    call = fake_sb.calls_to("GET", "pulse_client_notes")[0]
+    assert param_values(call, "show_on_report") == ["is.true"]
+    assert param_values(call, "client_id") == [f"eq.{CLIENT}"]
+
+
+def test_a_visible_note_reaches_the_client_report(client, fake_sb):
+    _portal_routes(fake_sb, notes=[_note()])
+    body = client.get("/portal/valid-token").text
+    assert "From your account manager" in body
+    assert "Volume dipped while we rewrote the opener." in body
+
+
+def test_the_report_hides_the_notes_card_when_there_are_none(client, fake_sb):
+    _portal_routes(fake_sb)
+    assert "From your account manager" not in client.get("/portal/valid-token").text
+
+
+def test_a_note_read_failure_never_costs_the_client_their_report(client, fake_sb):
+    """Commentary is an addition to the report, not a precondition for it."""
+    _portal_routes(fake_sb)
+    fake_sb.route("GET", "pulse_client_notes",
+                  lambda call: FakeResponse(500, {"message": "relation does not exist"}))
+
+    r = client.get("/portal/valid-token")
+    assert r.status_code == 200
+    assert "900" in r.text
+    assert "From your account manager" not in r.text
+
+
+def test_the_report_shows_only_the_most_recent_few_notes(client, fake_sb):
+    from tests.conftest import param_values
+
+    from app.utils.pulse import store
+
+    _portal_routes(fake_sb, notes=[_note()])
+    client.get("/portal/valid-token")
+    call = fake_sb.calls_to("GET", "pulse_client_notes")[0]
+    assert param_values(call, "limit") == [str(store.NOTES_ON_REPORT)]
+    assert param_values(call, "order") == ["created_at.desc"]
+
+
+def test_the_internal_list_shows_hidden_notes_too(client, fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(
+        200, [_note(id="n2", show_on_report=False, body="Internal only.")]))
+
+    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/notes")
+    assert "Internal only." in r.text
+    call = fake_sb.calls_to("GET", "pulse_client_notes")[0]
+    assert param_values(call, "show_on_report") == []
+
+
+def test_notes_are_agency_scoped_on_read(client, fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/notes")
+    assert param_values(fake_sb.calls_to("GET", "pulse_client_notes")[0], "agency_id")
+
+
+def test_the_portal_exposes_no_way_to_write_a_note():
+    """The client report is read-only. Notes are written from the internal app."""
+    from app.routers import pulse_portal
+
+    for route in pulse_portal.router.routes:
+        assert set(route.methods) <= {"GET", "HEAD"}, route.path
+
+
+# ── The notes migration ───────────────────────────────────────────────────────
+
+def _notes_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1]
+            / "migrations" / "outbound_pulse_notes.sql").read_text(encoding="utf-8")
+
+
+def test_the_notes_migration_is_one_transaction_and_re_runnable():
+    sql = _notes_sql()
+    assert sql.index("BEGIN;") < sql.index("CREATE TABLE")
+    assert "CREATE TABLE IF NOT EXISTS pulse_client_notes" in sql
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+def test_a_note_is_agency_scoped_and_dies_with_its_client():
+    sql = _notes_sql()
+    assert "agency_id       uuid NOT NULL REFERENCES agencies(id) ON DELETE CASCADE" in sql
+    assert "client_id       uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE" in sql
+
+
+def test_the_database_refuses_a_blank_note():
+    """Belt and braces: this text renders straight onto a client's report."""
+    assert "CHECK (length(btrim(body)) > 0)" in _notes_sql()

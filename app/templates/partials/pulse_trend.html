@@ -1,0 +1,38 @@
+{# Daily-sends strip. Context: trend = {"unit", "buckets"}.
+
+   Shared by the internal client view and the client portal, so the numbers a
+   client hovers are the same ones we hover.
+
+   Each column carries its figures as data attributes rather than a `title`.
+   A native tooltip needs a second of stillness, shows no styling and cannot
+   hold a layout, which is why hovering these bars appeared to do nothing. #}
+{% set buckets = trend.buckets %}
+{% set max_sent = (buckets | map(attribute='sent') | max) or 1 %}
+<div class="trend-wrap">
+  <div class="trend-strip" role="img"
+       aria-label="Sends per {{ trend.unit }}, {{ buckets[0].label }} to {{ buckets[-1].label }}">
+    {% for b in buckets %}
+    <div class="trend-col"
+         style="height: {{ (b.sent * 100.0 / max_sent) if max_sent else 0 }}%"
+         data-label="{{ b.label }}"
+         data-sent="{{ '{:,}'.format(b.sent) }}"
+         data-replied="{{ '{:,}'.format(b.replied) }}"
+         data-leads="{{ '{:,}'.format(b | pulse_leads) }}"
+         data-lead-rate="{{ b | pulse_lead_rate | pulse_pct }}"></div>
+    {% endfor %}
+  </div>
+  <div class="trend-tip" hidden>
+    <div class="trend-tip-label"></div>
+    <div class="trend-tip-row"><span>Sent</span><b data-tip="sent"></b></div>
+    <div class="trend-tip-row"><span>Replied</span><b data-tip="replied"></b></div>
+    <div class="trend-tip-row"><span>Leads</span><b data-tip="leads"></b></div>
+    <div class="trend-tip-row"><span>Lead rate</span><b data-tip="lead-rate"></b></div>
+  </div>
+</div>
+<div class="trend-axis">
+  <span>{{ buckets[0].label }}</span>
+  {% if trend.unit != "day" %}
+  <span class="trend-unit">by {{ trend.unit }}</span>
+  {% endif %}
+  <span>{{ buckets[-1].label }}</span>
+</div>

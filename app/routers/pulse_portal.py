@@ -31,7 +31,11 @@ from app.deps import templates
 from app.utils.dates import today_utc
 from app.utils.pulse import store
 from app.utils.pulse import template_filters
-from app.utils.pulse.normalize import EVENT_SENT, funnel_with_rates
+from app.utils.pulse.normalize import (
+    EVENT_SENT,
+    bucket_timeseries,
+    funnel_with_rates,
+)
 from app.utils.pulse.store import PulseNotReady
 
 router = APIRouter()
@@ -127,11 +131,15 @@ async def portal(request: Request, token: str, range: str = Query("30d")):
         counts     = store.funnel(client_id=client_id, date_from=date_from, date_to=date_to)
         by_channel = store.funnel_by_channel(client_id=client_id,
                                              date_from=date_from, date_to=date_to)
-        timeseries = store.funnel_timeseries(client_id=client_id,
-                                             date_from=date_from, date_to=date_to)
+        trend = bucket_timeseries(store.funnel_timeseries(
+            client_id=client_id, date_from=date_from, date_to=date_to))
     except PulseNotReady:
         return _denied(request, "This report is temporarily unavailable. "
                                 "Please try again shortly.")
+
+    # Outside the try: report_notes() swallows its own failures, because an
+    # account manager's commentary must not be able to take a report down.
+    notes = store.report_notes(client_id)
 
     # Engagement logging — best-effort inside the store helper, so a failure
     # here never costs the client their report.
@@ -144,7 +152,8 @@ async def portal(request: Request, token: str, range: str = Query("30d")):
         "counts":      counts,
         "funnel":      funnel_with_rates(counts),
         "by_channel":  by_channel,
-        "timeseries":  timeseries,
+        "trend":       trend,
+        "notes":       notes,
         "total_sent":  counts.get(EVENT_SENT, 0),
         "ranges":      PORTAL_RANGES,
         "range_key":   range_key,

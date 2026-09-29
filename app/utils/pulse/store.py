@@ -667,13 +667,15 @@ def funnel_by_client(
 
 def funnel_by_channel(
     *,
-    client_id: str = "",
-    date_from: date | None = None,
-    date_to:   date | None = None,
+    client_id:   str = "",
+    source_tool: str = "",
+    date_from:   date | None = None,
+    date_to:     date | None = None,
 ) -> dict[str, dict[str, int]]:
     """Funnel split by channel, so email and LinkedIn can be compared."""
     out: dict[str, dict[str, int]] = {}
-    for row in _funnel_rows(client_id=client_id, date_from=date_from, date_to=date_to,
+    for row in _funnel_rows(client_id=client_id, source_tool=source_tool,
+                            date_from=date_from, date_to=date_to,
                             select="channel,event_type,events"):
         stage = row.get("event_type")
         if stage not in FUNNEL_STAGES:
@@ -685,13 +687,15 @@ def funnel_by_channel(
 
 def funnel_by_campaign(
     *,
-    client_id: str = "",
-    channel:   str = "",
-    date_from: date | None = None,
-    date_to:   date | None = None,
+    client_id:   str = "",
+    channel:     str = "",
+    source_tool: str = "",
+    date_from:   date | None = None,
+    date_to:     date | None = None,
 ) -> dict[str, dict[str, int]]:
     out: dict[str, dict[str, int]] = {}
     for row in _funnel_rows(client_id=client_id, channel=channel,
+                            source_tool=source_tool,
                             date_from=date_from, date_to=date_to,
                             select="campaign_id,event_type,events"):
         stage = row.get("event_type")
@@ -728,9 +732,10 @@ def funnel_timeseries(
 
 def funnel_by_source(
     *,
-    client_id: str = "",
-    date_from: date | None = None,
-    date_to:   date | None = None,
+    client_id:   str = "",
+    source_tool: str = "",
+    date_from:   date | None = None,
+    date_to:     date | None = None,
 ) -> dict[str, dict[str, int]]:
     """Funnel totals split by source tool — Smartlead, Meet Alfred, Manual.
 
@@ -738,7 +743,8 @@ def funnel_by_source(
     aggregated, so the whole set is a few hundred rows.
     """
     out: dict[str, dict[str, int]] = {}
-    for row in _funnel_rows(client_id=client_id, date_from=date_from, date_to=date_to,
+    for row in _funnel_rows(client_id=client_id, source_tool=source_tool,
+                            date_from=date_from, date_to=date_to,
                             select="source_tool,event_type,events"):
         stage = row.get("event_type")
         if stage not in FUNNEL_STAGES:
@@ -951,6 +957,109 @@ def visit_summary(client_id: str = "") -> list[dict]:
     if client_id:
         params["client_id"] = f"eq.{client_id}"
     return _get("pulse_portal_visits", _scoped(params))
+
+
+# ── Account manager notes ───────────────────────────────────────
+
+# What a client sees. The internal view keeps every note; the report shows the
+# most recent few, so a year of monthly commentary never buries the numbers.
+NOTES_ON_REPORT = 3
+
+
+def list_notes(client_id: str, *, visible_only: bool = False,
+               limit: int = 0) -> list[dict]:
+    """Notes for one client, newest first."""
+    params = _scoped({
+        "select":    ("id,body,author_email,author_name,show_on_report,"
+                      "created_at,updated_at"),
+        "client_id": f"eq.{client_id}",
+        "order":     "created_at.desc",
+    })
+    if visible_only:
+        params["show_on_report"] = "is.true"
+    if limit:
+        params["limit"] = str(limit)
+    return _get("pulse_client_notes", params)
+
+
+def report_notes(client_id: str) -> list[dict]:
+    """The notes the client-facing report shows.
+
+    Failure is swallowed deliberately. A note is commentary alongside the
+    numbers; if this table is missing or slow, the client should still get
+    their report rather than an error page.
+    """
+    try:
+        return list_notes(client_id, visible_only=True, limit=NOTES_ON_REPORT)
+    except Exception as exc:
+        logger.warning("Pulse: could not read notes for %s: %s", client_id, exc)
+        return []
+
+
+def create_note(client_id: str, body: str, *, author_email: str = "",
+                author_name: str = "", show_on_report: bool = True) -> dict | None:
+    try:
+        r = http_req.post(
+            f"{SUPABASE_URL}/rest/v1/pulse_client_notes",
+            headers=_sb_headers("return=representation"),
+            json={
+                "agency_id":      current_agency_id(),
+                "client_id":      client_id,
+                "body":           body,
+                "author_email":   author_email or "",
+                "author_name":    author_name or "",
+                "show_on_report": bool(show_on_report),
+            },
+            timeout=10,
+        )
+        if r.status_code >= 400:
+            raise _describe_postgrest_error("pulse_client_notes", r)
+        rows = r.json()
+        return rows[0] if rows else None
+    except PulseNotReady:
+        raise
+    except Exception as exc:
+        logger.warning("Pulse: could not create note: %s", exc)
+        return None
+
+
+def update_note(note_id: str, *, body: str | None = None,
+                show_on_report: bool | None = None) -> bool:
+    """Edit a note in place. Scoped, so an id from another agency matches
+    nothing rather than updating someone else's row."""
+    patch: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if body is not None:
+        patch["body"] = body
+    if show_on_report is not None:
+        patch["show_on_report"] = bool(show_on_report)
+    try:
+        r = http_req.patch(
+            f"{SUPABASE_URL}/rest/v1/pulse_client_notes",
+            headers=_sb_headers("return=minimal"),
+            params=_scoped({"id": f"eq.{note_id}"}),
+            json=patch,
+            timeout=10,
+        )
+        r.raise_for_status()
+        return True
+    except Exception as exc:
+        logger.warning("Pulse: could not update note %s: %s", note_id, exc)
+        return False
+
+
+def delete_note(note_id: str) -> bool:
+    try:
+        r = http_req.delete(
+            f"{SUPABASE_URL}/rest/v1/pulse_client_notes",
+            headers=_sb_headers("return=minimal"),
+            params=_scoped({"id": f"eq.{note_id}"}),
+            timeout=10,
+        )
+        r.raise_for_status()
+        return True
+    except Exception as exc:
+        logger.warning("Pulse: could not delete note %s: %s", note_id, exc)
+        return False
 
 
 # ── Paged GET ─────────────────────────────────────────────────────────────────

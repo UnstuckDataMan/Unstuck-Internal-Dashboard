@@ -28,7 +28,10 @@ from app.utils.pulse.normalize import (
     EVENT_SENT,
     FUNNEL_STAGES,
     SOURCE_LABELS,
+    SOURCE_MANUAL,
     SOURCE_MEET_ALFRED,
+    SOURCE_SMARTLEAD,
+    bucket_timeseries,
     funnel_with_rates,
     opens_are_tracked,
 )
@@ -152,13 +155,40 @@ def _client_index() -> dict[str, dict]:
 
 
 def _channel_filter(channel: str) -> str:
+    """A true channel, for the campaign mapping table.
+
+    Campaigns carry a channel, so the mapping filters stay channel-based. The
+    reporting toolbar is a different question — see _report_scope.
+    """
     return channel if channel in (CHANNEL_EMAIL, CHANNEL_LINKEDIN) else ""
 
 
+# The reporting toolbar's "Channel" control, resolved to the source tool that
+# produced the numbers rather than to the channel column.
+#
+# Manual outreach is email, so filtering it by channel would put it inside
+# Email as well as inside Manual: two options that overlap, and a Both that is
+# not their sum. Every option here is one tool, so they partition the data.
+REPORT_SCOPES: dict[str, str] = {
+    CHANNEL_EMAIL:    SOURCE_SMARTLEAD,
+    CHANNEL_LINKEDIN: SOURCE_MEET_ALFRED,
+    SOURCE_MANUAL:    SOURCE_MANUAL,
+}
+
+
+def _report_scope(value: str) -> str:
+    return value if value in REPORT_SCOPES else ""
+
+
+def _scope_source(scope: str) -> str:
+    return REPORT_SCOPES.get(scope, "")
+
+
 def _overview_context(rng: dict, channel: str) -> dict:
+    source = _scope_source(channel)
     clients = store.list_clients()
     by_client = store.funnel_by_client(
-        channel=channel, date_from=rng["from"], date_to=rng["to"],
+        source_tool=source, date_from=rng["from"], date_to=rng["to"],
     )
 
     rows = []
@@ -192,7 +222,8 @@ def _overview_context(rng: dict, channel: str) -> dict:
         "totals":      funnel_with_rates(totals),
         "total_counts": totals,
         "total_sent":  totals[EVENT_SENT],
-        "by_channel":  store.funnel_by_channel(date_from=rng["from"], date_to=rng["to"]),
+        "by_channel":  store.funnel_by_channel(source_tool=source,
+                                               date_from=rng["from"], date_to=rng["to"]),
         "unmapped":    unmapped,
         "range":       rng,
         "range_query": _range_query(rng),
@@ -206,15 +237,16 @@ def _client_context(client_id: str, rng: dict, channel: str) -> dict | None:
     if client is None:
         return None
 
+    source = _scope_source(channel)
     counts = store.funnel(
-        client_id=client_id, channel=channel,
+        client_id=client_id, source_tool=source,
         date_from=rng["from"], date_to=rng["to"],
     )
     per_campaign = store.funnel_by_campaign(
-        client_id=client_id, channel=channel,
+        client_id=client_id, source_tool=source,
         date_from=rng["from"], date_to=rng["to"],
     )
-    campaigns = store.list_campaigns(client_id=client_id, channel=channel)
+    campaigns = store.list_campaigns(client_id=client_id, source_tool=source)
 
     campaign_rows = []
     for campaign in campaigns:
@@ -230,8 +262,12 @@ def _client_context(client_id: str, rng: dict, channel: str) -> dict | None:
 
     # Per source, from one query. Every tab is rendered up front because the
     # numbers are already in hand — switching tabs should not cost a request.
+    # Filtered by the toolbar too. Left unfiltered, picking Manual in the
+    # toolbar and then opening the Smartlead tab showed Smartlead numbers under
+    # a page that said Manual — two controls disagreeing about the same view.
     by_source = store.funnel_by_source(
-        client_id=client_id, date_from=rng["from"], date_to=rng["to"],
+        client_id=client_id, source_tool=source,
+        date_from=rng["from"], date_to=rng["to"],
     )
     sources = [{
         "key":    key,
@@ -249,12 +285,16 @@ def _client_context(client_id: str, rng: dict, channel: str) -> dict | None:
         # Same rule the funnel uses to drop its Opened stage, so the campaign
         # table doesn't show a column of zeros the funnel just chose to hide.
         "show_opened":  opens_are_tracked(counts),
+        # Filtered like the funnel above it: an unfiltered split under a
+        # narrowed funnel reads as a contradiction.
         "by_channel":   store.funnel_by_channel(
-                            client_id=client_id,
+                            client_id=client_id, source_tool=source,
                             date_from=rng["from"], date_to=rng["to"]),
-        "timeseries":   store.funnel_timeseries(
-                            client_id=client_id, channel=channel,
-                            date_from=rng["from"], date_to=rng["to"]),
+        # Bucketed rather than raw days: an all-time range can be years long,
+        # and one column per day overflowed the panel instead of fitting it.
+        "trend":        bucket_timeseries(store.funnel_timeseries(
+                            client_id=client_id, source_tool=source,
+                            date_from=rng["from"], date_to=rng["to"])),
         "campaign_rows": campaign_rows,
         "campaigns":    campaigns,
         "range":        rng,
@@ -363,7 +403,7 @@ async def pulse_client_page(
 ):
     rng = _resolve_range(range, date_from, date_to)
     try:
-        context = _client_context(client_id, rng, _channel_filter(channel))
+        context = _client_context(client_id, rng, _report_scope(channel))
     except PulseNotReady as exc:
         return templates.TemplateResponse("outbound_pulse_client.html", {
             "request": request, "active": "outbound_pulse", "sop_key": "outbound_pulse",
@@ -395,7 +435,7 @@ async def overview(
 ):
     rng = _resolve_range(range, date_from, date_to)
     try:
-        context = _overview_context(rng, _channel_filter(channel))
+        context = _overview_context(rng, _report_scope(channel))
     except PulseNotReady as exc:
         return _not_ready_box(exc)
     return templates.TemplateResponse(
@@ -788,6 +828,109 @@ async def revoke_client_access(request: Request, client_id: str, access_id: str)
         "client_id": client_id,
         "new_link":  "",
     })
+
+
+# ── Account manager notes ───────────────────────────────────────
+
+# Long enough for a paragraph of context, short enough that nobody pastes a
+# whole email thread onto a client's report.
+_NOTE_MAX_CHARS = 1200
+
+
+def _notes_panel(request: Request, client_id: str, error: str = "",
+                 draft: str = ""):
+    """Re-render the whole panel.
+
+    `draft` is what the person had typed. The form lives inside the swapped
+    region, so every response replaces it — without this, a failed save handed
+    them an error message and an empty box, losing the note they had written.
+    """
+    return templates.TemplateResponse("partials/pulse_notes.html", {
+        "request":   request,
+        "notes":     store.list_notes(client_id),
+        "client_id": client_id,
+        "error":     error,
+        "draft":     draft,
+        "on_report": store.NOTES_ON_REPORT,
+    })
+
+
+@router.get("/api/outbound-pulse/clients/{client_id}/notes")
+async def list_client_notes(request: Request, client_id: str):
+    try:
+        return _notes_panel(request, client_id)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+@router.post("/api/outbound-pulse/clients/{client_id}/notes")
+async def add_client_note(
+    request:        Request,
+    client_id:      str,
+    body:           str = Form(""),
+    show_on_report: str = Form(""),
+    user:           dict = Depends(auth.require_login),
+):
+    """Write a note against a client.
+
+    An empty note is rejected here as well as by the table's check constraint:
+    the constraint stops a bad row reaching a client's report, this gives the
+    person typing a reason instead of a 500.
+    """
+    text = body.strip()[:_NOTE_MAX_CHARS]
+    try:
+        if not text:
+            return _notes_panel(request, client_id, "A note needs some text.")
+        created = store.create_note(
+            client_id, text,
+            author_email=user.get("email", ""),
+            author_name=user.get("name", "") or user.get("email", ""),
+            show_on_report=bool(show_on_report),
+        )
+        if not created:
+            return _notes_panel(request, client_id,
+                                "Could not save that note.", draft=text)
+        return _notes_panel(request, client_id)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+@router.post("/api/outbound-pulse/clients/{client_id}/notes/{note_id}")
+async def edit_client_note(
+    request:        Request,
+    client_id:      str,
+    note_id:        str,
+    body:           str = Form(""),
+    show_on_report: str = Form(""),
+    visibility:     str = Form(""),
+):
+    """Edit a note, or flip whether the client sees it.
+
+    `visibility` is sent on its own by the show/hide button, which must not
+    touch the text. A body-only edit leaves visibility alone for the same
+    reason — neither control may quietly change the other's field.
+    """
+    try:
+        if visibility:
+            store.update_note(note_id, show_on_report=(visibility == "show"))
+        else:
+            text = body.strip()[:_NOTE_MAX_CHARS]
+            if not text:
+                return _notes_panel(request, client_id, "A note needs some text.")
+            store.update_note(note_id, body=text,
+                              show_on_report=bool(show_on_report))
+        return _notes_panel(request, client_id)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+@router.delete("/api/outbound-pulse/clients/{client_id}/notes/{note_id}")
+async def remove_client_note(request: Request, client_id: str, note_id: str):
+    try:
+        store.delete_note(note_id)
+        return _notes_panel(request, client_id)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
 
 
 @router.get("/api/outbound-pulse/clients")
