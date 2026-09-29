@@ -8,7 +8,7 @@
   <div class="funnel-stage" style="--i: {{ loop.index0 }}">
     <div class="funnel-stage-head">
       <span class="funnel-label">{{ stage.label }}</span>
-      <span class="funnel-value">{{ "{:,}".format(stage.value) }}</span>
+      <span class="funnel-value" data-ticker>{{ "{:,}".format(stage.value) }}</span>
     </div>
     <div class="funnel-track">
       <div class="funnel-bar"

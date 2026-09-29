@@ -140,6 +140,7 @@
     .trend-col {
       flex: 1; min-width: 2px; border-radius: 2px 2px 0 0;
       background: linear-gradient(180deg, #a78bfa 0%, #7c3aed 100%); opacity: .85;
+      transition: height .6s var(--ease-out);
     }
     .trend-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-top: 8px; }
 
@@ -185,19 +186,19 @@
 
     <div class="headline-row">
       <div class="headline">
-        <div class="headline-value">{{ "{:,}".format(counts.sent) }}</div>
+        <div class="headline-value" data-ticker>{{ "{:,}".format(counts.sent) }}</div>
         <div class="headline-label">Messages sent</div>
       </div>
       <div class="headline">
-        <div class="headline-value">{{ "{:,}".format(counts.replied) }}</div>
+        <div class="headline-value" data-ticker>{{ "{:,}".format(counts.replied) }}</div>
         <div class="headline-label">Replies</div>
       </div>
       <div class="headline">
-        <div class="headline-value">{{ "{:,}".format(counts | pulse_leads) }}</div>
+        <div class="headline-value" data-ticker>{{ "{:,}".format(counts | pulse_leads) }}</div>
         <div class="headline-label">Leads</div>
       </div>
       <div class="headline">
-        <div class="headline-value">{{ counts | pulse_lead_rate | pulse_pct }}</div>
+        <div class="headline-value" data-ticker>{{ counts | pulse_lead_rate | pulse_pct }}</div>
         <div class="headline-label">Lead rate</div>
       </div>
     </div>
@@ -213,7 +214,7 @@
       <div class="stage" style="--i: {{ loop.index0 }}">
         <div class="stage-head">
           <span class="stage-label">{{ stage.label }}</span>
-          <span class="stage-value">{{ "{:,}".format(stage.value) }}</span>
+          <span class="stage-value" data-ticker>{{ "{:,}".format(stage.value) }}</span>
         </div>
         <div class="stage-track">
           <div class="stage-bar" style="width: {{ (stage.value * 100.0 / top) if top else 0 }}%"></div>
@@ -242,7 +243,7 @@
       <div class="outcomes">
         {% for o in counts | pulse_outcomes %}
         <div class="outcome{% if o.is_lead %} is-lead{% endif %}">
-          <div class="outcome-value">{{ "{:,}".format(o.value) }}</div>
+          <div class="outcome-value" data-ticker>{{ "{:,}".format(o.value) }}</div>
           <div class="outcome-label">{{ o.label }}{% if o.is_lead %}<span class="outcome-tag">lead</span>{% endif %}</div>
           <div class="outcome-share">{{ o.of_replies | pulse_pct }} of replies</div>
         </div>
@@ -297,5 +298,6 @@
       Questions about anything here? Reply to your account manager.
     </footer>
   </div>
+{% include "partials/pulse_animate.html" %}
 </body>
 </html>
