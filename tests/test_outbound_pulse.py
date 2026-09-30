@@ -3652,3 +3652,78 @@ def test_a_published_report_carries_no_draft_notice(client, fake_sb):
     fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [_report()]))
     body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/reports").text
     assert "not on the client" not in body
+
+
+def test_a_snapshot_can_actually_be_stored_as_json():
+    """It is written to a jsonb column through requests, which serialises it.
+    Trend buckets carried date objects, so publishing a period that had data
+    raised inside the HTTP client, was swallowed, and looked like Publish
+    simply doing nothing."""
+    import json
+    from datetime import date, timedelta
+
+    from app.utils.pulse.normalize import bucket_timeseries
+
+    d0 = date(2026, 1, 1)
+    for span in (5, 200, 900, 3000):
+        rows = [{"day": (d0 + timedelta(days=i)).isoformat(), "sent": 10}
+                for i in range(span)]
+        json.dumps(bucket_timeseries(rows))      # must not raise
+
+
+def test_trend_bucket_dates_are_strings():
+    from datetime import date, timedelta
+
+    from app.utils.pulse.normalize import bucket_timeseries
+
+    rows = [{"day": (date(2026, 1, 1) + timedelta(days=i)).isoformat(), "sent": 1}
+            for i in range(200)]
+    bucket = bucket_timeseries(rows)["buckets"][0]
+    assert isinstance(bucket["start"], str)
+    assert isinstance(bucket["end"], str)
+    assert bucket["start"] == bucket["day"]
+
+
+def test_publishing_a_period_with_data_stores_a_json_snapshot(client, fake_sb):
+    """The case that broke: an empty period serialised fine, a period with
+    activity did not."""
+    import json
+
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 700, "day": "2026-09-04"},
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "replied", "events": 20, "day": "2026-09-11"},
+    ]))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert seen["snapshot"]["trend"]["buckets"]
+    json.dumps(seen["snapshot"])                 # must not raise
+
+
+def test_a_failed_publish_says_so_instead_of_looking_like_success(client, fake_sb):
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: FakeResponse(500, {"message": "nope"}))
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert "Could not publish" in r.text
+
+
+def test_a_failed_save_says_so_too(client, fake_sb):
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [_report()]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: FakeResponse(500, {"message": "nope"}))
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1",
+                    data={"title": "", "body": "<p>x</p>"})
+    assert "Could not save" in r.text
