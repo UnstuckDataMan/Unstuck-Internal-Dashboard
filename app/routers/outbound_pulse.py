@@ -1067,12 +1067,16 @@ async def save_client_report(
     """Save the write-up. Does not publish — a saved draft stays invisible to
     the client until it is published explicitly."""
     try:
-        store.update_report(report_id, {
+        saved = store.update_report(report_id, {
             "title": title.strip()[:120],
             # Sanitised here, at the one point markup crosses from an author to
             # a reader, rather than trusted on the way out to a client's page.
             "body":  richtext.sanitize(body),
         })
+        if not saved:
+            return _reports_panel(
+                request, client_id,
+                "Could not save that write-up. The details are in the server log.")
         return _reports_panel(request, client_id)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
@@ -1120,7 +1124,12 @@ async def publish_client_report(
         if from_editor:
             patch["title"] = title.strip()[:120]
             patch["body"] = richtext.sanitize(body)
-        store.update_report(report_id, patch)
+        if not store.update_report(report_id, patch):
+            # Swallowing this is what made a broken publish look like a
+            # working one that changed nothing.
+            return _reports_panel(
+                request, client_id,
+                "Could not publish that report. The details are in the server log.")
         return _reports_panel(request, client_id)
     except PulseNotReady as exc:
         return _not_ready_box(exc)

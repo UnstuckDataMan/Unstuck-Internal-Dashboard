@@ -111,6 +111,19 @@ class FakeSupabase:
         if not url.startswith(TEST_SUPABASE_URL):
             raise AssertionError(f"Unexpected network call in offline test: {method} {url}")
         table = url.rsplit("/rest/v1/", 1)[-1].split("?")[0]
+        # requests serialises `json=` before it goes out; this fake records the
+        # object as-is, so a payload the real client could not encode used to
+        # pass every test and then fail silently in production. Encode it here
+        # for the same reason, and fail loudly.
+        payload = kwargs.get("json")
+        if payload is not None:
+            try:
+                json.dumps(payload)
+            except TypeError as exc:
+                raise AssertionError(
+                    f"{method} {table}: payload is not JSON-serialisable "
+                    f"({exc}). requests would raise on this in production."
+                ) from exc
         call = {
             "method":  method.upper(),
             "url":     url,

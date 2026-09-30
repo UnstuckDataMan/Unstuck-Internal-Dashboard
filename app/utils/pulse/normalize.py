@@ -617,6 +617,11 @@ def bucket_timeseries(rows: list[dict], *, max_columns: int = MAX_TREND_COLUMNS)
         # `day` keeps the shape a caller gets from funnel_timeseries, so a
         # template can read either without knowing which it was handed.
         bucket["day"] = bucket["start"].isoformat()
+        # Dates out, strings in. A published report stores this as JSON, and a
+        # date object silently failed to serialise — which surfaced as Publish
+        # doing nothing at all, and only for periods that had data.
+        bucket["start"] = bucket["day"]
+        bucket["end"] = bucket["end"].isoformat()
     return {"unit": unit, "buckets": ordered}
 
 
