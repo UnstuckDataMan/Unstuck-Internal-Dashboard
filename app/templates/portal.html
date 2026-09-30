@@ -74,22 +74,9 @@
       /* Centred and stacked: side by side at this width leaves the name and
          the range buttons squeezed to a couple of words each. */
       .head-row { justify-content: center; text-align: center; }
-      .head-row .range-nav { justify-content: center; width: 100%; }
+      .head-row .report-nav { justify-content: center; width: 100%; }
     }
 
-    .range-nav { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
-    .range-nav a {
-      font-size: 12.5px; text-decoration: none; color: var(--text-2);
-      background: rgba(255,255,255,.06); border: 1px solid var(--border);
-      border-radius: 999px; padding: 6px 14px; transition: all .18s var(--ease);
-    }
-    .range-nav a:hover { background: rgba(255,255,255,.11); color: var(--text); }
-    .range-nav a.is-active {
-      background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.45); color: #c4b5fd;
-    }
-
-    /* Exactly three, so they divide the row evenly. auto-fit left the last
-       box stretched across the gap the lead-rate box used to fill. */
     .headline-row {
       display: grid; grid-template-columns: repeat(3, 1fr);
       gap: 14px; margin-bottom: 30px;
@@ -146,6 +133,8 @@
       background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.09);
     }
     .outcome.is-lead { border-color: rgba(139,92,246,.38); background: rgba(139,92,246,.08); }
+    .outcome.is-negative { border-color: rgba(248,113,113,.28); background: rgba(248,113,113,.06); }
+    .outcome.is-negative .outcome-value { color: #fca5a5; }
     .outcome-value {
       font-family: var(--font-display); font-size: 23px; font-weight: 600;
       font-variant-numeric: tabular-nums; line-height: 1.1;
@@ -186,12 +175,34 @@
     .trend-tip-row { display: flex; justify-content: space-between; gap: 16px; line-height: 1.75; }
     .trend-tip-row b { color: #c4b5fd; font-variant-numeric: tabular-nums; font-weight: 600; }
 
+    .report-nav { display: flex; align-items: center; gap: 12px; }
+    .report-nav a, .report-nav .is-off {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 999px;
+      border: 1px solid var(--border); background: rgba(255,255,255,.06);
+      color: var(--text-2); text-decoration: none; font-size: 15px;
+      transition: all .18s var(--ease);
+    }
+    .report-nav a:hover { background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.45); color: #c4b5fd; }
+    .report-nav .is-off { opacity: .3; }
+    .report-count { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+
     .note-card { border-color: rgba(139,92,246,.3); }
-    .client-notes { display: flex; flex-direction: column; gap: 16px; }
-    .client-note + .client-note { border-top: 1px solid var(--border); padding-top: 16px; }
-    /* pre-wrap so a note written as two paragraphs arrives as two paragraphs. */
-    .client-note-body { font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
-    .client-note-meta { font-size: 11.5px; color: var(--text-3); margin-top: 8px; }
+    /* The write-up is authored HTML, so every tag the sanitiser allows needs a
+       style here — an unstyled <h2> or <ul> in a client report reads as a bug. */
+    .write-up { font-size: 14px; line-height: 1.75; color: var(--text); }
+    .write-up > :first-child { margin-top: 0; }
+    .write-up > :last-child { margin-bottom: 0; }
+    .write-up p { margin: 0 0 12px; }
+    .write-up h2 { font-size: 16px; font-weight: 600; margin: 20px 0 8px; }
+    .write-up h3 { font-size: 14.5px; font-weight: 600; margin: 16px 0 6px; color: var(--text-2); }
+    .write-up ul, .write-up ol { margin: 0 0 12px; padding-left: 22px; }
+    .write-up li { margin-bottom: 6px; }
+    .write-up a { color: #c4b5fd; }
+    .write-up blockquote {
+      margin: 0 0 12px; padding: 2px 0 2px 14px;
+      border-left: 2px solid rgba(139,92,246,.45); color: var(--text-2);
+    }
 
     .empty { text-align: center; padding: 40px 20px; color: var(--text-3); font-size: 13.5px; line-height: 1.6; }
 
@@ -204,6 +215,7 @@
       .wrap { padding: 28px 15px 50px; }
       .report-title { font-size: 20px; }
       .headline-row { grid-template-columns: 1fr; }
+      .report-nav { justify-content: center; }
     }
   </style>
 </head>
@@ -218,22 +230,44 @@
       <div class="head-row">
         <div class="head-titles">
           <div class="report-title">{{ client.name }}</div>
-          <div class="report-sub">Campaign performance</div>
+          <div class="report-sub">{{ heading or "Campaign performance" }}</div>
         </div>
-        <nav class="range-nav">
-          {% for key, label in ranges.items() %}
-          <a href="{{ portal_path }}/{{ token }}?range={{ key }}"
-             class="{{ 'is-active' if key == range_key else '' }}">{{ label }}</a>
-          {% endfor %}
+        {# Arrows, not a range picker. The period is the account manager's
+           choice; the client moves between reports, not between slices. #}
+        {% if count > 1 %}
+        <nav class="report-nav" aria-label="Report history">
+          {% if older %}
+          <a href="{{ portal_path }}/{{ token }}?report={{ older.id }}"
+             rel="prev" title="Previous report">&#8592;</a>
+          {% else %}
+          <span class="is-off" aria-hidden="true">&#8592;</span>
+          {% endif %}
+          <span class="report-count">{{ position }} of {{ count }}</span>
+          {% if newer %}
+          <a href="{{ portal_path }}/{{ token }}?report={{ newer.id }}"
+             rel="next" title="Next report">&#8594;</a>
+          {% else %}
+          <span class="is-off" aria-hidden="true">&#8594;</span>
+          {% endif %}
         </nav>
+        {% endif %}
       </div>
     </header>
 
-    {% if not total_sent %}
+    {% if not report %}
     <div class="card">
       <div class="empty">
-        <p>No campaign activity to report for {{ range_label | lower }}.</p>
-        <p style="margin-top:8px">Try a wider range above, or speak to your account manager.</p>
+        <p>Your first report is on its way.</p>
+        <p style="margin-top:8px">
+          This link stays the same, so keep it — every report will appear here.
+        </p>
+      </div>
+    </div>
+    {% elif not total_sent %}
+    <div class="card">
+      <div class="empty">
+        <p>No campaign activity in {{ heading }}.</p>
+        <p style="margin-top:8px">Speak to your account manager about the period ahead.</p>
       </div>
     </div>
     {% else %}
@@ -292,10 +326,16 @@
       </p>
       <div class="outcomes">
         {% for o in counts | pulse_outcomes %}
-        <div class="outcome{% if o.is_lead %} is-lead{% endif %}">
+        <div class="outcome{% if o.is_lead %} is-lead{% endif %}{% if o.is_negative %} is-negative{% endif %}">
           <div class="outcome-value" data-ticker>{{ "{:,}".format(o.value) }}</div>
           <div class="outcome-label">{{ o.label }}</div>
-          <div class="outcome-share">{{ o.of_replies | pulse_pct }} of replies</div>
+          {# Unsubscribes carry a share of sends: they are not one of the
+             mutually exclusive reply categories, so a share of replies could
+             read over 100%. #}
+          <div class="outcome-share">
+            {% if o.of_sent is not none %}{{ o.of_sent | pulse_pct }} of sends
+            {% else %}{{ o.of_replies | pulse_pct }} of replies{% endif %}
+          </div>
         </div>
         {% endfor %}
       </div>
@@ -321,20 +361,13 @@
     </div>
     {% endif %}
 
-    {% if notes %}
+    {% if report and report.body %}
     <div class="card note-card">
-      <h2>From your account manager</h2>
-      <div class="client-notes">
-        {% for note in notes %}
-        <div class="client-note">
-          <div class="client-note-body">{{ note.body }}</div>
-          <div class="client-note-meta">
-            {{ note.author_name or "Your account manager" }}
-            {% if note.created_at %} · {{ note.created_at[:10] }}{% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      </div>
+      <h2>{{ heading }} Report &amp; Analytics</h2>
+      {# Sanitised on the way in, at the point it was authored — see
+         app/utils/pulse/richtext.py. Never render authored markup that has not
+         been through it. #}
+      <div class="write-up">{{ report.body | safe }}</div>
     </div>
     {% endif %}
 
@@ -352,8 +385,10 @@
     {% endif %}
 
     <footer class="report-foot">
-      Updated automatically from our campaign tools — last refreshed
-      {{ generated.strftime("%d %b %Y, %H:%M") }} UTC.<br>
+      {% if report and report.published_at %}
+      Figures for {{ heading }}, as published on
+      {{ report.published_at[:10] }}.<br>
+      {% endif %}
       Questions about anything here? Reply to your account manager.
     </footer>
   </div>

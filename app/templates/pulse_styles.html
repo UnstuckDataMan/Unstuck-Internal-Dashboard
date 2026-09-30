@@ -499,6 +499,79 @@
   .note-act.is-danger:hover { color: #fca5a5; }
   .note-edit { margin-top: 4px; }
 
+
+  /* ── Client reports ─────────────────────────────────── */
+  .report-new-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+  .report-field { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--text-2); }
+  .report-field em { color: var(--text-3); font-style: normal; }
+  .report-field-wide { flex: 1; min-width: 220px; }
+  .report-field input {
+    background: rgba(0,0,0,.28); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 13px;
+    color: var(--text); color-scheme: dark;
+  }
+  .report-field input:focus { outline: none; border-color: rgba(139,92,246,.5); }
+  .report-arrow { color: var(--text-3); padding-bottom: 9px; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap;
+  }
+
+  .report-list { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+  .report {
+    border: 1px solid var(--border); border-radius: 13px; padding: 13px 15px;
+    background: rgba(255,255,255,.03);
+  }
+  .report.is-published { border-color: rgba(139,92,246,.32); }
+  .report-head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 11.5px; color: var(--text-3);
+  }
+  .report-head .spacer { flex: 1; }
+  .report-heading { font-size: 14px; font-weight: 600; color: var(--text); }
+  .report-badge {
+    font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;
+  }
+  .report-badge.is-live { color: #c4b5fd; border-color: rgba(139,92,246,.45); }
+  .report-summary { font-size: 13px; color: var(--text-2); line-height: 1.6; margin-top: 8px; }
+  .report-summary em { color: var(--text-3); }
+  .report-edit { margin-top: 12px; }
+  .report-actions {
+    display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 12px;
+  }
+
+  /* ── Rich text editor ─────────────────────────────── */
+  .rt { border: 1px solid var(--border); border-radius: 11px; overflow: hidden; }
+  .rt-bar {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+    padding: 7px 9px; background: rgba(0,0,0,.28);
+    border-bottom: 1px solid var(--border);
+  }
+  .rt-bar button {
+    min-width: 28px; height: 26px; padding: 0 8px;
+    background: transparent; border: 1px solid transparent; border-radius: 7px;
+    color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .rt-bar button:hover { background: rgba(255,255,255,.08); color: var(--text); }
+  .rt-sep { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
+  .rt-area {
+    min-height: 190px; max-height: 460px; overflow-y: auto;
+    padding: 13px 15px; font-size: 13.5px; line-height: 1.7; color: var(--text);
+    background: rgba(0,0,0,.18);
+  }
+  .rt-area:focus { outline: none; }
+  .rt-area h2 { font-size: 16px; font-weight: 600; margin: 14px 0 6px; }
+  .rt-area h3 { font-size: 14px; font-weight: 600; margin: 12px 0 5px; }
+  .rt-area p { margin: 0 0 9px; }
+  .rt-area ul, .rt-area ol { margin: 0 0 9px; padding-left: 22px; }
+  .rt-area li { margin-bottom: 4px; }
+  .rt-area a { color: #c4b5fd; }
+  .rt-area blockquote {
+    margin: 0 0 9px; padding-left: 12px; border-left: 2px solid var(--border);
+    color: var(--text-2);
+  }
+
   /* ── Trend strip ─────────────────────────────────────────── */
   .trend-wrap { position: relative; }
   .trend-strip { display: flex; align-items: flex-end; gap: 2px; height: 64px; margin-top: 6px; }

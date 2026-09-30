@@ -504,64 +504,6 @@ def test_portal_looks_up_by_hash_not_plaintext(client, fake_sb):
     assert sent.startswith("eq.") and len(sent) == len("eq.") + 64
 
 
-def test_portal_renders_for_a_valid_token(client, fake_sb):
-    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
-        "id": "a1", "client_id": CLIENT, "label": "Sarah",
-        "expires_at": None, "revoked_at": None, "view_count": 0,
-    }]))
-    fake_sb.route("GET", "clients", lambda call: FakeResponse(
-        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
-    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
-        {"event_type": "sent", "events": 900, "channel": "email", "day": "2025-03-01"},
-        {"event_type": "replied", "events": 45, "channel": "email", "day": "2025-03-01"},
-    ]))
-
-    r = client.get("/portal/valid-token")
-    assert r.status_code == 200
-    assert "Acme" in r.text
-    assert "900" in r.text
-    # Internal chrome must not leak into a client-facing page.
-    assert "Dashboard" not in r.text
-    assert "/outbound-pulse" not in r.text
-
-
-def test_portal_ignores_a_client_id_in_the_query_string(client, fake_sb):
-    """Scope comes from the token record only — a client cannot widen it."""
-    from tests.conftest import param_values
-
-    other = "99999999-9999-9999-9999-999999999999"
-    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
-        "id": "a1", "client_id": CLIENT, "label": "",
-        "expires_at": None, "revoked_at": None, "view_count": 0,
-    }]))
-    fake_sb.route("GET", "clients", lambda call: FakeResponse(
-        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
-    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
-
-    client.get(f"/portal/valid-token?client_id={other}&range=all")
-
-    for call in fake_sb.calls_to("GET", "pulse_funnel_daily"):
-        assert param_values(call, "client_id") == [f"eq.{CLIENT}"]
-
-
-def test_portal_records_a_visit(client, fake_sb):
-    """Engagement logging is how success-criteria question #2 gets answered."""
-    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
-        "id": "a1", "client_id": CLIENT, "label": "",
-        "expires_at": None, "revoked_at": None, "view_count": 2,
-    }]))
-    fake_sb.route("GET", "clients", lambda call: FakeResponse(
-        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
-    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
-
-    client.get("/portal/valid-token")
-
-    visits = fake_sb.calls_to("POST", "pulse_portal_visits")
-    assert len(visits) == 1
-    assert visits[0]["json"]["client_id"] == CLIENT
-    assert visits[0]["json"]["agency_id"] == AGENCY
-
-
 def test_portal_exposes_no_mutating_routes():
     """Read-only by construction, not by convention."""
     from app.routers import pulse_portal
@@ -1834,27 +1776,6 @@ def test_engagement_table_has_no_icon(client, fake_sb):
 
 # ── Client portal wording ─────────────────────────────────────────────────────
 
-def test_portal_never_calls_meeting_requests_booked(client, fake_sb):
-    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
-        "id": "a1", "client_id": CLIENT, "label": "",
-        "expires_at": None, "revoked_at": None, "view_count": 0,
-    }]))
-    fake_sb.route("GET", "clients", lambda call: FakeResponse(
-        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
-    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
-        {"event_type": "sent", "events": 900, "channel": "email", "day": "2026-09-10"},
-        {"event_type": "replied", "events": 45, "channel": "email", "day": "2026-09-10"},
-        {"event_type": "meeting_booked", "events": 3, "channel": "email", "day": "2026-09-10"},
-        {"event_type": "sent", "events": 100, "channel": "linkedin", "day": "2026-09-10"},
-    ]))
-    r = client.get("/portal/valid-token")
-    assert r.status_code == 200
-    assert "Meeting requests" in r.text
-    assert "booked" not in r.text.lower()
-    # Opens aren't tracked here, so the portal must not explain a stage it hides.
-    assert "connection request was accepted" not in r.text
-
-
 # ── Leads and lead rate ───────────────────────────────────────────────────────
 # Leads = Information requests + Meeting requests. Interested is tracked but is
 # not a lead. Lead rate = leads / sent, the same base as the reply rate.
@@ -2063,27 +1984,6 @@ def test_client_detail_table_has_lead_columns(client, fake_sb):
     assert "<td>20</td>" in r.text               # leads
     assert "<td>1.0%</td>" in r.text             # lead rate
     assert "<td>4.0%</td>" in r.text             # reply rate, 80/2000
-
-
-def test_portal_headlines_leads_and_states_the_lead_rate(client, fake_sb):
-    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
-        "id": "a1", "client_id": CLIENT, "label": "",
-        "expires_at": None, "revoked_at": None, "view_count": 0,
-    }]))
-    fake_sb.route("GET", "clients", lambda call: FakeResponse(
-        200, [{"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
-    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, _LEAD_ROWS))
-
-    r = client.get("/portal/valid-token")
-    assert r.status_code == 200
-    assert "Reply outcomes" in r.text
-    assert "Information requests" in r.text
-    assert "1.0%" in r.text
-    # The lead rate is stated by the outcomes card, not repeated as a headline
-    # box: the same figure in two places invited them to disagree.
-    assert "lead rate" in r.text
-    assert r.text.count('class="headline"') == 3
-    assert "Lead rate" not in r.text
 
 
 # ── The SQL backfill must classify exactly like Python ───────────────────────
@@ -2490,26 +2390,6 @@ def test_trend_columns_carry_their_figures_for_the_tooltip(client, fake_sb):
     assert "trend-tip" in r.text
 
 
-def test_the_client_portal_gets_the_same_trend_tooltip(client, fake_sb):
-    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
-        "id": "a1", "client_id": CLIENT, "label": "Sarah",
-        "expires_at": None, "revoked_at": None, "view_count": 0,
-    }]))
-    fake_sb.route("GET", "clients", lambda call: FakeResponse(
-        200, [{"id": CLIENT, "name": "Acme", "color": None,
-               "emoji": None, "active": True}]))
-    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
-        {"event_type": "sent", "events": 900, "channel": "email", "day": "2025-03-01"},
-        {"event_type": "sent", "events": 700, "channel": "email", "day": "2025-03-02"},
-        {"event_type": "replied", "events": 45, "channel": "email", "day": "2025-03-02"},
-    ]))
-
-    r = client.get("/portal/valid-token")
-    assert r.status_code == 200
-    assert "trend-tip" in r.text
-    assert "data-lead-rate" in r.text
-
-
 # ── Manual in the reporting scope picker ──────────────────────────────────────
 
 def test_the_channel_picker_offers_manual(client, fake_sb):
@@ -2566,41 +2446,6 @@ def test_the_mapping_filters_still_filter_by_a_real_channel(client, fake_sb):
 
 # ── Portal chrome ─────────────────────────────────────────────────────────────
 
-def _portal_routes(fake_sb, funnel_rows=None, notes=None):
-    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
-        "id": "a1", "client_id": CLIENT, "label": "",
-        "expires_at": None, "revoked_at": None, "view_count": 0,
-    }]))
-    fake_sb.route("GET", "clients", lambda call: FakeResponse(
-        200, [{"id": CLIENT, "name": "Acme", "color": None,
-               "emoji": None, "active": True}]))
-    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(
-        200, funnel_rows if funnel_rows is not None else [
-            {"event_type": "sent", "events": 900, "channel": "email", "day": "2025-03-01"},
-            {"event_type": "sent", "events": 700, "channel": "email", "day": "2025-03-02"},
-            {"event_type": "replied", "events": 45, "channel": "email", "day": "2025-03-02"},
-        ]))
-    fake_sb.route("GET", "pulse_client_notes",
-                  lambda call: FakeResponse(200, notes or []))
-
-
-def test_the_portal_header_is_the_logo_then_a_rule_then_the_client(client, fake_sb):
-    """The logo's position must not depend on how long the client name is,
-    which is what a single centred row gave us."""
-    _portal_routes(fake_sb)
-    body = client.get("/portal/valid-token").text
-    head = body.split('<header class="report-head">', 1)[1].split("</header>", 1)[0]
-    assert head.index("logo-report.png") < head.index("report-title") < head.index("range-nav")
-    assert head.index("head-brand") < head.index("head-row")
-
-
-def test_the_portal_uses_the_current_logo(client, fake_sb):
-    _portal_routes(fake_sb)
-    body = client.get("/portal/valid-token").text
-    assert "/static/img/logo-report.png" in body
-    assert "/static/img/logo.png" not in body
-
-
 def test_the_report_logo_file_is_in_the_repo():
     """The template would render a broken image if this were only on a laptop."""
     import pathlib
@@ -2610,247 +2455,9 @@ def test_the_report_logo_file_is_in_the_repo():
     assert logo.is_file() and logo.stat().st_size > 1000
 
 
-def test_reply_outcomes_no_longer_tag_each_category_as_a_lead(client, fake_sb):
-    _portal_routes(fake_sb, funnel_rows=_LEAD_ROWS)
-    body = client.get("/portal/valid-token").text
-    assert "Reply outcomes" in body
-    assert "outcome-tag" not in body
-
-
 # ── Account manager notes ─────────────────────────────────────────────────────
 
-def _note(body="Volume dipped while we rewrote the opener.", **kw):
-    row = {
-        "id": "n1", "body": body, "author_email": "am@unstuck.com",
-        "author_name": "Dylan", "show_on_report": True,
-        "created_at": "2025-03-04T09:00:00+00:00",
-        "updated_at": "2025-03-04T09:00:00+00:00",
-    }
-    row.update(kw)
-    return row
-
-
-def test_a_client_page_offers_a_notes_panel(client, fake_sb):
-    _detail_routes(fake_sb)
-    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
-    assert "Notes for this client" in body
-    assert f"/api/outbound-pulse/clients/{CLIENT}/notes" in body
-
-
-def test_adding_a_note_records_who_wrote_it(client, fake_sb):
-    seen = {}
-
-    def capture(call):
-        seen.update(call.get("json") or {})
-        return FakeResponse(201, [_note()])
-
-    fake_sb.route("POST", "pulse_client_notes", capture)
-    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, [_note()]))
-
-    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes",
-                    data={"body": "  Volume dipped.  ", "show_on_report": "1"})
-    assert r.status_code == 200
-    assert seen["body"] == "Volume dipped."          # trimmed
-    assert seen["client_id"] == CLIENT
-    assert seen["show_on_report"] is True
-    assert seen["author_email"]
-
-
-def test_a_failed_save_hands_back_what_was_typed(client, fake_sb):
-    """The form is inside the swapped region, so a bare error would replace it
-    with an empty box and lose the note."""
-    fake_sb.route("POST", "pulse_client_notes", lambda call: FakeResponse(200, []))
-    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
-
-    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes",
-                    data={"body": "Worth keeping.", "show_on_report": "1"})
-    assert "Could not save" in r.text
-    assert "Worth keeping." in r.text
-
-
-def test_an_empty_note_is_refused_with_a_reason(client, fake_sb):
-    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
-    fake_sb.route("POST", "pulse_client_notes",
-                  lambda call: FakeResponse(201, [_note()]))
-
-    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes",
-                    data={"body": "   ", "show_on_report": "1"})
-    assert r.status_code == 200
-    assert "needs some text" in r.text
-    assert not fake_sb.calls_to("POST", "pulse_client_notes")
-
-
-def test_a_note_is_capped_rather_than_rejected_for_length(client, fake_sb):
-    seen = {}
-
-    def capture(call):
-        seen.update(call.get("json") or {})
-        return FakeResponse(201, [_note()])
-
-    fake_sb.route("POST", "pulse_client_notes", capture)
-    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
-
-    client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes",
-                data={"body": "x" * 5000, "show_on_report": "1"})
-    assert len(seen["body"]) == 1200
-
-
-def test_an_unticked_note_is_saved_as_internal_only(client, fake_sb):
-    seen = {}
-
-    def capture(call):
-        seen.update(call.get("json") or {})
-        return FakeResponse(201, [_note(show_on_report=False)])
-
-    fake_sb.route("POST", "pulse_client_notes", capture)
-    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
-
-    client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes",
-                data={"body": "Internal context."})
-    assert seen["show_on_report"] is False
-
-
-def test_toggling_visibility_does_not_touch_the_text(client, fake_sb):
-    """The show/hide button sends no body. It must not blank the note."""
-    seen = {}
-
-    def capture(call):
-        seen.update(call.get("json") or {})
-        return FakeResponse(200, [])
-
-    fake_sb.route("PATCH", "pulse_client_notes", capture)
-    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, [_note()]))
-
-    client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes/n1",
-                data={"visibility": "hide"})
-    assert seen["show_on_report"] is False
-    assert "body" not in seen
-
-
-def test_a_note_edit_is_scoped_to_the_agency(client, fake_sb):
-    from tests.conftest import param_values
-
-    fake_sb.route("PATCH", "pulse_client_notes", lambda call: FakeResponse(200, []))
-    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, [_note()]))
-
-    client.post(f"/api/outbound-pulse/clients/{CLIENT}/notes/n1",
-                data={"body": "Updated.", "show_on_report": "1"})
-    call = fake_sb.calls_to("PATCH", "pulse_client_notes")[0]
-    assert param_values(call, "agency_id")
-    assert param_values(call, "id") == ["eq.n1"]
-
-
-def test_deleting_a_note_is_scoped_to_the_agency(client, fake_sb):
-    from tests.conftest import param_values
-
-    fake_sb.route("DELETE", "pulse_client_notes", lambda call: FakeResponse(204, []))
-    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
-
-    client.delete(f"/api/outbound-pulse/clients/{CLIENT}/notes/n1")
-    call = fake_sb.calls_to("DELETE", "pulse_client_notes")[0]
-    assert param_values(call, "agency_id")
-    assert param_values(call, "id") == ["eq.n1"]
-
-
-def test_the_report_only_reads_notes_marked_for_it(client, fake_sb):
-    from tests.conftest import param_values
-
-    _portal_routes(fake_sb, notes=[_note()])
-    client.get("/portal/valid-token")
-    call = fake_sb.calls_to("GET", "pulse_client_notes")[0]
-    assert param_values(call, "show_on_report") == ["is.true"]
-    assert param_values(call, "client_id") == [f"eq.{CLIENT}"]
-
-
-def test_a_visible_note_reaches_the_client_report(client, fake_sb):
-    _portal_routes(fake_sb, notes=[_note()])
-    body = client.get("/portal/valid-token").text
-    assert "From your account manager" in body
-    assert "Volume dipped while we rewrote the opener." in body
-
-
-def test_the_report_hides_the_notes_card_when_there_are_none(client, fake_sb):
-    _portal_routes(fake_sb)
-    assert "From your account manager" not in client.get("/portal/valid-token").text
-
-
-def test_a_note_read_failure_never_costs_the_client_their_report(client, fake_sb):
-    """Commentary is an addition to the report, not a precondition for it."""
-    _portal_routes(fake_sb)
-    fake_sb.route("GET", "pulse_client_notes",
-                  lambda call: FakeResponse(500, {"message": "relation does not exist"}))
-
-    r = client.get("/portal/valid-token")
-    assert r.status_code == 200
-    assert "900" in r.text
-    assert "From your account manager" not in r.text
-
-
-def test_the_report_shows_only_the_most_recent_few_notes(client, fake_sb):
-    from tests.conftest import param_values
-
-    from app.utils.pulse import store
-
-    _portal_routes(fake_sb, notes=[_note()])
-    client.get("/portal/valid-token")
-    call = fake_sb.calls_to("GET", "pulse_client_notes")[0]
-    assert param_values(call, "limit") == [str(store.NOTES_ON_REPORT)]
-    assert param_values(call, "order") == ["created_at.desc"]
-
-
-def test_the_internal_list_shows_hidden_notes_too(client, fake_sb):
-    from tests.conftest import param_values
-
-    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(
-        200, [_note(id="n2", show_on_report=False, body="Internal only.")]))
-
-    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/notes")
-    assert "Internal only." in r.text
-    call = fake_sb.calls_to("GET", "pulse_client_notes")[0]
-    assert param_values(call, "show_on_report") == []
-
-
-def test_notes_are_agency_scoped_on_read(client, fake_sb):
-    from tests.conftest import param_values
-
-    fake_sb.route("GET", "pulse_client_notes", lambda call: FakeResponse(200, []))
-    client.get(f"/api/outbound-pulse/clients/{CLIENT}/notes")
-    assert param_values(fake_sb.calls_to("GET", "pulse_client_notes")[0], "agency_id")
-
-
-def test_the_portal_exposes_no_way_to_write_a_note():
-    """The client report is read-only. Notes are written from the internal app."""
-    from app.routers import pulse_portal
-
-    for route in pulse_portal.router.routes:
-        assert set(route.methods) <= {"GET", "HEAD"}, route.path
-
-
 # ── The notes migration ───────────────────────────────────────────────────────
-
-def _notes_sql():
-    import pathlib
-    return (pathlib.Path(__file__).resolve().parents[1]
-            / "migrations" / "outbound_pulse_notes.sql").read_text(encoding="utf-8")
-
-
-def test_the_notes_migration_is_one_transaction_and_re_runnable():
-    sql = _notes_sql()
-    assert sql.index("BEGIN;") < sql.index("CREATE TABLE")
-    assert "CREATE TABLE IF NOT EXISTS pulse_client_notes" in sql
-    assert sql.rstrip().endswith("COMMIT;")
-
-
-def test_a_note_is_agency_scoped_and_dies_with_its_client():
-    sql = _notes_sql()
-    assert "agency_id       uuid NOT NULL REFERENCES agencies(id) ON DELETE CASCADE" in sql
-    assert "client_id       uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE" in sql
-
-
-def test_the_database_refuses_a_blank_note():
-    """Belt and braces: this text renders straight onto a client's report."""
-    assert "CHECK (length(btrim(body)) > 0)" in _notes_sql()
-
 
 # ── The client link ───────────────────────────────────────────────────────────
 
@@ -2905,12 +2512,6 @@ def test_both_paths_look_up_the_same_hash(client, fake_sb):
     hashes = [param_values(c, "token_hash")[0]
               for c in fake_sb.calls_to("GET", "pulse_client_access")]
     assert len(set(hashes)) == 1
-
-
-def test_the_range_buttons_keep_the_reader_on_the_path_they_arrived_by(client, fake_sb):
-    _portal_routes(fake_sb)
-    assert 'href="/r/valid-token?range=' in client.get("/r/valid-token").text
-    assert 'href="/portal/valid-token?range=' in client.get("/portal/valid-token").text
 
 
 def test_the_short_path_is_public_like_the_long_one():
@@ -3166,3 +2767,508 @@ def test_the_migration_backfills_from_stored_events():
     sql = _unsub_sql()
     assert "raw_payload->>\'is_unsubscribed\'" in sql
     assert "ON CONFLICT (agency_id, campaign_id, lead_key) DO NOTHING" in sql
+
+
+# ── Published client reports ──────────────────────────────────────────────────
+
+def _snapshot(sent=1000, replied=40, unsubscribed=10, leads=8):
+    return {
+        "version": 1,
+        "counts": {"sent": sent, "opened": 0, "replied": replied,
+                   "positive_reply": 12, "information_request": 3,
+                   "meeting_booked": leads - 3, "lead": 0,
+                   "unsubscribed": unsubscribed},
+        "by_channel": {"email": {"sent": sent, "replied": replied,
+                                 "information_request": 3, "meeting_booked": leads - 3}},
+        "by_source": {},
+        "trend": {"unit": "day", "buckets": [
+            {"day": "2026-09-01", "label": "1 Sep 2026", "sent": 500, "replied": 20},
+            {"day": "2026-09-02", "label": "2 Sep 2026", "sent": 500, "replied": 20},
+        ]},
+        "taken_at": "2026-10-01T09:00:00+00:00",
+    }
+
+
+def _report(rid="r1", start="2026-09-01", end="2026-09-30", status="published",
+            body="<p>Volume dipped while we rewrote the opener.</p>", title=""):
+    return {
+        "id": rid, "client_id": CLIENT, "period_start": start, "period_end": end,
+        "title": title, "body": body, "snapshot": _snapshot(),
+        "status": status, "published_at": "2026-10-01T09:00:00+00:00",
+        "created_by": "Dylan", "created_at": "2026-09-30T09:00:00+00:00",
+        "updated_at": "2026-10-01T09:00:00+00:00",
+    }
+
+
+def _portal_routes(fake_sb, reports=None):
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, [{
+        "id": "a1", "client_id": CLIENT, "label": "",
+        "expires_at": None, "revoked_at": None, "view_count": 0,
+    }]))
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None,
+               "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(
+        200, [_report()] if reports is None else reports))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+
+# ── The portal is a series of reports, not a live dashboard ──────────────────
+
+def test_the_portal_renders_the_newest_published_report(client, fake_sb):
+    _portal_routes(fake_sb)
+    body = client.get("/r/valid-token").text
+    assert body.count("<html") == 1
+    assert "Acme" in body
+    assert "September 2026" in body
+    assert "1,000" in body                      # from the frozen snapshot
+
+
+def test_the_portal_no_longer_offers_a_range_picker(client, fake_sb):
+    """Letting a client re-slice the data is how they ended up reading numbers
+    nobody had looked at before sending."""
+    _portal_routes(fake_sb)
+    body = client.get("/r/valid-token").text
+    for gone in ("Last 30 days", "Last 90 days", "All time", "?range="):
+        assert gone not in body
+
+
+def test_a_published_report_reads_only_its_snapshot(client, fake_sb):
+    """It must not re-query: a later sync can still add events inside a closed
+    period, and the client would see a different number than they were sent."""
+    _portal_routes(fake_sb)
+    client.get("/r/valid-token")
+    assert fake_sb.calls_to("GET", "pulse_funnel_daily") == []
+
+
+def test_the_write_up_is_headed_with_the_period(client, fake_sb):
+    _portal_routes(fake_sb)
+    body = client.get("/r/valid-token").text
+    assert "September 2026 Report &amp; Analytics" in body
+    assert "From your account manager" not in body
+
+
+def test_a_titled_report_uses_its_title_as_the_heading(client, fake_sb):
+    _portal_routes(fake_sb, reports=[_report(title="Q3 review")])
+    body = client.get("/r/valid-token").text
+    assert "Q3 review Report &amp; Analytics" in body
+
+
+def test_the_write_up_renders_as_markup_not_as_escaped_text(client, fake_sb):
+    _portal_routes(fake_sb, reports=[_report(
+        body="<p>Volume <strong>dipped</strong>.</p><ul><li>Rewrote the opener</li></ul>")])
+    body = client.get("/r/valid-token").text
+    assert "<strong>dipped</strong>" in body
+    assert "<li>Rewrote the opener</li>" in body
+
+
+# ── Paging through history ───────────────────────────────────────────────────
+
+def _three_reports():
+    return [
+        _report("sep", "2026-09-01", "2026-09-30"),
+        _report("aug", "2026-08-01", "2026-08-31"),
+        _report("jul", "2026-07-01", "2026-07-31"),
+    ]
+
+
+def test_the_arrows_appear_once_there_is_a_history(client, fake_sb):
+    _portal_routes(fake_sb, reports=_three_reports())
+    body = client.get("/r/valid-token").text
+    assert "report-nav" in body
+    assert "1 of 3" in body
+
+
+def test_a_single_report_gets_no_arrows(client, fake_sb):
+    _portal_routes(fake_sb)
+    # The markup, not the stylesheet, which always carries the rule.
+    assert 'class="report-nav"' not in client.get("/r/valid-token").text
+
+
+def test_the_back_arrow_goes_to_the_previous_month(client, fake_sb):
+    _portal_routes(fake_sb, reports=_three_reports())
+    body = client.get("/r/valid-token").text
+    assert "?report=aug" in body
+    assert "?report=jul" not in body            # two away, not one
+
+
+def test_the_middle_report_can_go_both_ways(client, fake_sb):
+    _portal_routes(fake_sb, reports=_three_reports())
+    body = client.get("/r/valid-token?report=aug").text
+    assert "2 of 3" in body
+    assert "?report=sep" in body                # newer
+    assert "?report=jul" in body                # older
+    assert "August 2026" in body
+
+
+def test_the_oldest_report_has_nothing_older(client, fake_sb):
+    _portal_routes(fake_sb, reports=_three_reports())
+    body = client.get("/r/valid-token?report=jul").text
+    assert "3 of 3" in body
+    assert "?report=aug" in body
+    assert "is-off" in body                     # the back arrow is disabled
+
+
+def test_an_unknown_report_id_falls_back_to_the_newest(client, fake_sb):
+    _portal_routes(fake_sb, reports=_three_reports())
+    body = client.get("/r/valid-token?report=does-not-exist").text
+    assert "1 of 3" in body
+    assert "September 2026" in body
+
+
+def test_a_report_id_cannot_widen_scope_to_another_client(client, fake_sb):
+    """The id only ever selects from this token's own client history, which is
+    the only list the route ever builds."""
+    from tests.conftest import param_values
+
+    _portal_routes(fake_sb, reports=_three_reports())
+    client.get("/r/valid-token?report=someone-elses-report")
+    call = fake_sb.calls_to("GET", "pulse_reports")[0]
+    assert param_values(call, "client_id") == [f"eq.{CLIENT}"]
+    assert param_values(call, "id") == []
+
+
+def test_the_arrows_keep_the_reader_on_the_path_they_arrived_by(client, fake_sb):
+    _portal_routes(fake_sb, reports=_three_reports())
+    assert "/r/valid-token?report=aug" in client.get("/r/valid-token").text
+    assert "/portal/valid-token?report=aug" in client.get("/portal/valid-token").text
+
+
+# ── Drafts and empty states ──────────────────────────────────────────────────
+
+def test_only_published_reports_are_served_to_a_client(client, fake_sb):
+    from tests.conftest import param_values
+
+    _portal_routes(fake_sb)
+    client.get("/r/valid-token")
+    call = fake_sb.calls_to("GET", "pulse_reports")[0]
+    assert param_values(call, "status") == ["eq.published"]
+
+
+def test_a_client_with_no_reports_yet_is_told_so(client, fake_sb):
+    _portal_routes(fake_sb, reports=[])
+    body = client.get("/r/valid-token").text
+    assert "first report is on its way" in body
+    assert "This link stays the same" in body
+
+
+def test_a_report_read_failure_never_shows_a_client_a_stack_trace(client, fake_sb):
+    _portal_routes(fake_sb)
+    fake_sb.route("GET", "pulse_reports",
+                  lambda call: FakeResponse(500, {"message": "relation does not exist"}))
+    r = client.get("/r/valid-token")
+    assert r.status_code == 200
+    assert "first report is on its way" in r.text
+    assert "relation" not in r.text
+
+
+def test_the_portal_still_exposes_no_mutating_routes():
+    from app.routers import pulse_portal
+
+    for route in pulse_portal.router.routes:
+        assert set(route.methods) <= {"GET", "HEAD"}, route.path
+
+
+def test_a_visit_is_still_recorded(client, fake_sb):
+    _portal_routes(fake_sb)
+    client.get("/r/valid-token")
+    assert fake_sb.calls_to("POST", "pulse_portal_visits")
+
+
+# ── Building a report, internally ────────────────────────────────────────────
+
+def test_publishing_freezes_the_figures_for_the_period(client, fake_sb):
+    """Taken at publish, not at creation: a draft may have been opened weeks
+    before it goes out."""
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 700, "day": "2026-09-04"},
+    ]))
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert r.status_code == 200
+    assert seen["status"] == "published"
+    assert seen["published_at"]
+    assert seen["snapshot"]["counts"]["sent"] == 700
+    assert seen["snapshot"]["trend"]["buckets"]
+
+
+def test_the_snapshot_covers_the_reports_period_not_today(client, fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft", start="2026-07-01", end="2026-07-31")]))
+    fake_sb.route("PATCH", "pulse_reports", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    days = []
+    for call in fake_sb.calls_to("GET", "pulse_funnel_daily"):
+        days.extend(param_values(call, "day"))
+    assert "gte.2026-07-01" in days
+    assert "lte.2026-07-31" in days
+
+
+def test_a_write_up_is_sanitised_before_it_is_stored(client, fake_sb):
+    """Cleaned once, where markup crosses from an author to a reader, rather
+    than trusted on the way out to a client's page."""
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [_report()]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1",
+                data={"title": "", "body": '<p onclick="x()">hi</p><script>bad()</script>'})
+    assert seen["body"] == "<p>hi</p>"
+
+
+def test_saving_a_draft_does_not_publish_it(client, fake_sb):
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1",
+                data={"title": "", "body": "<p>draft</p>"})
+    assert "status" not in seen
+    assert "snapshot" not in seen
+
+
+def test_unpublishing_keeps_the_snapshot(client, fake_sb):
+    """So re-publishing without editing puts back exactly what was there."""
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [_report()]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/unpublish")
+    assert seen["status"] == "draft"
+    assert seen["published_at"] is None
+    assert "snapshot" not in seen
+
+
+def test_a_backwards_period_is_swapped_rather_than_rejected(client, fake_sb):
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, []))
+    fake_sb.route("POST", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(201, [_report(status="draft")]))[1])
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports",
+                data={"period_start": "2026-09-30", "period_end": "2026-09-01"})
+    assert seen["period_start"] == "2026-09-01"
+    assert seen["period_end"] == "2026-09-30"
+
+
+def test_a_report_without_a_period_is_refused_with_a_reason(client, fake_sb):
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, []))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports",
+                    data={"period_start": "", "period_end": ""})
+    assert "Pick a start and an end date" in r.text
+    assert not fake_sb.calls_to("POST", "pulse_reports")
+
+
+def test_a_new_draft_carries_no_snapshot(client, fake_sb):
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, []))
+    fake_sb.route("POST", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(201, [_report(status="draft")]))[1])
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports",
+                data={"period_start": "2026-09-01", "period_end": "2026-09-30"})
+    assert seen["status"] == "draft"
+    assert "snapshot" not in seen
+
+
+def test_the_client_page_offers_a_reports_panel(client, fake_sb):
+    _detail_routes(fake_sb)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "Reports" in body
+    assert f"/api/outbound-pulse/clients/{CLIENT}/reports" in body
+    assert "Notes for this client" not in body
+
+
+def test_reports_are_agency_scoped_on_every_operation(client, fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [_report()]))
+    fake_sb.route("PATCH", "pulse_reports", lambda call: FakeResponse(200, []))
+    fake_sb.route("DELETE", "pulse_reports", lambda call: FakeResponse(204, []))
+
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/reports")
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1",
+                data={"title": "", "body": "<p>x</p>"})
+    client.delete(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1")
+
+    for method in ("GET", "PATCH", "DELETE"):
+        for call in fake_sb.calls_to(method, "pulse_reports"):
+            assert param_values(call, "agency_id"), (method, call["params"])
+
+
+# ── Report headings ──────────────────────────────────────────────────────────
+
+def test_a_whole_calendar_month_is_named(pulse_reports_mod=None):
+    from datetime import date
+
+    from app.utils.pulse.reports import period_label
+
+    assert period_label(date(2026, 9, 1), date(2026, 9, 30)) == "September 2026"
+    assert period_label(date(2026, 2, 1), date(2026, 2, 28)) == "February 2026"
+
+
+def test_a_partial_period_shows_its_dates():
+    from datetime import date
+
+    from app.utils.pulse.reports import period_label
+
+    assert period_label(date(2026, 9, 5), date(2026, 9, 20)) == "5 Sep – 20 Sep 2026"
+    assert "2025" in period_label(date(2025, 12, 20), date(2026, 1, 10))
+
+
+def test_a_report_without_a_title_is_named_by_its_period():
+    from app.utils.pulse.reports import report_heading
+
+    assert report_heading(_report()) == "September 2026"
+    assert report_heading(_report(title="Q3 review")) == "Q3 review"
+
+
+# ── The write-up sanitiser ───────────────────────────────────────────────────
+
+def test_the_sanitiser_keeps_the_formatting_a_write_up_needs():
+    from app.utils.pulse.richtext import sanitize
+
+    html = ("<p>Volume <strong>dipped</strong> and <em>recovered</em>.</p>"
+            "<h2>Recommendations</h2><ul><li>Rewrite the opener</li></ul>")
+    assert sanitize(html) == html
+
+
+def test_the_sanitiser_drops_scripts_and_their_contents():
+    from app.utils.pulse.richtext import sanitize
+
+    assert sanitize("<script>alert(1)</script><p>after</p>") == "<p>after</p>"
+    assert "alert" not in sanitize("<script>alert(1)</script>")
+
+
+def test_the_sanitiser_drops_event_handlers():
+    from app.utils.pulse.richtext import sanitize
+
+    assert sanitize('<p onclick="steal()">click</p>') == "<p>click</p>"
+
+
+def test_the_sanitiser_refuses_a_javascript_link():
+    from app.utils.pulse.richtext import sanitize
+
+    assert "javascript" not in sanitize('<a href="javascript:alert(1)">bad</a>')
+    # Whitespace inside the scheme is a URL browsers still run.
+    assert "script" not in sanitize('<a href="java\tscript:alert(1)">sneaky</a>').lower()
+
+
+def test_the_sanitiser_keeps_a_real_link_and_makes_it_safe_to_follow():
+    from app.utils.pulse.richtext import sanitize
+
+    out = sanitize('<a href="https://unstuck.agency">us</a>')
+    assert 'href="https://unstuck.agency"' in out
+    assert 'rel="noopener noreferrer nofollow"' in out
+
+
+def test_the_sanitiser_keeps_the_text_of_a_tag_it_drops():
+    """A pasted <div> of prose should become prose, not disappear."""
+    from app.utils.pulse.richtext import sanitize
+
+    assert sanitize("<div><p>kept</p></div>") == "<p>kept</p>"
+
+
+def test_the_sanitiser_closes_what_an_editor_left_open():
+    from app.utils.pulse.richtext import sanitize
+
+    assert sanitize("<p>unbalanced</div></p>") == "<p>unbalanced</p>"
+    assert sanitize("<ul><li>one") == "<ul><li>one</li></ul>"
+
+
+def test_an_emptied_editor_reads_as_empty():
+    """A focused-then-cleared editor still emits <p><br></p>."""
+    from app.utils.pulse.richtext import to_text
+
+    assert to_text("<p><br></p>") == ""
+    assert to_text("<p>real</p>") == "real"
+
+
+# ── The reports migration ────────────────────────────────────────────────────
+
+def _reports_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1]
+            / "migrations" / "outbound_pulse_reports.sql").read_text(encoding="utf-8")
+
+
+def test_the_reports_migration_is_one_transaction_and_re_runnable():
+    sql = _reports_sql()
+    assert sql.index("BEGIN;") < sql.index("CREATE TABLE")
+    assert "CREATE TABLE IF NOT EXISTS pulse_reports" in sql
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+def test_one_report_per_client_per_period():
+    """Publishing September twice corrects September rather than leaving the
+    client two of them to choose between."""
+    assert "pulse_reports_client_period_unique" in _reports_sql()
+
+
+def test_a_report_cannot_end_before_it_starts():
+    assert "CHECK (period_end >= period_start)" in _reports_sql()
+
+
+def test_a_report_is_agency_scoped_and_dies_with_its_client():
+    sql = _reports_sql()
+    assert "agency_id    uuid NOT NULL REFERENCES agencies(id) ON DELETE CASCADE" in sql
+    assert "client_id    uuid NOT NULL REFERENCES clients(id)  ON DELETE CASCADE" in sql
+
+
+def test_the_sanitiser_unwraps_a_list_the_editor_put_inside_a_paragraph():
+    """contenteditable emits <p><ul>...</ul></p> routinely. Browsers unwrap it
+    on parse, but storing invalid markup that renders on a client's page is not
+    something to leave to a parser to rescue."""
+    from app.utils.pulse.richtext import sanitize
+
+    assert sanitize("<p>intro</p><p><ul><li>one</li></ul></p>") ==         "<p>intro</p><ul><li>one</li></ul>"
+    # And it leaves no empty shell behind.
+    assert "<p></p>" not in sanitize("<p><ul><li>one</li></ul></p>")
+
+
+def test_a_deliberate_blank_line_survives():
+    from app.utils.pulse.richtext import sanitize
+
+    assert sanitize("<p>a</p><p><br></p><p>b</p>") == "<p>a</p><p><br></p><p>b</p>"
+
+
+def test_flattening_does_not_run_sentences_together():
+    """The summary on the internal panel is this text; "sequence."
+    + "Recommendations" read as one word."""
+    from app.utils.pulse.richtext import to_text
+
+    out = to_text("<p>the founder sequence.</p><h2>Recommendations</h2>"
+                  "<ul><li>Hold the opener</li><li>Add a follow-up</li></ul>")
+    assert out == "the founder sequence. Recommendations Hold the opener Add a follow-up"
+
+
+def test_flattening_does_not_split_a_word_at_an_inline_tag():
+    from app.utils.pulse.richtext import to_text
+
+    assert to_text("<p>a<strong>b</strong>c</p>") == "abc"
