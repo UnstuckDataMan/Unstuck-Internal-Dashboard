@@ -1880,7 +1880,7 @@ def test_outcome_breakdown_lists_all_three_with_share_of_replies():
         {"replied": 50, "positive_reply": 20, "information_request": 5, "meeting_booked": 5})
     by_key = {r["key"]: r for r in rows}
     assert [r["label"] for r in rows] == \
-        ["Interested", "Information requests", "Meeting requests"]
+        ["Interested", "Information requests", "Meeting requests", "Unsubscribes"]
     assert by_key["positive_reply"]["of_replies"] == 40.0
     assert by_key["positive_reply"]["is_lead"] is False
     assert by_key["information_request"]["is_lead"] is True
@@ -2945,3 +2945,224 @@ def test_a_custom_domain_keeps_a_scheme_it_was_given(client, fake_sb, monkeypatc
     r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/access", data={"label": ""})
     assert "https://reports.unstuck.agency/r/" in r.text
     assert "agency//r/" not in r.text       # the trailing slash is stripped
+
+
+# ── Headline rates ────────────────────────────────────────────────────────────
+
+def _counts(**kw):
+    c = normalize.empty_funnel()
+    c.update(kw)
+    return c
+
+
+def test_reply_rate_counts_unsubscribes_as_responses():
+    """An unsubscribe is a response to the mail. Leaving it out under-reports
+    how many people the sequence actually reached."""
+    c = _counts(sent=1000, replied=40, unsubscribed=10)
+    assert normalize.response_count(c) == 50
+    assert normalize.reply_rate(c) == 5.0
+
+
+def test_reply_rate_is_unchanged_where_nothing_unsubscribed():
+    c = _counts(sent=1000, replied=40)
+    assert normalize.reply_rate(c) == 4.0
+
+
+def test_interest_rate_is_the_interested_category_over_sends():
+    """A sibling of the lead rate, not a total of positives: Interested is the
+    soft category and Leads the hard one."""
+    c = _counts(sent=1000, replied=40, positive_reply=12,
+                information_request=3, meeting_booked=5)
+    assert normalize.interest_rate(c) == 1.2
+    assert normalize.lead_rate(c) == 0.8
+
+
+def test_the_three_rates_share_one_base_and_narrow_left_to_right():
+    c = _counts(sent=1000, replied=40, unsubscribed=10, positive_reply=12,
+                information_request=3, meeting_booked=5)
+    rates = normalize.headline_rates(c)
+    assert [r["label"] for r in rates] == ["Reply rate", "Interest rate", "Lead rate"]
+    assert [r["rate"] for r in rates] == sorted((r["rate"] for r in rates), reverse=True)
+
+
+def test_a_rate_with_no_sends_is_a_dash_not_a_zero():
+    rates = normalize.headline_rates(_counts(replied=3))
+    assert all(r["rate"] is None for r in rates)
+
+
+def test_unsubscribes_are_shown_as_a_share_of_sends_not_of_replies():
+    """They are not one of the mutually exclusive reply categories, so a share
+    of replies could read over 100%."""
+    c = _counts(sent=1000, replied=10, unsubscribed=40)
+    unsub = [o for o in normalize.outcome_breakdown(c) if o["key"] == "unsubscribed"][0]
+    assert unsub["of_replies"] is None
+    assert unsub["of_sent"] == 4.0
+    assert unsub["is_negative"] is True
+
+
+def test_unsubscribes_are_shown_even_at_zero():
+    """Unlike a category a source cannot produce, "none unsubscribed" is a
+    result worth seeing."""
+    rows = normalize.outcome_breakdown(_counts(sent=500, replied=10))
+    assert any(o["key"] == "unsubscribed" and o["value"] == 0 for o in rows)
+
+
+# ── Unsubscribes from Smartlead ───────────────────────────────────────────────
+
+def test_an_unsubscribe_is_recorded_alongside_the_reply_category():
+    """Unsubscribing does not cancel a lead's category — both are true."""
+    rows = _outcomes([{
+        "lead_email": "a@x.com", "reply_time": "2025-03-04T10:00:00Z",
+        "lead_category": "Interested", "is_unsubscribed": True,
+    }])
+    assert len(rows) == 1
+    assert rows[0]["stage"] == normalize.EVENT_POSITIVE_REPLY
+    assert rows[0]["unsub_day"] == "2025-03-04"
+
+
+def test_a_lead_who_unsubscribed_without_replying_still_counts():
+    rows = _outcomes([{
+        "lead_email": "b@x.com", "sent_time": "2025-03-02T09:00:00Z",
+        "is_unsubscribed": True,
+    }])
+    assert len(rows) == 1
+    assert rows[0]["stage"] is None          # not a reply category
+    assert rows[0]["unsub_day"] == "2025-03-02"
+
+
+def test_an_unsubscribe_without_a_reply_is_dated_by_the_last_send():
+    """The flag carries no timestamp, so the closest dated fact is used, and an
+    unsubscribe cannot precede the mail that prompted it."""
+    rows = _outcomes([
+        {"lead_email": "c@x.com", "sent_time": "2025-03-01T09:00:00Z",
+         "is_unsubscribed": True},
+        {"lead_email": "c@x.com", "sent_time": "2025-03-06T09:00:00Z",
+         "is_unsubscribed": True},
+    ])
+    assert rows[0]["unsub_day"] == "2025-03-06"
+
+
+def test_a_reply_dates_the_unsubscribe_in_preference_to_a_send():
+    rows = _outcomes([{
+        "lead_email": "d@x.com", "sent_time": "2025-03-01T09:00:00Z",
+        "reply_time": "2025-03-03T09:00:00Z", "is_unsubscribed": True,
+    }])
+    assert rows[0]["unsub_day"] == "2025-03-03"
+
+
+def test_someone_merely_emailed_is_not_an_outcome():
+    assert _outcomes([{"lead_email": "e@x.com", "sent_time": "2025-03-01T09:00:00Z"}]) == []
+
+
+def test_the_unsubscribe_flag_is_read_in_every_shape_smartlead_sends_it():
+    for flag in (True, "true", "t", 1, "1"):
+        rows = _outcomes([{"lead_email": "f@x.com", "sent_time": "2025-03-01T09:00:00Z",
+                           "is_unsubscribed": flag}])
+        assert rows and rows[0]["unsub_day"] == "2025-03-01", flag
+    for flag in (False, "false", "f", 0, "", None):
+        rows = _outcomes([{"lead_email": "f@x.com", "sent_time": "2025-03-01T09:00:00Z",
+                           "is_unsubscribed": flag}])
+        assert rows == [], flag
+
+
+def test_an_outcome_still_refuses_to_be_built_with_nothing_to_date_it():
+    import pytest
+
+    with pytest.raises(ValueError):
+        normalize.make_outcome(agency_id=AGENCY, campaign_id=CAMPAIGN, lead="x",
+                               category="Interested", replied_at=None)
+
+
+# ── The blank panel ───────────────────────────────────────────────────────────
+
+def test_the_channel_split_is_a_strip_below_the_numbers_not_a_sidebar(client, fake_sb):
+    """A sidebar holding two lines of channel totals beside a column holding a
+    funnel, three rate cards and five outcome boxes could not be balanced: it
+    was either empty or mostly empty."""
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None,
+               "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 500, "day": "2025-03-01"},
+    ]))
+
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "pulse-channel-split" not in body        # one channel, nothing to split
+
+
+def test_the_total_card_keeps_both_columns_when_both_channels_have_data(client, fake_sb):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None,
+               "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 500, "day": "2025-03-01"},
+        {"client_id": CLIENT, "channel": "linkedin", "source_tool": "meet_alfred",
+         "event_type": "sent", "events": 200, "day": "2025-03-01"},
+    ]))
+
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "pulse-channel-split" in body
+    # Inside the card and after the numbers, rather than in a column beside them.
+    card = body.split('class="pulse-total-card"', 1)[1]
+    assert card.index("pulse-rates") < card.index("pulse-channel-split")
+
+
+def test_the_rate_cards_render_on_the_overview(client, fake_sb):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(
+        200, [{"id": CLIENT, "name": "Acme", "color": None,
+               "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 1000, "day": "2025-03-01"},
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "replied", "events": 40, "day": "2025-03-01"},
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "unsubscribed", "events": 10, "day": "2025-03-01"},
+    ]))
+
+    body = client.get("/api/outbound-pulse/overview").text
+    for label in ("Reply rate", "Interest rate", "Lead rate", "Unsubscribes"):
+        assert label in body
+    assert "5.0%" in body               # (40 replies + 10 unsubs) / 1000
+
+
+# ── The unsubscribes migration ────────────────────────────────────────────────
+
+def _unsub_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1]
+            / "migrations" / "outbound_pulse_unsubscribes.sql").read_text(encoding="utf-8")
+
+
+def test_the_unsubscribe_migration_is_one_transaction_and_re_runnable():
+    sql = _unsub_sql()
+    assert sql.index("BEGIN;") < sql.index("ALTER TABLE")
+    assert "ADD COLUMN IF NOT EXISTS unsub_day" in sql
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+def test_an_unsubscribe_is_counted_independently_of_the_reply_stage():
+    """A lead marked Interested who then unsubscribes must count once in each,
+    which a single `stage` column could not express."""
+    view = _unsub_sql().split("CREATE VIEW pulse_funnel_daily AS", 1)[1]
+    assert "WHERE o.stage IS NOT NULL" in view
+    assert "WHERE o.unsub_day IS NOT NULL" in view
+
+
+def test_the_manual_view_stops_excluding_opt_out():
+    sql = _unsub_sql()
+    assert "d.reason IN (\'lead\', \'interested\', \'opt_out\')" in sql
+    assert "WHEN \'opt_out\'  THEN \'unsubscribed\'" in sql
+
+
+def test_the_migration_backfills_from_stored_events():
+    """Events already keep is_unsubscribed in raw_payload, so waiting for the
+    rolling backfill to revisit every campaign would read zero for ~40 hours."""
+    sql = _unsub_sql()
+    assert "raw_payload->>\'is_unsubscribed\'" in sql
+    assert "ON CONFLICT (agency_id, campaign_id, lead_key) DO NOTHING" in sql

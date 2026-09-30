@@ -1,21 +1,33 @@
-{# Reply outcomes and lead rate. Context: counts.
-   The three categories are mutually exclusive, so they sit side by side rather
-   than as funnel steps. Leads = Information requests + Meeting requests;
-   Interested is shown but is not a lead. #}
-<div class="pulse-outcomes">
-  <div class="outcome-lead">
-    <div class="outcome-lead-rate" data-ticker>{{ counts | pulse_lead_rate | pulse_pct }}</div>
-    <div class="outcome-lead-label">
-      Lead rate
-      <span class="outcome-lead-n" data-ticker>{{ "{:,}".format(counts | pulse_leads) }} lead{{ "" if (counts | pulse_leads) == 1 else "s" }}</span>
+{# Headline rates and the reply breakdown. Context: counts.
+
+   Three rates across the top, all against the same base (sends) so they can be
+   read side by side and narrow left to right: Reply → Interest → Lead.
+
+   Below them the reply categories, which are mutually exclusive, plus
+   unsubscribes — which are not, so that one carries a share of sends rather
+   than a share of replies. #}
+<div class="pulse-rates">
+  {% for r in counts | pulse_rates %}
+  <div class="rate-card rate-{{ r.key }}" title="{{ r.hint }}">
+    <div class="rate-value" data-ticker>{{ r.rate | pulse_pct }}</div>
+    <div class="rate-label">
+      {{ r.label }}
+      <span class="rate-n" data-ticker>{{ "{:,}".format(r.value) }} {{ r.noun }}</span>
     </div>
   </div>
+  {% endfor %}
+</div>
+
+<div class="pulse-outcomes">
   <div class="outcome-list">
     {% for o in counts | pulse_outcomes %}
-    <div class="outcome-item{% if o.is_lead %} is-lead{% endif %}">
+    <div class="outcome-item{% if o.is_lead %} is-lead{% endif %}{% if o.is_negative %} is-negative{% endif %}">
       <span class="outcome-label">{{ o.label }}</span>
       <span class="outcome-value" data-ticker>{{ "{:,}".format(o.value) }}</span>
-      <span class="outcome-share">{{ o.of_replies | pulse_pct }} of replies</span>
+      <span class="outcome-share">
+        {% if o.of_sent is not none %}{{ o.of_sent | pulse_pct }} of sends
+        {% else %}{{ o.of_replies | pulse_pct }} of replies{% endif %}
+      </span>
     </div>
     {% endfor %}
   </div>

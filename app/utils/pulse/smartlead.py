@@ -117,6 +117,13 @@ _RAW_KEEP = (
 )
 
 
+def _is_true(value) -> bool:
+    """Smartlead returns booleans as true, "true", "t" and 1 across fields."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"true", "t", "1", "yes"}
+
+
 def _trim_row(row: dict) -> dict:
     """Diagnostic subset of a statistics row, safe to store on every event."""
     return {k: row[k] for k in _RAW_KEEP if k in row and row[k] not in (None, "")}
@@ -248,7 +255,7 @@ def outcomes_from_statistics(
     agency_id: str,
     campaign_id: str,
 ) -> list[dict]:
-    """One current-outcome row per lead who replied.
+    """One current-outcome row per lead who replied or unsubscribed.
 
     Statistics rows are per sequence step, so a lead appears several times but
     only the step that drew the reply carries reply_time. Rows are collapsed to
@@ -258,6 +265,11 @@ def outcomes_from_statistics(
 
     The category is lead-level in Smartlead, so it is the lead's CURRENT
     category on every sync. The earliest reply fixes the reporting day.
+
+    `is_unsubscribed` is also lead-level and carries no timestamp of its own,
+    so it is dated by the reply where there is one and by the last send
+    otherwise — the closest dated fact available, and one an unsubscribe
+    cannot precede.
     """
     by_lead: dict[str, dict] = {}
     for row in rows:
@@ -268,28 +280,44 @@ def outcomes_from_statistics(
         if not lead:
             continue
         replied_at = parse_ts(_first(row, "reply_time", "replied_at", "email_reply_time"))
+        sent_at = parse_ts(_first(row, "sent_time", "sent_at", "email_sent_time"))
         category = _first(row, *_CATEGORY_FIELDS)
 
         seen = by_lead.get(lead)
         if seen is None:
-            by_lead[lead] = {"replied_at": replied_at, "category": category}
-            continue
+            seen = by_lead[lead] = {
+                "replied_at": None, "sent_at": None,
+                "category": None, "unsubscribed": False,
+            }
         if replied_at and (seen["replied_at"] is None or replied_at < seen["replied_at"]):
             seen["replied_at"] = replied_at
+        # Latest send, not earliest: an unsubscribe follows the mail that
+        # prompted it, so the last one before we noticed is the closer date.
+        if sent_at and (seen["sent_at"] is None or sent_at > seen["sent_at"]):
+            seen["sent_at"] = sent_at
         if category and not seen["category"]:
             seen["category"] = category
+        if _is_true(row.get("is_unsubscribed")):
+            seen["unsubscribed"] = True
 
-    return [
-        make_outcome(
+    out = []
+    for lead, data in by_lead.items():
+        unsubscribed_at = None
+        if data["unsubscribed"]:
+            unsubscribed_at = data["replied_at"] or data["sent_at"]
+        # A lead with neither a reply nor a datable unsubscribe is not an
+        # outcome — they are just someone who was emailed.
+        if data["replied_at"] is None and unsubscribed_at is None:
+            continue
+        out.append(make_outcome(
             agency_id=agency_id,
             campaign_id=campaign_id,
             lead=lead,
             category=data["category"],
             replied_at=data["replied_at"],
-        )
-        for lead, data in by_lead.items()
-        if data["replied_at"] is not None
-    ]
+            unsubscribed_at=unsubscribed_at,
+        ))
+    return out
 
 
 def sync_campaign(

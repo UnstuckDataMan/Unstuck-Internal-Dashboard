@@ -12,10 +12,13 @@ tool in the dashboard.
 from __future__ import annotations
 
 from app.utils.pulse.normalize import (
+    headline_rates,
+    interest_rate,
     lead_count,
     lead_rate,
     outcome_breakdown,
     reply_rate,
+    unsubscribe_count,
 )
 
 
@@ -30,4 +33,7 @@ def register(env) -> None:
     env.filters["pulse_lead_rate"] = lead_rate
     env.filters["pulse_reply_rate"] = reply_rate
     env.filters["pulse_outcomes"] = outcome_breakdown
+    env.filters["pulse_rates"] = headline_rates
+    env.filters["pulse_interest_rate"] = interest_rate
+    env.filters["pulse_unsubs"] = unsubscribe_count
     env.filters["pulse_pct"] = _pct
