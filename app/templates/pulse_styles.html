@@ -572,6 +572,42 @@
     color: var(--text-2);
   }
 
+
+  /* ── Copy A/B ──────────────────────────────────────── */
+  .ab-section + .ab-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+  .ab-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+  }
+  .ab-note { line-height: 1.55; margin-top: 10px; }
+  .ab-reason { margin-top: 8px; font-style: italic; }
+  .ab-step + .ab-step { margin-top: 16px; }
+  .ab-step-head {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px;
+  }
+  .ab-step-name { font-size: 12.5px; font-weight: 600; color: var(--text); }
+  .ab-subject {
+    font-size: 11.5px; color: var(--text-3);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px;
+  }
+  .ab-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .ab-table th {
+    text-align: left; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--text-3); font-weight: 500; padding: 6px 10px 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .ab-table td {
+    padding: 8px 10px 8px 0; border-bottom: 1px solid rgba(255,255,255,.05);
+    font-variant-numeric: tabular-nums; color: var(--text-2);
+  }
+  .ab-table tr.is-winner td { color: var(--text); background: rgba(139,92,246,.07); }
+  .ab-tag {
+    display: inline-block; margin-left: 6px; font-size: 9.5px;
+    letter-spacing: .05em; text-transform: uppercase; color: var(--text-3);
+    border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
+  }
+  .ab-tag.is-win { color: #c4b5fd; border-color: rgba(139,92,246,.45); }
+
   /* ── Trend strip ─────────────────────────────────────────── */
   .trend-wrap { position: relative; }
   .trend-strip { display: flex; align-items: flex-end; gap: 2px; height: 64px; margin-top: 6px; }

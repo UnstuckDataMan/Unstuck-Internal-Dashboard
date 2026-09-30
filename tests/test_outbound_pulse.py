@@ -3272,3 +3272,221 @@ def test_flattening_does_not_split_a_word_at_an_inline_tag():
     from app.utils.pulse.richtext import to_text
 
     assert to_text("<p>a<strong>b</strong>c</p>") == "abc"
+
+
+# ── Copy A/B ──────────────────────────────────────────────────────────────────
+
+def _sequence_payload(variants):
+    return {"ok": True, "data": {"campaign_id": 1, "sequences": [{
+        "seq_number": 1, "subject_line": "Quick question",
+        "variants": [
+            {"id": i, "variant_label": v[0], "is_baseline": i == 0,
+             "stats": {"sent_count": v[1], "reply_count": v[2],
+                       "positive_reply_count": v[3], "unsubscribed_count": v[4]}}
+            for i, v in enumerate(variants)
+        ],
+    }]}}
+
+
+def test_smartlead_variants_come_from_smartleads_own_endpoint(monkeypatch):
+    """Smartlead computes this, so nothing re-derives it from our events, which
+    would have needed a variant column on two tables and a rollup."""
+    from datetime import date
+
+    from app.utils.pulse import abtest, smartlead
+
+    seen = {}
+
+    def fake(path, params=None):
+        seen["path"] = path
+        seen["params"] = params or {}
+        return _sequence_payload([("A", 600, 14, 6, 2), ("B", 620, 9, 2, 5)])
+
+    monkeypatch.setattr(smartlead, "request_json", fake)
+    steps = abtest.smartlead_variants("8801", date(2026, 9, 1), date(2026, 9, 30))
+
+    assert seen["path"] == "/campaigns/8801/sequence-analytics"
+    assert seen["params"]["start_date"].startswith("2026-09-01")
+    assert seen["params"]["end_date"].startswith("2026-09-30")
+    assert steps[0]["winner"] == "A"
+    assert steps[0]["subject"] == "Quick question"
+
+
+def test_a_variant_that_never_went_out_is_not_a_test(monkeypatch):
+    from datetime import date
+
+    from app.utils.pulse import abtest, smartlead
+
+    monkeypatch.setattr(smartlead, "request_json",
+                        lambda p, q=None: _sequence_payload(
+                            [("A", 600, 14, 6, 2), ("B", 0, 0, 0, 0)]))
+    steps = abtest.smartlead_variants("1", date(2026, 9, 1), date(2026, 9, 30))
+    assert [v["variant"] for v in steps[0]["variants"]] == ["A"]
+    assert steps[0]["winner"] is None
+    assert "nothing to compare" in steps[0]["reason"]
+
+
+def test_too_little_volume_is_not_called_a_winner():
+    """A variant with barely any volume tops the table on noise alone."""
+    from app.utils.pulse.abtest import MIN_SENDS_FOR_A_WINNER, _decide
+
+    out = _decide([
+        {"variant": "A", "is_baseline": True, "sent": 10, "reply": 2,
+         "positive": 2, "unsubscribe": 0},
+        {"variant": "B", "is_baseline": False, "sent": 9, "reply": 0,
+         "positive": 0, "unsubscribe": 0},
+    ])
+    assert out["winner"] is None
+    assert "Too little volume" in out["reason"]
+    assert MIN_SENDS_FOR_A_WINNER > 10
+
+
+def test_a_level_result_is_reported_as_level_not_as_a_coin_flip():
+    from app.utils.pulse.abtest import _decide
+
+    out = _decide([
+        {"variant": "A", "is_baseline": True, "sent": 500, "reply": 10,
+         "positive": 4, "unsubscribe": 1},
+        {"variant": "B", "is_baseline": False, "sent": 500, "reply": 10,
+         "positive": 4, "unsubscribe": 1},
+    ])
+    assert out["winner"] is None
+    assert "level" in out["reason"]
+
+
+def test_no_positive_responses_means_no_winner():
+    from app.utils.pulse.abtest import _decide
+
+    out = _decide([
+        {"variant": "A", "is_baseline": True, "sent": 500, "reply": 6,
+         "positive": 0, "unsubscribe": 2},
+        {"variant": "B", "is_baseline": False, "sent": 500, "reply": 2,
+         "positive": 0, "unsubscribe": 1},
+    ])
+    assert out["winner"] is None
+    assert "No positive responses" in out["reason"]
+
+
+def test_a_clear_result_names_a_winner_and_gives_rates():
+    from app.utils.pulse.abtest import _decide
+
+    out = _decide([
+        {"variant": "A", "is_baseline": True, "sent": 1000, "reply": 40,
+         "positive": 12, "unsubscribe": 4},
+        {"variant": "B", "is_baseline": False, "sent": 1000, "reply": 20,
+         "positive": 3, "unsubscribe": 9},
+    ])
+    assert out["winner"] == "A"
+    assert out["reason"] == ""
+    assert out["variants"][0]["positive_rate"] == 1.2
+    assert out["variants"][0]["reply_rate"] == 4.0
+
+
+def test_manual_variants_combine_across_a_clients_sheets(monkeypatch):
+    from app.utils import google_sheets
+    from app.utils.pulse import abtest
+
+    sheets = {
+        "s1": [{"variant": "S1/B1", "total": 300, "lead": 6, "interested": 2,
+                "reply": 10, "unsubscribe": 3, "positive": 8},
+               {"variant": "S2/B1", "total": 300, "lead": 1, "interested": 1,
+                "reply": 4, "unsubscribe": 7, "positive": 2}],
+        "s2": [{"variant": "S1/B1", "total": 200, "lead": 4, "interested": 1,
+                "reply": 7, "unsubscribe": 1, "positive": 5}],
+    }
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: sheets[sid])
+
+    out = abtest.manual_variants(["s1", "s2"])
+    by = {v["variant"]: v for v in out["variants"]}
+    assert by["S1/B1"]["sent"] == 500          # combined across both sheets
+    assert by["S1/B1"]["positive"] == 13
+    assert out["winner"] == "S1/B1"
+    assert out["sheets_read"] == 2
+
+
+def test_an_unreadable_sheet_is_skipped_not_fatal(monkeypatch):
+    """One revoked share should not hide every other campaign's result."""
+    from app.utils import google_sheets
+    from app.utils.pulse import abtest
+
+    def reader(sid):
+        if sid == "bad":
+            raise RuntimeError("permission denied")
+        return [{"variant": "S1/B1", "total": 400, "lead": 8, "interested": 2,
+                 "reply": 12, "unsubscribe": 2, "positive": 10}]
+
+    monkeypatch.setattr(google_sheets, "read_ab_stats", reader)
+    out = abtest.manual_variants(["bad", "good"])
+    assert out["sheets_read"] == 1
+    assert out["sheets_skipped"] == 1
+    assert out["variants"][0]["sent"] == 400
+
+
+def test_the_two_sources_state_what_they_decided_on(monkeypatch):
+    """They measure different things, so a combined winner would mean nothing."""
+    from datetime import date
+
+    from app.utils import google_sheets
+    from app.utils.pulse import abtest, smartlead
+
+    monkeypatch.setattr(smartlead, "request_json",
+                        lambda p, q=None: _sequence_payload(
+                            [("A", 600, 14, 6, 2), ("B", 620, 9, 2, 5)]))
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
+
+    steps = abtest.smartlead_variants("1", date(2026, 9, 1), date(2026, 9, 30))
+    assert "Smartlead" in steps[0]["basis"]
+    assert "Lead and Interested" in abtest.manual_variants([])["basis"]
+
+
+def test_the_ab_panel_says_manual_figures_are_not_windowed(client, fake_sb, monkeypatch):
+    """Comparing a month of Smartlead against the lifetime of a manual campaign
+    would invite a false conclusion."""
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
+
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "Manual \u00b7 all time" in body or "Manual · all time" in body
+    assert "whole life" in body
+
+
+def test_a_missing_smartlead_key_is_explained_not_crashed(client, fake_sb, monkeypatch):
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
+
+    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
+    assert r.status_code == 200
+    assert "No Smartlead API key" in r.text
+
+
+def test_one_failing_campaign_does_not_hide_the_others(client, fake_sb, monkeypatch):
+    from app.utils import google_sheets
+    from app.utils.pulse import abtest, smartlead
+    from app.routers import outbound_pulse as router_mod
+
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: True)
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
+
+    def boom(external, start, end):
+        raise RuntimeError("429")
+
+    monkeypatch.setattr(router_mod.abtest, "smartlead_variants", boom)
+    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
+    assert r.status_code == 200
+    assert "could not be read from Smartlead" in r.text
+
+
+def test_the_client_page_offers_the_ab_panel(client, fake_sb):
+    _detail_routes(fake_sb)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "Winning copy" in body
+    assert f"/api/outbound-pulse/clients/{CLIENT}/ab" in body

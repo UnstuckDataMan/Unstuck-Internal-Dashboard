@@ -88,6 +88,12 @@ def _request(path: str, params: dict | None = None) -> object:
         raise SmartleadError(f"{path} returned a non-JSON body.") from exc
 
 
+def request_json(path: str, params: dict | None = None) -> object:
+    """A raw Smartlead GET, for callers that need an endpoint this module does
+    not wrap. Raises SmartleadError like everything else here."""
+    return _request(path, params)
+
+
 def _first(row: dict, *names, default=None):
     """First present, non-empty value among candidate field names."""
     for name in names:

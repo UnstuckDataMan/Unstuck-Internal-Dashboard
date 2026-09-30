@@ -11,6 +11,7 @@ regions, JSON only where JavaScript needs to read a value.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import secrets
 from datetime import date, datetime, timedelta, timezone
@@ -22,7 +23,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app import auth
 from app.deps import templates
 from app.utils.dates import today_utc
-from app.utils.pulse import meet_alfred, richtext, store, sync as pulse_sync
+from app.utils.pulse import (
+    abtest,
+    meet_alfred,
+    richtext,
+    smartlead,
+    store,
+    sync as pulse_sync,
+)
 from app.utils.pulse.reports import report_heading
 from app.utils.pulse.normalize import (
     CHANNEL_EMAIL,
@@ -41,6 +49,7 @@ from app.utils.pulse import template_filters
 from app.utils.pulse.store import PulseNotReady
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 template_filters.register(templates.env)
 
 # Portal links are long-lived by default — a client should not have a report
@@ -848,6 +857,104 @@ async def revoke_client_access(request: Request, client_id: str, access_id: str)
         "links":     links,
         "client_id": client_id,
         "new_link":  "",
+    })
+
+
+# ── Copy A/B ─────────────────────────────────────────────────
+
+# Fetched per campaign and never during a sync: this is one HTTP call each,
+# and the account has over a thousand campaigns. Only the ones with activity in
+# the range are asked for, and only when someone opens the panel.
+_AB_MAX_CAMPAIGNS = 8
+
+
+def _manual_sheet_ids(client_id: str) -> list[str]:
+    """Campaign sheets for this client, newest first.
+
+    Read straight from the mail-merge `campaigns` table rather than through
+    Pulse: manual campaigns are that tool's records, and Pulse only ever reads
+    their aggregates.
+    """
+    from app.utils.supabase import SUPABASE_URL, sb_headers
+
+    import requests as http
+
+    if not SUPABASE_URL:
+        return []
+    try:
+        r = http.get(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            params={
+                "select":    "sheet_id,campaign_name,completed_at",
+                "client_id": f"eq.{client_id}",
+                "order":     "completed_at.desc.nullslast",
+                "limit":     str(_AB_MAX_CAMPAIGNS),
+            },
+            headers=sb_headers(),
+            timeout=15,
+        )
+        if r.status_code >= 400:
+            return []
+        return [str(row.get("sheet_id") or "") for row in r.json()
+                if row.get("sheet_id")]
+    except Exception as exc:
+        logger.warning("Pulse A/B: could not list campaigns for %s: %s", client_id, exc)
+        return []
+
+
+@router.get("/api/outbound-pulse/clients/{client_id}/ab")
+async def client_ab_tests(
+    request:   Request,
+    client_id: str,
+    range:     str = Query("30d"),
+    date_from: str = Query(""),
+    date_to:   str = Query(""),
+):
+    """Winning copy variation, per source.
+
+    Deliberately two separate verdicts. Smartlead decides on its own positive
+    replies; a manual campaign decides on the team's Lead and Interested
+    statuses. Adding them together would produce a number that means nothing.
+    """
+    rng = _resolve_range(range, date_from, date_to)
+    start = rng["from"] or (today_utc() - timedelta(days=29))
+    end = rng["to"] or today_utc()
+
+    smartlead_steps, smartlead_error = [], ""
+    try:
+        campaigns = [c for c in store.list_campaigns(
+            client_id=client_id, source_tool=SOURCE_SMARTLEAD)]
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+    if not smartlead.is_configured():
+        smartlead_error = "No Smartlead API key is set, so variants cannot be read."
+    else:
+        for campaign in campaigns[:_AB_MAX_CAMPAIGNS]:
+            external = str(campaign.get("external_campaign_id") or "")
+            if not external:
+                continue
+            try:
+                steps = abtest.smartlead_variants(external, start, end)
+            except Exception as exc:
+                # One campaign failing must not hide the rest.
+                logger.warning("Pulse A/B: %s failed: %s", external, exc)
+                smartlead_error = smartlead_error or (
+                    "Some campaigns could not be read from Smartlead.")
+                continue
+            for step in steps:
+                step["campaign"] = campaign.get("name") or external
+                smartlead_steps.append(step)
+
+    manual = abtest.manual_variants(_manual_sheet_ids(client_id))
+
+    return templates.TemplateResponse("partials/pulse_ab.html", {
+        "request":          request,
+        "smartlead_steps":  smartlead_steps,
+        "smartlead_error":  smartlead_error,
+        "smartlead_more":   max(0, len(campaigns) - _AB_MAX_CAMPAIGNS),
+        "manual":           manual,
+        "range":            rng,
     })
 
 
