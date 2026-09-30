@@ -59,6 +59,17 @@
               hx-post="/api/outbound-pulse/clients/{{ client_id }}/reports/{{ report.id }}/unpublish"
               hx-target="#pulse-reports" hx-swap="innerHTML"
               hx-confirm="Take this report off the client's link?">Unpublish</button>
+      {% else %}
+      {# Reachable without opening the editor. It used to live only inside the
+         write-up form, so a draft you had already written could not be sent
+         without clicking Edit first — and nothing on the row said so.
+         It posts no body, and the route leaves the saved one alone. #}
+      <button type="button" class="note-act is-go"
+              hx-post="/api/outbound-pulse/clients/{{ client_id }}/reports/{{ report.id }}/publish"
+              hx-target="#pulse-reports" hx-swap="innerHTML"
+              title="Freeze this period's figures and put the report on the client's link">
+        Publish
+      </button>
       {% endif %}
       <button type="button" class="note-act is-danger"
               hx-delete="/api/outbound-pulse/clients/{{ client_id }}/reports/{{ report.id }}"
@@ -71,6 +82,11 @@
         {{ report.summary }}{% if report.summary | length >= 180 %}…{% endif %}
       {% else %}
         <em>No write-up yet.</em>
+      {% endif %}
+      {% if report.status != 'published' %}
+      <div class="report-draft-note">
+        A draft is not on the client’s link. Publish it when you are ready.
+      </div>
       {% endif %}
     </div>
 
@@ -87,6 +103,10 @@
          the real form control, so the write-up still posts if the editor
          script never runs. #}
       <textarea name="body" class="report-body-field" hidden>{{ report.body }}</textarea>
+      {# Marks a request as carrying editor content. Publish from the collapsed
+         row sends no body, and an empty body and an absent one look the same
+         to FastAPI — without this, publishing a draft would erase it. #}
+      <input type="hidden" name="from_editor" value="1">
       <div class="rt" data-rt>
         <div class="rt-bar" role="toolbar" aria-label="Formatting">
           <button type="button" data-cmd="bold"          title="Bold"><b>B</b></button>

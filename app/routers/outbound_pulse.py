@@ -1085,12 +1085,21 @@ async def publish_client_report(
     report_id: str,
     title:     str = Form(""),
     body:      str = Form(""),
+    # Sent by the editor form and by nothing else. FastAPI collapses an empty
+    # form value to None, so "" and "not sent" are indistinguishable from the
+    # values alone — and the two mean opposite things here: clear the write-up,
+    # or leave the saved one exactly as it is.
+    from_editor: str = Form(""),
 ):
     """Save the write-up, freeze the figures, and put it on the client's link.
 
     One request, in that order. Publishing used to only snapshot, so whether
     the write-up made it depended on a separate save request that had no
     ordering against this one.
+
+    The write-up is only touched when the request came from the editor. The
+    Publish button on a collapsed row carries no editor content, and treating
+    that as an empty write-up would publish the report with its text erased.
 
     The snapshot is taken now, not when the draft was opened, and re-publishing
     retakes it — that is how a report is corrected after a late sync.
@@ -1103,13 +1112,15 @@ async def publish_client_report(
         end = _parse_date(str(report.get("period_end") or ""))
         if start is None or end is None:
             return _reports_panel(request, client_id, "That report has no period.")
-        store.update_report(report_id, {
-            "title":        title.strip()[:120],
-            "body":         richtext.sanitize(body),
+        patch = {
             "snapshot":     report_snapshot(client_id, start, end),
             "status":       "published",
             "published_at": datetime.now(timezone.utc).isoformat(),
-        })
+        }
+        if from_editor:
+            patch["title"] = title.strip()[:120]
+            patch["body"] = richtext.sanitize(body)
+        store.update_report(report_id, patch)
         return _reports_panel(request, client_id)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
