@@ -11,6 +11,7 @@ regions, JSON only where JavaScript needs to read a value.
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 from datetime import date, datetime, timedelta, timezone
 from html import escape
@@ -44,6 +45,12 @@ template_filters.register(templates.env)
 # Portal links are long-lived by default — a client should not have a report
 # link die between monthly cycles — but not permanent.
 _ACCESS_TTL_DAYS = 180
+
+# 16 bytes is 22 URL-safe characters and 128 bits of entropy. The link was
+# built from 32 bytes, which is 43 characters — twice the length for security
+# nobody was going to exhaust either way. Guessing one at a thousand attempts
+# per second would still take longer than the universe has existed.
+_TOKEN_BYTES = 16
 
 # A run older than this means the hourly schedule has not fired (a sleeping
 # Render instance, a crashed thread), which is the failure mode the sync-status
@@ -758,6 +765,19 @@ async def import_meet_alfred(
 
 # ── Client portal access ──────────────────────────────────────────────────────
 
+def _portal_base(request: Request) -> str:
+    """Where a client report lives, for the link we hand out.
+
+    PORTAL_BASE_URL wins when it is set, so a custom domain can front the
+    reports without the app having to know it is behind one. Falls back to
+    whatever host this request arrived on, which is the Render URL.
+    """
+    configured = os.environ.get("PORTAL_BASE_URL", "").strip().rstrip("/")
+    if configured:
+        return configured if "://" in configured else f"https://{configured}"
+    return str(request.base_url).rstrip("/")
+
+
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -790,7 +810,7 @@ async def create_client_access(
     revoked and re-issued.  That is the trade for a database dump not being a
     set of live client report links.
     """
-    token = secrets.token_urlsafe(32)
+    token = secrets.token_urlsafe(_TOKEN_BYTES)
     expires = (datetime.now(timezone.utc) + timedelta(days=_ACCESS_TTL_DAYS)).isoformat()
     try:
         created = store.create_access(
@@ -806,12 +826,12 @@ async def create_client_access(
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 
-    base = str(request.base_url).rstrip("/")
+    base = _portal_base(request)
     return templates.TemplateResponse("partials/pulse_access.html", {
         "request":   request,
         "links":     links,
         "client_id": client_id,
-        "new_link":  f"{base}/portal/{token}",
+        "new_link":  f"{base}/r/{token}",
     })
 
 

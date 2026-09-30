@@ -706,7 +706,7 @@ def test_creating_a_portal_link_stores_only_a_hash(client, fake_sb):
                     data={"label": "Sarah"})
     assert r.status_code == 200
 
-    match = re.search(r"/portal/([A-Za-z0-9_\-]+)", r.text)
+    match = re.search(r"/r/([A-Za-z0-9_\-]+)", r.text)
     assert match, "the plaintext link should be shown once"
     token = match.group(1)
 
@@ -2850,3 +2850,98 @@ def test_a_note_is_agency_scoped_and_dies_with_its_client():
 def test_the_database_refuses_a_blank_note():
     """Belt and braces: this text renders straight onto a client's report."""
     assert "CHECK (length(btrim(body)) > 0)" in _notes_sql()
+
+
+# ── The client link ───────────────────────────────────────────────────────────
+
+def test_a_new_link_uses_the_short_path(client, fake_sb):
+    fake_sb.route("POST", "pulse_client_access", lambda call: FakeResponse(
+        201, [{"id": "a1", "label": "", "created_at": None, "expires_at": None,
+               "revoked_at": None, "view_count": 0}]))
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, []))
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/access", data={"label": ""})
+    assert "/r/" in r.text
+    assert "/portal/" not in r.text
+
+
+def test_the_token_is_shorter_but_still_unguessable(client, fake_sb):
+    """22 URL-safe characters is 128 bits. The old 43 were twice the length for
+    security nobody was going to exhaust either way."""
+    import re
+
+    seen = {}
+
+    def capture(call):
+        seen.update(call.get("json") or {})
+        return FakeResponse(201, [{"id": "a1", "label": "", "created_at": None,
+                                   "expires_at": None, "revoked_at": None,
+                                   "view_count": 0}])
+
+    fake_sb.route("POST", "pulse_client_access", capture)
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, []))
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/access", data={"label": ""})
+    token = re.search(r"/r/([A-Za-z0-9_-]+)", r.text).group(1)
+    assert len(token) == 22
+    # Only the hash is stored, whatever the token's length.
+    assert token not in seen["token_hash"]
+    assert len(seen["token_hash"]) == 64
+
+
+def test_links_already_handed_out_still_work(client, fake_sb):
+    """A report link that stops working is a client emailing about it."""
+    _portal_routes(fake_sb)
+    assert client.get("/portal/valid-token").status_code == 200
+    assert client.get("/r/valid-token").status_code == 200
+
+
+def test_both_paths_look_up_the_same_hash(client, fake_sb):
+    from tests.conftest import param_values
+
+    _portal_routes(fake_sb)
+    client.get("/portal/same-token")
+    client.get("/r/same-token")
+    hashes = [param_values(c, "token_hash")[0]
+              for c in fake_sb.calls_to("GET", "pulse_client_access")]
+    assert len(set(hashes)) == 1
+
+
+def test_the_range_buttons_keep_the_reader_on_the_path_they_arrived_by(client, fake_sb):
+    _portal_routes(fake_sb)
+    assert 'href="/r/valid-token?range=' in client.get("/r/valid-token").text
+    assert 'href="/portal/valid-token?range=' in client.get("/portal/valid-token").text
+
+
+def test_the_short_path_is_public_like_the_long_one():
+    from app import auth
+
+    assert auth.is_public_path("/r/sometoken")
+    assert auth.is_public_path("/portal/sometoken")
+    # Not a blanket pass for anything starting with r.
+    assert not auth.is_public_path("/reply-bank")
+
+
+def test_a_custom_domain_replaces_the_render_host(client, fake_sb, monkeypatch):
+    """PORTAL_BASE_URL is what makes the link professional; the rest is length."""
+    fake_sb.route("POST", "pulse_client_access", lambda call: FakeResponse(
+        201, [{"id": "a1", "label": "", "created_at": None, "expires_at": None,
+               "revoked_at": None, "view_count": 0}]))
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, []))
+
+    monkeypatch.setenv("PORTAL_BASE_URL", "reports.unstuck.agency")
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/access", data={"label": ""})
+    assert "https://reports.unstuck.agency/r/" in r.text
+    assert "testserver" not in r.text
+
+
+def test_a_custom_domain_keeps_a_scheme_it_was_given(client, fake_sb, monkeypatch):
+    fake_sb.route("POST", "pulse_client_access", lambda call: FakeResponse(
+        201, [{"id": "a1", "label": "", "created_at": None, "expires_at": None,
+               "revoked_at": None, "view_count": 0}]))
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, []))
+
+    monkeypatch.setenv("PORTAL_BASE_URL", "https://reports.unstuck.agency/")
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/access", data={"label": ""})
+    assert "https://reports.unstuck.agency/r/" in r.text
+    assert "agency//r/" not in r.text       # the trailing slash is stripped
