@@ -1079,8 +1079,18 @@ async def save_client_report(
 
 
 @router.post("/api/outbound-pulse/clients/{client_id}/reports/{report_id}/publish")
-async def publish_client_report(request: Request, client_id: str, report_id: str):
-    """Freeze the figures and make the report visible on the client's link.
+async def publish_client_report(
+    request:   Request,
+    client_id: str,
+    report_id: str,
+    title:     str = Form(""),
+    body:      str = Form(""),
+):
+    """Save the write-up, freeze the figures, and put it on the client's link.
+
+    One request, in that order. Publishing used to only snapshot, so whether
+    the write-up made it depended on a separate save request that had no
+    ordering against this one.
 
     The snapshot is taken now, not when the draft was opened, and re-publishing
     retakes it — that is how a report is corrected after a late sync.
@@ -1094,6 +1104,8 @@ async def publish_client_report(request: Request, client_id: str, report_id: str
         if start is None or end is None:
             return _reports_panel(request, client_id, "That report has no period.")
         store.update_report(report_id, {
+            "title":        title.strip()[:120],
+            "body":         richtext.sanitize(body),
             "snapshot":     report_snapshot(client_id, start, end),
             "status":       "published",
             "published_at": datetime.now(timezone.utc).isoformat(),

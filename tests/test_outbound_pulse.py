@@ -3490,3 +3490,77 @@ def test_the_client_page_offers_the_ab_panel(client, fake_sb):
     body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
     assert "Winning copy" in body
     assert f"/api/outbound-pulse/clients/{CLIENT}/ab" in body
+
+
+# ── The write-up actually reaches the server ─────────────────────────────────
+
+def test_publishing_also_saves_the_write_up(client, fake_sb):
+    """Publish used to only snapshot, so whether the write-up survived depended
+    on a separate save request with no ordering against it."""
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish",
+                data={"title": "Q3 review", "body": "<p>Saved on publish.</p>"})
+    assert seen["body"] == "<p>Saved on publish.</p>"
+    assert seen["title"] == "Q3 review"
+    assert seen["status"] == "published"
+    assert "snapshot" in seen
+
+
+def test_a_published_write_up_is_sanitised_too(client, fake_sb):
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish",
+                data={"body": "<p onclick='x()'>hi</p><script>bad()</script>"})
+    assert seen["body"] == "<p>hi</p>"
+
+
+def test_the_publish_button_does_not_also_submit_the_form(client, fake_sb):
+    """As type=submit it fired two competing requests — one saving, one
+    snapshotting, with no ordering between them."""
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [_report()]))
+
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/reports").text
+    start = body.rindex("<button", 0, body.index("/publish"))
+    publish = body[start:body.index(">", body.index("/publish"))]
+    assert 'type="button"' in publish
+    assert 'type="submit"' not in publish
+
+
+def test_the_editor_sends_its_current_content_whatever_htmx_collected():
+    """HTMX reads a form's values BEFORE htmx:configRequest fires, so syncing
+    the hidden field in that handler was one step too late and posted an empty
+    body. The handler now sets the parameter directly."""
+    import pathlib
+
+    editor = (pathlib.Path(__file__).resolve().parents[1] / "app" / "templates"
+              / "partials" / "pulse_editor.html").read_text(encoding="utf-8")
+    assert "e.detail.parameters['body'] = ed.area.innerHTML" in editor
+    # And mirrored continuously, so a no-JS fallback textarea is never stale.
+    assert "addEventListener('input', sync)" in editor
+
+
+def test_the_portal_asks_for_reports_newest_period_first(client, fake_sb):
+    """The arrows page in exactly this ordering, so it has to come from the
+    query rather than from insertion order."""
+    from tests.conftest import param_values
+
+    _portal_routes(fake_sb)
+    client.get("/r/valid-token")
+    call = fake_sb.calls_to("GET", "pulse_reports")[0]
+    assert param_values(call, "order") == ["period_end.desc"]
