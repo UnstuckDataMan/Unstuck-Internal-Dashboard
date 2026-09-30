@@ -201,17 +201,18 @@
 
 <!-- ── Client portal access ─────────────────────────────────────── -->
 <div class="pulse-panel">
-  <h3>Notes for this client</h3>
+  <h3>Reports</h3>
   <p class="panel-hint">
-    Context the numbers cannot carry — why volume dropped, what changed in the
-    copy, what happens next. Notes marked for the report appear on the client’s
-    portal page under their funnel; the rest stay here.
+    What this client actually sees. A report covers a period, carries your
+    analytics and recommendations, and freezes that period’s figures when you
+    publish it — so the numbers you sent do not move afterwards. Their link
+    opens the newest published report and they page back through the rest.
   </p>
-  <div id="pulse-notes"
-       hx-get="/api/outbound-pulse/clients/{{ client.id }}/notes"
+  <div id="pulse-reports"
+       hx-get="/api/outbound-pulse/clients/{{ client.id }}/reports"
        hx-trigger="load"
        hx-swap="innerHTML">
-    <div class="skel-stack" role="status" aria-label="Loading notes">
+    <div class="skel-stack" role="status" aria-label="Loading reports">
       <div class="skel-card"><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
     </div>
   </div>
@@ -293,6 +294,7 @@
 })();
 </script>
 {% include "partials/pulse_trend_js.html" %}
+{% include "partials/pulse_editor.html" %}
 {% include "partials/pulse_animate.html" %}
 
 {% endif %}

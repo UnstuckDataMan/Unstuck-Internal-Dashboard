@@ -22,7 +22,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app import auth
 from app.deps import templates
 from app.utils.dates import today_utc
-from app.utils.pulse import meet_alfred, store, sync as pulse_sync
+from app.utils.pulse import meet_alfred, richtext, store, sync as pulse_sync
+from app.utils.pulse.reports import report_heading
 from app.utils.pulse.normalize import (
     CHANNEL_EMAIL,
     CHANNEL_LINKEDIN,
@@ -850,105 +851,167 @@ async def revoke_client_access(request: Request, client_id: str, access_id: str)
     })
 
 
-# ── Account manager notes ───────────────────────────────────────
-
-# Long enough for a paragraph of context, short enough that nobody pastes a
-# whole email thread onto a client's report.
-_NOTE_MAX_CHARS = 1200
+# ── Client reports ─────────────────────────────────────────────
 
 
-def _notes_panel(request: Request, client_id: str, error: str = "",
-                 draft: str = ""):
-    """Re-render the whole panel.
+def report_snapshot(client_id: str, start: date, end: date) -> dict:
+    """The figures a report freezes at publish.
 
-    `draft` is what the person had typed. The form lives inside the swapped
-    region, so every response replaces it — without this, a failed save handed
-    them an error message and an empty box, losing the note they had written.
+    Everything the client-facing page renders, resolved once. A published
+    report reads only from this — it never re-queries — so that the numbers a
+    client was sent are the numbers they see when they open it again.
     """
-    return templates.TemplateResponse("partials/pulse_notes.html", {
-        "request":   request,
-        "notes":     store.list_notes(client_id),
-        "client_id": client_id,
-        "error":     error,
-        "draft":     draft,
-        "on_report": store.NOTES_ON_REPORT,
+    counts = store.funnel(client_id=client_id, date_from=start, date_to=end)
+    by_source = store.funnel_by_source(client_id=client_id, date_from=start, date_to=end)
+    return {
+        "version":    1,
+        "counts":     counts,
+        "by_channel": store.funnel_by_channel(
+                          client_id=client_id, date_from=start, date_to=end),
+        "by_source":  by_source,
+        "trend":      bucket_timeseries(store.funnel_timeseries(
+                          client_id=client_id, date_from=start, date_to=end)),
+        "taken_at":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _default_period() -> tuple[date, date]:
+    """Last whole calendar month — the cycle these reports follow."""
+    today = today_utc()
+    end = today.replace(day=1) - timedelta(days=1)
+    return end.replace(day=1), end
+
+
+def _reports_panel(request: Request, client_id: str, error: str = "",
+                   editing: str = ""):
+    reports = store.list_reports(client_id)
+    start, end = _default_period()
+    taken = {(str(r.get("period_start")), str(r.get("period_end"))) for r in reports}
+    # Offer a period that is not already taken, so the obvious first click does
+    # not hit the one-report-per-period rule.
+    while (start.isoformat(), end.isoformat()) in taken:
+        end = start - timedelta(days=1)
+        start = end.replace(day=1)
+    for report in reports:
+        report["heading"] = report_heading(report)
+        report["summary"] = richtext.to_text(report.get("body") or "")[:180]
+    return templates.TemplateResponse("partials/pulse_reports.html", {
+        "request":     request,
+        "reports":     reports,
+        "client_id":   client_id,
+        "error":       error,
+        "editing":     editing,
+        "next_start":  start.isoformat(),
+        "next_end":    end.isoformat(),
     })
 
 
-@router.get("/api/outbound-pulse/clients/{client_id}/notes")
-async def list_client_notes(request: Request, client_id: str):
+@router.get("/api/outbound-pulse/clients/{client_id}/reports")
+async def list_client_reports(request: Request, client_id: str):
     try:
-        return _notes_panel(request, client_id)
+        return _reports_panel(request, client_id)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 
 
-@router.post("/api/outbound-pulse/clients/{client_id}/notes")
-async def add_client_note(
-    request:        Request,
-    client_id:      str,
-    body:           str = Form(""),
-    show_on_report: str = Form(""),
-    user:           dict = Depends(auth.require_login),
+@router.post("/api/outbound-pulse/clients/{client_id}/reports")
+async def create_client_report(
+    request:      Request,
+    client_id:    str,
+    period_start: str = Form(""),
+    period_end:   str = Form(""),
+    title:        str = Form(""),
+    user:         dict = Depends(auth.require_login),
 ):
-    """Write a note against a client.
-
-    An empty note is rejected here as well as by the table's check constraint:
-    the constraint stops a bad row reaching a client's report, this gives the
-    person typing a reason instead of a 500.
-    """
-    text = body.strip()[:_NOTE_MAX_CHARS]
+    start = _parse_date(period_start)
+    end = _parse_date(period_end)
     try:
-        if not text:
-            return _notes_panel(request, client_id, "A note needs some text.")
-        created = store.create_note(
-            client_id, text,
-            author_email=user.get("email", ""),
-            author_name=user.get("name", "") or user.get("email", ""),
-            show_on_report=bool(show_on_report),
+        if start is None or end is None:
+            return _reports_panel(request, client_id, "Pick a start and an end date.")
+        if end < start:
+            start, end = end, start
+        created = store.create_report(
+            client_id,
+            period_start=start.isoformat(),
+            period_end=end.isoformat(),
+            title=title.strip()[:120],
+            created_by=user.get("name", "") or user.get("email", ""),
         )
         if not created:
-            return _notes_panel(request, client_id,
-                                "Could not save that note.", draft=text)
-        return _notes_panel(request, client_id)
+            # The unique index is the likely cause and the only one worth
+            # naming: everything else is already in the log.
+            return _reports_panel(
+                request, client_id,
+                "Could not create that report. There may already be one for "
+                "that exact period.")
+        return _reports_panel(request, client_id, editing=str(created["id"]))
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 
 
-@router.post("/api/outbound-pulse/clients/{client_id}/notes/{note_id}")
-async def edit_client_note(
-    request:        Request,
-    client_id:      str,
-    note_id:        str,
-    body:           str = Form(""),
-    show_on_report: str = Form(""),
-    visibility:     str = Form(""),
+@router.post("/api/outbound-pulse/clients/{client_id}/reports/{report_id}")
+async def save_client_report(
+    request:   Request,
+    client_id: str,
+    report_id: str,
+    title:     str = Form(""),
+    body:      str = Form(""),
 ):
-    """Edit a note, or flip whether the client sees it.
+    """Save the write-up. Does not publish — a saved draft stays invisible to
+    the client until it is published explicitly."""
+    try:
+        store.update_report(report_id, {
+            "title": title.strip()[:120],
+            # Sanitised here, at the one point markup crosses from an author to
+            # a reader, rather than trusted on the way out to a client's page.
+            "body":  richtext.sanitize(body),
+        })
+        return _reports_panel(request, client_id)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
 
-    `visibility` is sent on its own by the show/hide button, which must not
-    touch the text. A body-only edit leaves visibility alone for the same
-    reason — neither control may quietly change the other's field.
+
+@router.post("/api/outbound-pulse/clients/{client_id}/reports/{report_id}/publish")
+async def publish_client_report(request: Request, client_id: str, report_id: str):
+    """Freeze the figures and make the report visible on the client's link.
+
+    The snapshot is taken now, not when the draft was opened, and re-publishing
+    retakes it — that is how a report is corrected after a late sync.
     """
     try:
-        if visibility:
-            store.update_note(note_id, show_on_report=(visibility == "show"))
-        else:
-            text = body.strip()[:_NOTE_MAX_CHARS]
-            if not text:
-                return _notes_panel(request, client_id, "A note needs some text.")
-            store.update_note(note_id, body=text,
-                              show_on_report=bool(show_on_report))
-        return _notes_panel(request, client_id)
+        report = store.get_report(report_id)
+        if report is None:
+            return _reports_panel(request, client_id, "That report no longer exists.")
+        start = _parse_date(str(report.get("period_start") or ""))
+        end = _parse_date(str(report.get("period_end") or ""))
+        if start is None or end is None:
+            return _reports_panel(request, client_id, "That report has no period.")
+        store.update_report(report_id, {
+            "snapshot":     report_snapshot(client_id, start, end),
+            "status":       "published",
+            "published_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return _reports_panel(request, client_id)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 
 
-@router.delete("/api/outbound-pulse/clients/{client_id}/notes/{note_id}")
-async def remove_client_note(request: Request, client_id: str, note_id: str):
+@router.post("/api/outbound-pulse/clients/{client_id}/reports/{report_id}/unpublish")
+async def unpublish_client_report(request: Request, client_id: str, report_id: str):
+    """Pull a report back off the client's link. The snapshot is kept, so
+    re-publishing without editing puts back exactly what was there."""
     try:
-        store.delete_note(note_id)
-        return _notes_panel(request, client_id)
+        store.update_report(report_id, {"status": "draft", "published_at": None})
+        return _reports_panel(request, client_id)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+@router.delete("/api/outbound-pulse/clients/{client_id}/reports/{report_id}")
+async def remove_client_report(request: Request, client_id: str, report_id: str):
+    try:
+        store.delete_report(report_id)
+        return _reports_panel(request, client_id)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 

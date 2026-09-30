@@ -1,54 +1,46 @@
-"""
-Client-facing portal — read-only funnel for one client, reached by magic link.
-
-This is the only part of the dashboard a non-staff user ever sees, so it is the
-only part with its own access rules. Three properties matter:
-
-  1. **Read-only by construction.** The router exposes GET routes only. There is
-     no mutation a client could reach even with a valid token.
-
-  2. **Token-scoped, not user-scoped.** A token resolves to exactly one
-     client_id, and every query is filtered by that id (and the agency id) taken
-     from the token record — never from the URL or a form field. A client cannot
-     widen their own scope by editing a parameter, because no parameter feeds
-     the scope.
-
-  3. **Not indexable, not cacheable.** A report link that ends up in a browser's
-     shared cache or a search index is a data leak, so responses carry
-     `noindex` and `no-store`.
-
-Tokens are compared by SHA-256 hash — the plaintext never touches the database.
-"""
-from __future__ import annotations
-
-import hashlib
-from datetime import datetime, timedelta, timezone
-
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse, Response
-
-from app.deps import templates
-from app.utils.dates import today_utc
-from app.utils.pulse import store
-from app.utils.pulse import template_filters
-from app.utils.pulse.normalize import (
-    EVENT_SENT,
-    bucket_timeseries,
-    funnel_with_rates,
-)
-from app.utils.pulse.store import PulseNotReady
-
-router = APIRouter()
-template_filters.register(templates.env)
-
-# Ranges a client can pick. Deliberately a fixed allowlist rather than free
-# dates: it keeps the portal simple, and it means no client-supplied string
-# reaches a query builder.
-PORTAL_RANGES: dict[str, str] = {
-    "30d": "Last 30 days",
-    "90d": "Last 90 days",
-    "all": "All time",
-}
+"""
+Client-facing portal — read-only funnel for one client, reached by magic link.
+
+This is the only part of the dashboard a non-staff user ever sees, so it is the
+only part with its own access rules. Three properties matter:
+
+  1. **Read-only by construction.** The router exposes GET routes only. There is
+     no mutation a client could reach even with a valid token.
+
+  2. **Token-scoped, not user-scoped.** A token resolves to exactly one
+     client_id, and every query is filtered by that id (and the agency id) taken
+     from the token record — never from the URL or a form field. A client cannot
+     widen their own scope by editing a parameter, because no parameter feeds
+     the scope.
+
+  3. **Not indexable, not cacheable.** A report link that ends up in a browser's
+     shared cache or a search index is a data leak, so responses carry
+     `noindex` and `no-store`.
+
+Tokens are compared by SHA-256 hash — the plaintext never touches the database.
+"""
+from __future__ import annotations
+
+import hashlib
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import HTMLResponse, Response
+
+from app.deps import templates
+from app.utils.dates import today_utc
+from app.utils.pulse import store
+from app.utils.pulse import template_filters
+from app.utils.pulse.reports import report_heading
+from app.utils.pulse.normalize import EVENT_SENT, funnel_with_rates
+from app.utils.pulse.store import PulseNotReady
+
+router = APIRouter()
+template_filters.register(templates.env)
+
+# Ranges a client could pick are gone. A report covers the period its account
+# manager chose, and nothing else: letting a client re-slice the data was how
+# they ended up reading numbers nobody had looked at before sending.
 
 
 def _hash_token(token: str) -> str:
@@ -84,15 +76,6 @@ def _resolve_access(token: str) -> tuple[dict | None, str]:
     return access, ""
 
 
-def _range_bounds(key: str):
-    today = today_utc()
-    if key == "all":
-        return None, None
-    if key == "90d":
-        return today - timedelta(days=89), today
-    return today - timedelta(days=29), today
-
-
 def _private(response: Response) -> Response:
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
     response.headers["Cache-Control"] = "no-store, private"
@@ -106,12 +89,40 @@ def _denied(request: Request, message: str) -> HTMLResponse:
     return _private(response)
 
 
+def _snapshot_view(report: dict) -> dict:
+    """Unpack a published report's frozen figures for the template.
+
+    A published report renders from this and never re-queries. The numbers a
+    client was sent are the numbers they see when they open it again — a later
+    sync can still add events inside a closed period, and "that figure has
+    moved since you sent it" is the conversation this exists to avoid.
+
+    Tolerant of a snapshot that predates a field: a report published by an
+    older version renders with what it has rather than failing.
+    """
+    snapshot = report.get("snapshot") or {}
+    counts = snapshot.get("counts") or {}
+    return {
+        "counts":     counts,
+        "funnel":     funnel_with_rates(counts),
+        "by_channel": snapshot.get("by_channel") or {},
+        "trend":      snapshot.get("trend") or {"unit": "day", "buckets": []},
+        "total_sent": counts.get(EVENT_SENT, 0) or 0,
+    }
+
+
 # /r/ is the short form a client is actually sent. /portal/ stays because
 # links already handed out use it, and a report link that stops working is a
 # client emailing their account manager about a broken report.
 @router.get("/r/{token}")
 @router.get("/portal/{token}")
-async def portal(request: Request, token: str, range: str = Query("30d")):
+async def portal(request: Request, token: str, report: str = Query("")):
+    """One link per client, for good.
+
+    It opens the newest published report; `report` selects an earlier one, and
+    the arrows page through the same ordering. A report id is only honoured if
+    it belongs to this token's client, so the parameter cannot widen scope.
+    """
     try:
         access, error = _resolve_access(token)
     except PulseNotReady:
@@ -122,49 +133,51 @@ async def portal(request: Request, token: str, range: str = Query("30d")):
         return _denied(request, error)
 
     client_id = str(access["client_id"])
-    range_key = range if range in PORTAL_RANGES else "30d"
-    date_from, date_to = _range_bounds(range_key)
-
     try:
         client = next(
             (c for c in store.list_clients() if str(c["id"]) == client_id), None,
         )
         if client is None:
             return _denied(request, "This link is not valid.")
-
-        counts     = store.funnel(client_id=client_id, date_from=date_from, date_to=date_to)
-        by_channel = store.funnel_by_channel(client_id=client_id,
-                                             date_from=date_from, date_to=date_to)
-        trend = bucket_timeseries(store.funnel_timeseries(
-            client_id=client_id, date_from=date_from, date_to=date_to))
     except PulseNotReady:
         return _denied(request, "This report is temporarily unavailable. "
                                 "Please try again shortly.")
 
-    # Outside the try: report_notes() swallows its own failures, because an
-    # account manager's commentary must not be able to take a report down.
-    notes = store.report_notes(client_id)
+    # Newest first, which is the order the arrows page in. Scoped to this
+    # token's client, so `report` can only ever select from their own history.
+    reports = store.published_reports(client_id)
+
+    index = 0
+    if report:
+        for position, row in enumerate(reports):
+            if str(row.get("id")) == report:
+                index = position
+                break
 
     # Engagement logging — best-effort inside the store helper, so a failure
     # here never costs the client their report.
     store.record_visit(access, client_id, request.headers.get("user-agent", ""))
 
-    response = templates.TemplateResponse("portal.html", {
+    path = "/r" if request.url.path.startswith("/r/") else "/portal"
+    current = reports[index] if reports else None
+    context = {
         "request":     request,
         "client":      client,
         "token":       token,
-        # Keep the reader on the path they arrived by, so the range buttons do
-        # not silently move a /r/ link onto /portal/.
-        "portal_path": "/r" if request.url.path.startswith("/r/") else "/portal",
-        "counts":      counts,
-        "funnel":      funnel_with_rates(counts),
-        "by_channel":  by_channel,
-        "trend":       trend,
-        "notes":       notes,
-        "total_sent":  counts.get(EVENT_SENT, 0),
-        "ranges":      PORTAL_RANGES,
-        "range_key":   range_key,
-        "range_label": PORTAL_RANGES[range_key],
+        # Keep the reader on the path they arrived by, so the arrows do not
+        # silently move a /r/ link onto /portal/.
+        "portal_path": path,
+        "report":      current,
+        "heading":     report_heading(current) if current else "",
+        # Newer is earlier in the list, so "previous" is the higher index.
+        "newer":       reports[index - 1] if index > 0 else None,
+        "older":       reports[index + 1] if index + 1 < len(reports) else None,
+        "count":       len(reports),
+        "position":    index + 1 if reports else 0,
         "generated":   datetime.now(timezone.utc),
+    }
+    context.update(_snapshot_view(current) if current else {
+        "counts": {}, "funnel": [], "by_channel": {},
+        "trend": {"unit": "day", "buckets": []}, "total_sent": 0,
     })
-    return _private(response)
+    return _private(templates.TemplateResponse("portal.html", context))

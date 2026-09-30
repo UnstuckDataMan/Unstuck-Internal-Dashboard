@@ -1,0 +1,146 @@
+{# Client reports for one client. Context: reports, client_id, error, editing,
+   next_start, next_end.
+
+   A report is a period plus a write-up plus frozen figures. Drafts are the
+   account manager's working copy; only a published report is reachable from
+   the client's link, and publishing is what takes the snapshot. #}
+{% if error %}
+<div class="err-box" style="margin-bottom:12px">{{ error }}</div>
+{% endif %}
+
+<form class="report-new"
+      hx-post="/api/outbound-pulse/clients/{{ client_id }}/reports"
+      hx-target="#pulse-reports"
+      hx-swap="innerHTML">
+  <div class="report-new-row">
+    <label class="report-field">
+      <span>Period</span>
+      <input type="date" name="period_start" value="{{ next_start }}" required>
+    </label>
+    <span class="report-arrow">→</span>
+    <label class="report-field">
+      <span class="sr-only">to</span>
+      <input type="date" name="period_end" value="{{ next_end }}" required>
+    </label>
+    <label class="report-field report-field-wide">
+      <span>Title <em>optional</em></span>
+      <input type="text" name="title" placeholder="Defaults to the period, e.g. “September 2026”"
+             maxlength="120">
+    </label>
+    <button type="submit" class="btn btn-primary">Start report</button>
+  </div>
+</form>
+
+{% if not reports %}
+<p class="pulse-meta" style="margin-top:14px">
+  No reports yet. A client's link shows the most recent published report, and
+  they page back through the rest.
+</p>
+{% else %}
+<div class="report-list">
+  {% for report in reports %}
+  {% set is_open = editing == report.id | string %}
+  <div class="report{% if report.status == 'published' %} is-published{% endif %}"
+       id="report-{{ report.id }}">
+    <div class="report-head">
+      <span class="report-heading">{{ report.heading }}</span>
+      <span class="report-period">{{ report.period_start }} → {{ report.period_end }}</span>
+      {% if report.status == 'published' %}
+      <span class="report-badge is-live">Live for the client</span>
+      {% else %}
+      <span class="report-badge">Draft</span>
+      {% endif %}
+      <span class="spacer"></span>
+      <button type="button" class="note-act" onclick="pulseEditReport('{{ report.id }}')">
+        {{ "Edit" if report.body else "Write up" }}
+      </button>
+      {% if report.status == 'published' %}
+      <button type="button" class="note-act"
+              hx-post="/api/outbound-pulse/clients/{{ client_id }}/reports/{{ report.id }}/unpublish"
+              hx-target="#pulse-reports" hx-swap="innerHTML"
+              hx-confirm="Take this report off the client's link?">Unpublish</button>
+      {% endif %}
+      <button type="button" class="note-act is-danger"
+              hx-delete="/api/outbound-pulse/clients/{{ client_id }}/reports/{{ report.id }}"
+              hx-target="#pulse-reports" hx-swap="innerHTML"
+              hx-confirm="Delete this report? The client loses it from their history.">Delete</button>
+    </div>
+
+    <div class="report-summary" data-report-summary{% if is_open %} hidden{% endif %}>
+      {% if report.summary %}
+        {{ report.summary }}{% if report.summary | length >= 180 %}…{% endif %}
+      {% else %}
+        <em>No write-up yet.</em>
+      {% endif %}
+    </div>
+
+    <form class="report-edit" data-report-edit{% if not is_open %} hidden{% endif %}
+          hx-post="/api/outbound-pulse/clients/{{ client_id }}/reports/{{ report.id }}"
+          hx-target="#pulse-reports" hx-swap="innerHTML">
+      <label class="report-field report-field-wide" style="margin-bottom:12px">
+        <span>Title <em>optional</em></span>
+        <input type="text" name="title" value="{{ report.title }}" maxlength="120"
+               placeholder="Defaults to the period">
+      </label>
+
+      {# The editor writes into this hidden field on submit. The textarea is
+         the real form control, so the write-up still posts if the editor
+         script never runs. #}
+      <textarea name="body" class="report-body-field" hidden>{{ report.body }}</textarea>
+      <div class="rt" data-rt>
+        <div class="rt-bar" role="toolbar" aria-label="Formatting">
+          <button type="button" data-cmd="bold"          title="Bold"><b>B</b></button>
+          <button type="button" data-cmd="italic"        title="Italic"><i>I</i></button>
+          <button type="button" data-cmd="underline"     title="Underline"><u>U</u></button>
+          <span class="rt-sep"></span>
+          <button type="button" data-cmd="formatBlock" data-arg="h2" title="Heading">H1</button>
+          <button type="button" data-cmd="formatBlock" data-arg="h3" title="Subheading">H2</button>
+          <button type="button" data-cmd="formatBlock" data-arg="p"  title="Body text">¶</button>
+          <span class="rt-sep"></span>
+          <button type="button" data-cmd="insertUnorderedList" title="Bulleted list">• List</button>
+          <button type="button" data-cmd="insertOrderedList"   title="Numbered list">1. List</button>
+          <span class="rt-sep"></span>
+          <button type="button" data-cmd="createLink"   title="Link">Link</button>
+          <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
+        </div>
+        {# spellcheck is the browser's own, which knows the reader's locale and
+           their custom dictionary — names and jargon a server-side checker
+           would flag on every report. #}
+        <div class="rt-area" contenteditable="true" spellcheck="true" lang="en-GB"
+             role="textbox" aria-multiline="true"
+             aria-label="Report analytics and recommendations"></div>
+      </div>
+
+      <div class="report-actions">
+        <button type="button" class="btn btn-download"
+                onclick="pulseEditReport('{{ report.id }}', false)">Cancel</button>
+        <button type="submit" class="btn btn-download">Save draft</button>
+        <button type="submit" class="btn btn-primary"
+                hx-post="/api/outbound-pulse/clients/{{ client_id }}/reports/{{ report.id }}/publish"
+                hx-include="closest form"
+                title="Saves, freezes the figures for this period, and puts it on the client's link">
+          {{ "Re-publish" if report.status == 'published' else "Publish" }}
+        </button>
+      </div>
+      <p class="pulse-meta" style="margin-top:10px;line-height:1.55">
+        Publishing freezes this period's figures into the report, so what the
+        client reads does not change afterwards. Re-publishing retakes them —
+        that is how a report is corrected after a late sync.
+      </p>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+  // On window because HTMX re-parses this partial on every save.
+  window.pulseEditReport = function (id, open) {
+    var host = document.getElementById('report-' + id);
+    if (!host) return;
+    var editing = open === undefined ? true : open;
+    host.querySelector('[data-report-summary]').hidden = editing;
+    host.querySelector('[data-report-edit]').hidden = !editing;
+    if (editing) window.pulseInitEditors(host);
+  };
+</script>

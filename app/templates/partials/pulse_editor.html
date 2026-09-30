@@ -1,0 +1,95 @@
+{# The rich text editor behind the report write-up. Included once per page.
+
+   A contenteditable with a toolbar rather than a library: the write-up needs
+   headings, bullets, emphasis and links, which document.execCommand still does
+   in every browser we serve, and pulling in an editor bundle for that would be
+   the largest dependency in the project.
+
+   Progressive enhancement. The real form control is a plain <textarea> holding
+   the HTML; this mirrors it into a contenteditable and writes it back on
+   submit. If the script never runs, the textarea is simply visible and the
+   write-up still saves.
+
+   Spell check is the browser's own, deliberately: it already knows the
+   reader's locale and their personal dictionary, so client names and outbound
+   jargon are not underlined on every report. #}
+<script>
+(function () {
+  function editorFor(wrap) {
+    return {
+      area:  wrap.querySelector('.rt-area'),
+      field: wrap.closest('form').querySelector('.report-body-field'),
+    };
+  }
+
+  function exec(cmd, arg) {
+    // execCommand is deprecated but unreplaced: no standard API produces
+    // lists and headings inside a contenteditable, and every browser we
+    // serve still implements it.
+    try { document.execCommand(cmd, false, arg || null); } catch (e) {}
+  }
+
+  // Without this, Enter produces <div> — which the sanitiser strips, leaving
+  // the paragraphs of a write-up run together on the client's page.
+  try { document.execCommand('defaultParagraphSeparator', false, 'p'); } catch (e) {}
+
+  window.pulseInitEditors = function (root) {
+    (root || document).querySelectorAll('[data-rt]:not([data-rt-ready])')
+      .forEach(function (wrap) {
+        wrap.setAttribute('data-rt-ready', '');
+        var ed = editorFor(wrap);
+        if (!ed.area || !ed.field) return;
+
+        // Seeded with an empty paragraph rather than nothing: typing into a
+        // truly empty contenteditable produces a bare text node, and the first
+        // line of the write-up then arrives unwrapped. It also keeps a list
+        // command from nesting a <ul> inside a <p>.
+        ed.area.innerHTML = ed.field.value || '<p><br></p>';
+        ed.field.hidden = true;
+
+        wrap.querySelectorAll('.rt-bar button').forEach(function (btn) {
+          // mousedown, not click: the button must not take focus first, or
+          // the selection the command applies to is already gone.
+          btn.addEventListener('mousedown', function (e) {
+            e.preventDefault();
+            ed.area.focus();
+            var cmd = btn.getAttribute('data-cmd');
+            if (cmd === 'createLink') {
+              var url = window.prompt('Link to:', 'https://');
+              if (url) exec('createLink', url);
+              return;
+            }
+            exec(cmd, btn.getAttribute('data-arg'));
+          });
+        });
+
+        // Paste as text. Pasting from a doc or a mail client otherwise brings
+        // its fonts and colours with it, which the sanitiser then strips —
+        // leaving the author wondering why their formatting vanished.
+        ed.area.addEventListener('paste', function (e) {
+          e.preventDefault();
+          var text = (e.clipboardData || window.clipboardData).getData('text/plain');
+          exec('insertText', text);
+        });
+
+        var form = wrap.closest('form');
+        if (!form.hasAttribute('data-rt-bound')) {
+          form.setAttribute('data-rt-bound', '');
+          // Both the save and the publish button post this form, so the sync
+          // has to happen on submit rather than on a particular button.
+          form.addEventListener('submit', sync);
+          form.addEventListener('htmx:configRequest', sync);
+        }
+
+        function sync() {
+          ed.field.value = ed.area.innerHTML;
+        }
+      });
+  };
+
+  document.addEventListener('htmx:afterSettle', function (e) {
+    window.pulseInitEditors(e.target);
+  });
+  window.pulseInitEditors(document);
+})();
+</script>

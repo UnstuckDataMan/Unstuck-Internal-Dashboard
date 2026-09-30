@@ -959,106 +959,106 @@ def visit_summary(client_id: str = "") -> list[dict]:
     return _get("pulse_portal_visits", _scoped(params))
 
 
-# ── Account manager notes ───────────────────────────────────────
+# ── Published client reports ────────────────────────────────────
 
-# What a client sees. The internal view keeps every note; the report shows the
-# most recent few, so a year of monthly commentary never buries the numbers.
-NOTES_ON_REPORT = 3
+_REPORT_COLS = ("id,client_id,period_start,period_end,title,body,snapshot,"
+                "status,published_at,created_by,created_at,updated_at")
 
 
-def list_notes(client_id: str, *, visible_only: bool = False,
-               limit: int = 0) -> list[dict]:
-    """Notes for one client, newest first."""
+def list_reports(client_id: str, *, published_only: bool = False) -> list[dict]:
+    """A client's reports, newest period first — the order the arrows page in."""
     params = _scoped({
-        "select":    ("id,body,author_email,author_name,show_on_report,"
-                      "created_at,updated_at"),
+        "select":    _REPORT_COLS,
         "client_id": f"eq.{client_id}",
-        "order":     "created_at.desc",
+        "order":     "period_end.desc",
     })
-    if visible_only:
-        params["show_on_report"] = "is.true"
-    if limit:
-        params["limit"] = str(limit)
-    return _get("pulse_client_notes", params)
+    if published_only:
+        params["status"] = "eq.published"
+    return _get("pulse_reports", params)
 
 
-def report_notes(client_id: str) -> list[dict]:
-    """The notes the client-facing report shows.
-
-    Failure is swallowed deliberately. A note is commentary alongside the
-    numbers; if this table is missing or slow, the client should still get
-    their report rather than an error page.
-    """
+def published_reports(client_id: str) -> list[dict]:
+    """What the portal may serve. Never raises: a client opening their link
+    must not see a stack trace because a query was slow."""
     try:
-        return list_notes(client_id, visible_only=True, limit=NOTES_ON_REPORT)
+        return list_reports(client_id, published_only=True)
     except Exception as exc:
-        logger.warning("Pulse: could not read notes for %s: %s", client_id, exc)
+        logger.warning("Pulse: could not read reports for %s: %s", client_id, exc)
         return []
 
 
-def create_note(client_id: str, body: str, *, author_email: str = "",
-                author_name: str = "", show_on_report: bool = True) -> dict | None:
+def get_report(report_id: str) -> dict | None:
+    rows = _get("pulse_reports", _scoped({
+        "select": _REPORT_COLS,
+        "id":     f"eq.{report_id}",
+        "limit":  "1",
+    }))
+    return rows[0] if rows else None
+
+
+def create_report(client_id: str, *, period_start: str, period_end: str,
+                  title: str = "", created_by: str = "") -> dict | None:
+    """Open a draft for a period. The snapshot stays empty until publish — see
+    the migration: a draft's figures are taken fresh when it goes out, not when
+    it was started, which may have been weeks earlier."""
     try:
         r = http_req.post(
-            f"{SUPABASE_URL}/rest/v1/pulse_client_notes",
+            f"{SUPABASE_URL}/rest/v1/pulse_reports",
             headers=_sb_headers("return=representation"),
             json={
-                "agency_id":      current_agency_id(),
-                "client_id":      client_id,
-                "body":           body,
-                "author_email":   author_email or "",
-                "author_name":    author_name or "",
-                "show_on_report": bool(show_on_report),
+                "agency_id":    current_agency_id(),
+                "client_id":    client_id,
+                "period_start": period_start,
+                "period_end":   period_end,
+                "title":        title or "",
+                "created_by":   created_by or "",
+                "status":       "draft",
             },
             timeout=10,
         )
         if r.status_code >= 400:
-            raise _describe_postgrest_error("pulse_client_notes", r)
+            raise _describe_postgrest_error("pulse_reports", r)
         rows = r.json()
         return rows[0] if rows else None
     except PulseNotReady:
         raise
     except Exception as exc:
-        logger.warning("Pulse: could not create note: %s", exc)
+        logger.warning("Pulse: could not create report: %s", exc)
         return None
 
 
-def update_note(note_id: str, *, body: str | None = None,
-                show_on_report: bool | None = None) -> bool:
-    """Edit a note in place. Scoped, so an id from another agency matches
-    nothing rather than updating someone else's row."""
-    patch: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
-    if body is not None:
-        patch["body"] = body
-    if show_on_report is not None:
-        patch["show_on_report"] = bool(show_on_report)
+def update_report(report_id: str, patch: dict) -> bool:
+    """Scoped, so an id from another agency matches nothing rather than
+    rewriting someone else's report."""
+    body = dict(patch)
+    body["updated_at"] = datetime.now(timezone.utc).isoformat()
     try:
         r = http_req.patch(
-            f"{SUPABASE_URL}/rest/v1/pulse_client_notes",
+            f"{SUPABASE_URL}/rest/v1/pulse_reports",
             headers=_sb_headers("return=minimal"),
-            params=_scoped({"id": f"eq.{note_id}"}),
-            json=patch,
-            timeout=10,
+            params=_scoped({"id": f"eq.{report_id}"}),
+            json=body,
+            timeout=15,
         )
         r.raise_for_status()
         return True
     except Exception as exc:
-        logger.warning("Pulse: could not update note %s: %s", note_id, exc)
+        logger.warning("Pulse: could not update report %s: %s", report_id, exc)
         return False
 
 
-def delete_note(note_id: str) -> bool:
+def delete_report(report_id: str) -> bool:
     try:
         r = http_req.delete(
-            f"{SUPABASE_URL}/rest/v1/pulse_client_notes",
+            f"{SUPABASE_URL}/rest/v1/pulse_reports",
             headers=_sb_headers("return=minimal"),
-            params=_scoped({"id": f"eq.{note_id}"}),
+            params=_scoped({"id": f"eq.{report_id}"}),
             timeout=10,
         )
         r.raise_for_status()
         return True
     except Exception as exc:
-        logger.warning("Pulse: could not delete note %s: %s", note_id, exc)
+        logger.warning("Pulse: could not delete report %s: %s", report_id, exc)
         return False
 
 
