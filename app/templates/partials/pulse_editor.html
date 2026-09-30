@@ -72,13 +72,24 @@
           exec('insertText', text);
         });
 
+        // Mirrored on every keystroke, not at submit time. HTMX reads a form's
+        // values BEFORE it fires htmx:configRequest, so syncing in that handler
+        // was always one step too late and posted an empty body.
+        ed.area.addEventListener('input', sync);
+        ed.area.addEventListener('blur', sync);
+
         var form = wrap.closest('form');
         if (!form.hasAttribute('data-rt-bound')) {
           form.setAttribute('data-rt-bound', '');
-          // Both the save and the publish button post this form, so the sync
-          // has to happen on submit rather than on a particular button.
-          form.addEventListener('submit', sync);
-          form.addEventListener('htmx:configRequest', sync);
+          // The authoritative write. Whatever HTMX collected, the body it
+          // actually sends is the editor's current content — which also covers
+          // the Publish button, whose request is configured on the button and
+          // bubbles through here.
+          form.addEventListener('htmx:configRequest', function (e) {
+            if (e.detail && e.detail.parameters) {
+              e.detail.parameters['body'] = ed.area.innerHTML;
+            }
+          });
         }
 
         function sync() {

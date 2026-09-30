@@ -115,9 +115,15 @@
         <button type="button" class="btn btn-download"
                 onclick="pulseEditReport('{{ report.id }}', false)">Cancel</button>
         <button type="submit" class="btn btn-download">Save draft</button>
-        <button type="submit" class="btn btn-primary"
+        {# type=button, not submit: as a submit it also posted the form, so a
+           publish fired two competing requests — one saving the write-up and
+           one snapshotting, with no ordering between them. This one request
+           does both, in that order. #}
+        <button type="button" class="btn btn-primary"
                 hx-post="/api/outbound-pulse/clients/{{ client_id }}/reports/{{ report.id }}/publish"
                 hx-include="closest form"
+                hx-target="#pulse-reports"
+                hx-swap="innerHTML"
                 title="Saves, freezes the figures for this period, and puts it on the client's link">
           {{ "Re-publish" if report.status == 'published' else "Publish" }}
         </button>
