@@ -1,0 +1,110 @@
+{# Winning copy variation, per source. Context: smartlead_steps,
+   smartlead_error, smartlead_more, manual, range.
+
+   Two verdicts, kept apart. Smartlead decides on its own positive replies; a
+   manual campaign decides on the team's Lead and Interested statuses. They are
+   different measures, so a combined winner would mean nothing. #}
+
+{% macro variant_table(block, unit) %}
+<table class="ab-table">
+  <thead>
+    <tr>
+      <th>Variation</th><th>Sent</th><th>Replies</th><th>Reply rate</th>
+      <th>Positive</th><th>Positive rate</th><th>Unsubs</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in block.variants %}
+    <tr class="{% if block.winner == v.variant %}is-winner{% endif %}">
+      <td>
+        <b>{{ v.variant }}</b>
+        {% if v.is_baseline %}<span class="ab-tag">baseline</span>{% endif %}
+        {% if block.winner == v.variant %}<span class="ab-tag is-win">winner</span>{% endif %}
+      </td>
+      <td>{{ "{:,}".format(v.sent) }}</td>
+      <td>{{ "{:,}".format(v.reply) }}</td>
+      <td>{{ v.reply_rate | pulse_pct }}</td>
+      <td>{{ "{:,}".format(v.positive) }}</td>
+      <td>{{ v.positive_rate | pulse_pct }}</td>
+      <td>{{ "{:,}".format(v.unsubscribe) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if block.reason %}
+{# "We cannot tell yet" is a useful answer; a coin flip dressed as a result is
+   not. #}
+<p class="pulse-meta ab-reason">{{ block.reason }}</p>
+{% endif %}
+{% endmacro %}
+
+<div class="ab-section">
+  <div class="ab-head">
+    <p class="section-label" style="margin:0">Smartlead · {{ range.label | lower }}</p>
+    <span class="pulse-meta">Decided on Smartlead's own positive replies</span>
+  </div>
+
+  {% if smartlead_error %}
+  <p class="pulse-meta ab-note">{{ smartlead_error }}</p>
+  {% endif %}
+
+  {% if not smartlead_steps %}
+  <p class="pulse-meta">
+    No sequence variants for this client in this range. Smartlead only reports
+    a variant where a step has been split into more than one version.
+  </p>
+  {% else %}
+  {% for step in smartlead_steps %}
+  <div class="ab-step">
+    <div class="ab-step-head">
+      <span class="ab-step-name">{{ step.campaign }} · step {{ step.step }}</span>
+      {% if step.subject %}<span class="ab-subject">{{ step.subject }}</span>{% endif %}
+    </div>
+    {{ variant_table(step, "step") }}
+  </div>
+  {% endfor %}
+  {% if smartlead_more %}
+  <p class="pulse-meta ab-note">
+    Showing the most recent campaigns; {{ smartlead_more }} more not read, because
+    each one is a separate request to Smartlead.
+  </p>
+  {% endif %}
+  {% endif %}
+</div>
+
+<div class="ab-section">
+  <div class="ab-head">
+    <p class="section-label" style="margin:0">Manual · all time</p>
+    <span class="pulse-meta">Decided on your Lead and Interested statuses</span>
+  </div>
+
+  {# Not windowed, and it has to say so: the campaign sheet records a
+     prospect's current status with no date against it, so there is no honest
+     way to bound this by a period. Comparing it against a month of Smartlead
+     without knowing that would invite a false conclusion. #}
+  <p class="pulse-meta ab-note">
+    Manual figures cover each campaign's whole life, not {{ range.label | lower }} —
+    the campaign sheet records a prospect's current status without a date, so
+    there is no way to bound it by a period.
+  </p>
+
+  {% if not manual.variants %}
+  <p class="pulse-meta">
+    {% if manual.sheets_read %}
+    No copy variations recorded on this client's campaign sheets.
+    {% else %}
+    No readable campaign sheets for this client.
+    {% endif %}
+  </p>
+  {% else %}
+  {{ variant_table(manual, "campaign") }}
+  <p class="pulse-meta ab-note">
+    Combined across {{ manual.sheets_read }} campaign{{ "" if manual.sheets_read == 1 else "s" }}.
+    Variations are Copy Bank combinations — <b>S2/B1</b> is subject 2 with body 1.
+    {% if manual.sheets_skipped %}
+    {{ manual.sheets_skipped }} sheet{{ "" if manual.sheets_skipped == 1 else "s" }}
+    could not be read and {{ "is" if manual.sheets_skipped == 1 else "are" }} not included.
+    {% endif %}
+  </p>
+  {% endif %}
+</div>
