@@ -77,6 +77,7 @@
       <div class="pulse-channel-split">
         {% if by_channel %}
         <p class="section-label" style="margin-bottom:10px">By channel</p>
+        <div class="channel-rows">
         {% for channel_name, counts in by_channel.items() %}
         <div class="channel-row">
           <span class="channel-name">{{ "LinkedIn" if channel_name == "linkedin" else "Email" }}</span>
@@ -88,6 +89,7 @@
           </span>
         </div>
         {% endfor %}
+        </div>
         {% if by_channel | length > 1 and show_opened %}
         <p class="pulse-meta" style="margin-top:12px;line-height:1.55">
           LinkedIn "opened" means a connection request was accepted — the closest

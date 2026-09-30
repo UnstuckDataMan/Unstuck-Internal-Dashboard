@@ -56,6 +56,12 @@ EVENT_MEETING_BOOKED      = "meeting_booked"
 # invent a distinction the source does not make. It still counts as a lead.
 EVENT_MANUAL_LEAD = "lead"
 
+# An unsubscribe. Smartlead carries it as `is_unsubscribed` on the lead, the
+# DNC & Merger tool as a dnc_entries row with reason 'opt_out'. It is NOT one
+# of the mutually exclusive reply categories: a lead can be marked Interested
+# and later unsubscribe, and both facts are true at once.
+EVENT_UNSUBSCRIBED = "unsubscribed"
+
 # Leads are derived, never stored.
 STAGE_LEADS = "leads"
 
@@ -77,6 +83,11 @@ LEAD_STAGES: tuple[str, ...] = (
     EVENT_MANUAL_LEAD,
 )
 
+# What counts as a response for the reply rate. An unsubscribe is a reply: the
+# prospect read the mail and acted on it. Counting only the ones who typed back
+# under-reports how many the sequence actually reached.
+RESPONSE_STAGES: tuple[str, ...] = (EVENT_REPLIED, EVENT_UNSUBSCRIBED)
+
 SOURCE_MANUAL = "manual"
 
 # How each source is labelled in the per-source tabs.
@@ -87,7 +98,9 @@ SOURCE_LABELS: dict[str, str] = {
 }
 
 # Every stage type that pulse_funnel_daily can return, for aggregation.
-FUNNEL_STAGES: tuple[str, ...] = EVENT_STAGES + OUTCOME_STAGES
+# Unsubscribes sit outside OUTCOME_STAGES because those are exclusive of one
+# another and this is not exclusive of them.
+FUNNEL_STAGES: tuple[str, ...] = EVENT_STAGES + OUTCOME_STAGES + (EVENT_UNSUBSCRIBED,)
 
 STAGE_LABELS: dict[str, str] = {
     EVENT_SENT:                "Sent",
@@ -97,6 +110,7 @@ STAGE_LABELS: dict[str, str] = {
     EVENT_INFORMATION_REQUEST: "Information requests",
     EVENT_MEETING_BOOKED:      "Meeting requests",
     EVENT_MANUAL_LEAD:         "Manual leads",
+    EVENT_UNSUBSCRIBED:        "Unsubscribes",
     STAGE_LEADS:               "Leads",
 }
 
@@ -284,32 +298,49 @@ def classify_reply(category) -> str | None:
 
 def make_outcome(
     *,
-    agency_id:   str,
-    campaign_id: str,
-    lead:        str,
+    agency_id:     str,
+    campaign_id:   str,
+    lead:          str,
     category,
-    replied_at:  datetime,
-    stage:       str | None = None,
+    replied_at:    datetime | None,
+    stage:         str | None = None,
+    unsubscribed_at: datetime | None = None,
 ) -> dict:
-    """One pulse_lead_outcomes row: a replying lead's CURRENT outcome.
+    """One pulse_lead_outcomes row: a lead's CURRENT outcome.
 
     `stage` is normally derived from `category`; pass it explicitly only when
     the source signals an outcome without a category (a tracked meeting in a
     Meet Alfred export). A None stage is still written — that is how a lead
     re-marked Not Interested drops out of the counts on the next sync.
+
+    `unsubscribed_at` is separate from the stage rather than another value of
+    it: unsubscribing does not cancel a lead's category, and a lead marked
+    Interested who later unsubscribes is both. A row may carry either fact, or
+    both, but never neither — a lead who has done nothing has no row.
     """
     resolved = stage if stage is not None else classify_reply(category)
     if resolved is not None and resolved not in OUTCOME_STAGES:
         raise ValueError(f"unknown outcome stage: {resolved!r}")
-    return {
+    if replied_at is None and unsubscribed_at is None:
+        raise ValueError("an outcome needs a reply or an unsubscribe to date it")
+    # `day` is the reply day and stays the row's primary date. An
+    # unsubscribe-only lead has no reply, so it borrows the unsubscribe day —
+    # the column is NOT NULL and stage is NULL on those rows, so nothing counts
+    # them as a reply.
+    dated = replied_at or unsubscribed_at
+    row = {
         "agency_id":   agency_id,
         "campaign_id": campaign_id,
         "lead_key":    lead,
         "stage":       resolved,
         "category":    str(category or "").strip()[:200],
-        "day":         replied_at.astimezone(timezone.utc).date().isoformat(),
+        "day":         dated.astimezone(timezone.utc).date().isoformat(),
+        "unsub_day":   None,
         "updated_at":  datetime.now(timezone.utc).isoformat(),
     }
+    if unsubscribed_at is not None:
+        row["unsub_day"] = unsubscribed_at.astimezone(timezone.utc).date().isoformat()
+    return row
 
 
 # ── Event construction ────────────────────────────────────────────────────────
@@ -395,8 +426,64 @@ def lead_rate(counts: dict[str, int]) -> float | None:
     return _rate(lead_count(counts), counts.get(EVENT_SENT, 0) or 0)
 
 
+def response_count(counts: dict[str, int]) -> int:
+    """Replies + unsubscribes — everyone who responded to the sequence."""
+    return sum(counts.get(stage, 0) or 0 for stage in RESPONSE_STAGES)
+
+
 def reply_rate(counts: dict[str, int]) -> float | None:
-    return _rate(counts.get(EVENT_REPLIED, 0) or 0, counts.get(EVENT_SENT, 0) or 0)
+    """Responses as a share of sends.
+
+    Includes unsubscribes. They are a response to the email, so leaving them
+    out reports a lower reply rate than the campaign actually produced.
+    """
+    return _rate(response_count(counts), counts.get(EVENT_SENT, 0) or 0)
+
+
+def unsubscribe_count(counts: dict[str, int]) -> int:
+    return counts.get(EVENT_UNSUBSCRIBED, 0) or 0
+
+
+def unsubscribe_rate(counts: dict[str, int]) -> float | None:
+    return _rate(unsubscribe_count(counts), counts.get(EVENT_SENT, 0) or 0)
+
+
+def interest_count(counts: dict[str, int]) -> int:
+    """Prospects marked Interested.
+
+    Deliberately not "interested plus leads". Interested is the team's own
+    soft-interest category and Leads is the hard one, so the two rates read as
+    siblings rather than one containing the other.
+    """
+    return counts.get(EVENT_POSITIVE_REPLY, 0) or 0
+
+
+def interest_rate(counts: dict[str, int]) -> float | None:
+    return _rate(interest_count(counts), counts.get(EVENT_SENT, 0) or 0)
+
+
+def headline_rates(counts: dict[str, int]) -> list[dict]:
+    """The rate cards shown above the outcome breakdown, in funnel order.
+
+    Reply is widest, then Interested, then Leads — so reading left to right
+    narrows, and each rate is a share of the same base (sends).
+    """
+    # Both forms are given rather than adding an "s": "interested" is the
+    # team's category name and does not take one.
+    rows = [
+        {"key": "reply", "label": "Reply rate", "rate": reply_rate(counts),
+         "value": response_count(counts), "one": "response", "many": "responses",
+         "hint": "Replies and unsubscribes, as a share of sends"},
+        {"key": "interest", "label": "Interest rate", "rate": interest_rate(counts),
+         "value": interest_count(counts), "one": "interested", "many": "interested",
+         "hint": "Prospects marked Interested, as a share of sends"},
+        {"key": "lead", "label": "Lead rate", "rate": lead_rate(counts),
+         "value": lead_count(counts), "one": "lead", "many": "leads",
+         "hint": "Information and meeting requests, as a share of sends"},
+    ]
+    for row in rows:
+        row["noun"] = row["one"] if row["value"] == 1 else row["many"]
+    return rows
 
 
 def outcome_breakdown(counts: dict[str, int]) -> list[dict]:
@@ -412,12 +499,26 @@ def outcome_breakdown(counts: dict[str, int]) -> list[dict]:
         "label":      STAGE_LABELS[stage],
         "value":      counts.get(stage, 0) or 0,
         "of_replies": _rate(counts.get(stage, 0) or 0, replied),
+        "of_sent":    None,
         "is_lead":    stage in LEAD_STAGES,
+        "is_negative": False,
     } for stage in OUTCOME_STAGES
         # Manual leads only exist for manual campaigns, and the Smartlead
         # categories only for the tools that classify. Showing a permanent zero
         # for a stage a source cannot produce reads as a broken number.
-        if (counts.get(stage, 0) or 0) > 0 or stage != EVENT_MANUAL_LEAD]
+        if (counts.get(stage, 0) or 0) > 0 or stage != EVENT_MANUAL_LEAD] + [{
+        # Always shown, including at zero: "no unsubscribes" is a result worth
+        # seeing, unlike a category a source cannot produce.
+        "key":        EVENT_UNSUBSCRIBED,
+        "label":      STAGE_LABELS[EVENT_UNSUBSCRIBED],
+        "value":      unsubscribe_count(counts),
+        # Of sends, not of replies. An unsubscribe is not one of the mutually
+        # exclusive reply categories, so a share of replies could exceed 100%.
+        "of_replies": None,
+        "of_sent":    unsubscribe_rate(counts),
+        "is_lead":    False,
+        "is_negative": True,
+    }]
 
 
 def funnel_with_rates(counts: dict[str, int]) -> list[dict]:

@@ -44,6 +44,7 @@
       {# Shown whenever both channels have data: a blended open rate mixes email
          opens with LinkedIn connection acceptances, so the split is how anyone
          checks what a combined number is actually made of. #}
+      <div class="channel-rows">
       {% for channel_name, counts in by_channel.items() %}
       <div class="channel-row">
         <span class="channel-name">
@@ -57,6 +58,7 @@
         </span>
       </div>
       {% endfor %}
+      </div>
     </div>
     {% endif %}
   </div>
