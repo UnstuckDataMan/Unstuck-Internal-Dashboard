@@ -222,7 +222,7 @@
         </div>
         <nav class="range-nav">
           {% for key, label in ranges.items() %}
-          <a href="/portal/{{ token }}?range={{ key }}"
+          <a href="{{ portal_path }}/{{ token }}?range={{ key }}"
              class="{{ 'is-active' if key == range_key else '' }}">{{ label }}</a>
           {% endfor %}
         </nav>

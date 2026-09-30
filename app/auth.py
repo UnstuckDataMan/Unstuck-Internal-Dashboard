@@ -98,10 +98,11 @@ COPY_APPROVER_ROLES = {"admin", "reviewer"}
 
 # Paths reachable without a session.
 _PUBLIC_EXACT = {"/healthz", "/login", "/logout", "/favicon.ico"}
-# /portal/ is the client-facing magic-link report (app/routers/pulse_portal.py).
+# /portal/ and its short form /r/ are the client-facing magic-link report
+# (app/routers/pulse_portal.py).
 # It is public to the gate because its callers are clients, not staff — the
 # route does its own token check and is read-only by construction.
-_PUBLIC_PREFIXES = ("/auth/", "/static/", "/portal/")
+_PUBLIC_PREFIXES = ("/auth/", "/static/", "/portal/", "/r/")
 
 
 # ── Config helpers ───────────────────────────────────────────────────────────

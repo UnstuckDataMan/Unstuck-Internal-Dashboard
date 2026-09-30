@@ -106,6 +106,10 @@ def _denied(request: Request, message: str) -> HTMLResponse:
     return _private(response)
 
 
+# /r/ is the short form a client is actually sent. /portal/ stays because
+# links already handed out use it, and a report link that stops working is a
+# client emailing their account manager about a broken report.
+@router.get("/r/{token}")
 @router.get("/portal/{token}")
 async def portal(request: Request, token: str, range: str = Query("30d")):
     try:
@@ -149,6 +153,9 @@ async def portal(request: Request, token: str, range: str = Query("30d")):
         "request":     request,
         "client":      client,
         "token":       token,
+        # Keep the reader on the path they arrived by, so the range buttons do
+        # not silently move a /r/ link onto /portal/.
+        "portal_path": "/r" if request.url.path.startswith("/r/") else "/portal",
         "counts":      counts,
         "funnel":      funnel_with_rates(counts),
         "by_channel":  by_channel,
