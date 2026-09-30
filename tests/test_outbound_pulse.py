@@ -3507,7 +3507,8 @@ def test_publishing_also_saves_the_write_up(client, fake_sb):
     fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
 
     client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish",
-                data={"title": "Q3 review", "body": "<p>Saved on publish.</p>"})
+                data={"title": "Q3 review", "body": "<p>Saved on publish.</p>",
+                      "from_editor": "1"})
     assert seen["body"] == "<p>Saved on publish.</p>"
     assert seen["title"] == "Q3 review"
     assert seen["status"] == "published"
@@ -3525,7 +3526,8 @@ def test_a_published_write_up_is_sanitised_too(client, fake_sb):
     fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
 
     client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish",
-                data={"body": "<p onclick='x()'>hi</p><script>bad()</script>"})
+                data={"body": "<p onclick='x()'>hi</p><script>bad()</script>",
+                      "from_editor": "1"})
     assert seen["body"] == "<p>hi</p>"
 
 
@@ -3564,3 +3566,89 @@ def test_the_portal_asks_for_reports_newest_period_first(client, fake_sb):
     client.get("/r/valid-token")
     call = fake_sb.calls_to("GET", "pulse_reports")[0]
     assert param_values(call, "order") == ["period_end.desc"]
+
+
+# ── Publishing a draft from the row ──────────────────────────────────────────
+
+def test_a_draft_can_be_published_without_opening_the_editor(client, fake_sb):
+    """Publish used to live only inside the write-up form, so a draft you had
+    already written could not be sent without clicking Edit first, and nothing
+    on the row said so."""
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/reports").text
+    row = body[:body.index("data-report-summary")]
+    assert "/publish" in row
+
+
+def test_publishing_without_a_body_does_not_wipe_the_saved_one(client, fake_sb):
+    """The row's Publish button sends no editor content. Treating that as an
+    empty write-up would publish the report with its text erased."""
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft", body="<p>Already written.</p>")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert seen["status"] == "published"
+    assert "body" not in seen              # left exactly as it was
+    assert "title" not in seen
+
+
+def test_publishing_with_a_body_still_saves_it(client, fake_sb):
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish",
+                data={"title": "Q3", "body": "<p>New text.</p>", "from_editor": "1"})
+    assert seen["body"] == "<p>New text.</p>"
+    assert seen["title"] == "Q3"
+
+
+def test_a_write_up_can_still_be_deliberately_cleared(client, fake_sb):
+    """Sending an empty body is different from sending none."""
+    seen = {}
+
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft", body="<p>Old.</p>")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish",
+                data={"body": "", "from_editor": "1"})
+    assert seen["body"] == ""
+
+
+def test_a_published_report_offers_unpublish_not_publish(client, fake_sb):
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [_report()]))
+
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/reports").text
+    row = body[:body.index("data-report-summary")]
+    assert "/unpublish" in row
+    assert "/publish\"" not in row.replace("/unpublish", "")
+
+
+def test_a_draft_says_the_client_cannot_see_it(client, fake_sb):
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/reports").text
+    assert "not on the client" in body
+
+
+def test_a_published_report_carries_no_draft_notice(client, fake_sb):
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [_report()]))
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/reports").text
+    assert "not on the client" not in body
