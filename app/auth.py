@@ -48,6 +48,10 @@ TOOLS: tuple[str, ...] = (
     "gender",
     "city",
     "admin_users",          # user-management screen — admins only
+    "credit_control",       # invoices + clients — admin-only, see ROLE_TOOLS
+    "commission",           # admin-only, see ROLE_TOOLS
+    "operational_settings", # admin-only, see ROLE_TOOLS
+    "insights",             # admin-only, see ROLE_TOOLS
 )
 
 # Path-prefix → tool. Longest matching prefix wins, so more specific entries
@@ -78,11 +82,28 @@ ROUTE_TOOL_MAP: tuple[tuple[str, str], ...] = (
     ("/api/normalize",                    "city"),
     ("/admin/users",                      "admin_users"),
     ("/api/admin/users",                  "admin_users"),
+    ("/credit-control",                   "credit_control"),
+    ("/commission",                       "commission"),
+    ("/operational-settings",             "operational_settings"),
+    ("/insights",                         "insights"),
+    # /api/credit-control/* (shared by all four pages above) is deliberately
+    # NOT mapped here — a single prefix can only map to one tool, but any of
+    # the four tool keys should be able to reach the shared data endpoints.
+    # app/routers/credit_control.py checks the user's tool set directly
+    # instead. Leaving it unmapped means tool_for_path() returns None for it,
+    # so the blanket gate above still requires login but performs no
+    # tool-specific check — the router's own check is what actually enforces
+    # access for these two paths.
 )
 
 _ALL_TOOLS = set(TOOLS)
-# Everything except the user-management screen — the default bundle for staff.
-_STAFF_TOOLS = _ALL_TOOLS - {"admin_users"}
+# Admin-only tools that must NOT leak into the default staff bundle below —
+# the user-management screen, and the four Credit Control tools (financial
+# data: invoices, commissions, client billing). Credit Control access is
+# granted per-person via tools_add on /admin/users, not via a role default.
+_ADMIN_ONLY_TOOLS = {"admin_users", "credit_control", "commission", "operational_settings", "insights"}
+# Everything except the admin-only set — the default bundle for staff.
+_STAFF_TOOLS = _ALL_TOOLS - _ADMIN_ONLY_TOOLS
 
 # Default tool bundle per role. Starting points — fine-tune per person with the
 # tools_add / tools_remove overrides in the /admin/users screen.

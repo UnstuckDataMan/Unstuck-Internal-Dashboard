@@ -28,6 +28,27 @@ def sb_configured() -> bool:
     return bool(SUPABASE_URL and SUPABASE_ANON_KEY)
 
 
+# service_role key — bypasses Row Level Security. Server-side only; never send
+# it to a browser. Used only for tables that have RLS enabled with no
+# policies (i.e. closed to the anon key), such as the Credit Control tables.
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+
+def sb_service_headers(prefer: str = "") -> dict:
+    h = {
+        "apikey":        SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type":  "application/json",
+    }
+    if prefer:
+        h["Prefer"] = prefer
+    return h
+
+
+def sb_service_configured() -> bool:
+    return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+
+
 def parse_total(headers) -> int:
     """Extract the total row count from a PostgREST Content-Range header."""
     cr = headers.get("Content-Range", "")

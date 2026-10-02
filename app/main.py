@@ -13,7 +13,7 @@ from app.deps import templates
 from app.routers import (
     gender, city, dnc, reply_bank, mail_merge, copy_bank, copy_bank_export,
     campaigns, launch_checker, targeting_checker, bd_targeting, profiles,
-    auth as auth_router, admin, sops, outbound_pulse, pulse_portal,
+    auth as auth_router, admin, sops, outbound_pulse, pulse_portal, credit_control,
 )
 
 logger = logging.getLogger(__name__)
@@ -114,6 +114,7 @@ app.include_router(bd_targeting.router)
 app.include_router(sops.router)
 app.include_router(outbound_pulse.router)
 app.include_router(pulse_portal.router)
+app.include_router(credit_control.router)
 
 
 @app.exception_handler(404)
