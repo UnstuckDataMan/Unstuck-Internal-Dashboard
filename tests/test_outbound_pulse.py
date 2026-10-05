@@ -407,7 +407,7 @@ def test_insert_events_survives_a_failing_chunk(fake_sb, monkeypatch):
 def test_pulse_page_renders(client, fake_sb):
     r = client.get("/outbound-pulse")
     assert r.status_code == 200
-    assert "Outbound Pulse" in r.text
+    assert "Client Performance &amp; Reports" in r.text
 
 
 def test_overview_reports_a_missing_migration_instead_of_500ing(client, fake_sb):
@@ -3804,3 +3804,67 @@ def test_the_ab_panel_asks_for_the_same_range_as_the_page(client, fake_sb):
     # Disabled for a preset, so only `range` reaches the A/B endpoint.
     span = body[body.index('id="custom-range"'):body.index("apply-range")]
     assert span.count("disabled") == 2
+
+
+# ── Naming and the home screen ───────────────────────────────────────────────
+
+def _index_html():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1] / "app" / "templates"
+            / "index.html").read_text(encoding="utf-8")
+
+
+def test_the_tool_is_named_client_performance_and_reports(client, fake_sb):
+    _detail_routes(fake_sb)
+    for path in ("/outbound-pulse", f"/outbound-pulse/clients/{CLIENT}"):
+        body = client.get(path).text
+        assert "Client Performance &amp; Reports" in body
+        assert "Outbound Pulse" not in body
+
+
+def test_the_urls_and_the_tool_key_are_deliberately_unchanged():
+    """Renaming the tool key would silently drop every per-person tools_add /
+    tools_remove grant in app_users, and renaming the SOP key orphans the SOP
+    content stored against it. Only the labels moved."""
+    from app import auth
+
+    assert "outbound_pulse" in auth.TOOLS
+    assert auth.tool_for_path("/outbound-pulse") == "outbound_pulse"
+    assert auth.tool_for_path("/api/outbound-pulse/overview") == "outbound_pulse"
+
+
+def test_the_client_links_are_untouched_by_the_rename(client, fake_sb):
+    _portal_routes(fake_sb)
+    assert client.get("/r/valid-token").status_code == 200
+    assert client.get("/portal/valid-token").status_code == 200
+
+
+def test_the_home_screen_has_a_reporting_and_analytics_category():
+    html = _index_html()
+    assert "screen-reporting" in html
+    assert "Reporting &amp; Analytics" in html
+    assert "navigateTo('screen-reporting')" in html
+
+
+def test_the_tool_moved_out_of_campaign_management():
+    """It lives in the new category, and in only one place."""
+    html = _index_html()
+    assert html.count('href="/outbound-pulse"') == 1
+    reporting = html[html.index('id="screen-reporting"'):]
+    reporting = reporting[:reporting.index('id="screen-operations"')]
+    assert 'href="/outbound-pulse"' in reporting
+
+
+def test_the_new_category_counts_its_tools():
+    """The count is written by JS from a map of screen ids. Leave the new one
+    out and its card shows a stale hardcoded number forever."""
+    html = _index_html()
+    assert "'count-reporting': 'screen-reporting'" in html
+    assert 'id="count-reporting"' in html
+
+
+def test_the_new_card_is_still_permission_gated():
+    html = _index_html()
+    reporting = html[html.index('id="screen-reporting"'):]
+    reporting = reporting[:reporting.index('id="screen-operations"')]
+    assert "{% if 'outbound_pulse' in tools %}" in reporting

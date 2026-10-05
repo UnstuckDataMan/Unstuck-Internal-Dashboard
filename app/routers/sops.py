@@ -30,7 +30,7 @@ SOP_GROUPS = [
         {"key": "dnc_contacted",      "label": "Manage Contacted"},
     ]},
     {"group": "Reporting", "items": [
-        {"key": "outbound_pulse",     "label": "Outbound Pulse"},
+        {"key": "outbound_pulse",     "label": "Client Performance & Reports"},
     ]},
     {"group": "Outreach", "items": [
         {"key": "reply_bank",         "label": "Reply Bank"},
