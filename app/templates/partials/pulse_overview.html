@@ -32,6 +32,15 @@
     </span>
   </div>
 
+  {% if hidden_clients %}
+  {# A total that has had something taken out of it has to say so, by name.
+     Otherwise it is indistinguishable from the real figure. #}
+  <p class="pulse-meta" style="margin:-4px 0 10px">
+    Hiding {{ hidden_clients | map(attribute="name") | join(", ") }} — not
+    included in the totals below.
+  </p>
+  {% endif %}
+
   <div class="pulse-total-card">
     <div class="pulse-total-funnel">
       {% with funnel = totals %}{% include "partials/pulse_funnel.html" %}{% endwith %}

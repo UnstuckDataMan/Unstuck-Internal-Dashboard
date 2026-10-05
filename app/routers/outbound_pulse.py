@@ -34,6 +34,7 @@ from app.utils.pulse import (
 from app.utils.pulse.reports import report_heading
 from app.utils.pulse.normalize import (
     CHANNEL_EMAIL,
+    empty_funnel,
     CHANNEL_LINKEDIN,
     EVENT_SENT,
     FUNNEL_STAGES,
@@ -201,19 +202,82 @@ def _scope_source(scope: str) -> str:
     return REPORT_SCOPES.get(scope, "")
 
 
-def _overview_context(rng: dict, channel: str) -> dict:
+# Hidden from the overview for anyone who has not said otherwise. Business
+# development is our own pipeline rather than a client's, and sorted by send
+# volume it sat at the top pushing real clients below the fold.
+#
+# Matched by name, not by id: the id differs between Supabase projects and this
+# has to be right on a fresh database with nothing seeded. Env-overridable,
+# comma separated, for the same reason PULSE_AGENCY_NAME is.
+DEFAULT_EXCLUDED_CLIENT_NAMES: tuple[str, ...] = tuple(
+    name.strip().lower()
+    for name in os.environ.get(
+        "PULSE_DEFAULT_EXCLUDED_CLIENTS", "Unstuck - Business Development",
+    ).split(",")
+    if name.strip()
+)
+
+
+def _pref_key(user: dict) -> str:
+    return (user.get("email") or "").strip().lower()
+
+
+def _default_excluded_ids(clients: list[dict]) -> set[str]:
+    return {str(c["id"]) for c in clients
+            if (c.get("name") or "").strip().lower() in DEFAULT_EXCLUDED_CLIENT_NAMES}
+
+
+def _hidden_client_ids(user: dict, clients: list[dict]) -> set[str]:
+    """Clients this person hides from the overview.
+
+    "Never chosen" and "chose nothing" are different answers, and the
+    difference is whether a pulse_user_prefs row exists. Collapsing them would
+    make "show me everything" impossible to save: an empty list would read back
+    as the default and silently re-hide what the user had just un-hidden.
+    """
+    saved = store.get_user_exclusions(_pref_key(user))
+    if saved is None:
+        return _default_excluded_ids(clients)
+    return {str(cid) for cid in saved}
+
+
+def _overview_context(rng: dict, channel: str, hidden: set[str] | None = None) -> dict:
+    """The internal overview.
+
+    `hidden` is resolved by the caller rather than read here, so this function
+    knows nothing about sessions and a test can pin the set directly. It
+    applies to the client list, and therefore to the totals and the channel
+    strip, which are both built from the rows that survive it. It applies
+    nowhere else: a hidden client's own page and their portal report do not go
+    through this function at all.
+    """
+    hidden = hidden or set()
     source = _scope_source(channel)
     clients = store.list_clients()
-    by_client = store.funnel_by_client(
+    # One query for both splits. They have to agree: a grid filtered by an
+    # exclusion next to a separately-queried channel strip that is not would
+    # print a strip that does not add up to the totals above it.
+    per_client_channel = store.funnel_by_client_and_channel(
         source_tool=source, date_from=rng["from"], date_to=rng["to"],
     )
 
-    rows = []
+    rows: list[dict] = []
+    by_channel: dict[str, dict[str, int]] = {}
+    hidden_clients: list[dict] = []
     for client in clients:
         cid = str(client["id"])
-        counts = by_client.get(cid)
-        if not counts:
+        channels = per_client_channel.get(cid)
+        if not channels:
             continue     # no outbound activity in range — not a reporting row
+        if cid in hidden:
+            hidden_clients.append(client)   # named on the page, never silently dropped
+            continue
+        counts = empty_funnel()
+        for chan, chan_counts in channels.items():
+            target = by_channel.setdefault(chan, empty_funnel())
+            for stage in FUNNEL_STAGES:
+                counts[stage] += chan_counts.get(stage, 0)
+                target[stage] += chan_counts.get(stage, 0)
         rows.append({
             "client":  client,
             "counts":  counts,
@@ -239,8 +303,8 @@ def _overview_context(rng: dict, channel: str) -> dict:
         "totals":      funnel_with_rates(totals),
         "total_counts": totals,
         "total_sent":  totals[EVENT_SENT],
-        "by_channel":  store.funnel_by_channel(source_tool=source,
-                                               date_from=rng["from"], date_to=rng["to"]),
+        "by_channel":  by_channel,
+        "hidden_clients": hidden_clients,
         "unmapped":    unmapped,
         "range":       rng,
         "range_query": _range_query(rng),
@@ -462,10 +526,12 @@ async def overview(
     date_from: str = Query(""),
     date_to:   str = Query(""),
     channel:   str = Query(""),
+    user:      dict = Depends(auth.require_login),
 ):
     rng = _resolve_range(range, date_from, date_to)
     try:
-        context = _overview_context(rng, _report_scope(channel))
+        hidden = _hidden_client_ids(user, store.list_clients())
+        context = _overview_context(rng, _report_scope(channel), hidden)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
     return templates.TemplateResponse(
@@ -871,6 +937,84 @@ async def revoke_client_access(request: Request, client_id: str, access_id: str)
         "client_id": client_id,
         "new_link":  "",
     })
+
+
+# ── Which clients show on the overview ─────────────────────────────
+
+
+def _exclusions_panel(request: Request, user: dict, error: str = ""):
+    clients = store.list_clients()
+    saved = store.get_user_exclusions(_pref_key(user))
+    hidden_ids = ({str(c) for c in saved} if saved is not None
+                  else _default_excluded_ids(clients))
+    return templates.TemplateResponse("partials/pulse_exclusions.html", {
+        "request":    request,
+        "clients":    clients,
+        "hidden_ids": hidden_ids,
+        "hidden":     [c for c in clients if str(c["id"]) in hidden_ids],
+        # Shown as a hint, so someone can tell "the house default" from "what I
+        # chose" without having to remember whether they ever chose.
+        "is_default": saved is None,
+        "error":      error,
+    })
+
+
+@router.get("/api/outbound-pulse/exclusions")
+async def list_exclusions(request: Request,
+                          user: dict = Depends(auth.require_login)):
+    try:
+        return _exclusions_panel(request, user)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+@router.post("/api/outbound-pulse/exclusions")
+async def save_exclusions(
+    request:  Request,
+    excluded: list[str] = Form([]),
+    user:     dict = Depends(auth.require_login),
+):
+    """Save the hidden-client list and refresh the overview.
+
+    No "was this really submitted" marker is needed here, unlike the report
+    editor: a POST to this route is itself the deliberate act, so an empty
+    `excluded` always writes an empty list — "hide nothing". Returning to the
+    default is the DELETE below, a different request.
+    """
+    try:
+        clients = store.list_clients()
+        known = {str(c["id"]) for c in clients}
+        # Intersected with the real client list, so a hand-made post cannot put
+        # a non-uuid into a uuid[] column and fail the whole save.
+        if not store.set_user_exclusions(_pref_key(user),
+                                         sorted(known & set(excluded))):
+            return _exclusions_panel(
+                request, user,
+                "Could not save that. The details are in the server log.")
+        response = _exclusions_panel(request, user)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+    # Already in the overview div's hx-trigger list, so the funnel re-fetches
+    # with no change to that element.
+    response.headers["HX-Trigger"] = "pulseRefresh"
+    return response
+
+
+@router.delete("/api/outbound-pulse/exclusions")
+async def reset_exclusions(request: Request,
+                           user: dict = Depends(auth.require_login)):
+    """Drop the saved preference so the house default applies again.
+
+    Distinct from saving an empty list, which means "show me everything" and
+    stays that way.
+    """
+    try:
+        store.clear_user_exclusions(_pref_key(user))
+        response = _exclusions_panel(request, user)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+    response.headers["HX-Trigger"] = "pulseRefresh"
+    return response
 
 
 # ── Copy A/B ─────────────────────────────────────────────────

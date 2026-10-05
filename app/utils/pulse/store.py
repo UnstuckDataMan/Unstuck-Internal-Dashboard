@@ -665,6 +665,33 @@ def funnel_by_client(
     return out
 
 
+def funnel_by_client_and_channel(
+    *,
+    source_tool: str = "",
+    date_from:   date | None = None,
+    date_to:     date | None = None,
+) -> dict[str, dict[str, dict[str, int]]]:
+    """Per-client, per-channel totals in one query — client → channel → counts.
+
+    One request where the overview used to make two, because the two splits
+    have to agree with each other. With a per-user client exclusion applied to
+    the grid but not to a separately-queried channel strip, the strip stopped
+    adding up to the totals printed directly above it.
+    """
+    out: dict[str, dict[str, dict[str, int]]] = {}
+    for row in _funnel_rows(source_tool=source_tool,
+                            date_from=date_from, date_to=date_to,
+                            select="client_id,channel,event_type,events"):
+        stage = row.get("event_type")
+        if stage not in FUNNEL_STAGES:
+            continue
+        cid = str(row.get("client_id") or "")
+        chan = str(row.get("channel") or "unknown")
+        out.setdefault(cid, {}).setdefault(chan, empty_funnel())[stage] += \
+            int(row.get("events") or 0)
+    return out
+
+
 def funnel_by_channel(
     *,
     client_id:   str = "",
@@ -957,6 +984,96 @@ def visit_summary(client_id: str = "") -> list[dict]:
     if client_id:
         params["client_id"] = f"eq.{client_id}"
     return _get("pulse_portal_visits", _scoped(params))
+
+
+# ── Per-user view preferences ───────────────────────────────────
+
+
+def get_user_exclusions(user_email: str) -> list[str] | None:
+    """Clients this user hides from the internal overview.
+
+    None means "has never chosen" and is NOT the same as []. The caller applies
+    the house default for None and hides nothing for []; the difference is
+    whether a row exists, and migrations/outbound_pulse_user_prefs.sql explains
+    why it has to be.
+
+    Never raises. A missing table or a slow query must not cost someone the
+    overview itself, so a failed read reads as "has not chosen" and the default
+    applies. The exclusions panel surfaces the real error, which is the one
+    place it is actionable.
+    """
+    email = (user_email or "").strip().lower()
+    if not email:
+        return None
+    try:
+        rows = _get("pulse_user_prefs", _scoped({
+            "select":     "excluded_client_ids",
+            "user_email": f"eq.{email}",
+            "limit":      "1",
+        }))
+    except Exception as exc:
+        logger.warning("Pulse: could not read view preferences for %s: %s", email, exc)
+        return None
+    if not rows:
+        return None
+    return [str(cid) for cid in (rows[0].get("excluded_client_ids") or [])]
+
+
+def set_user_exclusions(user_email: str, client_ids: list[str]) -> bool:
+    """Save this user's exclusion list, creating the row on first save.
+
+    An empty list is a real answer — it is how someone says "show me every
+    client" — so it is written rather than skipped.
+    """
+    email = (user_email or "").strip().lower()
+    if not email:
+        return False
+    try:
+        r = http_req.post(
+            f"{SUPABASE_URL}/rest/v1/pulse_user_prefs",
+            headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
+            params={"on_conflict": "agency_id,user_email"},
+            json={
+                "agency_id":  current_agency_id(),
+                "user_email": email,
+                # Strings, not UUID objects: requests cannot encode those, and
+                # the payload would fail only in production.
+                "excluded_client_ids": [str(c) for c in client_ids],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            timeout=10,
+        )
+        if r.status_code >= 400:
+            raise _describe_postgrest_error("pulse_user_prefs", r)
+        return True
+    except PulseNotReady:
+        raise
+    except Exception as exc:
+        logger.warning("Pulse: could not save view preferences for %s: %s", email, exc)
+        return False
+
+
+def clear_user_exclusions(user_email: str) -> bool:
+    """Delete the row, returning this user to the house default.
+
+    Deliberately a DELETE and not a save of []: those are different states, and
+    this is the only way back to "has never chosen".
+    """
+    email = (user_email or "").strip().lower()
+    if not email:
+        return False
+    try:
+        r = http_req.delete(
+            f"{SUPABASE_URL}/rest/v1/pulse_user_prefs",
+            headers=_sb_headers("return=minimal"),
+            params=_scoped({"user_email": f"eq.{email}"}),
+            timeout=10,
+        )
+        r.raise_for_status()
+        return True
+    except Exception as exc:
+        logger.warning("Pulse: could not clear view preferences for %s: %s", email, exc)
+        return False
 
 
 # ── Published client reports ────────────────────────────────────
