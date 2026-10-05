@@ -63,7 +63,13 @@
   .source-tab[disabled] { opacity: .4; cursor: not-allowed; }
 
   /* ── Date range ──────────────────────────────────────────── */
+  /* The [hidden] rule has to come with the display rule. An author-origin
+     `display` beats the browser's own `[hidden] { display: none }`, so without
+     this the custom-range inputs were never actually hidden — people typed
+     dates into boxes that looked live while the dropdown still said "Last 30
+     days", and the dates were then discarded. */
   .date-range { display: inline-flex; align-items: center; gap: 8px; }
+  .date-range[hidden] { display: none; }
   .date-range input[type="date"] {
     background: rgba(255,255,255,.06);
     border: 1px solid var(--border);
