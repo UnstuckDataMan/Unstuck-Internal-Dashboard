@@ -305,8 +305,8 @@
         </div>
         {% if stage.step_rate is not none %}
         <div class="stage-rate">
-          <b>{{ stage.step_rate }}%</b> of {{ funnel[loop.index0 - 1].label | lower }}
-          {%- if stage.overall is not none %} · {{ stage.overall }}% of all sends{% endif %}
+          <b>{{ stage.step_rate | pulse_pct }}</b> of {{ funnel[loop.index0 - 1].label | lower }}
+          {%- if stage.overall is not none %} · {{ stage.overall | pulse_pct }} of all sends{% endif %}
         </div>
         {% elif not stage.is_top %}
         {# Nothing reached the stage above, so there is no rate to quote. Say so

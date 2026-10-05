@@ -36,6 +36,7 @@ event table genuinely append-only.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from datetime import date, datetime, timedelta, timezone
 
@@ -600,9 +601,26 @@ def funnel_with_rates(counts: dict[str, int]) -> list[dict]:
 
 
 def _rate(value: int, base: int | None) -> float | None:
+    """A percentage, rounded to as many places as it needs.
+
+    One decimal place everywhere at 0.1% and above, which is what every
+    existing figure uses. Below that it would collapse every distinct rate to
+    "0.0%" — a client with four leads from forty thousand sends would read the
+    same as one with none — so small rates keep two significant figures
+    instead. A real result never rounds away to zero.
+    """
     if base is None or base <= 0:
         return None
-    return round(value * 100.0 / base, 1)
+    pct = value * 100.0 / base
+    if 0 < pct < 0.1:
+        return round(pct, _small_places(pct))
+    return round(pct, 1)
+
+
+def _small_places(pct: float) -> int:
+    """Decimal places for two significant figures, capped so a pathological
+    input cannot produce an unreadable string."""
+    return min(6, 1 - math.floor(math.log10(pct)))
 
 
 # ── Trend buckets ─────────────────────────────────────────────────────────────
