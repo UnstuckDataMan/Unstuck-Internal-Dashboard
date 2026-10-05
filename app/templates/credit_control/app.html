@@ -2411,6 +2411,16 @@ function clientEffectiveContinuity(clientId) {
       churnMonth = addMonths(last, 1);
     }
   }
+  // A client already marked churned (by hand, or by auto-detection below)
+  // must not be carried through the months on/after their churn month by the
+  // bridging above — it only exists to forgive silence in clients nobody has
+  // said have left. Real invoices still count wherever they fall, so clients
+  // whose churn month was entered as their last invoice month keep it.
+  const rec = clientById(clientId);
+  if (rec && rec.status === 'churned' && rec.churnMonth) {
+    const realSet = new Set(real);
+    for (const m of [...months]) if (m >= rec.churnMonth && !realSet.has(m)) months.delete(m);
+  }
   return { months, churnMonth };
 }
 // Clients who've gone 3+ months without an invoice, and were never
