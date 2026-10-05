@@ -25,6 +25,7 @@ from app.deps import templates
 from app.utils.dates import today_utc
 from app.utils.pulse import (
     abtest,
+    hand_entry,
     meet_alfred,
     richtext,
     smartlead,
@@ -38,6 +39,7 @@ from app.utils.pulse.normalize import (
     CHANNEL_LINKEDIN,
     EVENT_SENT,
     FUNNEL_STAGES,
+    SOURCE_HAND_ENTRY,
     SOURCE_LABELS,
     SOURCE_MANUAL,
     SOURCE_MEET_ALFRED,
@@ -188,9 +190,10 @@ def _channel_filter(channel: str) -> str:
 # Email as well as inside Manual: two options that overlap, and a Both that is
 # not their sum. Every option here is one tool, so they partition the data.
 REPORT_SCOPES: dict[str, str] = {
-    CHANNEL_EMAIL:    SOURCE_SMARTLEAD,
-    CHANNEL_LINKEDIN: SOURCE_MEET_ALFRED,
-    SOURCE_MANUAL:    SOURCE_MANUAL,
+    CHANNEL_EMAIL:     SOURCE_SMARTLEAD,
+    CHANNEL_LINKEDIN:  SOURCE_MEET_ALFRED,
+    SOURCE_MANUAL:     SOURCE_MANUAL,
+    SOURCE_HAND_ENTRY: SOURCE_HAND_ENTRY,
 }
 
 
@@ -937,6 +940,139 @@ async def revoke_client_access(request: Request, client_id: str, access_id: str)
         "client_id": client_id,
         "new_link":  "",
     })
+
+
+# ── Hand-entered figures ────────────────────────────────────────
+
+
+def _hand_entry_panel(request: Request, client_id: str, error: str = "",
+                      notice: str = "", channel: str = CHANNEL_EMAIL,
+                      month: str = ""):
+    entries = store.list_hand_entries(client_id)
+    for entry in entries:
+        parsed = hand_entry.parse_month(str(entry.get("period_month") or ""))
+        entry["label"] = hand_entry.month_label(parsed) if parsed else "—"
+        entry["channel_label"] = ("LinkedIn" if entry.get("channel") == CHANNEL_LINKEDIN
+                                  else "Email")
+    # Default to last whole month: the figure you are most likely keying in.
+    if not month:
+        today = today_utc()
+        month = (today.replace(day=1) - timedelta(days=1)).replace(day=1).isoformat()[:7]
+    return templates.TemplateResponse("partials/pulse_hand_entry.html", {
+        "request":   request,
+        "client_id": client_id,
+        "entries":   entries,
+        "metrics":   hand_entry.METRICS,
+        "labels":    hand_entry.labels_for(channel),
+        "channels":  hand_entry.CHANNELS,
+        "channel":   channel,
+        "month":     month,
+        "error":     error,
+        "notice":    notice,
+    })
+
+
+@router.get("/api/outbound-pulse/clients/{client_id}/hand-entries")
+async def list_client_hand_entries(
+    request:   Request,
+    client_id: str,
+    channel:   str = Query(CHANNEL_EMAIL),
+):
+    try:
+        return _hand_entry_panel(
+            request, client_id,
+            channel=channel if channel in hand_entry.CHANNELS else CHANNEL_EMAIL)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+@router.post("/api/outbound-pulse/clients/{client_id}/hand-entries")
+async def save_client_hand_entry(
+    request:      Request,
+    client_id:    str,
+    channel:      str = Form(CHANNEL_EMAIL),
+    period_month: str = Form(""),
+    source_note:  str = Form(""),
+    sent:         str = Form(""),
+    opened:       str = Form(""),
+    replied:      str = Form(""),
+    meetings:     str = Form(""),
+    bounced:      str = Form(""),
+    unsubscribed: str = Form(""),
+    confirm:      str = Form(""),
+    user:         dict = Depends(auth.require_login),
+):
+    """Record a month of figures read off another tool's dashboard.
+
+    Warns, rather than refuses, when a connector already covers the same
+    client, channel and month: a partly-synced month is a real situation, and
+    only the person keying it in can tell whether the figures overlap.
+    """
+    chan = channel if channel in hand_entry.CHANNELS else CHANNEL_EMAIL
+    month = hand_entry.parse_month(period_month)
+    try:
+        if month is None:
+            return _hand_entry_panel(request, client_id, "Pick a month.",
+                                     channel=chan)
+        metrics, error = hand_entry.clean_metrics({
+            "sent": sent, "opened": opened, "replied": replied,
+            "meetings": meetings, "bounced": bounced,
+            "unsubscribed": unsubscribed,
+        })
+        if error:
+            return _hand_entry_panel(request, client_id, error, channel=chan,
+                                     month=month.isoformat()[:7])
+
+        if not confirm:
+            start, end = hand_entry.month_bounds(month)
+            covered = {
+                source: counts for source, counts in store.funnel_by_source(
+                    client_id=client_id, date_from=start, date_to=end).items()
+                if source != SOURCE_HAND_ENTRY and counts.get(EVENT_SENT)
+            }
+            if covered:
+                named = ", ".join(SOURCE_LABELS.get(s, s) for s in covered)
+                return _hand_entry_panel(
+                    request, client_id,
+                    channel=chan, month=month.isoformat()[:7],
+                    notice=(f"{named} already reported sends for "
+                            f"{hand_entry.month_label(month)}. Entering figures "
+                            f"here adds to those rather than replacing them — "
+                            f"save again to confirm."))
+
+        saved = store.upsert_hand_entry(
+            client_id=client_id, channel=chan,
+            period_month=month.isoformat(),
+            metrics=metrics,
+            source_note=source_note.strip(),
+            entered_by=user.get("name", "") or user.get("email", ""),
+        )
+        if not saved:
+            return _hand_entry_panel(
+                request, client_id,
+                "Could not save that. The details are in the server log.",
+                channel=chan, month=month.isoformat()[:7])
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+    response = _hand_entry_panel(request, client_id, channel=chan)
+    # A full reload, not a panel swap. This page is server-rendered, so the
+    # funnel, the source tabs and the trend above this panel are all stale the
+    # moment a figure lands — and a page disagreeing with itself is exactly
+    # what this module keeps having to be fixed for.
+    response.headers["HX-Refresh"] = "true"
+    return response
+
+
+@router.delete("/api/outbound-pulse/clients/{client_id}/hand-entries/{entry_id}")
+async def remove_client_hand_entry(request: Request, client_id: str, entry_id: str):
+    try:
+        store.delete_hand_entry(entry_id)
+        response = _hand_entry_panel(request, client_id)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+    response.headers["HX-Refresh"] = "true"
+    return response
 
 
 # ── Which clients show on the overview ─────────────────────────────

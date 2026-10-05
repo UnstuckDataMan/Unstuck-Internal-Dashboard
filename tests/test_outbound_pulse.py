@@ -4157,3 +4157,366 @@ def test_the_prefs_table_has_no_foreign_key_to_app_users():
 
 def test_the_email_key_is_forced_lowercase_by_the_database():
     assert "CHECK (user_email = lower(user_email)" in _prefs_sql()
+
+
+# ── Hand-entered figures ─────────────────────────────────────────────────────
+
+# ── The naming trap ─────────────────────────────────────────────────────────
+
+def test_hand_entry_is_a_different_source_from_the_dnc_tool():
+    """One is automatic and already in this database; the other is typed in."""
+    assert normalize.SOURCE_MANUAL != normalize.SOURCE_HAND_ENTRY
+    labels = normalize.SOURCE_LABELS
+    assert labels[normalize.SOURCE_MANUAL] != labels[normalize.SOURCE_HAND_ENTRY]
+
+
+def test_no_source_is_labelled_just_manual():
+    """That word is what made the two confusable. Each is named by provenance."""
+    assert "Manual" not in normalize.SOURCE_LABELS.values()
+
+
+def test_the_dnc_source_key_is_unchanged():
+    """It is written into the by_source block of every snapshot on disk."""
+    assert normalize.SOURCE_MANUAL == "manual"
+
+
+def test_the_channel_picker_offers_hand_entered_figures(client, fake_sb):
+    _detail_routes(fake_sb)
+    for path in ("/outbound-pulse", f"/outbound-pulse/clients/{CLIENT}"):
+        assert 'value="hand_entry"' in client.get(path).text
+
+
+def test_picking_it_filters_by_source_not_channel(client, fake_sb):
+    from tests.conftest import param_values
+
+    _detail_routes(fake_sb)
+    client.get(f"/outbound-pulse/clients/{CLIENT}?channel=hand_entry")
+    calls = fake_sb.calls_to("GET", "pulse_funnel_daily")
+    assert calls
+    for call in calls:
+        assert param_values(call, "source_tool") == ["eq.hand_entry"]
+
+
+def test_the_four_scopes_still_partition_the_data():
+    from app.routers.outbound_pulse import REPORT_SCOPES
+
+    assert len(set(REPORT_SCOPES.values())) == len(REPORT_SCOPES) == 4
+
+
+def test_the_source_tab_says_a_human_typed_it(client, fake_sb):
+    """A synced number and a typed one must never look identical."""
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "linkedin", "source_tool": "hand_entry",
+         "event_type": "sent", "events": 900, "day": "2026-09-01"},
+    ]))
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "Typed in by an account manager" in body
+    assert "recorded against the first of" in body
+
+
+# ── Bounces ─────────────────────────────────────────────────────────────────
+
+def test_bounces_are_a_counted_stage():
+    assert normalize.EVENT_BOUNCED in normalize.FUNNEL_STAGES
+    assert normalize.EVENT_BOUNCED in normalize.empty_funnel()
+
+
+def test_a_bounce_is_not_a_response():
+    """Putting it in the reply rate would inflate every one in the tool,
+    including the ones already frozen into published reports."""
+    assert normalize.EVENT_BOUNCED not in normalize.RESPONSE_STAGES
+    base = _counts(sent=1000, replied=40)
+    withb = _counts(sent=1000, replied=40, bounced=90)
+    assert normalize.reply_rate(base) == normalize.reply_rate(withb)
+
+
+def test_a_bounce_is_not_a_lead_and_not_an_exclusive_outcome():
+    assert normalize.EVENT_BOUNCED not in normalize.LEAD_STAGES
+    assert normalize.EVENT_BOUNCED not in normalize.OUTCOME_STAGES
+    c = _counts(sent=1000, bounced=50, meeting_booked=3)
+    assert normalize.lead_count(c) == 3
+
+
+def test_bounces_are_hidden_at_zero_but_unsubscribes_are_not():
+    """Only one source can report a bounce, so a permanent zero would read as
+    broken rather than as good news."""
+    keys = [o["key"] for o in normalize.outcome_breakdown(_counts(sent=500, replied=9))]
+    assert "unsubscribed" in keys
+    assert "bounced" not in keys
+    keys = [o["key"] for o in normalize.outcome_breakdown(
+        _counts(sent=500, replied=9, bounced=4))]
+    assert "bounced" in keys
+
+
+def test_bounce_rate_is_a_share_of_sends():
+    assert normalize.bounce_rate(_counts(sent=1000, bounced=25)) == 2.5
+
+
+def test_a_snapshot_written_before_bounces_existed_still_renders(client, fake_sb):
+    _portal_routes(fake_sb)       # its snapshot has no "bounced" key
+    assert client.get("/r/valid-token").status_code == 200
+
+
+# ── Dating ──────────────────────────────────────────────────────────────────
+
+def test_any_day_in_a_month_resolves_to_the_first():
+    from datetime import date
+
+    from app.utils.pulse import hand_entry
+
+    for value in ("2026-09", "2026-09-01", "2026-09-17", "2026-09-30"):
+        assert hand_entry.parse_month(value) == date(2026, 9, 1)
+    assert hand_entry.parse_month("") is None
+    assert hand_entry.parse_month("nonsense") is None
+
+
+def test_month_bounds_cover_the_whole_month():
+    from datetime import date
+
+    from app.utils.pulse import hand_entry
+
+    assert hand_entry.month_bounds(date(2026, 9, 1)) == (date(2026, 9, 1), date(2026, 9, 30))
+    assert hand_entry.month_bounds(date(2026, 12, 1)) == (date(2026, 12, 1), date(2026, 12, 31))
+    assert hand_entry.month_bounds(date(2024, 2, 1)) == (date(2024, 2, 1), date(2024, 2, 29))
+
+
+def test_a_monthly_figure_is_never_spread_across_days():
+    """Dividing a month by 30 would invent a daily series nobody measured."""
+    sql = _hand_sql()
+    view = sql.split("CREATE OR REPLACE VIEW pulse_hand_entry_daily", 1)[1]
+    assert "generate_series" not in view
+    assert "/" not in view.split("CROSS JOIN LATERAL")[1].split(")")[0]
+    assert "e.period_month" in view
+
+
+# ── Entry and storage ───────────────────────────────────────────────────────
+
+def _hand_routes(fake_sb, entries=None, seen=None):
+    fake_sb.route("GET", "pulse_hand_entries",
+                  lambda call: FakeResponse(200, entries or []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+    def capture(call):
+        if seen is not None:
+            seen.update(call)
+        return FakeResponse(201, [{"id": "h1"}])
+
+    fake_sb.route("POST", "pulse_hand_entries", capture)
+
+
+def test_saving_upserts_on_client_channel_and_month(client, fake_sb):
+    seen = {}
+    _hand_routes(fake_sb, seen=seen)
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                    data={"channel": "linkedin", "period_month": "2026-09",
+                          "sent": "900", "opened": "310", "replied": "44",
+                          "confirm": "1"})
+    assert r.status_code == 200
+    assert seen["params"]["on_conflict"] == \
+        "agency_id,client_id,channel,period_month"
+    body = seen["json"]
+    assert body["period_month"] == "2026-09-01"
+    assert body["channel"] == "linkedin"
+    assert body["sent"] == 900 and body["opened"] == 310
+    assert body["entered_by"]
+
+
+def test_an_entry_payload_is_json_serialisable(client, fake_sb):
+    """The month crosses this boundary as a string; a date object would fail
+    only in production."""
+    import json
+
+    seen = {}
+    _hand_routes(fake_sb, seen=seen)
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                data={"channel": "email", "period_month": "2026-09",
+                      "sent": "10", "confirm": "1"})
+    json.dumps(seen["json"])
+    assert isinstance(seen["json"]["period_month"], str)
+
+
+def test_a_blank_figure_reads_as_zero(client, fake_sb):
+    seen = {}
+    _hand_routes(fake_sb, seen=seen)
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                data={"channel": "email", "period_month": "2026-09",
+                      "sent": "400", "confirm": "1"})
+    assert seen["json"]["bounced"] == 0
+
+
+def test_a_negative_figure_is_refused_with_a_reason(client, fake_sb):
+    _hand_routes(fake_sb)
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                    data={"channel": "email", "period_month": "2026-09",
+                          "sent": "-5", "confirm": "1"})
+    assert "cannot be negative" in r.text
+    assert not fake_sb.calls_to("POST", "pulse_hand_entries")
+
+
+def test_a_non_numeric_figure_is_refused_with_a_reason(client, fake_sb):
+    _hand_routes(fake_sb)
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                    data={"channel": "email", "period_month": "2026-09",
+                          "sent": "lots", "confirm": "1"})
+    assert "must be a number" in r.text
+
+
+def test_a_missing_month_is_refused(client, fake_sb):
+    _hand_routes(fake_sb)
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                    data={"channel": "email", "period_month": "", "sent": "10"})
+    assert "Pick a month" in r.text
+
+
+def test_saving_warns_once_when_a_connector_already_covers_that_month(client, fake_sb):
+    """A partly-synced month is real, so this warns rather than refusing."""
+    fake_sb.route("GET", "pulse_hand_entries", lambda call: FakeResponse(200, []))
+    fake_sb.route("POST", "pulse_hand_entries", lambda call: FakeResponse(201, [{"id": "h1"}]))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 500, "day": "2026-09-04"},
+    ]))
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                    data={"channel": "email", "period_month": "2026-09", "sent": "10"})
+    assert "already reported sends" in r.text
+    assert "Smartlead" in r.text
+    assert not fake_sb.calls_to("POST", "pulse_hand_entries")
+
+    # Confirming goes through.
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                    data={"channel": "email", "period_month": "2026-09",
+                          "sent": "10", "confirm": "1"})
+    assert fake_sb.calls_to("POST", "pulse_hand_entries")
+
+
+def test_saving_reloads_the_page_so_the_funnel_cannot_be_stale(client, fake_sb):
+    """This page is server-rendered; the funnel and tabs above the panel are
+    stale the moment a figure lands."""
+    _hand_routes(fake_sb)
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                    data={"channel": "email", "period_month": "2026-09",
+                          "sent": "10", "confirm": "1"})
+    assert r.headers.get("HX-Refresh") == "true"
+
+
+def test_entries_are_agency_scoped_on_read_and_delete(client, fake_sb):
+    from tests.conftest import param_values
+
+    _hand_routes(fake_sb)
+    fake_sb.route("DELETE", "pulse_hand_entries", lambda call: FakeResponse(204, []))
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries")
+    client.delete(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries/h1")
+    for method in ("GET", "DELETE"):
+        for call in fake_sb.calls_to(method, "pulse_hand_entries"):
+            assert param_values(call, "agency_id")
+
+
+def test_the_form_names_people_not_events():
+    """Every other source counts each person once per stage and the database
+    enforces it. This one cannot be enforced, so the wording carries it."""
+    from app.utils.pulse import hand_entry
+
+    assert hand_entry.METRIC_LABELS["email"]["opened"] == "Leads who opened"
+    assert hand_entry.METRIC_LABELS["linkedin"]["opened"] == \
+        "Connection requests accepted"
+
+
+def test_acceptances_and_opens_share_one_stage():
+    """Two columns feeding one stage would let a single entry count both."""
+    from app.utils.pulse import hand_entry
+
+    assert hand_entry.STAGE_FOR_METRIC["opened"] == normalize.EVENT_OPENED
+    assert "accepted" not in hand_entry.METRICS
+    # No separate column in the table either, so an entry cannot report both.
+    ddl = _hand_sql().split("CREATE TABLE", 1)[1].split(");", 1)[0]
+    assert "accepted" not in ddl
+    stages = [v for v in hand_entry.STAGE_FOR_METRIC.values()]
+    assert len(stages) == len(set(stages))      # one metric per stage
+
+
+# ── Into the funnel, with no special-casing ─────────────────────────────────
+
+def test_a_hand_entry_reaches_the_funnel_like_any_other_source(client, fake_sb):
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "linkedin", "source_tool": "hand_entry",
+         "event_type": "sent", "events": 900, "day": "2026-09-01"},
+        {"client_id": CLIENT, "channel": "linkedin", "source_tool": "hand_entry",
+         "event_type": "meeting_booked", "events": 6, "day": "2026-09-01"},
+    ]))
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "900" in body
+    assert "Entered by hand" in body
+
+
+def test_a_published_snapshot_includes_hand_entered_figures(client, fake_sb):
+    """It joins the same view, so report_snapshot needs no special case —
+    there is no mention of the source in the router's snapshot code."""
+    import inspect
+
+    from app.routers import outbound_pulse as mod
+
+    seen = {}
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "linkedin", "source_tool": "hand_entry",
+         "event_type": "sent", "events": 900, "day": "2026-09-01"},
+    ]))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert seen["snapshot"]["by_source"]["hand_entry"]["sent"] == 900
+    assert "hand_entry" not in inspect.getsource(mod.report_snapshot)
+
+
+# ── The migration ───────────────────────────────────────────────────────────
+
+def _hand_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1]
+            / "migrations" / "outbound_pulse_hand_entry.sql").read_text(encoding="utf-8")
+
+
+def test_the_hand_entry_migration_is_one_transaction_and_re_runnable():
+    sql = _hand_sql()
+    assert sql.index("BEGIN;") < sql.index("CREATE TABLE")
+    assert "CREATE TABLE IF NOT EXISTS pulse_hand_entries" in sql
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+def test_the_funnel_view_unions_all_five_branches():
+    view = _hand_sql().split("CREATE VIEW pulse_funnel_daily AS", 1)[1]
+    for branch in ("pulse_funnel_rollup", "pulse_lead_outcomes",
+                   "o.unsub_day IS NOT NULL", "pulse_manual_daily",
+                   "pulse_hand_entry_daily"):
+        assert branch in view, branch
+
+
+def test_the_migration_does_not_touch_the_dnc_manual_view():
+    """It adds a source; it does not alter the existing one."""
+    assert "CREATE OR REPLACE VIEW pulse_manual_daily" not in _hand_sql()
+
+
+def test_zero_figures_produce_no_funnel_rows():
+    assert "WHERE v.events > 0" in _hand_sql()
+
+
+def test_one_entry_per_client_channel_and_month():
+    assert "pulse_hand_entries_unique" in _hand_sql()
+    assert "(agency_id, client_id, channel, period_month)" in _hand_sql()
+
+
+def test_a_month_must_be_stored_as_its_first_day():
+    assert "date_trunc('month', period_month)" in _hand_sql()
+
+
+def test_figures_cannot_be_negative_in_the_database():
+    sql = _hand_sql()
+    for col in ("sent", "opened", "replied", "meetings", "bounced", "unsubscribed"):
+        assert f"CHECK ({col}" in sql.replace("  ", " ") or f"{col}         >= 0" in sql

@@ -46,7 +46,8 @@
     <option value="" {% if not channel %}selected{% endif %}>Both</option>
     <option value="email" {% if channel == "email" %}selected{% endif %}>Email (Smartlead)</option>
     <option value="linkedin" {% if channel == "linkedin" %}selected{% endif %}>LinkedIn (Meet Alfred)</option>
-    <option value="manual" {% if channel == "manual" %}selected{% endif %}>Manual</option>
+    <option value="manual" {% if channel == "manual" %}selected{% endif %}>DNC &amp; Merger tool</option>
+    <option value="hand_entry" {% if channel == "hand_entry" %}selected{% endif %}>Entered by hand</option>
   </select>
 </div>
 
@@ -124,6 +125,19 @@
         <p class="section-label" style="margin-bottom:10px">{{ s.label }}</p>
         {% if not s.active %}
         <p class="pulse-meta">No {{ s.label }} activity in this range.</p>
+        {% elif s.key == "hand_entry" %}
+        {# An automatically-synced number and a typed one must never look
+           identical on the same screen. #}
+        <p class="pulse-meta" style="line-height:1.6">
+          Typed in by an account manager from another tool’s dashboard, not
+          synced. Every other source counts each person once per stage, which
+          the database enforces; these are whatever that dashboard reported.
+        </p>
+        <p class="pulse-meta" style="margin-top:10px;line-height:1.6">
+          Each figure covers a whole month and is recorded against the first of
+          it, so a range that cuts through a month either includes all of a
+          month’s figures or none of them.
+        </p>
         {% elif s.key == "manual" %}
         <p class="pulse-meta" style="line-height:1.6">
           From the DNC &amp; Merger tool. A lead is a prospect marked
@@ -228,6 +242,23 @@
     Reading variants…
   </div>
   <div id="pulse-ab" style="margin-top:14px"></div>
+</div>
+
+<div class="pulse-panel">
+  <h3>Enter figures by hand</h3>
+  <p class="panel-hint">
+    For a tool this dashboard cannot reach — Meet Alfred, principally. Figures
+    land in the funnel alongside the synced sources and appear under their own
+    tab, so a typed number is never mistaken for a measured one.
+  </p>
+  <div id="pulse-hand-entry"
+       hx-get="/api/outbound-pulse/clients/{{ client.id }}/hand-entries"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="skel-stack" role="status" aria-label="Loading entered figures">
+      <div class="skel-card"><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
+    </div>
+  </div>
 </div>
 
 <div class="pulse-panel">
