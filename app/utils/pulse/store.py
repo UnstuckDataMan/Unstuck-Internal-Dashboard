@@ -986,6 +986,78 @@ def visit_summary(client_id: str = "") -> list[dict]:
     return _get("pulse_portal_visits", _scoped(params))
 
 
+# ── Hand-entered figures ────────────────────────────────────────
+
+_HAND_COLS = ("id,client_id,channel,period_month,sent,opened,replied,meetings,"
+              "bounced,unsubscribed,source_note,entered_by,created_at,updated_at")
+
+
+def list_hand_entries(client_id: str = "") -> list[dict]:
+    """Hand-entered months, newest first."""
+    params = _scoped({"select": _HAND_COLS, "order": "period_month.desc"})
+    if client_id:
+        params["client_id"] = f"eq.{client_id}"
+    return _get("pulse_hand_entries", params)
+
+
+def upsert_hand_entry(
+    *,
+    client_id:    str,
+    channel:      str,
+    period_month: str,
+    metrics:      dict[str, int],
+    source_note:  str = "",
+    entered_by:   str = "",
+) -> dict | None:
+    """Save one client/channel/month. Re-saving corrects rather than duplicates.
+
+    `period_month` is an ISO string, never a date object: requests cannot
+    encode a date, and the payload would fail only in production.
+    """
+    body = {
+        "agency_id":    current_agency_id(),
+        "client_id":    client_id,
+        "channel":      channel,
+        "period_month": str(period_month),
+        "source_note":  (source_note or "")[:300],
+        "entered_by":   (entered_by or "")[:200],
+        "updated_at":   datetime.now(timezone.utc).isoformat(),
+    }
+    body.update({k: int(v) for k, v in metrics.items()})
+    try:
+        r = http_req.post(
+            f"{SUPABASE_URL}/rest/v1/pulse_hand_entries",
+            headers=_sb_headers("resolution=merge-duplicates,return=representation"),
+            params={"on_conflict": "agency_id,client_id,channel,period_month"},
+            json=body,
+            timeout=15,
+        )
+        if r.status_code >= 400:
+            raise _describe_postgrest_error("pulse_hand_entries", r)
+        rows = r.json()
+        return rows[0] if rows else None
+    except PulseNotReady:
+        raise
+    except Exception as exc:
+        logger.warning("Pulse: could not save hand entry: %s", exc)
+        return None
+
+
+def delete_hand_entry(entry_id: str) -> bool:
+    try:
+        r = http_req.delete(
+            f"{SUPABASE_URL}/rest/v1/pulse_hand_entries",
+            headers=_sb_headers("return=minimal"),
+            params=_scoped({"id": f"eq.{entry_id}"}),
+            timeout=10,
+        )
+        r.raise_for_status()
+        return True
+    except Exception as exc:
+        logger.warning("Pulse: could not delete hand entry %s: %s", entry_id, exc)
+        return False
+
+
 # ── Per-user view preferences ───────────────────────────────────
 
 

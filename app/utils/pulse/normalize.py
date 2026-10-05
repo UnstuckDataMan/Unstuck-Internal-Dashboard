@@ -62,6 +62,13 @@ EVENT_MANUAL_LEAD = "lead"
 # and later unsubscribe, and both facts are true at once.
 EVENT_UNSUBSCRIBED = "unsubscribed"
 
+# A bounce: the mail never arrived. Modelled on unsubscribed rather than on an
+# outcome — it is not one of the exclusive reply categories, and emphatically
+# not a response, since the prospect did nothing. It exists as a stage because
+# it is one of the figures a sending tool reports and an account manager is
+# asked about. No connector writes it yet; only hand entry does.
+EVENT_BOUNCED = "bounced"
+
 # Leads are derived, never stored.
 STAGE_LEADS = "leads"
 
@@ -86,21 +93,36 @@ LEAD_STAGES: tuple[str, ...] = (
 # What counts as a response for the reply rate. An unsubscribe is a reply: the
 # prospect read the mail and acted on it. Counting only the ones who typed back
 # under-reports how many the sequence actually reached.
+# Deliberately excludes EVENT_BOUNCED. A bounce is not a response, and adding
+# it here would inflate every reply rate in the tool — including the ones
+# already frozen into published reports.
 RESPONSE_STAGES: tuple[str, ...] = (EVENT_REPLIED, EVENT_UNSUBSCRIBED)
 
+# Campaigns run through the DNC & Merger tool. The KEY must not change: it is
+# written into pulse_manual_daily and into the by_source block of every report
+# snapshot already on disk. Only its label moved.
 SOURCE_MANUAL = "manual"
+
+# Figures typed in by an account manager, for a tool we cannot reach. A
+# different thing entirely from SOURCE_MANUAL, which is automatic — nobody
+# keys those numbers. Naming both of them "manual" is what made them
+# confusable, so each is labelled by its provenance instead.
+SOURCE_HAND_ENTRY = "hand_entry"
 
 # How each source is labelled in the per-source tabs.
 SOURCE_LABELS: dict[str, str] = {
-    "smartlead":   "Smartlead",
-    "meet_alfred": "Meet Alfred",
-    SOURCE_MANUAL: "Manual",
+    "smartlead":       "Smartlead",
+    "meet_alfred":     "Meet Alfred",
+    SOURCE_MANUAL:     "DNC & Merger",
+    SOURCE_HAND_ENTRY: "Entered by hand",
 }
 
 # Every stage type that pulse_funnel_daily can return, for aggregation.
 # Unsubscribes sit outside OUTCOME_STAGES because those are exclusive of one
 # another and this is not exclusive of them.
-FUNNEL_STAGES: tuple[str, ...] = EVENT_STAGES + OUTCOME_STAGES + (EVENT_UNSUBSCRIBED,)
+FUNNEL_STAGES: tuple[str, ...] = (
+    EVENT_STAGES + OUTCOME_STAGES + (EVENT_UNSUBSCRIBED, EVENT_BOUNCED)
+)
 
 STAGE_LABELS: dict[str, str] = {
     EVENT_SENT:                "Sent",
@@ -111,6 +133,7 @@ STAGE_LABELS: dict[str, str] = {
     EVENT_MEETING_BOOKED:      "Meeting requests",
     EVENT_MANUAL_LEAD:         "Manual leads",
     EVENT_UNSUBSCRIBED:        "Unsubscribes",
+    EVENT_BOUNCED:             "Bounces",
     STAGE_LEADS:               "Leads",
 }
 
@@ -448,6 +471,15 @@ def unsubscribe_rate(counts: dict[str, int]) -> float | None:
     return _rate(unsubscribe_count(counts), counts.get(EVENT_SENT, 0) or 0)
 
 
+def bounce_count(counts: dict[str, int]) -> int:
+    return counts.get(EVENT_BOUNCED, 0) or 0
+
+
+def bounce_rate(counts: dict[str, int]) -> float | None:
+    """Bounces as a share of sends — a deliverability figure, not a response."""
+    return _rate(bounce_count(counts), counts.get(EVENT_SENT, 0) or 0)
+
+
 def interest_count(counts: dict[str, int]) -> int:
     """Prospects marked Interested.
 
@@ -518,7 +550,18 @@ def outcome_breakdown(counts: dict[str, int]) -> list[dict]:
         "of_sent":    unsubscribe_rate(counts),
         "is_lead":    False,
         "is_negative": True,
-    }]
+    }] + ([{
+        # Unlike unsubscribes, shown only when non-zero: just one source can
+        # report a bounce, so a permanent "0 bounces" on a Smartlead-only
+        # client reads as a broken number rather than as good news.
+        "key":        EVENT_BOUNCED,
+        "label":      STAGE_LABELS[EVENT_BOUNCED],
+        "value":      bounce_count(counts),
+        "of_replies": None,
+        "of_sent":    bounce_rate(counts),
+        "is_lead":    False,
+        "is_negative": True,
+    }] if bounce_count(counts) else [])
 
 
 def funnel_with_rates(counts: dict[str, int]) -> list[dict]:

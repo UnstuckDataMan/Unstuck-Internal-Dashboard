@@ -1,0 +1,104 @@
+{# Figures typed in from a tool we cannot reach. Context: client_id, entries,
+   metrics, labels, channels, channel, month, error, notice.
+
+   Field labels name PEOPLE, not events — "Leads who opened", not "Opens".
+   Every other source counts each person once per stage, enforced by the
+   database. This one cannot be enforced, so the wording is what keeps the
+   number typed meaning the same thing as the number printed. #}
+{% if error %}<div class="err-box" style="margin-bottom:12px">{{ error }}</div>{% endif %}
+{% if notice %}<div class="pulse-warn" style="margin-bottom:12px">{{ notice }}</div>{% endif %}
+
+<form class="hand-form"
+      hx-post="/api/outbound-pulse/clients/{{ client_id }}/hand-entries"
+      hx-target="#pulse-hand-entry"
+      hx-swap="innerHTML">
+  <div class="hand-head">
+    <label class="report-field">
+      <span>Channel</span>
+      {# Changing channel re-renders, because the field labels differ: an
+         "open" on LinkedIn is a connection accepted. #}
+      <select name="channel"
+              hx-get="/api/outbound-pulse/clients/{{ client_id }}/hand-entries"
+              hx-target="#pulse-hand-entry"
+              hx-swap="innerHTML"
+              hx-trigger="change">
+        {% for c in channels %}
+        <option value="{{ c }}" {% if c == channel %}selected{% endif %}>
+          {{ "LinkedIn" if c == "linkedin" else "Email" }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="report-field">
+      <span>Month</span>
+      <input type="month" name="period_month" value="{{ month }}" required>
+    </label>
+    <label class="report-field report-field-wide">
+      <span>Where from <em>optional</em></span>
+      <input type="text" name="source_note" maxlength="300"
+             placeholder="e.g. Meet Alfred dashboard, 3 Oct">
+    </label>
+  </div>
+
+  <div class="hand-grid">
+    {% for m in metrics %}
+    <label class="hand-field">
+      <span>{{ labels[m] }}</span>
+      <input type="number" name="{{ m }}" min="0" step="1" placeholder="0" inputmode="numeric">
+    </label>
+    {% endfor %}
+  </div>
+
+  {# Said once, plainly, where the figure is typed rather than buried in a
+     tooltip: a monthly number cannot be truthfully sliced. #}
+  <p class="pulse-meta" style="margin-top:12px;line-height:1.55">
+    A month's figures are recorded against the whole month, never split across
+    its days — so a report covering part of a month either includes all of
+    this or none of it. Saving the same channel and month again corrects it.
+  </p>
+
+  <div class="report-actions">
+    {# Set by the overlap warning, so a second click is a deliberate confirm. #}
+    {% if notice %}<input type="hidden" name="confirm" value="1">{% endif %}
+    <button type="submit" class="btn btn-primary">
+      {{ "Save anyway" if notice else "Save figures" }}
+    </button>
+  </div>
+</form>
+
+{% if entries %}
+<div class="tbl-wrap" style="margin-top:18px;margin-bottom:0">
+  <table>
+    <thead>
+      <tr>
+        <th>Month</th><th>Channel</th><th>Sent</th><th>Replied</th>
+        <th>Meetings</th><th>Bounces</th><th>Entered by</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td>{{ e.label }}</td>
+        <td>{{ e.channel_label }}</td>
+        <td>{{ "{:,}".format(e.sent or 0) }}</td>
+        <td>{{ "{:,}".format(e.replied or 0) }}</td>
+        <td>{{ "{:,}".format(e.meetings or 0) }}</td>
+        <td>{{ "{:,}".format(e.bounced or 0) }}</td>
+        {# Who and from where. A typed figure with no provenance cannot be
+           checked against anything later. #}
+        <td title="{{ e.source_note }}">
+          {{ e.entered_by or "—" }}
+          {% if e.source_note %}<span class="hand-src">· {{ e.source_note }}</span>{% endif %}
+        </td>
+        <td>
+          <button type="button" class="note-act is-danger"
+                  hx-delete="/api/outbound-pulse/clients/{{ client_id }}/hand-entries/{{ e.id }}"
+                  hx-target="#pulse-hand-entry" hx-swap="innerHTML"
+                  hx-confirm="Delete this month's figures?">Delete</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
