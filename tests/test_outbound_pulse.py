@@ -4520,3 +4520,84 @@ def test_figures_cannot_be_negative_in_the_database():
     sql = _hand_sql()
     for col in ("sent", "opened", "replied", "meetings", "bounced", "unsubscribed"):
         assert f"CHECK ({col}" in sql.replace("  ", " ") or f"{col}         >= 0" in sql
+
+
+# ── Precision below 0.1% ─────────────────────────────────────────────────────
+
+def _pct_of(leads, sent):
+    from app.utils.pulse.template_filters import _pct
+
+    c = _counts(sent=sent, meeting_booked=leads)
+    return _pct(normalize.lead_rate(c))
+
+
+def test_a_small_rate_no_longer_collapses_to_zero():
+    """At one decimal place a client with four leads from forty thousand sends
+    read exactly the same as one with none."""
+    assert _pct_of(4, 40000) == "0.01%"
+    assert _pct_of(0, 40000) == "0.0%"
+    assert _pct_of(4, 40000) != _pct_of(0, 40000)
+
+
+def test_rates_at_a_tenth_of_a_percent_and_above_are_unchanged():
+    """Every existing figure in the tool keeps the shape it had."""
+    assert _pct_of(12, 1000) == "1.2%"
+    assert _pct_of(50, 1000) == "5.0%"
+    assert _pct_of(1, 1000) == "0.1%"
+    assert _pct_of(3, 1000) == "0.3%"
+
+
+def test_a_very_small_rate_still_shows_a_figure():
+    """Two significant figures, so something that happened never prints as 0.0%."""
+    assert _pct_of(1, 1000000) == "0.0001%"
+    assert _pct_of(1, 5000) == "0.02%"
+
+
+def test_a_rate_is_never_rendered_in_scientific_notation():
+    """str(0.00001) is "1e-05", which is not a percentage anyone wants on a
+    client report."""
+    from app.utils.pulse.template_filters import _pct
+
+    for sent in (10 ** n for n in range(3, 8)):
+        rendered = _pct_of(1, sent)
+        assert "e" not in rendered.lower(), (sent, rendered)
+        assert rendered.endswith("%")
+
+
+def test_trailing_zeros_are_stripped_below_a_tenth():
+    """0.04%, not 0.040% — the number shows the precision it actually has."""
+    assert _pct_of(4, 10000) == "0.04%"
+
+
+def test_no_base_is_still_an_em_dash():
+    from app.utils.pulse.template_filters import _pct
+
+    assert _pct(None) == "\u2014"
+    assert normalize.lead_rate(_counts(sent=0, meeting_booked=3)) is None
+
+
+def test_a_nonsense_value_does_not_crash_a_client_report():
+    from app.utils.pulse.template_filters import _pct
+
+    assert _pct("not a number") == "\u2014"
+
+
+def test_the_funnel_step_rates_go_through_the_same_filter(client, fake_sb):
+    """Those four sites interpolated the float directly, so they would have
+    printed 0.0% while the boxes beside them printed 0.01%."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "app" / "templates"
+    for name in ("partials/pulse_funnel.html", "portal.html"):
+        html = (root / name).read_text(encoding="utf-8")
+        assert "step_rate }}%" not in html, name
+        assert "overall }}%" not in html, name
+        assert "step_rate | pulse_pct" in html, name
+
+
+def test_a_low_rate_reads_the_same_everywhere_on_a_report(client, fake_sb):
+    """The headline box, the funnel step and the outcome share would otherwise
+    disagree about the same number."""
+    _portal_routes(fake_sb, reports=[_report()])
+    body = client.get("/r/valid-token").text
+    assert "0.0%" not in body or "0.4%" in body

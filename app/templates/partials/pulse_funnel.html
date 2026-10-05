@@ -17,7 +17,7 @@
     <div class="funnel-rates">
       {% if stage.step_rate is not none %}
         <span class="rate-step" title="Share of the stage above that reached this one">
-          {{ stage.step_rate }}% of {{ funnel[loop.index0 - 1].label | lower }}
+          {{ stage.step_rate | pulse_pct }} of {{ funnel[loop.index0 - 1].label | lower }}
         </span>
       {% elif stage.is_top %}
         <span class="rate-step">top of funnel</span>
@@ -28,7 +28,7 @@
       {% endif %}
       {% if stage.overall is not none %}
         <span class="rate-overall" title="Share of all sends that reached this stage">
-          {{ stage.overall }}% of sent
+          {{ stage.overall | pulse_pct }} of sent
         </span>
       {% endif %}
     </div>
