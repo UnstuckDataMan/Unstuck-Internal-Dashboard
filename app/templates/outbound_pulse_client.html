@@ -24,14 +24,18 @@
     {% endfor %}
     <option value="custom" {% if range.preset == "custom" %}selected{% endif %}>Custom range…</option>
   </select>
+  {# Disabled outside custom mode. These are pre-filled from the resolved
+     range even for a preset, so while they were enabled the A/B panel's
+     hx-include always sent concrete dates and its header reported a raw date
+     pair instead of "last 30 days". #}
   <span id="custom-range" class="date-range" {% if range.preset != "custom" %}hidden{% endif %}>
     <input type="date" id="date-from" name="date_from"
            value="{{ range["from"].isoformat() if range["from"] else "" }}"
-           aria-label="From date">
+           aria-label="From date" {% if range.preset != "custom" %}disabled{% endif %}>
     <span class="date-range-sep">→</span>
     <input type="date" id="date-to" name="date_to"
            value="{{ range["to"].isoformat() if range["to"] else "" }}"
-           aria-label="To date">
+           aria-label="To date" {% if range.preset != "custom" %}disabled{% endif %}>
     <button type="button" class="btn btn-download" id="apply-range">Apply</button>
   </span>
   <label for="channel-select" style="margin-left:6px">Channel</label>
@@ -273,11 +277,20 @@
   const rangeSel = document.getElementById('range-select');
   const custom   = document.getElementById('custom-range');
 
+  const dateFrom = document.getElementById('date-from');
+  const dateTo   = document.getElementById('date-to');
+
+  function setCustomMode(isCustom) {
+    custom.hidden = !isCustom;
+    dateFrom.disabled = !isCustom;
+    dateTo.disabled = !isCustom;
+  }
+
   // Custom only reveals the inputs; nothing is fetched until Apply, so a
   // half-typed date never triggers a reload.
   rangeSel.addEventListener('change', function () {
     const isCustom = rangeSel.value === 'custom';
-    custom.hidden = !isCustom;
+    setCustomMode(isCustom);
     if (!isCustom) window.applyFilters();
   });
   document.getElementById('apply-range').addEventListener('click', function () {
@@ -288,19 +301,25 @@
     const channel = document.getElementById('channel-select').value;
     // Full navigation rather than an HTMX swap: this page's URL is what gets
     // shared and bookmarked, so the filters belong in it.
+    //
+    // Driven by whether the inputs are ENABLED, not by what the select says.
+    // Gating on the select meant dates typed into boxes that were visibly
+    // editable — because the hidden attribute was not working — were thrown
+    // away, and the page came back on the preset looking like it had reverted.
     const params = new URLSearchParams();
-    if (rangeSel.value === 'custom') {
-      const from = document.getElementById('date-from').value;
-      const to   = document.getElementById('date-to').value;
+    const from = dateFrom.disabled ? "" : dateFrom.value;
+    const to   = dateTo.disabled   ? "" : dateTo.value;
+    if (from || to) {
       if (from) params.set('date_from', from);
       if (to)   params.set('date_to', to);
-      if (!from && !to) params.set('range', '30d');
     } else {
-      params.set('range', rangeSel.value);
+      params.set('range', rangeSel.value === 'custom' ? '30d' : rangeSel.value);
     }
     if (channel) params.set('channel', channel);
     window.location.search = params.toString();
   };
+
+  setCustomMode(rangeSel.value === 'custom');
 
   // ── Source tabs ───────────────────────────────────────────────────
   const tabs = document.querySelectorAll('.source-tab');

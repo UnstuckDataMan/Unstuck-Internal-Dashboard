@@ -400,12 +400,25 @@ def _parse_iso(value: str) -> datetime | None:
 # ── Pages ─────────────────────────────────────────────────────────────────────
 
 @router.get("/outbound-pulse")
-async def pulse_page(request: Request):
+async def pulse_page(
+    request:   Request,
+    range:     str = Query("30d"),
+    date_from: str = Query(""),
+    date_to:   str = Query(""),
+):
+    """The overview shell. The partial inside it fetches the numbers.
+
+    It takes the range parameters so the control can show the range actually
+    in force. Without them the template hardcoded "Last 30 days" as selected,
+    so after a custom range was applied the dropdown and the figures on screen
+    disagreed with each other.
+    """
     return templates.TemplateResponse("outbound_pulse.html", {
         "request":  request,
         "active":   "outbound_pulse",
         "sop_key":  "outbound_pulse",
         "presets":  RANGE_PRESETS,
+        "range":    _resolve_range(range, date_from, date_to),
     })
 
 

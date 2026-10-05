@@ -3727,3 +3727,80 @@ def test_a_failed_save_says_so_too(client, fake_sb):
     r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1",
                     data={"title": "", "body": "<p>x</p>"})
     assert "Could not save" in r.text
+
+
+# ── The date range controls ──────────────────────────────────────────────────
+
+def _styles():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1] / "app" / "templates"
+            / "pulse_styles.html").read_text(encoding="utf-8")
+
+
+def test_the_custom_range_can_actually_be_hidden():
+    """An author-origin `display` beats the browser's [hidden] rule, so the
+    custom-range inputs were never hidden. People typed dates into boxes that
+    looked live while the dropdown still said "Last 30 days"."""
+    css = _styles()
+    assert ".date-range[hidden] { display: none; }" in css
+    assert css.index(".date-range {") < css.index(".date-range[hidden]")
+
+
+def test_the_overview_date_inputs_are_disabled_outside_custom_mode(client, fake_sb):
+    """HTMX omits disabled inputs but sends hidden ones, and any date beats the
+    preset server-side — so a leftover date used to override every later
+    preset choice and the Range control went dead."""
+    _detail_routes(fake_sb)
+    body = client.get("/outbound-pulse").text
+    span = body[body.index('id="custom-range"'):body.index("apply-range")]
+    assert span.count("disabled") == 2
+
+
+def test_the_client_page_date_inputs_are_disabled_for_a_preset(client, fake_sb):
+    _detail_routes(fake_sb)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}?range=30d").text
+    span = body[body.index('id="custom-range"'):body.index("apply-range")]
+    assert span.count("disabled") == 2
+
+
+def test_the_client_page_date_inputs_are_live_for_a_custom_range(client, fake_sb):
+    _detail_routes(fake_sb)
+    body = client.get(
+        f"/outbound-pulse/clients/{CLIENT}?date_from=2026-09-01&date_to=2026-09-30").text
+    span = body[body.index('id="custom-range"'):body.index("apply-range")]
+    assert "disabled" not in span
+    assert "2026-09-01" in span and "2026-09-30" in span
+
+
+def test_the_overview_shows_the_range_it_actually_applied(client, fake_sb):
+    """The template hardcoded 30d as selected, so after a custom range the
+    dropdown and the figures on screen disagreed."""
+    _detail_routes(fake_sb)
+
+    body = client.get("/outbound-pulse?range=90d").text
+    select = body[body.index('id="range-select"'):body.index("</select>")]
+    assert '<option value="90d" selected>' in select.replace(" >", ">")
+
+    body = client.get("/outbound-pulse?date_from=2026-09-01&date_to=2026-09-30").text
+    select = body[body.index('id="range-select"'):body.index("</select>")]
+    assert 'value="custom" selected' in select
+
+
+def test_a_preset_still_resolves_to_that_preset_server_side(client, fake_sb):
+    """The regression in one line: an empty date must never beat the preset."""
+    from app.routers.outbound_pulse import _resolve_range
+
+    assert _resolve_range("90d", "", "")["preset"] == "90d"
+    assert _resolve_range("90d", "2026-09-01", "")["preset"] == "custom"
+
+
+def test_the_ab_panel_asks_for_the_same_range_as_the_page(client, fake_sb):
+    """It shares the page's date inputs through hx-include. While those were
+    enabled for presets too, A/B always resolved to a custom range and its
+    header printed raw dates instead of "last 30 days"."""
+    _detail_routes(fake_sb)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}?range=30d").text
+    assert 'hx-include="#range-select, #date-from, #date-to"' in body
+    # Disabled for a preset, so only `range` reaches the A/B endpoint.
+    span = body[body.index('id="custom-range"'):body.index("apply-range")]
+    assert span.count("disabled") == 2

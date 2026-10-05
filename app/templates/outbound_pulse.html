@@ -41,14 +41,17 @@
   <label for="range-select">Range</label>
   <select id="range-select" name="range">
     {% for key, label in presets.items() %}
-    <option value="{{ key }}" {% if key == "30d" %}selected{% endif %}>{{ label }}</option>
+    <option value="{{ key }}" {% if key == range.preset %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
-    <option value="custom">Custom range…</option>
+    <option value="custom" {% if range.preset == "custom" %}selected{% endif %}>Custom range…</option>
   </select>
+  {# Disabled, not just hidden. HTMX omits disabled inputs but happily sends
+     hidden ones, and _resolve_range gives any date priority over the preset —
+     so a leftover custom date used to override every later preset choice. #}
   <span id="custom-range" class="date-range" hidden>
-    <input type="date" id="date-from" name="date_from" aria-label="From date">
+    <input type="date" id="date-from" name="date_from" aria-label="From date" disabled>
     <span class="date-range-sep">→</span>
-    <input type="date" id="date-to" name="date_to" aria-label="To date">
+    <input type="date" id="date-to" name="date_to" aria-label="To date" disabled>
     <button type="button" class="btn btn-download" id="apply-range">Apply</button>
   </span>
 
@@ -176,20 +179,30 @@
   chanSel.addEventListener('change', refresh);
 
   // Custom reveals the date inputs and waits for Apply; every other preset
-  // refreshes immediately. The date inputs are cleared when leaving custom, or
-  // they would keep overriding the preset on the server.
+  // refreshes immediately. Leaving custom DISABLES the inputs rather than
+  // clearing them: clearing only ran on `change`, so re-picking the preset you
+  // were already on fired no event, the stale dates kept winning, and both the
+  // Range and Channel controls went dead. Disabled inputs are never sent, so
+  // the state cannot go stale in the first place — and the typed dates are
+  // still there if you switch back to Custom.
   const customRange = document.getElementById('custom-range');
   const dateFrom = document.getElementById('date-from');
   const dateTo = document.getElementById('date-to');
+
+  function setCustomMode(isCustom) {
+    customRange.hidden = !isCustom;
+    dateFrom.disabled = !isCustom;
+    dateTo.disabled = !isCustom;
+  }
+
   rangeSel.addEventListener('change', function () {
     const isCustom = rangeSel.value === 'custom';
-    customRange.hidden = !isCustom;
+    setCustomMode(isCustom);
     if (isCustom) return;            // wait for Apply
-    dateFrom.value = '';
-    dateTo.value = '';
     refresh();
   });
   document.getElementById('apply-range').addEventListener('click', refresh);
+  setCustomMode(rangeSel.value === 'custom');
 
   // Client picker for the import form.
   fetch('/api/outbound-pulse/clients', { headers: { 'HX-Request': 'true' } })
