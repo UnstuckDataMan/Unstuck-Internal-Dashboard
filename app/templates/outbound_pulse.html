@@ -64,6 +64,12 @@
     <option value="manual">Manual</option>
   </select>
 
+  <div id="pulse-exclusions"
+       hx-get="/api/outbound-pulse/exclusions"
+       hx-trigger="load"
+       hx-swap="innerHTML"
+       style="margin-left:8px"></div>
+
   <div class="spacer"></div>
   <div id="pulse-spinner" class="spinner htmx-indicator">
     <div class="dot"></div><div class="dot"></div><div class="dot"></div>

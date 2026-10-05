@@ -1,0 +1,47 @@
+{# Clients hidden from this overview, per person. Context: clients, hidden,
+   hidden_ids, is_default, error.
+
+   A checkbox list rather than a <select multiple>: the native control hides
+   its own state behind a scrollbar, and the one thing this feature must never
+   do is let a filtered total look like an unfiltered one. #}
+<details class="pulse-excl">
+  <summary class="pulse-excl-summary">
+    {% if hidden %}
+      {{ hidden | length }} client{{ "" if hidden | length == 1 else "s" }} hidden
+    {% else %}
+      All clients shown
+    {% endif %}
+    {% if is_default %}<span class="pulse-excl-tag">default</span>{% endif %}
+  </summary>
+
+  <form class="pulse-excl-body"
+        hx-post="/api/outbound-pulse/exclusions"
+        hx-target="#pulse-exclusions"
+        hx-swap="innerHTML">
+    {% if error %}<div class="err-box" style="margin-bottom:10px">{{ error }}</div>{% endif %}
+
+    <p class="pulse-meta" style="margin:0 0 10px;line-height:1.55">
+      A hidden client leaves this overview and its totals. Their own page,
+      their reports and their portal link are unchanged.
+    </p>
+
+    {% for c in clients %}
+    <label class="pulse-excl-row">
+      <input type="checkbox" name="excluded" value="{{ c.id }}"
+             {% if c.id | string in hidden_ids %}checked{% endif %}>
+      {{ c.name }}
+    </label>
+    {% endfor %}
+
+    <div class="pulse-excl-actions">
+      {# Distinct from unticking everything. That saves "show me everything"
+         and stays that way; this drops the saved preference so the house
+         default applies again. #}
+      <button type="button" class="btn btn-download"
+              hx-delete="/api/outbound-pulse/exclusions"
+              hx-target="#pulse-exclusions"
+              hx-swap="innerHTML">Reset to default</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</details>

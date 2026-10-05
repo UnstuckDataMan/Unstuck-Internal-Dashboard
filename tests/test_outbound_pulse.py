@@ -3868,3 +3868,292 @@ def test_the_new_card_is_still_permission_gated():
     reporting = html[html.index('id="screen-reporting"'):]
     reporting = reporting[:reporting.index('id="screen-operations"')]
     assert "{% if 'outbound_pulse' in tools %}" in reporting
+
+
+# ── Hiding clients from the overview ─────────────────────────────────────────
+
+BD = "55555555-5555-5555-5555-555555555555"
+
+
+def _two_clients(fake_sb, prefs=None):
+    """Acme plus the business-development client, both with activity."""
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, [
+        {"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True},
+        {"id": BD, "name": "Unstuck - Business Development", "color": None,
+         "emoji": None, "active": True},
+    ]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 1000, "day": "2026-09-01"},
+        {"client_id": BD, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 400, "day": "2026-09-01"},
+    ]))
+    # prefs: None = no row (never chosen), else a list for the stored row.
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(
+        200, [] if prefs is None else [{"excluded_client_ids": prefs}]))
+
+
+# ── The three states, which is the whole point of the schema ────────────────
+
+def test_a_user_who_has_never_chosen_gets_the_default_exclusion(client, fake_sb):
+    _two_clients(fake_sb, prefs=None)
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "Acme" in body
+    assert "Unstuck - Business Development" not in body.split("Hiding")[0]
+
+
+def test_a_user_who_cleared_their_exclusions_sees_every_client(client, fake_sb):
+    """The test that fails if "never chosen" and "chose nothing" are ever
+    collapsed into one state. Saving an empty list has to stick."""
+    _two_clients(fake_sb, prefs=[])
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "Acme" in body
+    assert "Unstuck - Business Development" in body
+    assert "Hiding" not in body
+
+
+def test_a_saved_exclusion_hides_only_what_was_chosen(client, fake_sb):
+    _two_clients(fake_sb, prefs=[CLIENT])
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "Unstuck - Business Development" in body
+    assert "Hiding Acme" in body
+
+
+# ── Totals and the channel strip have to agree with the grid ────────────────
+
+def test_a_hidden_client_leaves_the_totals_not_just_the_grid(client, fake_sb):
+    _two_clients(fake_sb, prefs=None)        # BD hidden by default
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "1,000" in body                   # Acme alone
+    assert "1,400" not in body               # not Acme + BD
+
+
+def test_the_channel_strip_matches_the_totals_above_it(client, fake_sb):
+    """The strip used to come from a separate, unfiltered query, so with
+    anything hidden it stopped adding up to the totals printed above it."""
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, [
+        {"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True},
+        {"id": BD, "name": "Unstuck - Business Development", "color": None,
+         "emoji": None, "active": True},
+    ]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 1000, "day": "2026-09-01"},
+        {"client_id": CLIENT, "channel": "linkedin", "source_tool": "meet_alfred",
+         "event_type": "sent", "events": 200, "day": "2026-09-01"},
+        {"client_id": BD, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 400, "day": "2026-09-01"},
+    ]))
+
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "1,200" in body        # the total: Acme's email + LinkedIn
+    assert "1,600" not in body    # BD's 400 is in neither the total nor the strip
+    strip = body[body.index("By channel"):]
+    assert "400" not in strip
+
+
+def test_the_overview_names_the_clients_it_is_hiding(client, fake_sb):
+    """A total with something taken out of it is otherwise indistinguishable
+    from the real figure."""
+    _two_clients(fake_sb, prefs=None)
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "Hiding Unstuck - Business Development" in body
+
+
+# ── Scope: the things an exclusion must NOT touch ───────────────────────────
+
+def test_a_hidden_client_still_has_a_working_page(client, fake_sb):
+    """Hiding is about your list, not about access."""
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(
+        200, [{"excluded_client_ids": [CLIENT]}]))
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert r.status_code == 200
+    assert "Acme" in r.text
+
+
+def test_the_client_portal_ignores_overview_exclusions(client, fake_sb):
+    _portal_routes(fake_sb)
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(
+        200, [{"excluded_client_ids": [CLIENT]}]))
+    r = client.get("/r/valid-token")
+    assert r.status_code == 200
+    assert "September 2026" in r.text
+
+
+def test_publishing_a_report_never_reads_view_preferences(client, fake_sb):
+    """The strongest statement that a personal view filter cannot reach a
+    client's frozen figures."""
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("PATCH", "pulse_reports", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert fake_sb.calls_to("GET", "pulse_user_prefs") == []
+
+
+def test_exclusions_do_not_narrow_the_campaign_mapping_picker(client, fake_sb):
+    """You must still be able to map a campaign to a hidden client."""
+    _two_clients(fake_sb, prefs=[BD])
+    body = client.get("/api/outbound-pulse/campaigns").text
+    assert "Unstuck - Business Development" in body
+
+
+# ── Saving, resetting, scoping ──────────────────────────────────────────────
+
+def test_saving_upserts_on_the_user_and_the_agency(client, fake_sb):
+    seen = {}
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, [
+        {"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(200, []))
+    fake_sb.route("POST", "pulse_user_prefs",
+                  lambda call: (seen.update(call), FakeResponse(201, []))[1])
+
+    r = client.post("/api/outbound-pulse/exclusions", data={"excluded": [CLIENT]})
+    assert r.status_code == 200
+    assert seen["params"]["on_conflict"] == "agency_id,user_email"
+    assert "merge-duplicates" in seen["headers"].get("Prefer", "")
+    assert seen["json"]["excluded_client_ids"] == [CLIENT]
+    assert seen["json"]["user_email"] == seen["json"]["user_email"].lower()
+
+
+def test_saving_refreshes_the_overview(client, fake_sb):
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(200, []))
+    fake_sb.route("POST", "pulse_user_prefs", lambda call: FakeResponse(201, []))
+    r = client.post("/api/outbound-pulse/exclusions", data={})
+    assert r.headers.get("HX-Trigger") == "pulseRefresh"
+
+
+def test_saving_nothing_writes_an_empty_list_rather_than_doing_nothing(client, fake_sb):
+    """"Show me everything" is a real answer and has to be storable."""
+    seen = {}
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(200, []))
+    fake_sb.route("POST", "pulse_user_prefs",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(201, []))[1])
+    client.post("/api/outbound-pulse/exclusions", data={})
+    assert seen["excluded_client_ids"] == []
+
+
+def test_resetting_deletes_the_row_rather_than_saving_an_empty_list(client, fake_sb):
+    """The only way back to the house default."""
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(200, []))
+    fake_sb.route("DELETE", "pulse_user_prefs", lambda call: FakeResponse(204, []))
+
+    r = client.delete("/api/outbound-pulse/exclusions")
+    assert r.headers.get("HX-Trigger") == "pulseRefresh"
+    assert fake_sb.calls_to("DELETE", "pulse_user_prefs")
+    assert not fake_sb.calls_to("POST", "pulse_user_prefs")
+
+
+def test_an_unknown_client_id_is_dropped_rather_than_written(client, fake_sb):
+    """A uuid[] column rejects a non-uuid, which would fail the whole save."""
+    seen = {}
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, [
+        {"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True}]))
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(200, []))
+    fake_sb.route("POST", "pulse_user_prefs",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(201, []))[1])
+
+    client.post("/api/outbound-pulse/exclusions",
+                data={"excluded": [CLIENT, "not-a-uuid", "../../etc"]})
+    assert seen["excluded_client_ids"] == [CLIENT]
+
+
+def test_preferences_are_agency_scoped(client, fake_sb):
+    from tests.conftest import param_values
+
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(200, []))
+    fake_sb.route("DELETE", "pulse_user_prefs", lambda call: FakeResponse(204, []))
+
+    client.get("/api/outbound-pulse/exclusions")
+    client.delete("/api/outbound-pulse/exclusions")
+    for method in ("GET", "DELETE"):
+        for call in fake_sb.calls_to(method, "pulse_user_prefs"):
+            assert param_values(call, "agency_id")
+
+
+# ── Resilience and the default ──────────────────────────────────────────────
+
+def test_a_missing_preferences_table_does_not_break_the_overview(client, fake_sb):
+    """Losing the overview because a view preference could not be read would
+    be a far worse failure than losing the preference."""
+    _two_clients(fake_sb, prefs=None)
+    fake_sb.route("GET", "pulse_user_prefs",
+                  lambda call: FakeResponse(500, {"message": "does not exist"}))
+    r = client.get("/api/outbound-pulse/overview")
+    assert r.status_code == 200
+    assert "Acme" in r.text
+
+
+def test_the_default_client_is_matched_by_name_not_by_id():
+    """The id differs between Supabase projects; this has to work on a fresh
+    database with nothing seeded."""
+    from app.routers.outbound_pulse import _default_excluded_ids
+
+    found = _default_excluded_ids([
+        {"id": "x", "name": "  unstuck - business development  "},
+        {"id": "y", "name": "Acme"},
+    ])
+    assert found == {"x"}
+
+
+def test_the_default_exclusion_is_env_overridable(monkeypatch):
+    import importlib
+
+    from app.routers import outbound_pulse as mod
+
+    monkeypatch.setenv("PULSE_DEFAULT_EXCLUDED_CLIENTS", "Acme, Other Co")
+    reloaded = importlib.reload(mod)
+    try:
+        assert reloaded.DEFAULT_EXCLUDED_CLIENT_NAMES == ("acme", "other co")
+    finally:
+        monkeypatch.delenv("PULSE_DEFAULT_EXCLUDED_CLIENTS", raising=False)
+        importlib.reload(mod)
+
+
+# ── The migration ───────────────────────────────────────────────────────────
+
+def _prefs_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1]
+            / "migrations" / "outbound_pulse_user_prefs.sql").read_text(encoding="utf-8")
+
+
+def test_the_prefs_migration_is_one_transaction_and_re_runnable():
+    sql = _prefs_sql()
+    assert sql.index("BEGIN;") < sql.index("CREATE TABLE")
+    assert "CREATE TABLE IF NOT EXISTS pulse_user_prefs" in sql
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+def test_row_presence_is_what_distinguishes_never_chosen_from_chose_nothing():
+    sql = _prefs_sql()
+    assert "PRIMARY KEY (agency_id, user_email)" in sql
+    assert "excluded_client_ids uuid[] NOT NULL DEFAULT '{}'" in sql
+
+
+def test_the_prefs_table_has_no_foreign_key_to_app_users():
+    """With AUTH_DISABLED the user is dev@local, who has no app_users row — a
+    key would break saving in exactly the mode that exists as a rollback.
+
+    Checks the DDL with comments stripped; the comment block explains the
+    decision and naturally mentions the table.
+    """
+    ddl = chr(10).join(line for line in _prefs_sql().splitlines()
+                       if not line.lstrip().startswith("--"))
+    assert "app_users" not in ddl
+    assert "REFERENCES agencies(id)" in ddl      # the one key it does have
+
+
+def test_the_email_key_is_forced_lowercase_by_the_database():
+    assert "CHECK (user_email = lower(user_email)" in _prefs_sql()
