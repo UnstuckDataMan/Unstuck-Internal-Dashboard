@@ -782,9 +782,9 @@ const state = {
   amChartClients: 'bar', amChartRev: 'bar', amChartLtv: 'bar', amChartTenure: 'bar', // each Team chart: 'bar' | 'pie'
   amBasis: 'combination', // 'all' | 'realised' | 'running' | 'combination' (see AM_BASIS)
   amFilterWide: '', amFilterIndustry: '', amFilterCountry: '', amFilterSize: '', // Team tab client filters ('' = all, UNCLASSIFIED = none set)
-  insBasis: 'realised',  // 'realised' | 'running' | 'combination' — see basisSplit()
+  insBasis: 'combination',  // 'realised' | 'running' | 'combination' — see basisSplit(); Combination is always the default
   insDim: 'general',    // 'general' | 'industry' | 'companySize' | 'country' — LTV detail's "compare by" picker
-  insPredBasis: 'realised', // 'realised' | 'running' | 'combination' — see basisSplit()
+  insPredBasis: 'combination', // 'realised' | 'running' | 'combination' — see basisSplit(); Combination is always the default
   insPredWide: [],
   insPredIndustries: [],
   insPredSizes: [],
