@@ -3120,7 +3120,7 @@ function buildLineChart(seriesList, opts = {}) {
     seriesSvg += `<polyline points="${linePoints}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
     s.points.forEach((p, i) => {
       if (p.v == null) return;
-      seriesSvg += `<circle class="chart-pt" cx="${x(i)}" cy="${y(p.v)}" r="3.5" fill="${s.color}" stroke="var(--bg-card)" stroke-width="2"><title>${esc(s.name)} — ${esc(tooltipLabelFn(p.m))}: ${esc(fmtV(p.v))}</title></circle>`;
+      seriesSvg += `<circle class="chart-pt" cx="${x(i)}" cy="${y(p.v)}" r="3.5" fill="${p.color || s.color}" stroke="var(--bg-card)" stroke-width="2"><title>${esc(p.tooltipLabel || s.name)} — ${esc(tooltipLabelFn(p.m))}: ${esc(fmtV(p.v))}</title></circle>`;
     });
   });
 
@@ -3534,7 +3534,7 @@ function sumRevenueOverMonths(rows, months) {
 }
 // Three mutually-stacked segments against a shared scale (the largest of
 // goal/expected/landed, so the bar never clips): Landed (bright, real cash),
-// Expected-not-yet-landed (darker green, the rest of what's due), Goal gap
+// Expected-not-yet-landed (orange, the rest of what's due), Goal gap
 // (hashed, same "projection not real data" treatment used on the Invoices
 // tab's bars). Shared by the Overview's Revenue tile and the Revenue
 // detail page's own "This period" snapshot, so the two can never disagree.
@@ -3567,9 +3567,9 @@ function revBarRowHtml(label, bar, subLabel) {
       ${esc(label)}
       ${subLabel ? `<div style="font-size:9px; font-weight:600; letter-spacing:0; text-transform:none; color:var(--text-muted); margin-top:2px">${esc(subLabel)}</div>` : ''}
     </div>
-    <div class="progress-bar" title="Landed (bright) vs. expected if every due invoice lands (darker) vs. goal (hashed)${subLabel ? ` — ${esc(subLabel)}` : ''}">
+    <div class="progress-bar" title="Landed (green) vs. expected if every due invoice lands (orange) vs. goal (hashed)${subLabel ? ` — ${esc(subLabel)}` : ''}">
       <div class="progress-seg" style="width:${bar.landedPct}%; background:var(--success)" title="Landed — ${esc(fmtMoney(bar.landedAmt))}">${bar.landedPct >= 14 ? `<span>${esc(fmtMoney(bar.landedAmt))}</span>` : ''}</div>
-      <div class="progress-seg" style="width:${bar.expectedPct}%; background:#15803d" title="Expected, not yet landed — ${esc(fmtMoney(bar.expectedAmt))}">${bar.expectedPct >= 14 ? `<span>${esc(fmtMoney(bar.expectedAmt))}</span>` : ''}</div>
+      <div class="progress-seg" style="width:${bar.expectedPct}%; background:var(--warn)" title="Expected, not yet landed — ${esc(fmtMoney(bar.expectedAmt))}">${bar.expectedPct >= 14 ? `<span>${esc(fmtMoney(bar.expectedAmt))}</span>` : ''}</div>
       ${bar.goalGapPct > 0 ? `<div class="progress-gap" style="width:${bar.goalGapPct}%" title="Gap to goal — ${esc(fmtMoney(bar.goalGapAmt))}">${bar.goalGapPct >= 14 ? `<span>${esc(fmtMoney(bar.goalGapAmt))}</span>` : ''}</div>` : ''}
     </div>
   </div>`;
@@ -3580,7 +3580,7 @@ function revBarRowHtml(label, bar, subLabel) {
 function revBarLegendHtml() {
   return `<div class="chart-legend">
     <span class="key"><span class="dot" style="background:var(--success)"></span>Landed</span>
-    <span class="key"><span class="dot" style="background:#15803d"></span>Expected, not yet landed</span>
+    <span class="key"><span class="dot" style="background:var(--warn)"></span>Expected, not yet landed</span>
     <span class="key"><span class="swatch" style="width:14px; height:10px; border:none; border-radius:2px; background:repeating-linear-gradient(135deg, transparent 0 5px, rgba(239,68,68,.35) 5px 6px); box-shadow:inset 0 0 0 1px rgba(239,68,68,.45)"></span>Gap to goal</span>
   </div>`;
 }
@@ -3886,10 +3886,10 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
     // MRR here is cash landed for a completed month; for the current
     // (still-elapsing) month it's what's expected to land — every invoice
     // due this month, landed or not — rather than cash-so-far, which would
-    // just understate a month that isn't over. The darker shade + tooltip
+    // just understate a month that isn't over. The orange shade + tooltip
     // signal that one bar is a projection, not a closed figure.
     { name: 'MRR', color: 'var(--success)', points: revMonthRows.map(r => r.m === monthKey
-      ? { m: r.m, v: monthExpected, color: '#15803d', tooltipLabel: 'MRR — expected to land' }
+      ? { m: r.m, v: monthExpected, color: 'var(--warn)', tooltipLabel: 'MRR — expected to land' }
       : { m: r.m, v: landedForMonth(r.m) }) },
   ];
   const revMonthlyChart = state.insRevMonthlyChart === 'bar'
@@ -3925,7 +3925,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
           ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
           : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
         <span class="key"><span class="dot" style="background:var(--success)"></span>${insTerm('MRR')}</span>
-        <span class="key"><span class="dot" style="background:#15803d"></span>${insTerm('MRR')} — expected to land (current month)</span>
+        <span class="key"><span class="dot" style="background:var(--warn)"></span>${insTerm('MRR')} — expected to land (current month)</span>
       </div>
       <div class="chart-wrap" id="ins-rev-m-wrap">${revMonthlyChart.html}</div>
     </div>
