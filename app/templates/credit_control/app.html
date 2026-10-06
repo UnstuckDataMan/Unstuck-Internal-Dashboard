@@ -4171,7 +4171,9 @@ function insPeriodBarsHtml(rows, { custom = false } = {}) {
   const upTo = rows.filter(r => r.m <= cur);
   const latest = currentSnapshotRow(rows);
   const same = (a, b) => a.length === b.length && a.every((m, i) => m === b[i]);
-  const statsFor = months => { const s = sumRevenueOverMonths(rows, months); return revBarStats(s.landed, s.expected, s.goal); };
+  // noGoal: the All time bar carries no goal (line or gap) — targets only cover a
+  // few months, so a goal against the whole history says nothing useful.
+  const statsFor = (months, noGoal = false) => { const s = sumRevenueOverMonths(rows, months); return revBarStats(s.landed, s.expected, noGoal ? null : s.goal); };
 
   const monthBar = revBarStats(landedForMonth(cur), latest ? (latest.expected ?? latest.mrr) : 0, targetForMonth(cur));
   const cats = [
@@ -4186,7 +4188,7 @@ function insPeriodBarsHtml(rows, { custom = false } = {}) {
     if (!months.length || same(months, [cur])) return;
     const dup = bars.find(b => same(b.months, months));
     if (dup) dup.label += ` / ${label.toLowerCase()}`;
-    else bars.push({ label, months });
+    else bars.push({ label, months, noGoal: label === 'All time' });
   });
   bars.sort((a, b) => a.months.length - b.months.length);
 
@@ -4196,7 +4198,7 @@ function insPeriodBarsHtml(rows, { custom = false } = {}) {
   let i = 0;
   const html = `<div class="progress-bars spaced ${insBarsReveal ? 'reveal' : ''}">
       ${revBarRowHtml(monthLabel(cur), monthBar, '', i++, 'current')}
-      ${bars.map(b => revBarRowHtml(b.label.charAt(0).toUpperCase() + b.label.slice(1), statsFor(b.months), monthRangeLabel(b.months), i++)).join('')}
+      ${bars.map(b => revBarRowHtml(b.label.charAt(0).toUpperCase() + b.label.slice(1), statsFor(b.months, b.noGoal), monthRangeLabel(b.months), i++)).join('')}
       ${cb && customMonths.length ? revBarRowHtml('Custom', statsFor(customMonths), monthRangeLabel(customMonths), i++) : ''}
     </div>
     ${custom ? `<div class="pb-custom">${cb
