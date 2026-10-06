@@ -125,6 +125,24 @@
   .pill.active { background: var(--bg-card); color: var(--accent); box-shadow: inset 0 0 0 1px var(--border-hi); }
   .pill:hover:not(.active) { color: var(--text); }
 
+  /* Revenue page: two visually separate timeframe groups — look back (Past data)
+     and look ahead (Projections). One pick from each applies at the same time. */
+  .tf-groups { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+  .tf-group { display: flex; flex-direction: column; gap: 5px; padding: 6px 10px 7px; border-radius: 12px; border: 1px solid var(--border-hi); background: var(--bg); }
+  .tf-group .tf-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding-left: 4px; }
+  .tf-group.proj { border-style: dashed; border-color: var(--accent); }
+  .tf-group.proj .tf-label { color: var(--accent); }
+  .tf-link {
+    align-self: center; display: inline-flex; flex-direction: column; align-items: center; gap: 1px;
+    padding: 5px 10px; border-radius: 12px; border: 1px solid var(--border-hi); background: transparent;
+    color: var(--text-dim); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer;
+  }
+  .tf-link .ic { font-size: 15px; line-height: 1; letter-spacing: 0; }
+  .tf-link:hover { color: var(--text); }
+  .tf-link.on { color: var(--accent); border-color: var(--accent); background: rgba(167,139,250,.14); }
+  .cmp-up { color: var(--success); font-weight: 700; }
+  .cmp-down { color: var(--danger); font-weight: 700; }
+
   /* ── Stat cards ── */
   .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
   .stat {
@@ -613,6 +631,8 @@ const state = {
   insFilterCountry: '',
   insFilterSize: '',
   insTrendScale: '12',  // '6' | '12' | '24' | 'all'
+  insProjScale: 'off',  // Revenue page only: how far ahead the target line runs — 'off' | a month count ('3', '6', '12'…)
+  insProjMirror: false, // Revenue page only: when on, Past data and Projections always cover the same span
   insBasis: 'realised',  // 'realised' | 'running' | 'combination' — see basisSplit()
   insDim: 'general',    // 'general' | 'industry' | 'companySize' | 'country' — LTV detail's "compare by" picker
   insPredBasis: 'realised', // 'realised' | 'running' | 'combination' — see basisSplit()
@@ -3074,7 +3094,7 @@ function wireChurnChartHover(chartWrap, chart) {
 // namespaces the crosshair/tooltip element IDs so multiple charts (and the
 // unrelated Retention chart) can coexist without colliding.
 function buildLineChart(seriesList, opts = {}) {
-  const { refLines = [], yUnit = '', id = 'lc', labelFn = monthLabelShort, tooltipLabelFn = monthLabel } = opts;
+  const { refLines = [], yUnit = '', id = 'lc', labelFn = monthLabelShort, tooltipLabelFn = monthLabel, projectedFrom = null } = opts;
   const usable = seriesList.filter(s => s.points && s.points.length);
   if (!usable.length || usable[0].points.length < 2) {
     return { html: '<div class="empty">Need at least two months of data to plot a trend.</div>', months: [] };
@@ -3114,6 +3134,16 @@ function buildLineChart(seriesList, opts = {}) {
       <text x="${W - padR}" y="${yy - 5}" text-anchor="end" font-size="10" fill="${r.color}">${esc(r.label)}</text>`;
   }).join('');
 
+  // Shaded "projected" zone — everything from the first projected month on.
+  let projSvg = '';
+  const projIdx = projectedFrom ? months.indexOf(projectedFrom) : -1;
+  if (projIdx > 0) {
+    const px0 = (x(projIdx - 1) + x(projIdx)) / 2;
+    projSvg = `<rect x="${px0}" y="${padT}" width="${W - padR - px0}" height="${H - padT - padB}" fill="var(--accent)" opacity="0.07"/>
+      <line x1="${px0}" y1="${padT}" x2="${px0}" y2="${H - padB}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4 3" opacity="0.6"/>
+      <text x="${px0 + 6}" y="${padT + 11}" font-size="10" fill="var(--accent)">Projected →</text>`;
+  }
+
   let seriesSvg = '';
   usable.forEach(s => {
     const linePoints = s.points.map((p, i) => p.v == null ? null : `${x(i)},${y(p.v)}`).filter(Boolean).join(' ');
@@ -3129,6 +3159,7 @@ function buildLineChart(seriesList, opts = {}) {
       ${gridSvg}
       <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="var(--border-hi)" stroke-width="1"/>
       <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="var(--border-hi)" stroke-width="1"/>
+      ${projSvg}
       ${refSvg}
       ${seriesSvg}
       ${xLabelsSvg}
@@ -3187,7 +3218,7 @@ function wireLineChartHover(container, chart) {
 // <title> tooltips rather than the crosshair/hover system those line charts
 // use, since bars are already discrete, individually-hoverable targets.
 function buildGroupedBarChart(seriesList, opts = {}) {
-  const { yUnit = '', id = 'gb', labelFn = monthLabelShort, tooltipLabelFn = monthLabel, lineSeries = [] } = opts;
+  const { yUnit = '', id = 'gb', labelFn = monthLabelShort, tooltipLabelFn = monthLabel, lineSeries = [], projectedFrom = null } = opts;
   const usable = seriesList.filter(s => s.points && s.points.length);
   if (!usable.length) return { html: '<div class="empty">No data to plot yet.</div>', months: [] };
   // A series named in `lineSeries` (e.g. Target) draws as a short threshold
@@ -3255,11 +3286,22 @@ function buildGroupedBarChart(seriesList, opts = {}) {
     });
   });
 
+  // Shaded "projected" zone — everything from the first projected month on.
+  let projSvg = '';
+  const projIdx = projectedFrom ? months.indexOf(projectedFrom) : -1;
+  if (projIdx >= 0) {
+    const px0 = x(projIdx);
+    projSvg = `<rect x="${px0}" y="${padT}" width="${W - padR - px0}" height="${H - padT - padB}" fill="var(--accent)" opacity="0.07"/>
+      <line x1="${px0}" y1="${padT}" x2="${px0}" y2="${H - padB}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4 3" opacity="0.6"/>
+      <text x="${px0 + 6}" y="${padT + 11}" font-size="10" fill="var(--accent)">Projected →</text>`;
+  }
+
   const html = `
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
       ${gridSvg}
       <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="var(--border-hi)" stroke-width="1"/>
       <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="var(--border-hi)" stroke-width="1"/>
+      ${projSvg}
       ${barsSvg}
       ${markersSvg}
       ${xLabelsSvg}
@@ -3412,6 +3454,39 @@ function insTrendWindow(rows) {
   if (state.insTrendScale === 'ytd') return upToNow.filter(r => r.m >= fiscalYearStart(currentMonthKey()));
   return upToNow.slice(-Number(state.insTrendScale));
 }
+// Revenue page "Projections" timeframe: the future months the target line runs
+// over — the N months after the real current month (or, for 'all', every month
+// up to the last one with a target). Capped at the last month a target is
+// actually set for, since there is nothing to draw beyond that.
+const insRevenueMonthList = () => [...new Set([...invoiceMonths(), ...Object.keys(DB.settings.revenueTargets)])]
+  .filter(m => m <= currentMonthKey()).sort();
+// How many months the Past data selection covers (YTD and All depend on the data).
+function insPastSpan() {
+  if (/^\d+$/.test(state.insTrendScale)) return Number(state.insTrendScale);
+  return insTrendWindow(insRevenueMonthList().map(m => ({ m }))).length;
+}
+// How many months ahead the Projections selection asks for — with Mirror on,
+// always the same span as Past data; 0 means projections are off.
+function insProjectionSpan() {
+  if (state.insProjMirror) return insPastSpan();
+  const k = state.insProjScale;
+  return !k || k === 'off' ? 0 : Number(k);
+}
+function insProjectionMonths() {
+  const n = insProjectionSpan();
+  if (!n) return [];
+  const cur = currentMonthKey();
+  const targets = DB.settings.revenueTargets || {};
+  const lastTarget = Object.keys(targets).filter(m => m > cur && targets[m] != null).sort().pop();
+  if (!lastTarget) return [];
+  const out = [];
+  for (let i = 1; i <= n; i++) {
+    const m = addMonths(cur, i);
+    if (m > lastTarget) break;
+    out.push(m);
+  }
+  return out;
+}
 // The "current month" row from a retentionRows()-shaped list — never a
 // pre-generated future month (invoices get auto-generated ahead of time as
 // the Invoices tab is browsed, so the array's last entry can sit months
@@ -3456,6 +3531,7 @@ function renderInsights() {
   if (!DB) return;
   const page = state.insPage;
   const filteredClients = dashboardFilteredClients();
+  const projSpan = page === 'revenue' ? insProjectionSpan() : 0;
 
   const filterDimSelect = (id, label, list, current, field, within = DB.clients) => `<select id="${id}">
       <option value="">All ${esc(label)}</option>
@@ -3476,7 +3552,25 @@ function renderInsights() {
             ${filterDimSelect('ins-filter-country', 'countries', DB.settings.countries, state.insFilterCountry, 'country')}
             ${filterDimSelect('ins-filter-size', 'sizes', DB.settings.companySizes, state.insFilterSize, 'companySize')}
           `}
-          ${page === 'retention' ? '' : `
+          ${page === 'retention' ? '' : page === 'revenue' ? `
+            <div class="tf-groups">
+              <div class="tf-group" title="How much history the charts plot — Year-to-date runs 1 Aug to the current month">
+                <div class="tf-label">Past data</div>
+                <div class="pills" id="ins-trend-pills">
+                  ${[['1', '1M'], ['3', '3M'], ['6', '6M'], ['12', '12M'], ['ytd', 'YTD'], ['24', '24M'], ['all', 'All']].map(([k, l]) => `<button class="pill ${state.insTrendScale === k ? 'active' : ''}" data-scale="${k}">${l}</button>`).join('')}
+                </div>
+              </div>
+              <button type="button" class="tf-link ${state.insProjMirror ? 'on' : ''}" id="ins-mirror" title="${state.insProjMirror ? 'Mirror is on — changing either side sets the other to the same span. Click to unlink.' : 'Link the two sides so that changing one sets the other to the same span'}">
+                <span class="ic">⇄</span>Mirror
+              </button>
+              <div class="tf-group proj" title="How far ahead the target line runs, after the current month — up to the last month a target is set for">
+                <div class="tf-label">Projections${projSpan && ![3, 6, 12].includes(projSpan) ? ` · next ${projSpan} month${projSpan === 1 ? '' : 's'}` : ''}</div>
+                <div class="pills" id="ins-proj-pills">
+                  ${[['off', 'Off'], ['3', '3M'], ['6', '6M'], ['12', '12M']].map(([k, l]) => `<button class="pill ${(k === 'off' ? projSpan === 0 : projSpan === Number(k)) ? 'active' : ''}" data-proj="${k}">${l}</button>`).join('')}
+                </div>
+              </div>
+            </div>
+          ` : `
             <div class="pills" id="ins-trend-pills" title="How many months of history the trend charts below plot — Year-to-date runs 1 Aug to the current month">
               ${[['1', '1M'], ['3', '3M'], ['6', '6M'], ['12', '12M'], ['ytd', 'YTD'], ['24', '24M'], ['all', 'All']].map(([k, l]) => `<button class="pill ${state.insTrendScale === k ? 'active' : ''}" data-scale="${k}">${l}</button>`).join('')}
             </div>
@@ -3504,6 +3598,22 @@ function renderInsights() {
   const filterSizeEl = view.querySelector('#ins-filter-size');
   if (filterSizeEl) filterSizeEl.onchange = e => { state.insFilterSize = e.target.value; renderInsights(); };
   view.querySelectorAll('#ins-trend-pills [data-scale]').forEach(p => p.onclick = () => { state.insTrendScale = p.dataset.scale; renderInsights(); });
+  // Projection pills: with Mirror on, picking a span here sets Past data to the
+  // same span (the projection follows automatically); "Off" unlinks and switches
+  // projections off. With Mirror off they only set the projection.
+  view.querySelectorAll('#ins-proj-pills [data-proj]').forEach(p => p.onclick = () => {
+    const k = p.dataset.proj;
+    if (k === 'off') { state.insProjScale = 'off'; state.insProjMirror = false; }
+    else if (state.insProjMirror) state.insTrendScale = k;
+    else state.insProjScale = k;
+    renderInsights();
+  });
+  const mirrorBtn = view.querySelector('#ins-mirror');
+  if (mirrorBtn) mirrorBtn.onclick = () => {
+    if (state.insProjMirror) { const n = insProjectionSpan(); state.insProjScale = n ? String(n) : 'off'; state.insProjMirror = false; }
+    else state.insProjMirror = true;
+    renderInsights();
+  };
 
   const bodyEl = view.querySelector('#ins-page-body');
   if (page === 'retention') renderInsRetentionDetail(bodyEl, filteredClients);
@@ -3878,9 +3988,12 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   // this chart shouldn't run into the future because of that. Landed is
   // bucketed by paid date (see landedForMonth), so it's a real cash-flow
   // figure, not a rebadged billing one.
-  const revenueMonths = [...new Set([...invoiceMonths(), ...Object.keys(DB.settings.revenueTargets)])]
-    .filter(m => m <= currentMonthKey()).sort();
-  const revMonthRows = insTrendWindow(revenueMonths.map(m => ({ m })));
+  const revenueMonths = insRevenueMonthList();
+  const pastRows = insTrendWindow(revenueMonths.map(m => ({ m })));
+  // Projections: the chosen number of future months, target line only — there
+  // is no MRR to show for a month that hasn't happened yet.
+  const projMonths = insProjectionMonths();
+  const revMonthRows = [...pastRows, ...projMonths.map(m => ({ m, projected: true }))];
   const revMonthlySeries = [
     { name: 'Target', color: 'var(--accent)', points: revMonthRows.map(r => ({ m: r.m, v: targetForMonth(r.m) })) },
     // MRR here is cash landed for a completed month; for the current
@@ -3888,13 +4001,72 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
     // due this month, landed or not — rather than cash-so-far, which would
     // just understate a month that isn't over. The orange shade + tooltip
     // signal that one bar is a projection, not a closed figure.
-    { name: 'MRR', color: 'var(--success)', points: revMonthRows.map(r => r.m === monthKey
-      ? { m: r.m, v: monthExpected, color: 'var(--warn)', tooltipLabel: 'MRR — expected to land' }
-      : { m: r.m, v: landedForMonth(r.m) }) },
+    { name: 'MRR', color: 'var(--success)', points: revMonthRows.map(r => r.projected
+      ? { m: r.m, v: null }
+      : r.m === monthKey
+        ? { m: r.m, v: monthExpected, color: 'var(--warn)', tooltipLabel: 'MRR — expected to land' }
+        : { m: r.m, v: landedForMonth(r.m) }) },
   ];
+  const projectedFrom = projMonths[0] || null;
   const revMonthlyChart = state.insRevMonthlyChart === 'bar'
-    ? buildGroupedBarChart(revMonthlySeries, { yUnit: '£', id: 'ins-rev-m', lineSeries: ['Target'] })
-    : buildLineChart(revMonthlySeries, { yUnit: '£', id: 'ins-rev-m' });
+    ? buildGroupedBarChart(revMonthlySeries, { yUnit: '£', id: 'ins-rev-m', lineSeries: ['Target'], projectedFrom })
+    : buildLineChart(revMonthlySeries, { yUnit: '£', id: 'ins-rev-m', projectedFrom });
+  const lastTargetMonth = Object.keys(DB.settings.revenueTargets || {}).filter(m => DB.settings.revenueTargets[m] != null).sort().pop();
+  const projAsked = insProjectionSpan();
+  const projNote = !projAsked ? ''
+    : !projMonths.length ? 'No future targets are set — add some in Operational Settings to project them.'
+    : (projMonths.length < projAsked
+        ? `Targets are only set up to ${monthLabel(lastTargetMonth)}, so the projection stops there.` : '');
+
+  // ── Past vs Projections comparison (only while a projection is on) ──
+  // Past = actual revenue over the Past data window (landed cash; the current
+  // month counts what's expected to land, as in the chart). Projection = the
+  // target over the Projections window — there's no actual for the future.
+  let comparisonHtml = '';
+  if (projMonths.length) {
+    const pastMonths = pastRows.map(r => r.m);
+    const sum = a => a.reduce((s, v) => s + v, 0);
+    const avg = a => a.length ? sum(a) / a.length : null;
+    const pastActual = pastMonths.map(m => m === monthKey ? monthExpected : landedForMonth(m));
+    const pastTargets = pastMonths.map(targetForMonth).filter(v => v != null);
+    const projTargets = projMonths.map(targetForMonth).filter(v => v != null);
+    const chg = (from, to) => (from == null || to == null || !from) ? null : (to - from) / from * 100;
+    const chgHtml = v => v == null ? '<span class="muted">—</span>'
+      : `<span class="${v >= 0 ? 'cmp-up' : 'cmp-down'}">${v >= 0 ? '▲ +' : '▼ −'}${Math.abs(v).toFixed(1)}%</span>`;
+    const sameLen = pastMonths.length === projMonths.length;
+    const lastActual = pastActual[pastActual.length - 1];
+    const lastProjTarget = targetForMonth(projMonths[projMonths.length - 1]);
+    const rows = [
+      ['Months covered', `${pastMonths.length}`, `${projMonths.length}`, null, ''],
+      ['Total revenue vs. target', fmtMoney(sum(pastActual)), projTargets.length ? fmtMoney(sum(projTargets)) : '—',
+        sameLen ? chg(sum(pastActual), projTargets.length ? sum(projTargets) : null) : null,
+        'Past: actual revenue. Projection: target. Change shown only when both cover the same number of months.'],
+      ['Average per month — revenue vs. target', fmtMoney(avg(pastActual)), fmtMoney(avg(projTargets)), chg(avg(pastActual), avg(projTargets)),
+        'Average actual revenue per month in the past window vs. average monthly target ahead.'],
+      ['Average monthly target — past vs. projected', fmtMoney(avg(pastTargets)), fmtMoney(avg(projTargets)), chg(avg(pastTargets), avg(projTargets)),
+        pastTargets.length < pastMonths.length ? `Past average uses only the ${pastTargets.length} month${pastTargets.length === 1 ? '' : 's'} that had a target set.` : 'How much the target itself rises or falls.'],
+      ['Latest month — actual vs. final target', `${fmtMoney(lastActual)}`, fmtMoney(lastProjTarget), chg(lastActual, lastProjTarget),
+        `${monthLabelShort(pastMonths[pastMonths.length - 1])} (actual / expected) vs. ${monthLabelShort(projMonths[projMonths.length - 1])} (target).`],
+    ];
+    comparisonHtml = `
+    ${insSectionHead('Past vs. projections', 'Compares the Past data window with the Projections window — actual revenue behind you vs. the targets ahead, and the % change between them.')}
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Measure</th>
+          <th class="num">Past data<div class="muted" style="font-weight:400; font-size:10px">${esc(monthRangeLabel(pastMonths))}</div></th>
+          <th class="num">Projection<div class="muted" style="font-weight:400; font-size:10px">${esc(monthRangeLabel(projMonths))}</div></th>
+          <th class="num">Change</th>
+        </tr></thead>
+        <tbody>${rows.map(([label, a, b, c, tip]) => `<tr>
+          <td${tip ? ` title="${esc(tip)}"` : ''}>${esc(label)}</td>
+          <td class="num ${/^£/.test(a) ? 'money' : ''}">${esc(a)}</td>
+          <td class="num ${/^£/.test(b) ? 'money' : ''}">${esc(b)}</td>
+          <td class="num">${c === null && label === 'Months covered' ? '' : chgHtml(c)}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  }
 
   const conc = revenueConcentration(10);
   const pkgMix = packageMixRows();
@@ -3911,7 +4083,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
       ${revBarLegendHtml()}
     </div>
 
-    ${insSectionHead('Revenue targets', 'Target vs. MRR — cash landed for completed months, expected-to-land for the current one. Set targets on Settings or directly on a month\'s Invoices tab.')}
+    ${insSectionHead('Revenue targets', 'Target vs. MRR — cash landed for completed months, expected-to-land for the current one. Past data sets how far back to look; Projections extends the target line ahead. Set targets on Settings or directly on a month\'s Invoices tab.')}
     <div class="chart-card">
       <div class="chart-head">
         <h3>Monthly</h3>
@@ -3926,9 +4098,12 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
           : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
         <span class="key"><span class="dot" style="background:var(--success)"></span>${insTerm('MRR')}</span>
         <span class="key"><span class="dot" style="background:var(--warn)"></span>${insTerm('MRR')} — expected to land (current month)</span>
+        ${projMonths.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
       </div>
       <div class="chart-wrap" id="ins-rev-m-wrap">${revMonthlyChart.html}</div>
+      ${projNote ? `<p class="note" style="margin:10px 0 0">${esc(projNote)}</p>` : ''}
     </div>
+    ${comparisonHtml}
 
     ${insSectionHead('Billing', 'Package mix and concentration across active clients.')}
     <div class="stats">
@@ -4469,6 +4644,13 @@ function renderSettings() {
     </div>`;
   };
 
+  // Revenue targets table rows: every month that already has a target, plus an
+  // always-present slot for the current month and the 12 after it — so the
+  // coming year can be filled in without first adding each month. A slot with no
+  // target is just an empty input (nothing is stored until a value is typed).
+  const targetSlotStart = currentMonthKey(), targetSlotEnd = addMonths(targetSlotStart, 12);
+  const targetMonths = [...new Set([...Object.keys(s.revenueTargets), ...Array.from({ length: 13 }, (_, i) => addMonths(targetSlotStart, i))])].sort();
+
   view.innerHTML = `
     ${chipList('salesTeam', 'Sales team', 'People who can earn commission — selectable as Lead generated by / Converted by on each client.')}
     ${commissionCard()}
@@ -4481,16 +4663,16 @@ function renderSettings() {
 
     <div class="card">
       <h3>Revenue targets</h3>
-      <div class="desc">A £ target for a specific month — each month is independent (e.g. September 2026 and September 2027 don't share a target). Also editable directly from that month's Invoices tab; both places write the same value. Yearly targets shown in Insights are just the sum of whichever months in that year have one set.</div>
+      <div class="desc">A £ target for a specific month — each month is independent (e.g. September 2026 and September 2027 don't share a target). The current month and the next 12 always have a slot below — just type a figure; use "Add month" only to set a target further ahead (or further back). Also editable directly from that month's Invoices tab; both places write the same value. Yearly targets shown in Insights are just the sum of whichever months in that year have one set.</div>
       <div class="tbl-wrap" id="rt-targets-wrap" style="max-height:280px; overflow-y:auto; margin-bottom:12px">
         <table>
           <thead><tr><th>Month</th><th class="num">Target £</th><th></th></tr></thead>
           <tbody>
-            ${Object.keys(s.revenueTargets).sort().map(m => `<tr>
-              <td>${esc(monthLabel(m))}</td>
-              <td class="num"><input type="number" step="0.01" class="no-spin" style="width:120px; text-align:right" data-target-input="${m}" value="${s.revenueTargets[m]}"></td>
-              <td><button class="btn btn-sm btn-danger" data-target-rm="${m}" title="Remove target">×</button></td>
-            </tr>`).join('') || '<tr><td colspan="3"><div class="empty">No targets set yet.</div></td></tr>'}
+            ${targetMonths.map(m => { const has = s.revenueTargets[m] != null; return `<tr>
+              <td>${esc(monthLabel(m))}${m === targetSlotStart ? ' <span class="muted" style="font-size:11px">· this month</span>' : ''}</td>
+              <td class="num"><input type="number" step="0.01" class="no-spin" style="width:120px; text-align:right" data-target-input="${m}" value="${has ? s.revenueTargets[m] : ''}" placeholder="Not set"></td>
+              <td>${has ? `<button class="btn btn-sm btn-danger" data-target-rm="${m}" title="${m >= targetSlotStart && m <= targetSlotEnd ? 'Clear target' : 'Remove target'}">×</button>` : ''}</td>
+            </tr>`; }).join('')}
           </tbody>
         </table>
       </div>
@@ -4613,8 +4795,11 @@ function renderSettings() {
     openMonthPicker(btn, {
       value: currentMonthKey(),
       onSelect: key => keepTargetsScroll(() => {
-        if (s.revenueTargets[key] == null) s.revenueTargets[key] = 0;
+        // A month inside the always-visible window already has its slot — just
+        // go to it. Anything further out gets a row (starting at £0).
+        if (key < targetSlotStart || key > targetSlotEnd) { if (s.revenueTargets[key] == null) s.revenueTargets[key] = 0; }
         renderSettings();
+        view.querySelector(`[data-target-input="${key}"]`)?.focus();
       })
     });
   };
