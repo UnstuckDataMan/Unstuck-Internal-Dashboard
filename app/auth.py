@@ -52,6 +52,7 @@ TOOLS: tuple[str, ...] = (
     "commission",           # admin-only, see ROLE_TOOLS
     "operational_settings", # admin-only, see ROLE_TOOLS
     "insights",             # admin-only, see ROLE_TOOLS
+    "am_performance",       # admin-only, see ROLE_TOOLS
 )
 
 # Path-prefix → tool. Longest matching prefix wins, so more specific entries
@@ -86,6 +87,7 @@ ROUTE_TOOL_MAP: tuple[tuple[str, str], ...] = (
     ("/commission",                       "commission"),
     ("/operational-settings",             "operational_settings"),
     ("/insights",                         "insights"),
+    ("/am-performance",                   "am_performance"),
     # /api/credit-control/* (shared by all four pages above) is deliberately
     # NOT mapped here — a single prefix can only map to one tool, but any of
     # the four tool keys should be able to reach the shared data endpoints.
@@ -101,7 +103,7 @@ _ALL_TOOLS = set(TOOLS)
 # the user-management screen, and the four Credit Control tools (financial
 # data: invoices, commissions, client billing). Credit Control access is
 # granted per-person via tools_add on /admin/users, not via a role default.
-_ADMIN_ONLY_TOOLS = {"admin_users", "credit_control", "commission", "operational_settings", "insights"}
+_ADMIN_ONLY_TOOLS = {"admin_users", "credit_control", "commission", "operational_settings", "insights", "am_performance"}
 # Everything except the admin-only set — the default bundle for staff.
 _STAFF_TOOLS = _ALL_TOOLS - _ADMIN_ONLY_TOOLS
 
