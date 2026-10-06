@@ -133,17 +133,24 @@
       margin-top: 16px;
     }
 
-    /* Category card row */
+    /* Category card row — four equal, larger cards, one colour per section */
     .cat-row {
-      display: flex;
-      gap: 24px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 28px;
       width: 100%;
-      max-width: 780px;
+      max-width: 1500px;
+      align-items: stretch;
     }
+    @media (max-width: 1100px) { .cat-row { grid-template-columns: repeat(2, 1fr); max-width: 760px; } }
+    @media (max-width: 560px)  { .cat-row { grid-template-columns: 1fr; } }
 
-    /* Category card */
+    /* Category card. Each section sets its own colours through these variables
+       (see the #btn-… rules below): --c1/--c2 gradient, --cta link colour,
+       --glow / --edge as "r,g,b" for the hover glow and border. */
     .cat-card {
-      flex: 1;
+      --c1: #7c3aed; --c2: #e879f9; --cta: #c4b5fd; --glow: 124,58,237; --edge: 232,121,249;
+      display: flex;
       cursor: pointer;
       border: none;
       background: none;
@@ -151,12 +158,21 @@
       text-align: left;
       -webkit-tap-highlight-color: transparent;
     }
+    #btn-data       { --c1: #ef4444; --c2: #be123c; --cta: #fca5a5; --glow: 239,68,68;   --edge: 248,113,113; }  /* red → crimson */
+    #btn-reporting  { --c1: #10b981; --c2: #14b8a6; --cta: #6ee7b7; --glow: 16,185,129;  --edge: 52,211,153; }   /* emerald → teal */
+    #btn-campaign   { --c1: #f472b6; --c2: #ec4899; --cta: #f9a8d4; --glow: 244,114,182; --edge: 249,168,212; } /* pink */
+    #btn-operations { --c1: #f59e0b; --c2: #f97316; --cta: #fcd34d; --glow: 245,158,11;  --edge: 251,191,36; }  /* amber → orange */
+
     .cat-card-inner {
-      background: rgba(255,255,255,.09);
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      min-height: 360px;
+      background: linear-gradient(165deg, rgba(var(--glow), .16) 0%, rgba(255,255,255,.07) 55%);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       border: 1px solid rgba(255,255,255,.12);
-      border-radius: 26px;
+      border-radius: 28px;
       overflow: hidden;
       box-shadow: 0 4px 28px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.10);
       transition:
@@ -168,60 +184,65 @@
     }
     .cat-card:hover .cat-card-inner {
       transform: translateY(-8px);
-      background: rgba(255,255,255,.12);
-      border-color: rgba(232,121,249,.42);
-      box-shadow: 0 28px 60px rgba(124,58,237,.32), 0 6px 20px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.16);
+      background: linear-gradient(165deg, rgba(var(--glow), .24) 0%, rgba(255,255,255,.10) 55%);
+      border-color: rgba(var(--edge), .55);
+      box-shadow: 0 28px 60px rgba(var(--glow), .34), 0 6px 20px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.16);
     }
     .cat-card.pressing .cat-card-inner {
       transform: scale(0.97);
       box-shadow: 0 4px 14px rgba(0,0,0,.3);
     }
     .cat-card-bar {
-      height: 5px;
-      background: var(--gradient);
-      opacity: 0.85;
+      height: 7px;
+      background: linear-gradient(90deg, var(--c1), var(--c2));
+      opacity: 0.95;
       transition: height 0.2s var(--ease), opacity 0.2s;
     }
-    .cat-card:hover .cat-card-bar { height: 7px; opacity: 1; }
-    .cat-card-body { padding: 30px 30px 34px; }
+    .cat-card:hover .cat-card-bar { height: 10px; opacity: 1; }
+    .cat-card-body { display: flex; flex-direction: column; flex: 1; padding: 38px 34px 36px; }
     .cat-card-icon {
-      width: 50px; height: 50px;
-      border-radius: 15px;
-      background: var(--gradient);
+      width: 68px; height: 68px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, var(--c1), var(--c2));
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 22px;
-      box-shadow: 0 4px 18px rgba(124,58,237,.42);
+      margin-bottom: 30px;
+      box-shadow: 0 6px 22px rgba(var(--glow), .5);
       transition: transform 0.22s var(--ease), box-shadow 0.22s var(--ease);
     }
+    .cat-card-icon svg { width: 32px; height: 32px; }
     .cat-card:hover .cat-card-icon {
       transform: scale(1.1) rotate(-4deg);
-      box-shadow: 0 8px 28px rgba(232,121,249,.55);
+      box-shadow: 0 10px 32px rgba(var(--glow), .65);
     }
     .cat-card-title {
-      font-size: 19px;
-      font-weight: 660;
+      font-size: 26px;
+      font-weight: 680;
+      line-height: 1.2;
+      min-height: 2.4em;           /* two lines reserved, so every card's count lines up */
       color: #fff;
       letter-spacing: -0.02em;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .cat-card-count {
-      font-size: 12px;
-      color: rgba(255,255,255,.42);
-      margin-bottom: 22px;
+      font-size: 14px;
+      color: rgba(255,255,255,.5);
+      margin-bottom: 28px;
     }
     .cat-card-cta {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      font-weight: 600;
-      color: rgba(167,139,250,.85);
+      gap: 8px;
+      margin-top: auto;
+      font-size: 15px;
+      font-weight: 650;
+      color: var(--cta);
       letter-spacing: 0.01em;
-      transition: gap 0.2s var(--ease), color 0.2s;
+      transition: gap 0.2s var(--ease), filter 0.2s;
     }
-    .cat-card:hover .cat-card-cta { gap: 10px; color: #c4b5fd; }
+    .cat-card-cta svg { width: 17px; height: 17px; }
+    .cat-card:hover .cat-card-cta { gap: 12px; filter: brightness(1.15); }
 
     /* ════════════════════════════════
        TOOL SCREENS (shared)
@@ -988,79 +1009,137 @@
 
 <script>
   let _current = 'screen-home';
+  let _busy = false;
 
-  // ── Navigate forward (home → tool screen) ──────────────────────
+  // The tool cards inside a section animate individually (see navigateTo), so
+  // they must not also run the old CSS fade-up.
+  document.querySelectorAll('.tool-grid .card-link').forEach(el => el.classList.remove('anim'));
+
+  const _reduced = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const _sectionCard = screenId => document.getElementById('btn-' + screenId.replace('screen-', ''));
+  const _EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
+  const _EASE_IN_OUT = 'cubic-bezier(0.4, 0, 0.2, 1)';
+
+  function _switchNow(from, to, targetId) {
+    from.style.cssText = 'display:none;';
+    to.style.cssText = 'display:flex;';
+    _current = targetId;
+  }
+
+  // The transform that parks a tool card on the centre of its section card,
+  // shrunk and slightly fanned out, so it can unfold into (or fold back from)
+  // its real position.
+  function _onCard(cardRect, el, i, n) {
+    const r = el.getBoundingClientRect();
+    const dx = (cardRect.left + cardRect.width / 2) - (r.left + r.width / 2);
+    const dy = (cardRect.top + cardRect.height / 2) - (r.top + r.height / 2);
+    const rot = (i - (n - 1) / 2) * 3;
+    return `translate(${dx}px, ${dy}px) scale(0.42) rotate(${rot}deg)`;
+  }
+
+  // ── Open a section: its card splits into the tools inside it ───────
   function navigateTo(targetId) {
+    if (_busy) return;
     const from = document.getElementById(_current);
     const to   = document.getElementById(targetId);
+    const btn  = _sectionCard(targetId);
     if (!from || !to || from === to) return;
+    if (_reduced() || !btn || !to.animate) { _switchNow(from, to, targetId); return; }
+    _busy = true;
 
-    // Freeze .anim elements BEFORE the screen becomes visible so the CSS
-    // animation doesn't fire on its own (would cause a double-play).
-    to.querySelectorAll('.anim').forEach(el => el.style.animation = 'none');
-
-    // Place target off-screen right, make visible
-    to.style.cssText = 'display:flex; opacity:0; transform:translateX(56px); pointer-events:none; transition:none;';
-    to.offsetWidth; // force reflow
-
-    // Slide both simultaneously
-    const T = 'opacity .36s cubic-bezier(.4,0,.2,1), transform .36s cubic-bezier(.4,0,.2,1)';
-    from.style.transition = T;
-    from.style.opacity    = '0';
-    from.style.transform  = 'translateX(-56px)';
+    const inner = btn.querySelector('.cat-card-inner');
+    const cardRect = inner.getBoundingClientRect();
     from.style.pointerEvents = 'none';
+    to.style.cssText = 'display:flex; pointer-events:none;';   // visible, so the tool cards can be measured
+    const links = [...to.querySelectorAll('.tool-grid .card-link')];
+    const head  = [...to.querySelectorAll('.tool-topbar, .tool-screen-title')];
+    const anims = [];
 
-    to.style.transition = T;
-    to.style.opacity    = '1';
-    to.style.transform  = 'translateX(0)';
+    // The tool cards leave the section card one after another.
+    links.forEach((el, i) => anims.push(el.animate([
+      { transform: _onCard(cardRect, el, i, links.length), opacity: 0 },
+      { opacity: 1, offset: 0.3 },
+      { transform: 'translate(0px, 0px) scale(1) rotate(0deg)', opacity: 1 },
+    ], { duration: 640, delay: 80 + i * 45, easing: _EASE_OUT, fill: 'both' })));
+    head.forEach(el => anims.push(el.animate(
+      [{ opacity: 0, transform: 'translateY(-10px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 420, delay: 120, easing: _EASE_OUT, fill: 'both' })));
 
-    setTimeout(() => {
+    // Meanwhile the clicked card swells and dissolves, and the rest of the
+    // home screen steps out of the way.
+    anims.push(inner.animate([
+      { transform: 'none', opacity: 1 },
+      { transform: 'scale(1.05)', opacity: 1, offset: 0.3 },
+      { transform: 'scale(0.9)', opacity: 0 },
+    ], { duration: 440, easing: _EASE_IN_OUT, fill: 'both' }));
+    from.querySelectorAll('.cat-card').forEach(c => {
+      if (c !== btn) anims.push(c.animate(
+        [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(0.92)' }],
+        { duration: 320, easing: 'ease-out', fill: 'both' }));
+    });
+    const brand = from.querySelector('.home-brand');
+    if (brand) anims.push(brand.animate(
+      [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-14px)' }],
+      { duration: 320, easing: 'ease-out', fill: 'both' }));
+
+    Promise.all(anims.map(a => a.finished)).then(() => {
       from.style.cssText = 'display:none;';
-      to.style.cssText   = 'display:flex;';
+      to.style.cssText = 'display:flex;';
+      anims.forEach(a => a.cancel());
       _current = targetId;
-      // Restart card stagger animations
-      _restartAnims(to);
-    }, 370);
+      _busy = false;
+    }).catch(() => { _busy = false; });
   }
 
-  // ── Navigate back (tool screen → home) ─────────────────────────
+  // ── Back to the home screen: the tools fold back into their card ───
   function navigateBack() {
+    if (_busy) return;
     const from = document.getElementById(_current);
     const to   = document.getElementById('screen-home');
-    if (!from || !to) return;
+    if (!from || !to || from === to) return;
+    const btn = _sectionCard(_current);
+    if (_reduced() || !btn || !from.animate) { _switchNow(from, to, 'screen-home'); return; }
+    _busy = true;
 
-    // Freeze .anim elements before the screen becomes visible
-    to.querySelectorAll('.anim').forEach(el => el.style.animation = 'none');
-
-    // Place home off-screen left, make visible
-    to.style.cssText = 'display:flex; opacity:0; transform:translateX(-56px); pointer-events:none; transition:none;';
-    to.offsetWidth;
-
-    const T = 'opacity .36s cubic-bezier(.4,0,.2,1), transform .36s cubic-bezier(.4,0,.2,1)';
-    from.style.transition = T;
-    from.style.opacity    = '0';
-    from.style.transform  = 'translateX(56px)';
     from.style.pointerEvents = 'none';
+    to.style.cssText = 'display:flex; pointer-events:none;';   // visible, so the section card can be measured
+    const inner = btn.querySelector('.cat-card-inner');
+    const cardRect = inner.getBoundingClientRect();
+    const links = [...from.querySelectorAll('.tool-grid .card-link')];
+    const head  = [...from.querySelectorAll('.tool-topbar, .tool-screen-title')];
+    const anims = [];
 
-    to.style.transition = T;
-    to.style.opacity    = '1';
-    to.style.transform  = 'translateX(0)';
+    links.forEach((el, i) => anims.push(el.animate([
+      { transform: 'translate(0px, 0px) scale(1) rotate(0deg)', opacity: 1 },
+      { opacity: 1, offset: 0.65 },
+      { transform: _onCard(cardRect, el, i, links.length), opacity: 0 },
+    ], { duration: 460, delay: (links.length - 1 - i) * 25, easing: _EASE_IN_OUT, fill: 'both' })));
+    head.forEach(el => anims.push(el.animate(
+      [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-10px)' }],
+      { duration: 260, easing: 'ease-in', fill: 'both' })));
 
-    setTimeout(() => {
-      from.style.cssText = 'display:none;';
-      to.style.cssText   = 'display:flex;';
-      _current = 'screen-home';
-      _restartAnims(to);
-    }, 370);
-  }
-
-  // ── Re-trigger .anim elements so they fade up on each visit ────
-  function _restartAnims(screen) {
-    screen.querySelectorAll('.anim').forEach(el => {
-      el.style.animation = 'none';
-      el.offsetWidth; // reflow
-      el.style.animation = '';
+    anims.push(inner.animate([
+      { transform: 'scale(0.9)', opacity: 0 },
+      { transform: 'scale(1.02)', opacity: 1, offset: 0.7 },
+      { transform: 'none', opacity: 1 },
+    ], { duration: 460, delay: 200, easing: _EASE_OUT, fill: 'both' }));
+    to.querySelectorAll('.cat-card').forEach(c => {
+      if (c !== btn) anims.push(c.animate(
+        [{ opacity: 0, transform: 'scale(0.92)' }, { opacity: 1, transform: 'none' }],
+        { duration: 380, delay: 160, easing: 'ease-out', fill: 'both' }));
     });
+    const brand = to.querySelector('.home-brand');
+    if (brand) anims.push(brand.animate(
+      [{ opacity: 0, transform: 'translateY(-14px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 380, delay: 160, easing: 'ease-out', fill: 'both' }));
+
+    Promise.all(anims.map(a => a.finished)).then(() => {
+      from.style.cssText = 'display:none;';
+      to.style.cssText = 'display:flex;';
+      anims.forEach(a => a.cancel());
+      _current = 'screen-home';
+      _busy = false;
+    }).catch(() => { _busy = false; });
   }
 
   // ── Press / tap effect ──────────────────────────────────────────
