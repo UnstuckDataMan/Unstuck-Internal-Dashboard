@@ -2096,6 +2096,20 @@ function invoiceForm(invId, presetClientId) {
 
 const UNCLASSIFIED = 'UNCLASSIFIED'; // sentinel for "no value set" in industry/country/size filters
 
+// Filter dropdowns and the Client performance indicator's pills only offer
+// values at least one client actually has — the settings lists also hold old
+// options nobody uses any more, which would just be dead ends there. Whatever
+// is currently selected is always kept so a selection never silently vanishes.
+// (Add/edit client forms still read the full settings lists directly.)
+function optionsInUse(field, list, keep = []) {
+  const used = new Set(DB.clients.map(c => c[field]).filter(Boolean));
+  const keepSet = new Set([].concat(keep));
+  const out = list.filter(v => used.has(v) || keepSet.has(v));
+  for (const v of [...used].sort()) if (!out.includes(v)) out.push(v);
+  return out;
+}
+const hasUnclassified = field => DB.clients.some(c => !c[field]);
+
 /* ════════════════ CLIENTS VIEW ════════════════ */
 function renderClients() {
   const view = document.getElementById('view-clients');
@@ -2113,10 +2127,10 @@ function renderClients() {
   applyDimFilter('country', state.clientCountryFilter);
   applyDimFilter('companySize', state.clientSizeFilter);
 
-  const dimSelect = (id, label, options, current) => `<select id="${id}">
+  const dimSelect = (id, label, list, current, field) => `<select id="${id}">
       <option value="">All ${esc(label)}</option>
-      ${options.map(v => `<option value="${esc(v)}" ${current===v?'selected':''}>${esc(v)}</option>`).join('')}
-      <option value="${UNCLASSIFIED}" ${current===UNCLASSIFIED?'selected':''}>Unclassified</option>
+      ${optionsInUse(field, list, current).map(v => `<option value="${esc(v)}" ${current===v?'selected':''}>${esc(v)}</option>`).join('')}
+      ${hasUnclassified(field) || current===UNCLASSIFIED ? `<option value="${UNCLASSIFIED}" ${current===UNCLASSIFIED?'selected':''}>Unclassified</option>` : ''}
     </select>`;
 
   view.innerHTML = `
@@ -2126,9 +2140,9 @@ function renderClients() {
         ${[['all','All'],['active','Active'],['churned','Churned']]
           .map(([k,l]) => `<button class="pill ${state.clientFilter===k?'active':''}" data-f="${k}">${l}</button>`).join('')}
       </div>
-      ${dimSelect('cl-industry-filter', 'industries', DB.settings.industries, state.clientIndustryFilter)}
-      ${dimSelect('cl-country-filter', 'countries', DB.settings.countries, state.clientCountryFilter)}
-      ${dimSelect('cl-size-filter', 'sizes', DB.settings.companySizes, state.clientSizeFilter)}
+      ${dimSelect('cl-industry-filter', 'industries', DB.settings.industries, state.clientIndustryFilter, 'industry')}
+      ${dimSelect('cl-country-filter', 'countries', DB.settings.countries, state.clientCountryFilter, 'country')}
+      ${dimSelect('cl-size-filter', 'sizes', DB.settings.companySizes, state.clientSizeFilter, 'companySize')}
       <div class="spacer"></div>
       <button class="btn btn-primary" id="cl-add">＋ Add client</button>
     </div>
@@ -3318,10 +3332,10 @@ function renderInsights() {
   const page = state.insPage;
   const filteredClients = dashboardFilteredClients();
 
-  const filterDimSelect = (id, label, options, current) => `<select id="${id}">
+  const filterDimSelect = (id, label, list, current, field) => `<select id="${id}">
       <option value="">All ${esc(label)}</option>
-      ${options.map(v => `<option value="${esc(v)}" ${current===v?'selected':''}>${esc(v)}</option>`).join('')}
-      <option value="${UNCLASSIFIED}" ${current===UNCLASSIFIED?'selected':''}>Unclassified</option>
+      ${optionsInUse(field, list, current).map(v => `<option value="${esc(v)}" ${current===v?'selected':''}>${esc(v)}</option>`).join('')}
+      ${hasUnclassified(field) || current===UNCLASSIFIED ? `<option value="${UNCLASSIFIED}" ${current===UNCLASSIFIED?'selected':''}>Unclassified</option>` : ''}
     </select>`;
 
   view.innerHTML = `
@@ -3332,9 +3346,9 @@ function renderInsights() {
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
           <button class="btn btn-sm" id="ins-back">← Overview</button>
           ${page === 'revenue' ? '' : `
-            ${filterDimSelect('ins-filter-industry', 'industries', DB.settings.industries, state.insFilterIndustry)}
-            ${filterDimSelect('ins-filter-country', 'countries', DB.settings.countries, state.insFilterCountry)}
-            ${filterDimSelect('ins-filter-size', 'sizes', DB.settings.companySizes, state.insFilterSize)}
+            ${filterDimSelect('ins-filter-industry', 'industries', DB.settings.industries, state.insFilterIndustry, 'industry')}
+            ${filterDimSelect('ins-filter-country', 'countries', DB.settings.countries, state.insFilterCountry, 'country')}
+            ${filterDimSelect('ins-filter-size', 'sizes', DB.settings.companySizes, state.insFilterSize, 'companySize')}
           `}
           ${page === 'retention' ? '' : `
             <div class="pills" id="ins-trend-pills" title="How many months of history the trend charts below plot — Year-to-date runs 1 Aug to the current month">
@@ -3846,9 +3860,9 @@ function renderInsPredictTile(bodyEl) {
   bodyEl.innerHTML = `
     <div class="chart-card">
       <div class="chart-head"><h3>Client performance indicator</h3></div>
-      ${pillGroup('Industry', DB.settings.industries, state.insPredIndustries, 'industries')}
-      ${pillGroup('Company size', DB.settings.companySizes, state.insPredSizes, 'sizes')}
-      ${pillGroup('Country', DB.settings.countries, state.insPredCountries, 'countries')}
+      ${pillGroup('Industry', optionsInUse('industry', DB.settings.industries, state.insPredIndustries), state.insPredIndustries, 'industries')}
+      ${pillGroup('Company size', optionsInUse('companySize', DB.settings.companySizes, state.insPredSizes), state.insPredSizes, 'sizes')}
+      ${pillGroup('Country', optionsInUse('country', DB.settings.countries, state.insPredCountries), state.insPredCountries, 'countries')}
       <div class="fld" style="margin-top:4px">
         <label>Basis</label>
         <div class="pills" id="pred-basis-pills" title="Realised = churned matching clients only, final figures. Running = active matching clients only, still growing. Combination = churned clients plus any active matching client already past the Realised average, blended into one number.">
