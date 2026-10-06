@@ -43,7 +43,7 @@ _APP_HTML_PATH = Path(__file__).resolve().parent.parent / "templates" / "credit_
 # Any one of these four grants access to the shared data endpoints — a user
 # holding only 'insights', say, still needs to be able to load the data that
 # powers the Insights tab.
-_CC_TOOLS = {"credit_control", "insights", "commission", "operational_settings"}
+_CC_TOOLS = {"credit_control", "insights", "commission", "operational_settings", "am_performance"}
 
 
 def _require_cc_access(request: Request) -> dict:
@@ -74,6 +74,11 @@ async def operational_settings_page(_user: dict = Depends(_require_cc_access)):
 
 @router.get("/insights")
 async def insights_page(_user: dict = Depends(_require_cc_access)):
+    return _serve_app()
+
+
+@router.get("/am-performance")
+async def am_performance_page(_user: dict = Depends(_require_cc_access)):
     return _serve_app()
 
 

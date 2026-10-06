@@ -625,6 +625,63 @@
   .cal-chip-dot.due.overdue { background: var(--danger); }
   .cal-chip-name { font-size: 11px; font-weight: 600; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal-chip-amt { font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  /* ── Chart reveal: every chart wipes in left to right when its page is opened ── */
+  @keyframes chartWipe { from { clip-path: inset(-12px 100% -12px -12px); } to { clip-path: inset(-12px -12px -12px -12px); } }
+  .view.reveal-on .progress-bars:not(.reveal) .progress-bar,
+  .view.reveal-on .ins-bar-track,
+  .view.reveal-on .chart-wrap svg,
+  .view.reveal-on .am-pie-wrap svg,
+  .view.reveal-on .comm-card .bar {
+    animation: chartWipe .9s cubic-bezier(.22, 1, .36, 1) backwards;
+    animation-delay: calc(var(--ri, 0) * 70ms + 80ms);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .view.reveal-on .progress-bars:not(.reveal) .progress-bar, .view.reveal-on .ins-bar-track,
+    .view.reveal-on .chart-wrap svg, .view.reveal-on .am-pie-wrap svg, .view.reveal-on .comm-card .bar { animation: none; }
+  }
+
+  /* ── AM Performance ── */
+  .am-subtabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+  .am-subtab { padding: 9px 16px; background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; color: var(--text-dim); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .am-subtab:hover { color: var(--text); }
+  .am-subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .am-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 16px; align-items: start; }
+  .am-grid > .chart-card { margin-bottom: 0; }
+  .am-stack { display: flex; flex-direction: column; gap: 16px; }
+  .am-stack > .chart-card { margin-bottom: 0; }
+  /* An industry with no Combination figure yet (only active clients, none past the Realised average) is still listed — faded and in italics, at the active client's current figure */
+  .ins-bar-row.faded .ins-bar-label, .ins-bar-row.faded .ins-bar-value { font-style: italic; opacity: .55; }
+  .ins-bar-row.faded .ins-bar-fill { opacity: .6; }
+  .ins-bar-sub { font-size: 11px; font-style: italic; color: var(--text-muted); opacity: .8; margin: -5px 0 0 182px; }
+  /* Team controls: toggles, filters and export each sit in their own labelled box */
+  .am-ctl-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; margin-bottom: 12px; }
+  .am-ctl { display: flex; flex-direction: column; gap: 7px; padding: 8px 12px 10px; border: 1px solid var(--border-hi); border-radius: 12px; background: var(--bg); }
+  .am-ctl-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding-left: 2px; }
+  .am-ctl-label em { font-style: normal; color: var(--warn); letter-spacing: 0; text-transform: none; font-weight: 600; }
+  .am-ctl.filters { flex: 1; min-width: 300px; border-style: dashed; border-color: var(--accent); }
+  .am-ctl.filters .am-ctl-label { color: var(--accent); }
+  .am-ctl-selects { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .am-ctl-export { margin-left: auto; }
+  .am-ctl-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .am-pie-wrap { display: flex; gap: 28px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
+  .am-legend { display: flex; flex-direction: column; gap: 7px; flex: 1; min-width: 200px; }
+  .am-legend-row { display: grid; grid-template-columns: 12px 1fr auto 56px; gap: 10px; align-items: center; font-size: 12px; }
+  .am-legend-row .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .am-legend-row { transition: opacity .15s; border-radius: 6px; }
+  .am-pie-wrap.hovering .am-legend-row:not(.on) { opacity: .28; }
+  .am-pie-wrap svg [data-i] { transform-origin: 110px 110px; transition: transform .16s ease; cursor: pointer; }
+  .am-pie-wrap svg [data-i].on { transform: scale(1.07); }
+  .am-legend-row .nm { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .am-legend-row .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .am-legend-row .p { color: var(--text-dim); text-align: right; font-variant-numeric: tabular-nums; }
+  .am-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .am-card { text-align: left; font: inherit; color: inherit; cursor: pointer; background: var(--bg-card); border: 1px solid var(--border); border-left: 4px solid var(--c); border-radius: 12px; padding: 16px 18px; transition: border-color .15s, transform .15s; }
+  .am-card:hover { border-color: var(--c); transform: translateY(-2px); }
+  .am-card-name { font-size: 16px; font-weight: 800; letter-spacing: -.2px; margin-bottom: 12px; }
+  .am-card-stats { display: flex; gap: 22px; }
+  .am-card-stats .v { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+  .am-card-stats .l { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
 </style>
 </head>
 <body>
@@ -641,6 +698,7 @@
   <button class="tab active" data-tab="invoices">Invoices</button>
   <button class="tab" data-tab="clients">Clients</button>
   <button class="tab" data-tab="insights">Insights</button>
+  <button class="tab" data-tab="amperf">AM Performance</button>
   <button class="tab" data-tab="commissions">Commissions</button>
   <button class="tab" data-tab="settings">Settings</button>
 </nav>
@@ -651,6 +709,7 @@
   <div class="view" id="view-clients"></div>
   <div class="view" id="view-commissions"></div>
   <div class="view" id="view-insights"></div>
+  <div class="view" id="view-amperf"></div>
   <div class="view" id="view-settings"></div>
 </div>
 
@@ -699,6 +758,17 @@ const state = {
   insCmpPick: null,     // id of the compare slot waiting for a month to be clicked on the chart
   insBarCustom: null,   // Revenue "This period" custom bar: { from, to } months, or null for none
   insBarsAnim: false,   // set when the Insights tab/page is opened so its bars wipe in left to right
+  amTab: 'ams',         // AM Performance sub-tab: 'ams' | 'team'
+  amSel: null,          // AM Performance: the account manager whose page is open
+  amIndustry: null,     // AM Performance: the industry whose client list is open (within amSel)
+  amSearch: '',         // AM Performance: account-manager list search text
+  amClientStatus: 'all', // AM Performance: status filter on an account manager's client list: 'all' | 'active' | 'churned'
+  amClientsScale: 'month', // AM Performance team charts: 'month' | '3' | '6' | '12' | 'ytd' | 'all'
+  amRevScale: 'month',
+  amLtvScale: 'all', amTenureScale: 'all', // lifetime value / tenure charts: which clients (those on the books in the period; 'all' = every client)
+  amChartClients: 'bar', amChartRev: 'bar', amChartLtv: 'bar', amChartTenure: 'bar', // each Team chart: 'bar' | 'pie'
+  amBasis: 'combination', // 'all' | 'realised' | 'running' | 'combination' (see AM_BASIS)
+  amFilterWide: '', amFilterIndustry: '', amFilterCountry: '', amFilterSize: '', // Team tab client filters ('' = all, UNCLASSIFIED = none set)
   insBasis: 'realised',  // 'realised' | 'running' | 'combination' — see basisSplit()
   insDim: 'general',    // 'general' | 'industry' | 'companySize' | 'country' — LTV detail's "compare by" picker
   insPredBasis: 'realised', // 'realised' | 'running' | 'combination' — see basisSplit()
@@ -778,6 +848,7 @@ async function load() {
   const autoChurned = applyAutoChurnDetection();
   if (invoiceMonthsChanged || autoChurned.length) touch(); else indicator('saved', 'Saved');
   renderAll();
+  revealCharts(document.querySelector('.view.active'));
 }
 function normalise() {
   DB.settings ||= {};
@@ -1416,6 +1487,24 @@ function openDatePicker(anchorEl, { value, min, max, onSelect, allowClear = true
   }, 0);
 }
 
+/* ════════════════ Chart reveal ════════════════ */
+// Plays the left-to-right wipe on every chart in a view — progress bars, ranked
+// bars, line/bar SVG charts, pies and commission bars — staggered top to bottom.
+// Called when a tab is clicked, when the app first loads, and when you move
+// between pages inside a tab (Insights pages, AM Performance pages); ordinary
+// re-renders (changing a toggle or filter) don't replay it.
+const REVEAL_SEL = '.progress-bars:not(.reveal) .progress-bar, .ins-bar-track, .chart-wrap svg, .am-pie-wrap svg, .comm-card .bar';
+function revealCharts(view) {
+  if (!view) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  view.querySelectorAll(REVEAL_SEL).forEach((el, i) => el.style.setProperty('--ri', Math.min(i, 14)));
+  view.classList.remove('reveal-on');
+  void view.offsetWidth;   // restart the animation if it was already running
+  view.classList.add('reveal-on');
+  clearTimeout(view._revealTimer);
+  view._revealTimer = setTimeout(() => view.classList.remove('reveal-on'), 2400);
+}
+
 /* ════════════════ Tabs ════════════════ */
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   state.tab = t.dataset.tab;
@@ -1425,6 +1514,7 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + state.tab));
   renderAll();
+  revealCharts(document.getElementById('view-' + state.tab));
 });
 
 function renderAll() {
@@ -1434,6 +1524,7 @@ function renderAll() {
   renderCommissions();
   renderSettings();
   renderInsights();
+  renderAmPerf();
 }
 
 /* ════════════════ INVOICES VIEW ════════════════ */
@@ -3703,6 +3794,7 @@ function renderInsights() {
 
   bodyEl.classList.add(state.insNavDir === 'back' ? 'ins-enter-back' : 'ins-enter-fwd');
   requestAnimationFrame(() => requestAnimationFrame(() => bodyEl.classList.add('ins-enter-active')));
+  if (insBarsReveal) revealCharts(view);
 }
 
 // Trailing N months ending at the real current month — e.g. the "Year" bar
@@ -4513,6 +4605,608 @@ function insCmpMount(ctx) {
   insCmpWire(ctx);
 }
 
+/* ════════════════ AM PERFORMANCE ════════════════ */
+// Tracks how each account manager (the client's `accountManager` field) is
+// performing. Two sub-tabs: Team (every AM side by side) and Account Managers
+// (a searchable list → one AM's detail page → an industry's client list).
+//
+// Money is the same landed-value logic used everywhere else (invoiceValueForLTV:
+// what actually landed once paid, the invoiced amount while unpaid, 0 for an
+// uncertain unpaid invoice). A client belongs to whichever AM is on its record
+// now — churned clients stay attributed to their AM, so lifetime figures
+// include everyone they have ever worked with.
+const AM_UNASSIGNED = 'Unassigned';
+const AM_COLORS = ['#a78bfa', '#22d3ee', '#f472b6', '#facc15', '#fb923c', '#34d399', '#60a5fa', '#f87171', '#c084fc', '#a3e635'];
+const AM_TIMEFRAMES = [['month', 'This month'], ['3', '3M'], ['6', '6M'], ['12', '12M'], ['ytd', 'YTD'], ['all', 'All time']];
+const AM_BASIS = [
+  ['all', 'All clients', 'Every client they have managed — active and churned — using what each has paid so far.'],
+  ['realised', 'Realised', 'Churned clients only — final figures.'],
+  ['running', 'Running', 'Active clients only — still growing, not final.'],
+  ['combination', 'Combination', 'Churned clients plus any active client already past the Realised average.'],
+];
+const amNameOf = c => (c.accountManager || '').trim() || AM_UNASSIGNED;
+const amIsActive = c => c.status !== 'churned';
+const amClientsOf = name => DB.clients.filter(c => amNameOf(c) === name);
+// Every named AM that has at least one client (active or churned): the ones in
+// Settings first, in that order, then any others alphabetically.
+function amNames() {
+  const real = new Set(DB.clients.map(amNameOf).filter(n => n !== AM_UNASSIGNED));
+  const ordered = (DB.settings.accountManagers || []).filter(n => real.has(n));
+  const rest = [...real].filter(n => !ordered.includes(n)).sort((a, b) => a.localeCompare(b));
+  return [...ordered, ...rest];
+}
+function amColor(name) {
+  if (name === AM_UNASSIGNED) return 'var(--neutral)';
+  const i = amNames().indexOf(name);
+  return AM_COLORS[(i < 0 ? 0 : i) % AM_COLORS.length];
+}
+// Invoice months a timeframe pill covers, never past the real current month.
+function amWindowMonths(scale) {
+  const cur = currentMonthKey();
+  const all = invoiceMonths().filter(m => m <= cur);
+  if (scale === 'month') return [cur];
+  if (scale === 'all') return all;
+  if (scale === 'ytd') return all.filter(m => m >= fiscalYearStart(cur));
+  return all.slice(-Number(scale));
+}
+function amWindowLabel(scale) {
+  const ms = amWindowMonths(scale);
+  return scale === 'month' ? monthLabel(currentMonthKey()) : monthRangeLabel(ms);
+}
+// How many clients each AM had on the books during the window — a client counts
+// if it was present (invoiced, or bridged/skipped) in any month of it.
+function amClientCountsIn(months, clients = DB.clients) {
+  const mset = new Set(months);
+  const counts = new Map();
+  for (const c of clients) {
+    const present = [...clientEffectiveContinuity(c.id).months].some(m => mset.has(m)) || (c.skipMonths || []).some(m => mset.has(m));
+    if (!present) continue;
+    const n = amNameOf(c);
+    counts.set(n, (counts.get(n) || 0) + 1);
+  }
+  return counts;
+}
+// The subset of `clients` that were on the books in any month of the window.
+function amClientsPresentIn(clients, months) {
+  const mset = new Set(months);
+  return clients.filter(c => [...clientEffectiveContinuity(c.id).months].some(m => mset.has(m)) || (c.skipMonths || []).some(m => mset.has(m)));
+}
+// £ per AM from invoices due in the window (invoice.month is the due month).
+function amRevenueIn(months, clients = DB.clients) {
+  const mset = new Set(months);
+  const owner = new Map(clients.map(c => [c.id, amNameOf(c)]));
+  const out = new Map();
+  for (const inv of DB.invoices) {
+    if (!mset.has(inv.month)) continue;
+    const n = owner.get(inv.clientId);
+    if (!n) continue;
+    out.set(n, (out.get(n) || 0) + invoiceValueForLTV(inv));
+  }
+  return out;
+}
+// Average of a per-client value for one AM's clients, on the chosen basis.
+function amPick(clients, valueFn, basis) {
+  if (basis === 'all') {
+    const vals = clients.map(c => valueFn(c.id));
+    return { avg: avgOf(vals), count: vals.length };
+  }
+  return basisPick(basisSplit(clients, valueFn), basis);
+}
+function amMonthStats(clients, m) {
+  const ids = new Set(clients.map(c => c.id));
+  const invs = DB.invoices.filter(i => i.month === m);
+  const value = invs.filter(i => ids.has(i.clientId)).reduce((s, i) => s + invoiceValueForLTV(i), 0);
+  const company = invs.reduce((s, i) => s + invoiceValueForLTV(i), 0);
+  const invoiced = new Set(invs.filter(i => ids.has(i.clientId)).map(i => i.clientId)).size;
+  return { value, company, pct: company ? value / company * 100 : null, invoiced, perClient: invoiced ? value / invoiced : null };
+}
+
+// Horizontal bars in the same style as the Insights bar charts. rows:
+// { name, value, color, note?, attrs? } already sorted by the caller.
+function amBarsHtml(rows, { fmt = fmtMoney, valueWidth = 150 } = {}) {
+  const rowsWithValue = rows.filter(r => r.value != null);
+  if (!rowsWithValue.length) return '<div class="empty">Nothing to show yet.</div>';
+  const maxVal = Math.max(1, ...rows.map(r => r.value || 0));
+  return `<div class="ins-bars">${rows.map(r => {
+    const pct = r.value != null ? Math.max(3, r.value / maxVal * 100) : 0;
+    return `<div class="ins-bar-row${r.faded ? ' faded' : ''}">
+      <div class="ins-bar-label" title="${esc(r.name)}">${esc(r.name)}</div>
+      <div class="ins-bar-track"><div class="ins-bar-fill" style="width:${pct}%; background:${r.color}"></div></div>
+      <div class="ins-bar-value${r.attrs ? ' clickable-stat' : ''}" style="width:${valueWidth}px" ${r.attrs || ''}>${r.value != null ? fmt(r.value) : '—'}${r.note ? ` <span class="dim">(${esc(r.note)})</span>` : ''}</div>
+    </div>${r.sub ? `<div class="ins-bar-sub">${esc(r.sub)}</div>` : ''}`;
+  }).join('')}</div>`;
+}
+// Donut chart (SVG) — rows: { name, value, color }. `print` swaps the theme
+// variables for fixed light-paper colours so it also works in the PDF export.
+function amPieSvg(rows, fmt = fmtMoney, { center = true, print = false } = {}) {
+  const data = rows.filter(r => r.value > 0);
+  const total = data.reduce((s, r) => s + r.value, 0);
+  if (!total) return '';
+  const ink = print ? '#111' : 'var(--text)', soft = print ? '#666' : 'var(--text-muted)', gap = print ? '#fff' : 'var(--bg-card)';
+  const R = 100, r0 = 62, C = 110;
+  let angle = 0;
+  const pt = (rad, a) => [C + rad * Math.sin(a), C - rad * Math.cos(a)];
+  const slices = data.map((d, i) => {
+    const frac = d.value / total, a0 = angle, a1 = angle + frac * Math.PI * 2;
+    angle = a1;
+    const tip = `${d.name} — ${fmt(d.value)} (${(frac * 100).toFixed(1)}%)`;
+    if (frac >= 0.9999) {
+      return `<circle cx="${C}" cy="${C}" r="${(R + r0) / 2}" fill="none" stroke="${d.color}" stroke-width="${R - r0}" data-i="${i}"><title>${esc(tip)}</title></circle>`;
+    }
+    const [x0, y0] = pt(R, a0), [x1, y1] = pt(R, a1), [x2, y2] = pt(r0, a1), [x3, y3] = pt(r0, a0);
+    const large = a1 - a0 > Math.PI ? 1 : 0;
+    return `<path d="M${x0},${y0} A${R},${R} 0 ${large} 1 ${x1},${y1} L${x2},${y2} A${r0},${r0} 0 ${large} 0 ${x3},${y3} Z" fill="${d.color}" stroke="${gap}" stroke-width="2" data-i="${i}"><title>${esc(tip)}</title></path>`;
+  }).join('');
+  const mid = center ? `<text x="${C}" y="${C - 2}" text-anchor="middle" font-size="11" fill="${soft}">Total</text>
+      <text x="${C}" y="${C + 16}" text-anchor="middle" font-size="15" font-weight="800" fill="${ink}">${esc(fmt(total).replace(/\.00$/, ''))}</text>` : '';
+  return `<svg viewBox="0 0 220 220" width="220" height="220" role="img">${slices}${mid}</svg>`;
+}
+// Donut + legend (value and share of the whole) for the on-screen Team charts.
+function amPieHtml(rows, fmt = fmtMoney, opts = {}) {
+  const data = rows.filter(r => r.value > 0);
+  const total = data.reduce((s, r) => s + r.value, 0);
+  if (!total) return '<div class="empty">Nothing to show yet.</div>';
+  return `<div class="am-pie-wrap">
+    ${amPieSvg(rows, fmt, opts)}
+    <div class="am-legend">${data.map((d, i) => `<div class="am-legend-row" data-i="${i}"><span class="dot" style="background:${d.color}"></span><span class="nm">${esc(d.name)}</span><span class="v">${fmt(d.value)}</span><span class="p">${(d.value / total * 100).toFixed(1)}%</span></div>`).join('')}</div>
+  </div>`;
+}
+
+function renderAmPerf() {
+  const view = document.getElementById('view-amperf');
+  if (!view || !DB || state.tab !== 'amperf') return;
+  view.innerHTML = `
+    <div class="am-subtabs">
+      <button type="button" class="am-subtab ${state.amTab === 'ams' ? 'active' : ''}" data-am-tab="ams">Account Managers</button>
+      <button type="button" class="am-subtab ${state.amTab === 'team' ? 'active' : ''}" data-am-tab="team">Team</button>
+    </div>
+    <div id="am-body"></div>`;
+  view.querySelectorAll('[data-am-tab]').forEach(b => b.onclick = () => {
+    state.amTab = b.dataset.amTab; state.amSel = null; state.amIndustry = null; renderAmPerf(); revealCharts(document.getElementById('view-amperf'));
+  });
+  const body = view.querySelector('#am-body');
+  if (state.amTab === 'team') renderAmTeam(body);
+  else if (state.amSel && state.amIndustry) renderAmIndustryClients(body, state.amSel, state.amIndustry);
+  else if (state.amSel) renderAmDetail(body, state.amSel);
+  else renderAmList(body);
+}
+
+const amPills = (key, list, current, title) => `<div class="pills" ${title ? `title="${esc(title)}"` : ''}>${list.map(([k, l, t]) => `<button type="button" class="pill ${current === k ? 'active' : ''}" data-am-set="${key}:${k}" ${t ? `title="${esc(t)}"` : ''}>${esc(l)}</button>`).join('')}</div>`;
+// Pie hover: the slice under the cursor grows slightly and its legend row is the
+// only one left at full strength (the others fade). Hovering a legend row does
+// the same to its slice.
+function amWirePies(root) {
+  root.querySelectorAll('.am-pie-wrap').forEach(wrap => {
+    const set = i => {
+      wrap.classList.toggle('hovering', i != null);
+      wrap.querySelectorAll('[data-i]').forEach(el => el.classList.toggle('on', i != null && el.dataset.i === String(i)));
+    };
+    wrap.querySelectorAll('[data-i]').forEach(el => {
+      el.addEventListener('mouseenter', () => set(el.dataset.i));
+      el.addEventListener('mouseleave', () => set(null));
+    });
+  });
+}
+function amWireSetters(root) {
+  root.querySelectorAll('[data-am-set]').forEach(b => b.onclick = () => {
+    const [key, ...rest] = b.dataset.amSet.split(':');
+    state[key] = rest.join(':'); renderAmPerf();
+  });
+}
+
+/* ── Team: client filters ── */
+// Wider industry / industry / territory (country) / company size. Every Team
+// chart (and the export) is computed from just the clients that match all of
+// the chosen filters, e.g. Industry = Accounting plus Territory = UK narrows
+// everything to UK accounting clients. Independent of the Insights filters.
+function amScopeClients() {
+  const match = (val, f) => !f || (f === UNCLASSIFIED ? !val : val === f);
+  return DB.clients.filter(c =>
+    match(wideIndustryOf(c), state.amFilterWide) &&
+    match(c.industry, state.amFilterIndustry) &&
+    match(c.country, state.amFilterCountry) &&
+    match(c.companySize, state.amFilterSize));
+}
+function amFilterSummary() {
+  const nm = v => v === UNCLASSIFIED ? 'Unclassified' : v;
+  return [['Wider industry', state.amFilterWide], ['Industry', state.amFilterIndustry], ['Territory', state.amFilterCountry], ['Company size', state.amFilterSize]]
+    .filter(([, v]) => v).map(([l, v]) => `${l}: ${nm(v)}`).join(' · ');
+}
+
+/* ── Team ── */
+// The four Team datasets, shared by the on-screen charts and the PDF/Doc export
+// so the two can never disagree. Each: { key, title, note, rows, fmt, ... }.
+function amTeamSections() {
+  const names = amNames();
+  const pool = amScopeClients();   // clients matching the Team filters
+  const basis = state.amBasis;
+  const [, basisName, basisTitle] = AM_BASIS.find(b => b[0] === basis);
+
+  const cMonths = amWindowMonths(state.amClientsScale);
+  const counts = amClientCountsIn(cMonths, pool);
+  const clientRows = [...names, AM_UNASSIGNED].map(n => ({ name: n, value: counts.get(n) || 0, color: amColor(n) }))
+    .filter(r => r.value > 0).sort((a, b) => b.value - a.value);
+  const clientTotal = clientRows.reduce((s, r) => s + r.value, 0);
+  clientRows.forEach(r => { r.note = `${(r.value / clientTotal * 100).toFixed(0)}%`; });
+
+  const rMonths = amWindowMonths(state.amRevScale);
+  const rev = amRevenueIn(rMonths, pool);
+  const revRows = [...names, AM_UNASSIGNED].map(n => ({ name: n, value: rev.get(n) || 0, color: amColor(n) }))
+    .filter(r => r.value > 0).sort((a, b) => b.value - a.value);
+  const revTotal = revRows.reduce((s, r) => s + r.value, 0);
+  revRows.forEach(r => { r.note = `${(r.value / revTotal * 100).toFixed(1)}%`; });
+
+  // Lifetime value and tenure stay lifetime figures; the timeframe picks which clients
+  // are included — those on the books during it ('all' = every client).
+  const avgRows = (fn, scale) => {
+    const scoped = scale === 'all' ? pool : amClientsPresentIn(pool, amWindowMonths(scale));
+    return names.map(n => { const p = amPick(scoped.filter(c => amNameOf(c) === n), fn, basis); return { name: n, value: p.avg, note: `${p.count} client${p.count === 1 ? '' : 's'}`, color: amColor(n) }; })
+      .filter(r => r.value != null).sort((a, b) => b.value - a.value);
+  };
+  const scopeNote = scale => scale === 'all' ? '' : ` Clients on the books during ${amWindowLabel(scale)}; figures are lifetime.`;
+
+  return [
+    { key: 'Clients', title: 'Number of clients', timeframe: 'amClientsScale', timeframeTip: 'Clients on the books at any point in this period',
+      sub: `Clients each account manager had on the books during ${amWindowLabel(state.amClientsScale)} — ${clientTotal} in total.`,
+      rows: clientRows, fmt: v => String(v), valueWidth: 100, center: true, shareLabel: 'Share', valueLabel: 'Clients' },
+    { key: 'Rev', title: 'Revenue share', timeframe: 'amRevScale', timeframeTip: 'Invoices due in this period',
+      sub: `Each account manager's share of ${fmtMoney(revTotal)} invoiced in ${amWindowLabel(state.amRevScale)}.`,
+      rows: revRows, fmt: fmtMoney, valueWidth: 190, center: true, shareLabel: 'Share', valueLabel: 'Revenue' },
+    { key: 'Ltv', title: 'Average client lifetime value', basis: true, timeframe: 'amLtvScale', timeframeTip: 'Which clients: those on the books at any point in this period (All time = every client)',
+      sub: `${basisName} basis — ${basisTitle}${scopeNote(state.amLtvScale)}`,
+      rows: avgRows(clientLifetimeValue, state.amLtvScale), fmt: fmtMoney, valueWidth: 190, center: false, shareLabel: 'Clients counted', valueLabel: 'Average lifetime value' },
+    { key: 'Tenure', title: 'Average client tenure', basis: true, timeframe: 'amTenureScale', timeframeTip: 'Which clients: those on the books at any point in this period (All time = every client)',
+      sub: `${basisName} basis — ${basisTitle} Tenure is months billed.${scopeNote(state.amTenureScale)}`,
+      rows: avgRows(clientMaxMonthNo, state.amTenureScale), fmt: v => v.toFixed(1) + ' mo', valueWidth: 170, center: false, shareLabel: 'Clients counted', valueLabel: 'Average tenure' },
+  ];
+}
+function renderAmTeam(body) {
+  const amSel = (id, label, list, current, field, within = DB.clients) => `<select id="${id}">
+      <option value="">All ${esc(label)}</option>
+      ${optionsInUse(field, list, current, within).map(v => `<option value="${esc(v)}" ${current === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+      ${hasUnclassified(field, within) || current === UNCLASSIFIED ? `<option value="${UNCLASSIFIED}" ${current === UNCLASSIFIED ? 'selected' : ''}>Unclassified</option>` : ''}
+    </select>`;
+  const inScope = amScopeClients().length;
+  if (!amNames().length) { body.innerHTML = '<div class="chart-card"><div class="empty">No account managers are assigned to any client yet.</div></div>'; return; }
+  const basisTitle = AM_BASIS.find(b => b[0] === state.amBasis)[2];
+  const card = s => {
+    const chart = state['amChart' + s.key];
+    const pieNote = chart === 'pie' && !s.center ? '<div class="note" style="margin:0 0 8px">Slices show each account manager\'s share of the combined averages.</div>' : '';
+    return `<div class="chart-card">
+      <div class="chart-head">
+        <h3>${esc(s.title)}</h3>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+          ${s.timeframe ? amPills(s.timeframe, AM_TIMEFRAMES, state[s.timeframe], s.timeframeTip) : ''}
+          ${s.basis ? amPills('amBasis', AM_BASIS, state.amBasis, basisTitle) : ''}
+          ${amPills('amChart' + s.key, [['bar', 'Bar'], ['pie', 'Pie']], chart, 'Chart type')}
+        </div>
+      </div>
+      <div class="note" style="margin:-4px 0 12px">${esc(s.sub)}</div>
+      ${pieNote}
+      ${chart === 'pie' ? amPieHtml(s.rows, s.fmt, { center: s.center }) : amBarsHtml(s.rows, { fmt: s.fmt, valueWidth: s.valueWidth })}
+    </div>`;
+  };
+  // Master controls: Timeframe and Chart type each set every chart at once. A master
+  // pill is highlighted only while all four charts agree (changing one chart on its
+  // own leaves the master with no highlight and a "mixed" tag).
+  const scaleKeys = ['amClientsScale', 'amRevScale', 'amLtvScale', 'amTenureScale'];
+  const chartKeys = ['amChartClients', 'amChartRev', 'amChartLtv', 'amChartTenure'];
+  const agree = keys => keys.every(k => state[k] === state[keys[0]]) ? state[keys[0]] : null;
+  const masterCur = agree(scaleKeys), masterChart = agree(chartKeys);
+  body.innerHTML = `
+    <div class="am-ctl-row">
+      <div class="am-ctl" title="Sets the timeframe on every chart below at once">
+        <div class="am-ctl-label">Timeframe · all charts ${masterCur ? '' : '<em>(mixed)</em>'}</div>
+        <div class="pills">${AM_TIMEFRAMES.map(([k, l]) => `<button type="button" class="pill ${masterCur === k ? 'active' : ''}" data-am-master="${k}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="am-ctl" title="Switches every chart below between bars and pies at once">
+        <div class="am-ctl-label">Chart type · all charts ${masterChart ? '' : '<em>(mixed)</em>'}</div>
+        <div class="pills">${[['bar', 'Bar'], ['pie', 'Pie']].map(([k, l]) => `<button type="button" class="pill ${masterChart === k ? 'active' : ''}" data-am-master-chart="${k}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="am-ctl am-ctl-export">
+        <div class="am-ctl-label">Export</div>
+        <div class="am-ctl-btns">
+          <button type="button" class="btn btn-sm" id="am-export-pdf" title="Opens a print-ready report — choose “Save as PDF” as the destination">⬇ PDF</button>
+          <button type="button" class="btn btn-sm" id="am-export-doc" title="Downloads a document you can open in Google Docs">⬇ Google Doc</button>
+        </div>
+      </div>
+    </div>
+    <div class="am-ctl-row">
+      <div class="am-ctl filters">
+        <div class="am-ctl-label">Filter clients${amFilterSummary() ? ' · active' : ''}</div>
+        <div class="am-ctl-selects">
+          ${amSel('am-f-wide', 'wider industries', DB.settings.wideIndustries, state.amFilterWide, 'wideIndustry')}
+          ${amSel('am-f-industry', 'industries', DB.settings.industries, state.amFilterIndustry, 'industry', clientsInWide(state.amFilterWide))}
+          ${amSel('am-f-country', 'territories', DB.settings.countries, state.amFilterCountry, 'country')}
+          ${amSel('am-f-size', 'company sizes', DB.settings.companySizes, state.amFilterSize, 'companySize')}
+          ${amFilterSummary() ? '<button type="button" class="btn btn-sm" id="am-f-clear">Clear filters</button>' : ''}
+        </div>
+      </div>
+    </div>
+    <div class="note" style="margin:0 0 14px">${inScope === DB.clients.length ? `Every account manager side by side — all ${inScope} clients.` : `Showing ${inScope} of ${DB.clients.length} clients${amFilterSummary() ? ` — ${esc(amFilterSummary())}` : ''}.`}</div>
+    <div class="am-stack">${amTeamSections().map(card).join('')}</div>`;
+  amWireSetters(body);
+  amWirePies(body);
+  body.querySelectorAll('[data-am-master]').forEach(b => b.onclick = () => { scaleKeys.forEach(k => { state[k] = b.dataset.amMaster; }); renderAmPerf(); });
+  body.querySelectorAll('[data-am-master-chart]').forEach(b => b.onclick = () => { chartKeys.forEach(k => { state[k] = b.dataset.amMasterChart; }); renderAmPerf(); });
+  const filterEl = (id, key) => { const el = body.querySelector('#' + id); if (el) el.onchange = e => { state[key] = e.target.value; renderAmPerf(); }; };
+  const wideEl = body.querySelector('#am-f-wide');
+  if (wideEl) wideEl.onchange = e => {
+    state.amFilterWide = e.target.value;
+    // an industry outside the chosen wider industry can no longer match — drop it
+    const inWide = clientsInWide(state.amFilterWide);
+    if (state.amFilterIndustry && state.amFilterIndustry !== UNCLASSIFIED && !inWide.some(c => c.industry === state.amFilterIndustry)) state.amFilterIndustry = '';
+    renderAmPerf();
+  };
+  filterEl('am-f-industry', 'amFilterIndustry'); filterEl('am-f-country', 'amFilterCountry'); filterEl('am-f-size', 'amFilterSize');
+  const clearBtn = body.querySelector('#am-f-clear');
+  if (clearBtn) clearBtn.onclick = () => { state.amFilterWide = state.amFilterIndustry = state.amFilterCountry = state.amFilterSize = ''; renderAmPerf(); };
+  body.querySelector('#am-export-pdf').onclick = amExportPdf;
+  body.querySelector('#am-export-doc').onclick = amExportDoc;
+}
+
+/* ── Team export (PDF via the print dialog, Google Doc via a downloadable .doc) ── */
+function amReportSections() {
+  // The exports have no theme variables, so the grey "Unassigned" swatch becomes a fixed grey.
+  const printColor = c => String(c).startsWith('var(') ? '#9ca3af' : c;
+  return amTeamSections().map(s => {
+    const rows = s.rows.map(r => ({ ...r, color: printColor(r.color) }));
+    const total = rows.reduce((a, r) => a + r.value, 0);
+    const isShare = s.center;   // clients / revenue are parts of a whole; the averages are not
+    return { ...s, rows, chart: state['amChart' + s.key], total, tableRows: rows.map(r => ({
+      name: r.name, color: r.color, value: s.fmt(r.value), extra: isShare ? `${(r.value / total * 100).toFixed(1)}%` : r.note,
+    })) };
+  });
+}
+function amReportMeta() {
+  const basisName = AM_BASIS.find(b => b[0] === state.amBasis)[1];
+  return {
+    title: 'AM Performance — Team',
+    generated: new Date().toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' }),
+    summary: `Clients: ${amWindowLabel(state.amClientsScale)} · Revenue: ${amWindowLabel(state.amRevScale)} · Lifetime value clients: ${state.amLtvScale === 'all' ? 'all time' : amWindowLabel(state.amLtvScale)} · Tenure clients: ${state.amTenureScale === 'all' ? 'all time' : amWindowLabel(state.amTenureScale)} · Lifetime value and tenure basis: ${basisName}${amFilterSummary() ? ` · Filters — ${amFilterSummary()}` : ''}`,
+  };
+}
+function amExportPdf() {
+  const meta = amReportMeta();
+  const barRow = (r, max) => `<tr><td class="nm"><span class="sw" style="background:${r.color}"></span>${esc(r.name)}</td>
+      <td class="bar"><div style="width:${r._w}%; background:${r.color}"></div></td><td class="num">${esc(r.value)}</td><td class="num dim">${esc(r.extra)}</td></tr>`;
+  const sectionHtml = s => {
+    const max = Math.max(1, ...s.rows.map(r => r.value));
+    const rows = s.tableRows.map((r, i) => ({ ...r, _w: Math.max(3, s.rows[i].value / max * 100) }));
+    const visual = s.chart === 'pie'
+      ? `<div class="pie">${amPieSvg(s.rows, s.fmt, { center: s.center, print: true })}</div>
+         <table class="legend"><thead><tr><th>Account manager</th><th class="num">${esc(s.valueLabel)}</th><th class="num">${esc(s.shareLabel)}</th></tr></thead><tbody>${rows.map(r => `<tr><td class="nm"><span class="sw" style="background:${r.color}"></span>${esc(r.name)}</td><td class="num">${esc(r.value)}</td><td class="num dim">${esc(r.extra)}</td></tr>`).join('')}</tbody></table>`
+      : `<table class="bars"><thead><tr><th>Account manager</th><th></th><th class="num">${esc(s.valueLabel)}</th><th class="num">${esc(s.shareLabel)}</th></tr></thead><tbody>${rows.map(r => barRow(r)).join('')}</tbody></table>`;
+    return `<section><h2>${esc(s.title)}</h2><p class="sub">${esc(s.sub)}</p>${s.rows.length ? visual : '<p class="sub">Nothing to show for this selection.</p>'}</section>`;
+  };
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(meta.title)}</title>
+    <style>
+      @page { margin: 14mm; }
+      * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body { font: 12px/1.45 Arial, Helvetica, sans-serif; color: #111; margin: 0; }
+      h1 { font-size: 22px; margin: 0 0 2px; } .meta { color: #666; margin-bottom: 18px; }
+      section { break-inside: avoid; margin-bottom: 22px; } h2 { font-size: 15px; margin: 0 0 2px; } .sub { color: #666; margin: 0 0 8px; }
+      table { width: 100%; border-collapse: collapse; } th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #666; border-bottom: 1px solid #ccc; padding: 4px 6px; }
+      td { padding: 4px 6px; border-bottom: 1px solid #eee; } .num { text-align: right; white-space: nowrap; } .dim { color: #666; }
+      .nm { white-space: nowrap; } .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
+      td.bar { width: 45%; } td.bar div { height: 11px; border-radius: 3px; } .pie { text-align: center; margin: 4px 0 8px; } .legend { max-width: 560px; margin: 0 auto; }
+    </style></head><body>
+    <h1>${esc(meta.title)}</h1><div class="meta">${esc(meta.summary)}<br>Generated ${esc(meta.generated)}</div>
+    ${amReportSections().map(sectionHtml).join('')}
+    </body></html>`;
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden';
+  document.body.appendChild(frame);
+  frame.contentDocument.open(); frame.contentDocument.write(html); frame.contentDocument.close();
+  setTimeout(() => {
+    frame.contentWindow.focus(); frame.contentWindow.print();
+    setTimeout(() => frame.remove(), 2000);
+  }, 300);
+}
+function amExportDoc() {
+  const meta = amReportMeta();
+  const sectionHtml = s => `<h2>${esc(s.title)}</h2><p>${esc(s.sub)}</p>
+    ${s.rows.length ? `<table border="1" cellspacing="0" cellpadding="5" style="border-collapse:collapse; border-color:#bbb">
+      <tr style="background:#eee"><th align="left">Account manager</th><th align="right">${esc(s.valueLabel)}</th><th align="right">${esc(s.shareLabel)}</th></tr>
+      ${s.tableRows.map(r => `<tr><td><span style="color:${r.color}">&#9632;</span> ${esc(r.name)}</td><td align="right">${esc(r.value)}</td><td align="right">${esc(r.extra)}</td></tr>`).join('')}
+    </table>` : '<p><i>Nothing to show for this selection.</i></p>'}`;
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+    <head><meta charset="utf-8"><title>${esc(meta.title)}</title></head>
+    <body style="font-family:Arial,sans-serif; font-size:11pt">
+    <h1>${esc(meta.title)}</h1><p style="color:#666">${esc(meta.summary)}<br>Generated ${esc(meta.generated)}</p>
+    ${amReportSections().map(sectionHtml).join('')}
+    </body></html>`;
+  const name = `AM-Performance-Team-${todayISO()}.doc`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿', html], { type: 'application/msword' }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  openModal(`
+    <div class="modal-head"><h3>Open it as a Google Doc</h3><button class="modal-x" data-close>×</button></div>
+    <p style="font-size:13px; color:var(--text-dim); line-height:1.6"><strong>${esc(name)}</strong> has been downloaded. To turn it into a Google Doc:</p>
+    <ol style="font-size:13px; color:var(--text-dim); line-height:1.8; margin:8px 0 0 18px">
+      <li>Open Google Drive and choose <strong>New → File upload</strong>, then pick the file.</li>
+      <li>Right-click the uploaded file → <strong>Open with → Google Docs</strong>.</li>
+    </ol>
+    <div class="modal-foot"><button class="btn" data-close>Close</button><a class="btn btn-primary" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noopener">Open Google Drive</a></div>`);
+}
+
+/* ── Account Managers: searchable list ── */
+function renderAmList(body) {
+  const names = amNames().filter(n => amClientsOf(n).some(amIsActive));
+  const cur = currentMonthKey();
+  const cards = names.map(n => {
+    const clients = amClientsOf(n);
+    const active = clients.filter(amIsActive);
+    const st = amMonthStats(clients, cur);
+    return `<button type="button" class="am-card" data-am-open="${esc(n)}" data-name="${esc(n.toLowerCase())}" style="--c:${amColor(n)}">
+      <div class="am-card-name">${esc(n)}</div>
+      <div class="am-card-stats">
+        <div><div class="v">${active.length}</div><div class="l">Active client${active.length === 1 ? '' : 's'}</div></div>
+        <div><div class="v">${fmtMoney(st.value)}</div><div class="l">${esc(monthLabelShort(cur))}</div></div>
+      </div>
+    </button>`;
+  }).join('');
+  body.innerHTML = `
+    <div class="toolbar" style="margin-bottom:14px">
+      <input type="search" id="am-search" placeholder="Search account managers…" style="min-width:260px" value="${esc(state.amSearch || '')}" autocomplete="off">
+      <span class="dim" style="font-size:12px">${names.length} account manager${names.length === 1 ? '' : 's'} with an active client</span>
+    </div>
+    ${names.length ? `<div class="am-list" id="am-list">${cards}</div><div class="empty" id="am-none" style="display:none">No account managers match your search.</div>`
+      : '<div class="chart-card"><div class="empty">No account manager has an active client yet.</div></div>'}`;
+  const input = body.querySelector('#am-search');
+  const apply = () => {
+    const q = input.value.trim().toLowerCase();
+    state.amSearch = input.value;
+    let shown = 0;
+    body.querySelectorAll('.am-card').forEach(c => { const hit = !q || c.dataset.name.includes(q); c.style.display = hit ? '' : 'none'; if (hit) shown++; });
+    const none = body.querySelector('#am-none');
+    if (none) none.style.display = shown ? 'none' : '';
+  };
+  input.addEventListener('input', apply);
+  apply();
+  body.querySelectorAll('[data-am-open]').forEach(b => b.onclick = () => { state.amSel = b.dataset.amOpen; state.amIndustry = null; state.amClientStatus = 'all'; renderAmPerf(); revealCharts(document.getElementById('view-amperf')); });
+}
+
+/* ── One account manager ── */
+function renderAmDetail(body, name) {
+  const clients = amClientsOf(name);
+  if (!clients.length) { state.amSel = null; renderAmList(body); return; }
+  const cur = currentMonthKey();
+  const basis = state.amBasis;
+  const st = amMonthStats(clients, cur);
+  const active = clients.filter(amIsActive);
+  const careerLtv = clients.reduce((s, c) => s + clientLifetimeValue(c.id), 0);
+  const color = amColor(name);
+
+  const buckets = clientBuckets('industry', clients);
+  // Under Combination an industry can have no figure at all — e.g. its only client is
+  // still active and hasn't passed the Realised average. Those industries are still
+  // listed, below the ranked ones, faded and in italics, at their active clients'
+  // current figure (current tenure / lifetime value so far) with the clients named.
+  const industryRows = fn => {
+    const ranked = [], pending = [];
+    buckets.forEach(b => {
+      const p = amPick(b.clients, fn, basis);
+      const attrs = `data-am-ind="${esc(b.name)}"`;
+      if (p.avg != null) { ranked.push({ name: b.name, value: p.avg, note: `${p.count}`, attrs }); return; }
+      const act = basis === 'combination' ? b.clients.filter(amIsActive) : [];
+      if (act.length) pending.push({ name: b.name, value: avgOf(act.map(c => fn(c.id))), note: `${act.length} active`, attrs, faded: true,
+        sub: `${act.map(c => c.companyName).join(', ')} — still active, current figure` });
+    });
+    ranked.sort((a, b) => b.value - a.value);
+    pending.sort((a, b) => b.value - a.value);
+    return [...ranked.map((r, i) => ({ ...r, color: greyFade(i, ranked.length) })), ...pending.map(r => ({ ...r, color: 'var(--neutral)' }))];
+  };
+  const tenureRowsIn = industryRows(clientMaxMonthNo), ltvRowsIn = industryRows(clientLifetimeValue);
+  const fadedNote = rows => rows.some(r => r.faded) ? ' Faded italic rows are active clients who don’t have a Combination figure yet, shown at their current figure.' : '';
+  const tenureBars = amBarsHtml(tenureRowsIn, { fmt: v => v.toFixed(1) + ' mo', valueWidth: 110 });
+  const ltvBars = amBarsHtml(ltvRowsIn, { fmt: fmtMoney, valueWidth: 150 });
+  const basisTitle = AM_BASIS.find(b => b[0] === basis)[2];
+
+  const split = buckets.map(b => ({ name: b.name, n: b.clients.length, active: b.clients.filter(amIsActive).length }));
+  const maxN = Math.max(1, ...split.map(s => s.n));
+  const clientRows = [...clients].sort((a, b) => (amIsActive(b) - amIsActive(a)) || ((b.feeGBP || 0) - (a.feeGBP || 0)) || a.companyName.localeCompare(b.companyName));
+
+  body.innerHTML = `
+    <div class="toolbar" style="margin-bottom:14px">
+      <button type="button" class="btn btn-sm" id="am-back">← All account managers</button>
+      <h2 style="font-size:20px; font-weight:800; letter-spacing:-.3px; display:flex; align-items:center; gap:10px"><span class="dot" style="background:${color}; width:12px; height:12px"></span>${esc(name)}</h2>
+      <span class="dim" style="font-size:12px">${active.length} active · ${clients.length - active.length} churned</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="v">${fmtMoney(st.value)}</div><div class="l">${esc(monthLabel(cur))} value</div><div class="s">${st.pct != null ? `${st.pct.toFixed(1)}% of the company's ${fmtMoney(st.company)}` : 'no company revenue yet'}</div></div>
+      <div class="stat"><div class="v">${st.perClient != null ? fmtMoney(st.perClient) : '—'}</div><div class="l">Revenue per client — ${esc(monthLabelShort(cur))}</div><div class="s">${st.invoiced} client${st.invoiced === 1 ? '' : 's'} invoiced this month</div></div>
+      <div class="stat ok"><div class="v">${fmtMoney(careerLtv)}</div><div class="l">Career lifetime value</div><div class="s">all invoices of ${clients.length} client${clients.length === 1 ? '' : 's'}, active and churned</div></div>
+    </div>
+
+    <div class="am-grid">
+      <div class="chart-card">
+        <div class="chart-head"><h3>Average tenure by industry</h3>${amPills('amBasis', AM_BASIS, basis, basisTitle)}</div>
+        <div class="note" style="margin:-4px 0 12px">Months billed. ${esc(basisTitle)} Click a bar to see those clients.${esc(fadedNote(tenureRowsIn))}</div>
+        ${tenureBars}
+      </div>
+      <div class="chart-card">
+        <div class="chart-head"><h3>Average client lifetime value by industry</h3>${amPills('amBasis', AM_BASIS, basis, basisTitle)}</div>
+        <div class="note" style="margin:-4px 0 12px">${esc(basisTitle)} Click a bar to see those clients.${esc(fadedNote(ltvRowsIn))}</div>
+        ${ltvBars}
+      </div>
+    </div>
+
+    <div class="chart-card" style="margin-top:16px">
+      <div class="chart-head"><h3>Lifetime industry client split</h3><span class="dim" style="font-size:12px">Every client ${esc(name)} has worked with — click an industry for its clients</span></div>
+      <div class="ins-bars">${split.map(s => `<div class="ins-bar-row">
+        <div class="ins-bar-label" title="${esc(s.name)}">${esc(s.name)}</div>
+        <div class="ins-bar-track"><div class="ins-bar-fill" style="width:${Math.max(3, s.n / maxN * 100)}%; background:${color}"></div></div>
+        <div class="ins-bar-value clickable-stat" style="width:150px" data-am-ind="${esc(s.name)}">${s.n} client${s.n === 1 ? '' : 's'} <span class="dim">(${s.active} active)</span></div>
+      </div>`).join('')}</div>
+    </div>
+
+    <h2 class="section" style="margin-top:20px">${esc(name)}'s clients</h2>
+    <div class="toolbar" style="margin-bottom:10px">
+      <span class="dim" style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em">Status</span>
+      <div class="pills" id="am-status-pills">${[['all', 'All', clients.length], ['active', 'Active', active.length], ['churned', 'Churned', clients.length - active.length]]
+        .map(([k, l, n]) => `<button type="button" class="pill ${state.amClientStatus === k ? 'active' : ''}" data-am-status="${k}">${l} (${n})</button>`).join('')}</div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Client</th><th>Status</th><th>Industry</th><th class="num">Monthly fee</th><th class="num">Lifetime value</th></tr></thead>
+        <tbody>${clientRows.map(c => `<tr data-status="${amIsActive(c) ? 'active' : 'churned'}">
+          <td><strong>${esc(c.companyName)}</strong></td>
+          <td class="${amIsActive(c) ? '' : 'dim'}">${amIsActive(c) ? 'Active' : 'Churned'}</td>
+          <td class="dim">${esc(c.industry || 'Unclassified')}</td>
+          <td class="num money">${fmtMoney(c.feeGBP)}</td>
+          <td class="num money">${fmtMoney(clientLifetimeValue(c.id))}</td>
+        </tr>`).join('')}<tr id="am-clients-empty" style="display:none"><td colspan="5"><div class="empty">No clients with this status.</div></td></tr></tbody>
+      </table>
+    </div>`;
+  amWireSetters(body);
+  // Status filter on the client list — filters the rows in place (no page re-render, so the scroll position stays put).
+  const applyStatus = () => {
+    let shown = 0;
+    body.querySelectorAll('tr[data-status]').forEach(tr => { const hit = state.amClientStatus === 'all' || tr.dataset.status === state.amClientStatus; tr.style.display = hit ? '' : 'none'; if (hit) shown++; });
+    body.querySelector('#am-clients-empty').style.display = shown ? 'none' : '';
+    body.querySelectorAll('[data-am-status]').forEach(b => b.classList.toggle('active', b.dataset.amStatus === state.amClientStatus));
+  };
+  body.querySelectorAll('[data-am-status]').forEach(b => b.onclick = () => { state.amClientStatus = b.dataset.amStatus; applyStatus(); });
+  applyStatus();
+  body.querySelector('#am-back').onclick = () => { state.amSel = null; state.amIndustry = null; renderAmPerf(); revealCharts(document.getElementById('view-amperf')); };
+  body.querySelectorAll('[data-am-ind]').forEach(el => el.onclick = () => { state.amIndustry = el.dataset.amInd; renderAmPerf(); revealCharts(document.getElementById('view-amperf')); });
+}
+
+/* ── One account manager's clients in one industry ── */
+function renderAmIndustryClients(body, name, industry) {
+  const clients = amClientsOf(name).filter(c => (c.industry || 'Unclassified') === industry)
+    .sort((a, b) => clientLifetimeValue(b.id) - clientLifetimeValue(a.id));
+  const avgLtv = avgOf(clients.map(c => clientLifetimeValue(c.id)));
+  const avgTen = avgOf(clients.map(c => clientMaxMonthNo(c.id)));
+  body.innerHTML = `
+    <div class="toolbar" style="margin-bottom:14px">
+      <button type="button" class="btn btn-sm" id="am-back-detail">← ${esc(name)}</button>
+      <h2 style="font-size:20px; font-weight:800; letter-spacing:-.3px">${esc(name)} — ${esc(industry)}</h2>
+      <span class="dim" style="font-size:12px">${clients.length} client${clients.length === 1 ? '' : 's'}</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="v">${clients.length}</div><div class="l">Clients</div><div class="s">${clients.filter(amIsActive).length} active</div></div>
+      <div class="stat ok"><div class="v">${avgLtv != null ? fmtMoney(avgLtv) : '—'}</div><div class="l">Average lifetime value</div></div>
+      <div class="stat"><div class="v">${avgTen != null ? avgTen.toFixed(1) + ' mo' : '—'}</div><div class="l">Average tenure</div></div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Client</th><th>Status</th><th class="num">Lifetime value</th><th class="num">Tenure</th></tr></thead>
+        <tbody>${clients.length ? clients.map(c => `<tr>
+          <td><strong>${esc(c.companyName)}</strong></td>
+          <td class="${amIsActive(c) ? '' : 'dim'}">${amIsActive(c) ? 'Active' : 'Churned'}</td>
+          <td class="num money">${fmtMoney(clientLifetimeValue(c.id))}</td>
+          <td class="num">${clientMaxMonthNo(c.id)} mo</td>
+        </tr>`).join('') : '<tr><td colspan="4"><div class="empty">No clients in this industry.</div></td></tr>'}</tbody>
+      </table>
+    </div>`;
+  body.querySelector('#am-back-detail').onclick = () => { state.amIndustry = null; renderAmPerf(); revealCharts(document.getElementById('view-amperf')); };
+}
+
 // Client performance indicator — now the 4th Overview tile (bottom of the
 // stack) rather than its own top-level tab. It's already the full tool
 // (not a stat preview), so unlike the other three tiles it isn't clickable
@@ -5229,6 +5923,7 @@ const CC_ROUTE_CONFIG = {
   '/commission':           { title: 'Commission', allowedTabs: ['commissions'], defaultTab: 'commissions' },
   '/operational-settings': { title: 'Operational Settings', allowedTabs: ['settings'], defaultTab: 'settings', tabLabels: { settings: 'Operational Settings' } },
   '/insights':             { title: 'Insights', allowedTabs: ['insights'], defaultTab: 'insights' },
+  '/am-performance':       { title: 'AM Performance', allowedTabs: ['amperf'], defaultTab: 'amperf' },
 };
 const _ccRouteCfg = CC_ROUTE_CONFIG[location.pathname];
 window.CC_CONFIG = Object.assign({
