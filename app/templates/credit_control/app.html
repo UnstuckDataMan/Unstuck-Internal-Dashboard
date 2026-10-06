@@ -3853,6 +3853,15 @@ function renderInsOverview(bodyEl, goTo) {
   const yearBarMonths = trailingMonths(rows, 12);
   const yearSums = sumRevenueOverMonths(rows, yearBarMonths);
   const yearBar = revBarStats(yearSums.landed, yearSums.expected, yearSums.goal);
+  // Year to date (1 Aug to now) sits between the current month and the 12-month bar —
+  // left out when it's just the current month (August), and merged into the 12-month
+  // bar's label when it covers exactly the same months (July).
+  const ytdMonths = rows.filter(r => r.m <= monthKey && r.m >= fiscalYearStart(monthKey)).map(r => r.m);
+  const sameMonthList = (a, b) => a.length === b.length && a.every((m, i) => m === b[i]);
+  const ytdIsYear = sameMonthList(ytdMonths, yearBarMonths);
+  const ytdSums = sumRevenueOverMonths(rows, ytdMonths);
+  const ytdBar = revBarStats(ytdSums.landed, ytdSums.expected, ytdSums.goal);
+  const showYtdBar = ytdMonths.length > 0 && !ytdIsYear && !sameMonthList(ytdMonths, [monthKey]);
   const newThisMonth = latest ? (latest.newClients || 0) : 0;
   const newLast3 = withPct.slice(-3).reduce((s, r) => s + (r.newClients || 0), 0);
 
@@ -3867,7 +3876,8 @@ function renderInsOverview(bodyEl, goTo) {
         </div>
         <div class="progress-bars spaced ${insBarsReveal ? 'reveal' : ''}" style="margin-top:14px">
           ${revBarRowHtml(monthLabel(monthKey), monthBar, '', 0, 'current')}
-          ${revBarRowHtml('Last 12 months', yearBar, monthRangeLabel(yearBarMonths), 1)}
+          ${showYtdBar ? revBarRowHtml('Year to date', ytdBar, monthRangeLabel(ytdMonths), 1) : ''}
+          ${revBarRowHtml(ytdIsYear ? 'Last 12 months / year to date' : 'Last 12 months', yearBar, monthRangeLabel(yearBarMonths), showYtdBar ? 2 : 1)}
         </div>
         ${revBarLegendHtml()}
       </div>
