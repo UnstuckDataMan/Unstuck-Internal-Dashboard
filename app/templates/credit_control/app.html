@@ -228,7 +228,10 @@
     width: 56px; flex-shrink: 0; font-size: 11px; font-weight: 700; letter-spacing: .04em;
     text-transform: uppercase; color: var(--text-muted); text-align: right;
   }
-  .progress-bar { display: flex; flex: 1; height: 34px; border-radius: 8px; overflow: hidden; background: var(--bg-input); }
+  .progress-bar { display: flex; flex: 1; height: 34px; border-radius: 8px; overflow: hidden; background: var(--bg-input); position: relative; }
+  /* Goal marker on the revenue "This period" bars — a solid line at the target,
+     so it stays visible when the goal has been exceeded (no hashed gap then). */
+  .progress-goal { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.4); z-index: 2; }
   .progress-seg {
     height: 100%; transition: filter .15s; cursor: pointer;
     display: flex; align-items: center; justify-content: center; overflow: hidden;
@@ -1739,6 +1742,7 @@ function renderInvoicesTable() {
           <div class="progress-seg" data-highlight="toissue" data-filter="toissue" style="width:${masterToIssuePct}%; background:var(--warn)" title="To issue — ${esc(fmtMoney(masterToIssueAmt))}">${masterToIssuePct >= 14 ? `<span>To issue ${esc(fmtMoney(masterToIssueAmt))}</span>` : ''}</div>
           <div class="progress-seg" data-highlight="overdue" data-filter="overdue" style="width:${masterOverduePct}%; background:var(--danger)" title="Overdue — ${esc(fmtMoney(masterOverdueAmt))}">${masterOverduePct >= 14 ? `<span>Overdue ${esc(fmtMoney(masterOverdueAmt))}</span>` : ''}</div>
           ${masterGap.pct > 0 ? `<div class="progress-gap" style="width:${masterGap.pct}%" title="Gap to target — ${esc(fmtMoney(masterGap.amt))}">${masterGap.pct >= 14 ? `<span>${esc(fmtMoney(masterGap.amt))} to target</span>` : ''}</div>` : ''}
+          ${target != null && masterGap.scale ? `<div class="progress-goal" style="left:min(calc(${target / masterGap.scale * 100}% - 1px), calc(100% - 2px))" title="Target — ${esc(fmtMoney(target))}${masterGap.pct > 0 ? '' : ' (exceeded)'}"></div>` : ''}
         </div>
       </div>
       ${uncertainInvs.length ? `<div class="note" style="margin-top:6px"><span class="unc-badge" style="margin-left:0">?</span> ${uncertainInvs.length} uncertain invoice${uncertainInvs.length === 1 ? '' : 's'} (${fmtMoney(uncertainAmt)}) still to be paid ${uncertainInvs.length === 1 ? 'isn’t' : 'aren’t'} counted in this bar. <button type="button" class="stat-sub-btn" style="display:inline; margin-left:4px" data-show-uncertain>Show</button></div>` : ''}
@@ -3774,6 +3778,10 @@ function revBarStats(landed, expected, goal) {
     landedPct: landedAmt / scale * 100, landedAmt,
     expectedPct: expectedAmt / scale * 100, expectedAmt,
     goalGapPct: goalGapAmt / scale * 100, goalGapAmt,
+    // Where the goal sits on the shared scale — drawn as a line on the bar
+    // whether the goal was missed (it marks the end of the hashed gap) or
+    // exceeded (it marks the point the bar passed).
+    goalPct: goal != null ? goal / scale * 100 : null, goalAmt: goal,
   };
 }
 // Compact "which months is this actually summing" caption — a single month
@@ -3798,6 +3806,7 @@ function revBarRowHtml(label, bar, subLabel) {
       <div class="progress-seg" style="width:${bar.landedPct}%; background:var(--success)" title="Landed — ${esc(fmtMoney(bar.landedAmt))}">${bar.landedPct >= 14 ? `<span>${esc(fmtMoney(bar.landedAmt))}</span>` : ''}</div>
       <div class="progress-seg" style="width:${bar.expectedPct}%; background:var(--warn)" title="Expected, not yet landed — ${esc(fmtMoney(bar.expectedAmt))}">${bar.expectedPct >= 14 ? `<span>${esc(fmtMoney(bar.expectedAmt))}</span>` : ''}</div>
       ${bar.goalGapPct > 0 ? `<div class="progress-gap" style="width:${bar.goalGapPct}%" title="Gap to goal — ${esc(fmtMoney(bar.goalGapAmt))}">${bar.goalGapPct >= 14 ? `<span>${esc(fmtMoney(bar.goalGapAmt))}</span>` : ''}</div>` : ''}
+      ${bar.goalPct != null ? `<div class="progress-goal" style="left:min(calc(${bar.goalPct}% - 1px), calc(100% - 2px))" title="Goal — ${esc(fmtMoney(bar.goalAmt))}${bar.goalGapPct > 0 ? '' : ' (exceeded)'}"></div>` : ''}
     </div>
   </div>`;
 }
@@ -3809,6 +3818,7 @@ function revBarLegendHtml() {
     <span class="key"><span class="dot" style="background:var(--success)"></span>Landed</span>
     <span class="key"><span class="dot" style="background:var(--warn)"></span>Expected, not yet landed</span>
     <span class="key"><span class="swatch" style="width:14px; height:10px; border:none; border-radius:2px; background:repeating-linear-gradient(135deg, transparent 0 5px, rgba(239,68,68,.35) 5px 6px); box-shadow:inset 0 0 0 1px rgba(239,68,68,.45)"></span>Gap to goal</span>
+    <span class="key"><span style="display:inline-block; width:2px; height:12px; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.4)"></span>Goal line</span>
   </div>`;
 }
 
