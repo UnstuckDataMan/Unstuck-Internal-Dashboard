@@ -233,6 +233,13 @@
      issue-overdue — stays bold even later once paid/faded, as a lasting
      record that this one went out late. */
   tr.issued-late td { font-weight: 700; }
+  tr.row-uncertain td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+  .unc-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; margin-left: 6px; border-radius: 50%;
+    font-size: 11px; font-weight: 800; line-height: 1; vertical-align: middle; cursor: help;
+    background: rgba(245,158,11,.14); color: var(--warn); border: 1px dashed rgba(245,158,11,.65);
+  }
   td.num, th.num { text-align: right; }
   .dim { color: var(--text-dim); font-size: 12px; }
   .muted { color: var(--text-muted); }
@@ -1392,6 +1399,10 @@ function wireInvoiceRowActions(view) {
       touch(); renderInvoices();
     }
   });
+  view.querySelectorAll('[data-inv-uncertain]').forEach(cb => cb.onchange = () => {
+    const inv = DB.invoices.find(i => i.id === cb.dataset.invUncertain);
+    inv.uncertain = cb.checked; touch(); renderInvoices();
+  });
   view.querySelectorAll('[data-inv-paiddate]').forEach(btn => btn.onclick = () => {
     const inv = DB.invoices.find(i => i.id === btn.dataset.invPaiddate);
     openDatePicker(btn, {
@@ -1531,6 +1542,8 @@ function renderInvoicesTable() {
   const issuedAmt = issuedInvs.reduce((s, i) => s + (Number(i.amountGBP) || 0), 0);
   const notIssuedAmt = notIssuedInvs.reduce((s, i) => s + (Number(i.amountGBP) || 0), 0);
   const overdueAmt = overdue.reduce((s, i) => s + (Number(i.amountGBP) || 0), 0);
+  const uncertainInvs = invs.filter(isUncertainUnpaid);
+  const uncertainAmt = uncertainInvs.reduce((s, i) => s + (Number(i.amountGBP) || 0), 0);
   // The bar below shares the same "stretch to target" treatment: normally
   // its segments fill the full width (summing to 100% of the bar's own
   // total), but when a target's set (Due month view only) and it's bigger
@@ -1552,9 +1565,11 @@ function renderInvoicesTable() {
   // past-due invoice would otherwise get counted in both "To issue" and
   // "Overdue" at once.
   const masterLandedInvs = invs.filter(i => i.paid);
-  const masterToIssueInvs = invs.filter(i => !i.paid && !i.issued);
-  const masterOverdueInvs = invs.filter(i => !i.paid && i.issued && isOverdue(i));
-  const masterAwaitingInvs = invs.filter(i => !i.paid && i.issued && !isOverdue(i));
+  // Uncertain invoices (flagged, still unpaid) are left out of this projected
+  // total — they stay in the table, stat cards and filters, and still get issued.
+  const masterToIssueInvs = invs.filter(i => !i.paid && !i.issued && !i.uncertain);
+  const masterOverdueInvs = invs.filter(i => !i.paid && i.issued && isOverdue(i) && !i.uncertain);
+  const masterAwaitingInvs = invs.filter(i => !i.paid && i.issued && !isOverdue(i) && !i.uncertain);
   const masterLandedAmt = masterLandedInvs.reduce((s, i) => s + invoiceValueForLTV(i), 0);
   const masterToIssueAmt = masterToIssueInvs.reduce((s, i) => s + (Number(i.amountGBP) || 0), 0);
   const masterOverdueAmt = masterOverdueInvs.reduce((s, i) => s + (Number(i.amountGBP) || 0), 0);
@@ -1577,6 +1592,7 @@ function renderInvoicesTable() {
   if (state.invFilter === 'awaiting') shown = awaiting;
   if (state.invFilter === 'overdue')  shown = overdue;
   if (state.invFilter === 'paid')     shown = paid;
+  if (state.invFilter === 'uncertain') shown = uncertainInvs;
 
   view.innerHTML = `
     <div class="toolbar">
@@ -1587,7 +1603,7 @@ function renderInvoicesTable() {
         <button id="inv-next" title="Next month">›</button>
       </div>
       <div class="pills">
-        ${[['all','All'],['issued','Issued'],['toissue','To issue'],['awaiting','Awaiting payment'],['overdue','Chase — overdue'],['paid','Paid']]
+        ${[['all','All'],['issued','Issued'],['toissue','To issue'],['awaiting','Awaiting payment'],['overdue','Chase — overdue'],['paid','Paid'],['uncertain','Uncertain']]
           .map(([k,l]) => `<button class="pill ${state.invFilter===k?'active':''}" data-f="${k}">${l}</button>`).join('')}
       </div>
       <div class="pills" title="Group invoices by the month they're issued, or the month they're due">
@@ -1625,6 +1641,7 @@ function renderInvoicesTable() {
           : `<div class="s" title="Targets are set per due-month, so they only show up in the Due month view">${landedCount} payment${landedCount === 1 ? '' : 's'} in</div>`}
       </div>
       <div class="stat clickable-stat ${overdue.length ? 'bad' : ''} ${state.invFilter === 'overdue' ? 'filter-active' : ''}" data-stat="overdue" data-filter="overdue"><div class="v">${overdue.length}</div><div class="l">Overdue</div><div class="s">${fmtMoney(overdueAmt)}</div></div>
+      ${uncertainInvs.length || state.invFilter === 'uncertain' ? `<div class="stat clickable-stat ${state.invFilter === 'uncertain' ? 'filter-active' : ''}" data-stat="uncertain" data-filter="uncertain" title="Issued as normal, but we're not sure the client will pay — left out of forecasts until paid"><div class="v">${uncertainInvs.length}</div><div class="l">Uncertain <span class="unc-badge">?</span></div><div class="s">${fmtMoney(uncertainAmt)} · not in forecasts</div></div>` : ''}
     </div>
 
     <div class="progress-bars">
@@ -1638,6 +1655,7 @@ function renderInvoicesTable() {
           ${masterGap.pct > 0 ? `<div class="progress-gap" style="width:${masterGap.pct}%" title="Gap to target — ${esc(fmtMoney(masterGap.amt))}">${masterGap.pct >= 14 ? `<span>${esc(fmtMoney(masterGap.amt))} to target</span>` : ''}</div>` : ''}
         </div>
       </div>
+      ${uncertainInvs.length ? `<div class="note" style="margin-top:6px"><span class="unc-badge" style="margin-left:0">?</span> ${uncertainInvs.length} uncertain invoice${uncertainInvs.length === 1 ? '' : 's'} (${fmtMoney(uncertainAmt)}) still to be paid ${uncertainInvs.length === 1 ? 'isn’t' : 'aren’t'} counted in this bar. <button type="button" class="stat-sub-btn" style="display:inline; margin-left:4px" data-show-uncertain>Show</button></div>` : ''}
     </div>
 
     <div class="tbl-wrap tbl-flow">
@@ -1646,10 +1664,11 @@ function renderInvoicesTable() {
           <th></th><th>Company</th><th>Email</th><th>Issue</th><th>Due</th>
           <th class="num">Amount</th><th class="num">Mo#</th>
           <th style="text-align:center">Issued</th><th style="text-align:center">Paid</th>
+          <th style="text-align:center" title="Not sure this will be paid — still issued as normal, but left out of forecasts until it's paid">Uncertain</th>
           <th>Paid on</th><th>AM</th><th>Notes</th>
         </tr></thead>
         <tbody>
-          ${shown.length ? shown.map(invoiceRow).join('') : `<tr><td colspan="12"><div class="empty">No invoices${state.invFilter !== 'all' ? ' matching this filter' : ' in ' + monthLabel(m)}.</div></td></tr>`}
+          ${shown.length ? shown.map(invoiceRow).join('') : `<tr><td colspan="13"><div class="empty">No invoices${state.invFilter !== 'all' ? ' matching this filter' : ' in ' + monthLabel(m)}.</div></td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -1667,6 +1686,7 @@ function renderInvoicesTable() {
   view.querySelector('#inv-sort').onchange = e => { state.invSort = e.target.value; renderInvoices(); };
   view.querySelector('#inv-add').onclick = () => invoiceForm(null);
   view.querySelector('#inv-target-edit')?.addEventListener('click', () => editTargetModal(m));
+  view.querySelector('[data-show-uncertain]')?.addEventListener('click', () => { state.invFilter = 'uncertain'; renderInvoices(); });
   const invStatsEl = view.querySelector('#inv-stats');
   view.querySelectorAll('.progress-seg[data-highlight]').forEach(seg => {
     seg.addEventListener('mouseenter', () => {
@@ -1738,12 +1758,12 @@ function invoiceRow(inv) {
   const emailCell = emailTxt
     ? `<span class="email-trunc" data-email-view="${esc(emailTxt)}">${esc(emailTxt)}</span>`
     : '—';
-  return `<tr class="${rowStateClass}${done ? ' done' : ''}${inv.issuedLate ? ' issued-late' : ''}">
+  return `<tr class="${rowStateClass}${done ? ' done' : ''}${inv.issuedLate ? ' issued-late' : ''}${isUncertainUnpaid(inv) ? ' row-uncertain' : ''}">
     <td style="white-space:nowrap">
       <button class="btn btn-sm" data-inv-edit="${inv.id}" title="Edit invoice">✎</button>
       <button class="btn btn-sm btn-danger" data-inv-delete="${inv.id}" title="Delete invoice">🗑</button>
     </td>
-    <td><strong>${esc(c?.companyName || '?')}</strong>${c?.autoIssue ? ' <span class="badge purple">Auto</span>' : ''}
+    <td><strong>${esc(c?.companyName || '?')}</strong>${c?.autoIssue ? ' <span class="badge purple">Auto</span>' : ''}${isUncertainUnpaid(inv) ? '<span class="unc-badge" title="Uncertain — we’re not sure this will be paid. Issued as normal, but not counted in forecasts until it’s paid.">?</span>' : ''}
         <div class="sub">${esc(c?.qbName || '')}</div></td>
     <td class="dim small">${emailCell}</td>
     <td>${issueOd ? `<span style="color:var(--danger);font-weight:600">${fmtDate(inv.issueDate)}</span>` : fmtDate(inv.issueDate)}</td>
@@ -1752,6 +1772,7 @@ function invoiceRow(inv) {
     <td class="num">${inv.monthNumber ?? '—'}</td>
     <td style="text-align:center"><input type="checkbox" data-inv-issued="${inv.id}" ${inv.issued ? 'checked' : ''}></td>
     <td style="text-align:center"><input type="checkbox" data-inv-paid="${inv.id}" ${inv.paid ? 'checked' : ''}></td>
+    <td style="text-align:center"><input type="checkbox" data-inv-uncertain="${inv.id}" ${inv.uncertain ? 'checked' : ''} title="Uncertain — not sure this will be paid. Still issued as normal; left out of forecasts until it's paid."></td>
     <td class="dim">${inv.paid ? `<button type="button" class="date-field${inv.paidDate ? '' : ' empty'}" data-inv-paiddate="${inv.id}" data-value="${esc(inv.paidDate || '')}">${inv.paidDate ? fmtDate(inv.paidDate) : 'Set date'}</button>` : '—'}</td>
     <td class="dim">${esc(c?.accountManager || '')}</td>
     <td class="dim small" style="max-width:180px; overflow:hidden; text-overflow:ellipsis" title="${esc(inv.notes || '')}">${esc(inv.notes || '')}</td>
@@ -1785,7 +1806,7 @@ function calChip(inv, kind) {
   return `<button type="button" class="cal-chip" data-inv="${inv.id}">
     <span class="cal-chip-dot ${kind}${overdue ? ' overdue' : ''}"></span>
     <span class="cal-chip-name">${esc(c?.companyName || '?')}</span>
-    <span class="cal-chip-amt">${fmtMoney(inv.amountGBP)}</span>
+    ${isUncertainUnpaid(inv) ? '<span class="unc-badge" style="margin:0 4px 0 0" title="Uncertain — not counted in forecasts until paid">?</span>' : ''}<span class="cal-chip-amt">${fmtMoney(inv.amountGBP)}</span>
   </button>`;
 }
 function calLegend() {
@@ -1793,6 +1814,7 @@ function calLegend() {
     <span class="key"><span class="cal-dot issue"></span>Issued that day</span>
     <span class="key"><span class="cal-dot due"></span>Due that day</span>
     <span class="key"><span class="cal-dot due overdue"></span>Overdue &amp; unpaid</span>
+    <span class="key"><span class="unc-badge" style="margin:0">?</span>Uncertain — not counted in forecasts</span>
   </div>`;
 }
 
@@ -1869,10 +1891,11 @@ function renderCalDay(idx) {
           <th></th><th>Company</th><th>Email</th><th>Issue</th><th>Due</th>
           <th class="num">Amount</th><th class="num">Mo#</th>
           <th style="text-align:center">Issued</th><th style="text-align:center">Paid</th>
+          <th style="text-align:center" title="Not sure this will be paid — still issued as normal, but left out of forecasts until it's paid">Uncertain</th>
           <th>Paid on</th><th>AM</th><th>Notes</th>
         </tr></thead>
         <tbody>
-          ${invs.length ? invs.map(invoiceRow).join('') : `<tr><td colspan="12"><div class="empty">No invoices issue or due on ${fmtDate(d)}.</div></td></tr>`}
+          ${invs.length ? invs.map(invoiceRow).join('') : `<tr><td colspan="13"><div class="empty">No invoices issue or due on ${fmtDate(d)}.</div></td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -2023,7 +2046,8 @@ function invoiceForm(invId, presetClientId) {
       <div class="fld"><label>Paid date</label><input type="date" id="if-paiddate" value="${esc(inv?.paidDate || '')}"></div>
       <div class="fld"><label>Amount landed £ (if paid)</label><input type="number" step="0.01" id="if-landed" value="${inv?.amountLanded ?? ''}"></div>
       <div class="fld"><label class="chk"><input type="checkbox" id="if-issued" ${inv?.issued ? 'checked' : ''}> Issued</label>
-          <label class="chk"><input type="checkbox" id="if-paid" ${inv?.paid ? 'checked' : ''}> Paid</label></div>
+          <label class="chk"><input type="checkbox" id="if-paid" ${inv?.paid ? 'checked' : ''}> Paid</label>
+          <label class="chk" title="Not sure the client will pay. Still issued as normal; left out of forecasts until it's paid."><input type="checkbox" id="if-uncertain" ${inv?.uncertain ? 'checked' : ''}> Uncertain</label></div>
       <div class="fld full"><label>Notes</label><textarea id="if-notes">${esc(inv?.notes || '')}</textarea></div>
     </div>
     ${!inv ? `<p class="note">A client's <strong>first</strong> invoice has no default dates — enter them manually (e.g. when the contract's actually issued/due). From invoice 2 onward, issue and due dates auto-fill from that client's last invoice, but you can still pick any month or edit either date.</p>` : ''}
@@ -2104,6 +2128,7 @@ function invoiceForm(invId, presetClientId) {
     if (rec.issued && wasIssueOverdue) rec.issuedLate = true;
     if (!rec.issued) rec.issuedLate = false;
     rec.paid       = $('if-paid').checked;
+    rec.uncertain  = $('if-uncertain').checked;
     rec.paidDate   = rec.paid ? ($('if-paiddate').value || $('if-due').value || todayISO()) : null;
     rec.amountLanded = rec.paid ? ($('if-landed').value !== '' ? Number($('if-landed').value) : rec.amountGBP) : null;
     rec.package    = $('if-pkg').value;
@@ -2566,8 +2591,11 @@ function retentionRows(clients = DB.clients) {
     } else {
       newClients = cur.size;
     }
-    const mrr = DB.invoices.filter(i => i.month === m && clientIds.has(i.clientId)).reduce((s, i) => s + (Number(i.amountGBP) || 0), 0);
-    rows.push({ m, count: invoicedCountFor(m), newClients, retained, lost, churnPct, retPct, prevSize, mrr });
+    const monthInvs = DB.invoices.filter(i => i.month === m && clientIds.has(i.clientId));
+    const mrr = monthInvs.reduce((s, i) => s + (Number(i.amountGBP) || 0), 0);
+    // What's expected to land: everything billed except uncertain invoices still unpaid.
+    const expected = monthInvs.filter(i => !isUncertainUnpaid(i)).reduce((s, i) => s + (Number(i.amountGBP) || 0), 0);
+    rows.push({ m, count: invoicedCountFor(m), newClients, retained, lost, churnPct, retPct, prevSize, mrr, expected });
   });
   return rows;
 }
@@ -2635,8 +2663,15 @@ function landedForMonth(m) {
 // actually landed (falling back to the invoiced amount if that's not set);
 // while still unpaid, the invoiced amount is the best available estimate.
 function invoiceValueForLTV(inv) {
+  if (isUncertainUnpaid(inv)) return 0;
   return inv.paid ? (Number(inv.amountLanded ?? inv.amountGBP) || 0) : (Number(inv.amountGBP) || 0);
 }
+// "Uncertain" invoices are issued, chased and numbered exactly like any other —
+// the flag only says we're not sure the client will pay. Until one is actually
+// marked paid it counts for nothing in any forecast / expected-revenue figure
+// (Insights expected, the Invoices tab's Total bar, package mix, commission
+// owed, running LTV). Once paid it is an ordinary landed invoice.
+function isUncertainUnpaid(inv) { return !!inv.uncertain && !inv.paid; }
 function clientLifetimeValue(cid) {
   return invForClient(cid).reduce((s, inv) => s + invoiceValueForLTV(inv), 0);
 }
@@ -2726,7 +2761,7 @@ function packageMixRows() {
   const months = invoiceMonths().filter(m => m <= currentMonthKey());
   const month = months[months.length - 1];
   if (!month) return { month: null, total: 0, rows: [] };
-  const invs = DB.invoices.filter(i => i.month === month);
+  const invs = DB.invoices.filter(i => i.month === month && !isUncertainUnpaid(i));
   const total = invs.reduce((s, i) => s + (Number(i.amountGBP) || 0), 0);
   const byPkg = new Map();
   invs.forEach(i => { const p = i.package || 'Unspecified'; byPkg.set(p, (byPkg.get(p) || 0) + (Number(i.amountGBP) || 0)); });
@@ -3480,7 +3515,7 @@ function trailingMonths(rows, n) {
 // these months" with a different month list.
 function sumRevenueOverMonths(rows, months) {
   const landed = months.reduce((s, m) => s + landedForMonth(m), 0);
-  const expected = rows.filter(r => months.includes(r.m)).reduce((s, r) => s + (r.mrr || 0), 0);
+  const expected = rows.filter(r => months.includes(r.m)).reduce((s, r) => s + (r.expected ?? r.mrr ?? 0), 0);
   let goal = null;
   months.forEach(m => { const t = targetForMonth(m); if (t != null) goal = (goal || 0) + t; });
   return { landed, expected, goal };
@@ -3601,7 +3636,7 @@ function renderInsOverview(bodyEl, goTo) {
   // `.mrr` field already sums all of a month's invoices regardless of paid
   // status) — i.e. what lands if every due invoice actually lands. "Landed" is
   // the real cash-in-hand subset of that, by paid date.
-  const monthExpected = latest ? latest.mrr : 0;
+  const monthExpected = latest ? (latest.expected ?? latest.mrr) : 0;
   const monthLanded = landedForMonth(monthKey);
   const monthBar = revBarStats(monthLanded, monthExpected, monthGoal);
   // "Year" = the trailing 12 months ending at the current month, not the
@@ -3800,7 +3835,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   const snapLatest = currentSnapshotRow(snapRows);
   const monthKey = currentMonthKey();
   const monthGoal = targetForMonth(monthKey);
-  const monthExpected = snapLatest ? snapLatest.mrr : 0;
+  const monthExpected = snapLatest ? (snapLatest.expected ?? snapLatest.mrr) : 0;
   const monthLanded = landedForMonth(monthKey);
   const snapMonthBar = revBarStats(monthLanded, monthExpected, monthGoal);
   // "Year" = the trailing 12 months ending at the current month, not the
@@ -4154,6 +4189,7 @@ function commissionEntries() {
     if (!inv.monthNumber || inv.monthNumber > (cfg.invoiceCount || 3)) continue;
     const c = clientById(inv.clientId);
     if (!c) continue;
+    if (isUncertainUnpaid(inv)) continue; // not owed until an uncertain invoice is actually paid
     // Once paid, commission is based on what actually landed (£) — US/EUR
     // clients often land a slightly different figure after conversion. Still
     // unpaid invoices use the invoiced amount as the best available estimate.
