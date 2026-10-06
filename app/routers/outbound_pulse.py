@@ -391,6 +391,9 @@ def _client_context(client_id: str, rng: dict, channel: str) -> dict | None:
                             date_from=rng["from"], date_to=rng["to"])),
         "campaign_rows": campaign_rows,
         "campaigns":    campaigns,
+        # Their own list: a manual campaign has no row in the funnel's campaign
+        # table, because its events are recorded against the client.
+        "manual_campaigns": manual_campaigns(client_id),
         "range":        rng,
         "range_query":  _range_query(rng),
         "channel":      channel,
@@ -894,10 +897,11 @@ async def list_client_access(request: Request, client_id: str):
     except PulseNotReady as exc:
         return _not_ready_box(exc)
     return templates.TemplateResponse("partials/pulse_access.html", {
-        "request":   request,
-        "links":     links,
-        "client_id": client_id,
-        "new_link":  "",
+        "request":     request,
+        "links":       links,
+        "client_id":   client_id,
+        "portal_base": _portal_base(request),
+        "new_link":    "",
     })
 
 
@@ -924,6 +928,7 @@ async def create_client_access(
             label=label.strip(),
             created_by=user.get("email", ""),
             expires_at=expires,
+            token=token,
         )
         if not created:
             return _error_box("Could not create the portal link.")
@@ -933,10 +938,11 @@ async def create_client_access(
 
     base = _portal_base(request)
     return templates.TemplateResponse("partials/pulse_access.html", {
-        "request":   request,
-        "links":     links,
-        "client_id": client_id,
-        "new_link":  f"{base}/r/{token}",
+        "request":     request,
+        "links":       links,
+        "client_id":   client_id,
+        "portal_base": base,
+        "new_link":    f"{base}/r/{token}",
     })
 
 
@@ -948,10 +954,11 @@ async def revoke_client_access(request: Request, client_id: str, access_id: str)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
     return templates.TemplateResponse("partials/pulse_access.html", {
-        "request":   request,
-        "links":     links,
-        "client_id": client_id,
-        "new_link":  "",
+        "request":     request,
+        "links":       links,
+        "client_id":   client_id,
+        "portal_base": _portal_base(request),
+        "new_link":    "",
     })
 
 
@@ -959,7 +966,7 @@ async def revoke_client_access(request: Request, client_id: str, access_id: str)
 
 
 def _hand_entry_panel(request: Request, client_id: str, error: str = "",
-                      notice: str = "", channel: str = CHANNEL_EMAIL,
+                      notice: str = "", channel: str = "",
                       month: str = ""):
     entries = store.list_hand_entries(client_id)
     for entry in entries:
@@ -976,9 +983,8 @@ def _hand_entry_panel(request: Request, client_id: str, error: str = "",
         "client_id": client_id,
         "entries":   entries,
         "metrics":   hand_entry.METRICS,
-        "labels":    hand_entry.labels_for(channel),
-        "channels":  hand_entry.CHANNELS,
-        "channel":   channel,
+        "labels":    hand_entry.labels_for(),
+        "channel":   hand_entry.CHANNEL,
         "month":     month,
         "error":     error,
         "notice":    notice,
@@ -992,9 +998,8 @@ async def list_client_hand_entries(
     channel:   str = Query(CHANNEL_EMAIL),
 ):
     try:
-        return _hand_entry_panel(
-            request, client_id,
-            channel=channel if channel in hand_entry.CHANNELS else CHANNEL_EMAIL)
+        return _hand_entry_panel(request, client_id,
+                                 channel=hand_entry.CHANNEL)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 
@@ -1021,7 +1026,8 @@ async def save_client_hand_entry(
     client, channel and month: a partly-synced month is a real situation, and
     only the person keying it in can tell whether the figures overlap.
     """
-    chan = channel if channel in hand_entry.CHANNELS else CHANNEL_EMAIL
+    # LinkedIn always: Meet Alfred is the only source a person keys in.
+    chan = hand_entry.CHANNEL
     month = hand_entry.parse_month(period_month)
     try:
         if month is None:
@@ -1194,6 +1200,45 @@ async def reset_exclusions(request: Request,
 # and the account has over a thousand campaigns. Only the ones with activity in
 # the range are asked for, and only when someone opens the panel.
 _AB_MAX_CAMPAIGNS = 8
+
+
+def manual_campaigns(client_id: str) -> list[dict]:
+    """This client's DNC & Merger campaigns, newest first.
+
+    Read straight from the mail-merge `campaigns` table rather than through
+    Pulse. Manual campaigns are that tool's records; Pulse only ever reads
+    their aggregates, and pulse_manual_daily deliberately carries a NULL
+    campaign_id because dnc_entries records a client rather than a campaign.
+    So they cannot appear in the funnel's campaign table — they get their own.
+
+    Never raises: this is a supporting list, not the page.
+    """
+    from app.utils.supabase import SUPABASE_URL, sb_headers
+
+    import requests as http
+
+    if not SUPABASE_URL:
+        return []
+    try:
+        r = http.get(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            params={
+                "select":    ("id,campaign_name,sender_profile_name,sheet_url,"
+                              "total_prospects,sent_count,created_at"),
+                "client_id": f"eq.{client_id}",
+                "order":     "created_at.desc",
+                "limit":     "50",
+            },
+            headers=sb_headers(),
+            timeout=15,
+        )
+        if r.status_code >= 400:
+            return []
+        return r.json()
+    except Exception as exc:
+        logger.warning("Pulse: could not list manual campaigns for %s: %s",
+                       client_id, exc)
+        return []
 
 
 def _manual_sheet_ids(client_id: str) -> list[str]:

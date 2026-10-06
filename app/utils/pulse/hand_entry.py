@@ -3,8 +3,14 @@
 NOT the same thing as SOURCE_MANUAL. That one means campaigns run through the
 DNC & Merger tool, whose numbers this database already holds and reads in
 place. This is the opposite: a person reading a dashboard the app has no
-access to — Meet Alfred, principally — and keying the totals. Different
-provenance, different source_tool, differently labelled tab.
+access to and keying the totals. Different provenance, different source_tool,
+differently labelled tab.
+
+LINKEDIN ONLY. The gap this fills is Meet Alfred, which is how LinkedIn
+outreach is run and whose API access is unconfirmed. Email is covered by
+Smartlead and by the DNC & Merger tool, both of which this database already
+reads, so there is nothing for a person to type. Offering a channel choice
+would only invite figures to be filed where something else already counts them.
 
 GRAIN. One entry per client, channel and month. That is the grain the figures
 are read at on the source dashboard, and the grain they get corrected at.
@@ -76,7 +82,11 @@ METRIC_LABELS: dict[str, dict[str, str]] = {
     },
 }
 
-CHANNELS: tuple[str, ...] = (CHANNEL_EMAIL, CHANNEL_LINKEDIN)
+# The one channel a person enters figures for. The stored column still accepts
+# 'email' so any row keyed in before this narrowing still reads, but nothing
+# writes one now.
+CHANNEL = CHANNEL_LINKEDIN
+CHANNELS: tuple[str, ...] = (CHANNEL_LINKEDIN,)
 
 
 def parse_month(value: str) -> date | None:
@@ -130,5 +140,5 @@ def clean_metrics(raw: dict) -> tuple[dict[str, int], str]:
     return out, ""
 
 
-def labels_for(channel: str) -> dict[str, str]:
-    return METRIC_LABELS.get(channel, METRIC_LABELS[CHANNEL_EMAIL])
+def labels_for(channel: str = CHANNEL_LINKEDIN) -> dict[str, str]:
+    return METRIC_LABELS.get(channel, METRIC_LABELS[CHANNEL_LINKEDIN])

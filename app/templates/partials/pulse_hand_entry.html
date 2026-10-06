@@ -1,6 +1,9 @@
 {# Figures typed in from a tool we cannot reach. Context: client_id, entries,
    metrics, labels, channels, channel, month, error, notice.
 
+   LinkedIn only — Meet Alfred is the LinkedIn channel, and it is the one
+   source nothing here can read for itself.
+
    Field labels name PEOPLE, not events — "Leads who opened", not "Opens".
    Every other source counts each person once per stage, enforced by the
    database. This one cannot be enforced, so the wording is what keeps the
@@ -13,22 +16,10 @@
       hx-target="#pulse-hand-entry"
       hx-swap="innerHTML">
   <div class="hand-head">
-    <label class="report-field">
-      <span>Channel</span>
-      {# Changing channel re-renders, because the field labels differ: an
-         "open" on LinkedIn is a connection accepted. #}
-      <select name="channel"
-              hx-get="/api/outbound-pulse/clients/{{ client_id }}/hand-entries"
-              hx-target="#pulse-hand-entry"
-              hx-swap="innerHTML"
-              hx-trigger="change">
-        {% for c in channels %}
-        <option value="{{ c }}" {% if c == channel %}selected{% endif %}>
-          {{ "LinkedIn" if c == "linkedin" else "Email" }}
-        </option>
-        {% endfor %}
-      </select>
-    </label>
+    {# No channel choice. The gap this fills is Meet Alfred, which is the
+       LinkedIn channel; email is covered by Smartlead and by the DNC &amp;
+       Merger tool, both of which this database already reads. #}
+    <input type="hidden" name="channel" value="{{ channel }}">
     <label class="report-field">
       <span>Month</span>
       <input type="month" name="period_month" value="{{ month }}" required>
