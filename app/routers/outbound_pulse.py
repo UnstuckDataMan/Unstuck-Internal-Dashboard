@@ -231,20 +231,28 @@ def _default_excluded_ids(clients: list[dict]) -> set[str]:
 
 
 def _hidden_client_ids(user: dict, clients: list[dict]) -> set[str]:
-    """Clients this person hides from the overview.
+    """Clients this person does not want on the overview.
+
+    Both modes resolve to the same answer — a set to leave out — so everything
+    downstream stays as it was. "Show only these" is the complement of the
+    selection; "hide these" is the selection itself.
 
     "Never chosen" and "chose nothing" are different answers, and the
     difference is whether a pulse_user_prefs row exists. Collapsing them would
     make "show me everything" impossible to save: an empty list would read back
     as the default and silently re-hide what the user had just un-hidden.
     """
-    saved = store.get_user_exclusions(_pref_key(user))
+    saved = store.get_user_filter(_pref_key(user))
     if saved is None:
         return _default_excluded_ids(clients)
-    return {str(cid) for cid in saved}
+    chosen = {str(cid) for cid in saved["ids"]}
+    if saved["mode"] == store.FILTER_ONLY:
+        return {str(c["id"]) for c in clients} - chosen
+    return chosen
 
 
-def _overview_context(rng: dict, channel: str, hidden: set[str] | None = None) -> dict:
+def _overview_context(rng: dict, channel: str, hidden: set[str] | None = None,
+                      filter_mode: str = "") -> dict:
     """The internal overview.
 
     `hidden` is resolved by the caller rather than read here, so this function
@@ -308,6 +316,8 @@ def _overview_context(rng: dict, channel: str, hidden: set[str] | None = None) -
         "total_sent":  totals[EVENT_SENT],
         "by_channel":  by_channel,
         "hidden_clients": hidden_clients,
+        "shown_clients":  [r["client"] for r in rows],
+        "filter_mode":    filter_mode,
         "unmapped":    unmapped,
         "range":       rng,
         "range_query": _range_query(rng),
@@ -533,8 +543,11 @@ async def overview(
 ):
     rng = _resolve_range(range, date_from, date_to)
     try:
+        saved = store.get_user_filter(_pref_key(user))
         hidden = _hidden_client_ids(user, store.list_clients())
-        context = _overview_context(rng, _report_scope(channel), hidden)
+        context = _overview_context(
+            rng, _report_scope(channel), hidden,
+            filter_mode=(saved or {}).get("mode", store.FILTER_EXCLUDE))
     except PulseNotReady as exc:
         return _not_ready_box(exc)
     return templates.TemplateResponse(
@@ -1078,16 +1091,28 @@ async def remove_client_hand_entry(request: Request, client_id: str, entry_id: s
 # ── Which clients show on the overview ─────────────────────────────
 
 
-def _exclusions_panel(request: Request, user: dict, error: str = ""):
+def _exclusions_panel(request: Request, user: dict, error: str = "",
+                      mode: str = ""):
     clients = store.list_clients()
-    saved = store.get_user_exclusions(_pref_key(user))
-    hidden_ids = ({str(c) for c in saved} if saved is not None
-                  else _default_excluded_ids(clients))
+    saved = store.get_user_filter(_pref_key(user))
+    if saved is None:
+        chosen = _default_excluded_ids(clients)
+        saved_mode = store.FILTER_EXCLUDE
+    else:
+        chosen = {str(c) for c in saved["ids"]}
+        saved_mode = saved["mode"]
+    # `mode` is passed only when a rejected save should keep the radio where
+    # the user put it rather than snapping back to what is stored.
+    shown_mode = mode or saved_mode
+    hidden_ids = _hidden_client_ids(user, clients)
     return templates.TemplateResponse("partials/pulse_exclusions.html", {
         "request":    request,
         "clients":    clients,
-        "hidden_ids": hidden_ids,
+        "chosen_ids": chosen,
+        "mode":       shown_mode,
+        "only":       shown_mode == store.FILTER_ONLY,
         "hidden":     [c for c in clients if str(c["id"]) in hidden_ids],
+        "shown":      [c for c in clients if str(c["id"]) not in hidden_ids],
         # Shown as a hint, so someone can tell "the house default" from "what I
         # chose" without having to remember whether they ever chose.
         "is_default": saved is None,
@@ -1108,25 +1133,35 @@ async def list_exclusions(request: Request,
 async def save_exclusions(
     request:  Request,
     excluded: list[str] = Form([]),
+    mode:     str = Form(store.FILTER_EXCLUDE),
     user:     dict = Depends(auth.require_login),
 ):
-    """Save the hidden-client list and refresh the overview.
+    """Save how the overview is narrowed and refresh it.
 
     No "was this really submitted" marker is needed here, unlike the report
     editor: a POST to this route is itself the deliberate act, so an empty
-    `excluded` always writes an empty list — "hide nothing". Returning to the
-    default is the DELETE below, a different request.
+    selection in exclude mode always writes an empty list — "hide nothing".
+    Returning to the default is the DELETE below, a different request.
     """
+    chosen_mode = mode if mode in (store.FILTER_EXCLUDE, store.FILTER_ONLY) \
+        else store.FILTER_EXCLUDE
     try:
         clients = store.list_clients()
         known = {str(c["id"]) for c in clients}
         # Intersected with the real client list, so a hand-made post cannot put
         # a non-uuid into a uuid[] column and fail the whole save.
-        if not store.set_user_exclusions(_pref_key(user),
-                                         sorted(known & set(excluded))):
+        chosen = sorted(known & set(excluded))
+        if chosen_mode == store.FILTER_ONLY and not chosen:
+            # Refused rather than saved: an overview with nothing in it reads
+            # as broken, not as a filter.
+            return _exclusions_panel(
+                request, user, "Pick at least one client to show.",
+                mode=chosen_mode)
+        if not store.set_user_filter(_pref_key(user), chosen_mode, chosen):
             return _exclusions_panel(
                 request, user,
-                "Could not save that. The details are in the server log.")
+                "Could not save that. The details are in the server log.",
+                mode=chosen_mode)
         response = _exclusions_panel(request, user)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
@@ -1145,7 +1180,7 @@ async def reset_exclusions(request: Request,
     stays that way.
     """
     try:
-        store.clear_user_exclusions(_pref_key(user))
+        store.clear_user_filter(_pref_key(user))
         response = _exclusions_panel(request, user)
     except PulseNotReady as exc:
         return _not_ready_box(exc)

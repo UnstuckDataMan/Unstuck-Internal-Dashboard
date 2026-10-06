@@ -34,10 +34,17 @@
 
   {% if hidden_clients %}
   {# A total that has had something taken out of it has to say so, by name.
-     Otherwise it is indistinguishable from the real figure. #}
+     Otherwise it is indistinguishable from the real figure. Worded by mode:
+     in "show only" the list of what was left out is most of the agency, so it
+     names what is in instead. #}
   <p class="pulse-meta" style="margin:-4px 0 10px">
+    {% if filter_mode == "only" %}
+    Showing only {{ shown_clients | map(attribute="name") | join(", ") }} —
+    every other client is left out of the totals below.
+    {% else %}
     Hiding {{ hidden_clients | map(attribute="name") | join(", ") }} — not
     included in the totals below.
+    {% endif %}
   </p>
   {% endif %}
 
