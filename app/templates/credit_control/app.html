@@ -719,6 +719,15 @@ function normalise() {
     for (const [ind, wide] of Object.entries(DEFAULT_INDUSTRY_GROUPS)) if (known.has(ind)) DB.settings.industryGroups[ind] = wide;
   }
   DB.settings.industryGroups ||= {};
+  // Sales team members who take no commission (they can still be attributed as
+  // lead gen / converter, and still count in Insights' sales attribution).
+  // Seeded once, in memory: Leo (CEO) is attributed on clients but earns none.
+  // After that Operational Settings owns the list, and an empty list is respected.
+  if (!Array.isArray(DB.settings.commissionExcluded)) {
+    DB.settings.commissionExcluded = [];
+    const involved = new Set([...DB.settings.salesTeam, ...DB.clients.flatMap(c => [c.leadGenBy, c.convertedBy])]);
+    if (involved.has('Leo')) DB.settings.commissionExcluded.push('Leo');
+  }
   // An invoice's `month` is keyed off its due date, not its issue date (see
   // buildNextInvoiceFor()) — re-synced here on every load so it's always
   // self-consistent, including retroactively for invoices created before
@@ -4182,6 +4191,7 @@ function renderInsRetentionDetail(bodyEl, filteredClients) {
 }
 
 /* ════════════════ COMMISSIONS VIEW ════════════════ */
+const commissionExcluded = p => (DB.settings.commissionExcluded || []).includes(p);
 function commissionEntries() {
   const cfg = DB.settings.commission;
   const out = [];
@@ -4194,8 +4204,8 @@ function commissionEntries() {
     // clients often land a slightly different figure after conversion. Still
     // unpaid invoices use the invoiced amount as the best available estimate.
     const amt = inv.paid ? (Number(inv.amountLanded ?? inv.amountGBP) || 0) : (Number(inv.amountGBP) || 0);
-    if (c.leadGenBy)   out.push({ person: c.leadGenBy,   role: 'Lead gen',  pct: cfg.leadGenPct,   inv, client: c, amount: amt * cfg.leadGenPct / 100 });
-    if (c.convertedBy) out.push({ person: c.convertedBy, role: 'Converter', pct: cfg.converterPct, inv, client: c, amount: amt * cfg.converterPct / 100 });
+    if (c.leadGenBy && !commissionExcluded(c.leadGenBy))   out.push({ person: c.leadGenBy,   role: 'Lead gen',  pct: cfg.leadGenPct,   inv, client: c, amount: amt * cfg.leadGenPct / 100 });
+    if (c.convertedBy && !commissionExcluded(c.convertedBy)) out.push({ person: c.convertedBy, role: 'Converter', pct: cfg.converterPct, inv, client: c, amount: amt * cfg.converterPct / 100 });
   }
   return out;
 }
@@ -4204,7 +4214,11 @@ function renderCommissions() {
   const view = document.getElementById('view-commissions');
   const cfg = DB.settings.commission;
   const entries = commissionEntries();
-  const people = [...new Set([...DB.settings.salesTeam, ...entries.map(e => e.person)])].filter(Boolean).sort();
+  // Everyone on the sales team who takes commission — shown whether or not they
+  // have earned anything — plus anyone with commission lines who has since been
+  // removed from the team list (so their earnings don't vanish).
+  const people = [...new Set([...DB.settings.salesTeam, ...entries.map(e => e.person)])]
+    .filter(p => p && !commissionExcluded(p)).sort();
 
   if (!people.length) {
     view.innerHTML = `<div class="tbl-wrap"><div class="empty">
@@ -4230,7 +4244,15 @@ function renderCommissions() {
     const potential = mine.reduce((s, e) => s + e.amount, 0);
     const landed = mine.filter(e => e.inv.paid);
     const payable = landed.reduce((s, e) => s + e.amount, 0);
-    if (!mine.length) return '';
+    if (!mine.length) return `<div class="comm-card">
+      <div class="name">${esc(p)}</div>
+      <div class="comm-nums">
+        <div><div class="v" style="color:var(--success)">${fmtMoney(0)}</div><div class="l">Payable now</div></div>
+        <div><div class="v">${fmtMoney(0)}</div><div class="l">If all payments land</div></div>
+      </div>
+      <div class="bar"></div>
+      <div class="muted" style="font-size:11px; margin-top:8px">No commission lines for ${esc(monthLabel(sel))}</div>
+    </div>`;
     const barSegs = [...mine]
       .sort((a, b) => (a.inv.paid ? 0 : 1) - (b.inv.paid ? 0 : 1)) // paid segments first (green, on the left)
       .map(e => {
@@ -4291,7 +4313,8 @@ function renderCommissions() {
     </div>
 
     <h2 class="section" style="margin-top:4px">${monthLabel(sel)} — owed if all payments land vs payable now</h2>
-    ${cards.trim() ? `<div class="comm-cards">${cards}</div>` : `<div class="tbl-wrap"><div class="empty">No commission-eligible invoices in ${monthLabel(sel)} (clients past their first ${cfg.invoiceCount} invoices, or no sales attribution set on this month's clients).</div></div>`}
+    ${monthEntries.length ? '' : `<p class="note" style="margin:0 0 10px">No commission-eligible invoices in ${monthLabel(sel)} (clients past their first ${cfg.invoiceCount} invoices, or no sales attribution set on this month's clients).</p>`}
+    <div class="comm-cards">${cards}</div>
 
     <h2 class="section">Earned by month <span class="muted" style="font-weight:400; text-transform:none; letter-spacing:0">(month the payment landed)</span></h2>
     <div class="tbl-wrap">
@@ -4317,6 +4340,17 @@ function renderSettings() {
       <div class="desc">${desc}</div>
       <div class="chips">${s[key].map((v, i) => `<span class="chip">${esc(v)}<button data-rm="${key}:${i}" title="Remove">×</button></span>`).join('') || '<span class="muted" style="font-size:12px">None yet.</span>'}</div>
       <div class="chip-add"><input id="add-${key}" placeholder="Add name…"><button class="btn btn-sm" data-add="${key}">Add</button></div>
+    </div>`;
+
+  // Who on the sales team actually takes commission. Unticked people stay
+  // selectable on clients and in Insights, but never appear on the Commission tab.
+  const commissionCard = () => `
+    <div class="card">
+      <h3>Commission eligibility</h3>
+      <div class="desc">Everyone ticked here appears on the Commission tab — even when they've earned £0 that month. Untick a sales team member who doesn't take commission (e.g. the CEO): they stay selectable as Lead generated by / Converted by and still count in Insights' sales attribution, but earn nothing and don't appear on the Commission tab.</div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px 24px; margin-top:6px">
+        ${s.salesTeam.map(p => `<label class="chk"><input type="checkbox" data-comm-elig="${esc(p)}" ${s.commissionExcluded.includes(p) ? '' : 'checked'}> ${esc(p)}</label>`).join('') || '<span class="muted" style="font-size:12px">Add sales team members above first.</span>'}
+      </div>
     </div>`;
 
   // Wider industries: the clusters themselves, plus where each specific
@@ -4352,6 +4386,7 @@ function renderSettings() {
 
   view.innerHTML = `
     ${chipList('salesTeam', 'Sales team', 'People who can earn commission — selectable as Lead generated by / Converted by on each client.')}
+    ${commissionCard()}
     ${chipList('accountManagers', 'Account managers', 'Selectable as the AM on each client.')}
     ${chipList('packages', 'Packages', 'Service packages selectable on each client.')}
     ${chipList('industries', 'Industries', 'Selectable on each client — powers the Insights tab\'s industry breakdown.')}
@@ -4420,6 +4455,13 @@ function renderSettings() {
   });
   view.querySelectorAll('#add-industries, #add-countries, #add-companySizes').forEach(inp => {
     inp.onkeydown = e => { if (e.key === 'Enter') inp.nextElementSibling.click(); };
+  });
+  view.querySelectorAll('[data-comm-elig]').forEach(cb => cb.onchange = () => {
+    const name = cb.dataset.commElig;
+    const list = s.commissionExcluded.filter(x => x !== name);
+    if (!cb.checked) list.push(name);
+    s.commissionExcluded = list;
+    touch(); renderAll();
   });
   const keepMapScroll = fn => {
     const before = view.querySelector('#wide-map-wrap');
