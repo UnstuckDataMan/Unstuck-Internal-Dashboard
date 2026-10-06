@@ -132,6 +132,57 @@ def smartlead_variants(external_campaign_id: str, start: date, end: date) -> lis
     return steps
 
 
+def winners_for_report(steps: list[dict], manual: dict | None = None) -> list[dict]:
+    """The decided winners only, trimmed for a client-facing report.
+
+    A client gets the result, not the method: which message worked and by how
+    much. The full per-variant table stays internal — publishing every version
+    we tested, including the ones that did badly, tells them more about our
+    process than about their campaign.
+
+    Steps with no decided winner are left out entirely rather than shown as
+    "too early to tell". On a client's report that reads as an excuse; on the
+    internal panel, where it is actionable, it is still said in full.
+    """
+    out: list[dict] = []
+    for step in steps:
+        if not step.get("winner"):
+            continue
+        best = next((v for v in step["variants"] if v["variant"] == step["winner"]), None)
+        if best is None:
+            continue
+        copy = best.get("variant_copy") or {}
+        out.append({
+            "label":         f"Version {step['winner']}",
+            "campaign":      step.get("campaign", ""),
+            # Written-down copy wins over the step's subject: Smartlead reports
+            # one subject for the whole step, so it is the same string for
+            # every variant and cannot distinguish the winner.
+            "subject":       copy.get("subject") or step.get("subject", ""),
+            "body":          copy.get("body", ""),
+            "reply_rate":    best.get("reply_rate"),
+            "positive_rate": best.get("positive_rate"),
+            "sent":          best.get("sent", 0),
+            "basis":         step.get("basis", ""),
+        })
+    if manual and manual.get("winner"):
+        best = next((v for v in manual["variants"]
+                     if v["variant"] == manual["winner"]), None)
+        if best is not None:
+            copy = best.get("variant_copy") or {}
+            out.append({
+                "label":         f"Version {manual['winner']}",
+                "campaign":      "Manual campaigns",
+                "subject":       copy.get("subject", ""),
+                "body":          copy.get("body", ""),
+                "reply_rate":    best.get("reply_rate"),
+                "positive_rate": best.get("positive_rate"),
+                "sent":          best.get("sent", 0),
+                "basis":         manual.get("basis", ""),
+            })
+    return out
+
+
 # ── Manual ────────────────────────────────────────────────────────────────────
 
 def manual_variants(sheet_ids: list[str]) -> dict:

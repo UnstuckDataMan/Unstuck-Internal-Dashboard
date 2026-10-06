@@ -986,6 +986,69 @@ def visit_summary(client_id: str = "") -> list[dict]:
     return _get("pulse_portal_visits", _scoped(params))
 
 
+# ── Copy recorded against a variant ────────────────────────────────
+
+_COPY_COLS = ("id,client_id,source_tool,campaign_ref,variant_key,subject,body,"
+              "entered_by,updated_at")
+
+
+def list_copy_variants(client_id: str) -> list[dict]:
+    """Copy a person has written down for this client's variants.
+
+    Never raises. The A/B panel is useful without it — it just shows a letter
+    where it could show a message — and a failure here must not take the panel
+    down with it.
+    """
+    try:
+        return _get("pulse_copy_variants", _scoped({
+            "select":    _COPY_COLS,
+            "client_id": f"eq.{client_id}",
+        }))
+    except Exception as exc:
+        logger.warning("Pulse: could not read variant copy for %s: %s", client_id, exc)
+        return []
+
+
+def upsert_copy_variant(
+    *,
+    client_id:    str,
+    source_tool:  str,
+    variant_key:  str,
+    campaign_ref: str = "",
+    subject:      str = "",
+    body:         str = "",
+    entered_by:   str = "",
+) -> dict | None:
+    try:
+        r = http_req.post(
+            f"{SUPABASE_URL}/rest/v1/pulse_copy_variants",
+            headers=_sb_headers("resolution=merge-duplicates,return=representation"),
+            params={"on_conflict":
+                    "agency_id,client_id,source_tool,campaign_ref,variant_key"},
+            json={
+                "agency_id":    current_agency_id(),
+                "client_id":    client_id,
+                "source_tool":  source_tool,
+                "campaign_ref": campaign_ref or "",
+                "variant_key":  variant_key,
+                "subject":      (subject or "")[:300],
+                "body":         body or "",
+                "entered_by":   (entered_by or "")[:200],
+                "updated_at":   datetime.now(timezone.utc).isoformat(),
+            },
+            timeout=15,
+        )
+        if r.status_code >= 400:
+            raise _describe_postgrest_error("pulse_copy_variants", r)
+        rows = r.json()
+        return rows[0] if rows else None
+    except PulseNotReady:
+        raise
+    except Exception as exc:
+        logger.warning("Pulse: could not save variant copy: %s", exc)
+        return None
+
+
 # ── Hand-entered figures ────────────────────────────────────────
 
 _HAND_COLS = ("id,client_id,channel,period_month,sent,opened,replied,meetings,"

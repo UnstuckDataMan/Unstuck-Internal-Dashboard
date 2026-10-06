@@ -4601,3 +4601,313 @@ def test_a_low_rate_reads_the_same_everywhere_on_a_report(client, fake_sb):
     _portal_routes(fake_sb, reports=[_report()])
     body = client.get("/r/valid-token").text
     assert "0.0%" not in body or "0.4%" in body
+
+
+# ── The winner on the client's report ────────────────────────────────────────
+
+def _step(winner="A", subject="Quick question", campaign="Acme UK",
+          copy=None, reason=""):
+    return {
+        "campaign": campaign, "step": 1, "subject": subject,
+        "basis": "Smartlead's own positive replies",
+        "winner": winner, "reason": reason, "total_sent": 2000,
+        "variants": [
+            {"variant": "A", "is_baseline": True, "sent": 1000, "reply": 40,
+             "positive": 12, "unsubscribe": 3, "reply_rate": 4.0,
+             "positive_rate": 1.2, "variant_copy": copy},
+            {"variant": "B", "is_baseline": False, "sent": 1000, "reply": 18,
+             "positive": 3, "unsubscribe": 9, "reply_rate": 1.8,
+             "positive_rate": 0.3, "variant_copy": None},
+        ],
+    }
+
+
+def test_only_decided_winners_reach_the_report():
+    """"Too early to tell" is useful on the internal panel, where it is
+    actionable. On a client's report it reads as an excuse."""
+    from app.utils.pulse.abtest import winners_for_report
+
+    assert len(winners_for_report([_step()])) == 1
+    assert winners_for_report([_step(winner=None, reason="2 variations are level")]) == []
+
+
+def test_the_report_gets_the_result_not_the_method():
+    """A client should not be handed every version we tried, including the ones
+    that did badly — that says more about our process than their campaign."""
+    from app.utils.pulse.abtest import winners_for_report
+
+    win = winners_for_report([_step()])[0]
+    assert win["label"] == "Version A"
+    assert win["reply_rate"] == 4.0
+    assert "variants" not in win
+    assert "B" not in str(win)
+
+
+def test_written_down_copy_beats_the_step_subject():
+    """Smartlead reports one subject for the whole step, so it is the same
+    string for every variant and cannot distinguish the winner."""
+    from app.utils.pulse.abtest import winners_for_report
+
+    win = winners_for_report([_step(copy={"subject": "The one that won",
+                                          "body": "<p>Hello</p>"})])[0]
+    assert win["subject"] == "The one that won"
+    assert win["body"] == "<p>Hello</p>"
+
+
+def test_the_manual_winner_joins_the_report_too():
+    from app.utils.pulse.abtest import winners_for_report
+
+    manual = {
+        "winner": "S1/B1", "reason": "", "total_sent": 700,
+        "basis": "your Lead and Interested statuses",
+        "variants": [{"variant": "S1/B1", "is_baseline": False, "sent": 700,
+                      "reply": 21, "positive": 13, "unsubscribe": 6,
+                      "reply_rate": 3.0, "positive_rate": 1.9, "variant_copy": None}],
+    }
+    out = winners_for_report([], manual)
+    assert len(out) == 1
+    assert out[0]["campaign"] == "Manual campaigns"
+
+
+def test_the_winner_is_frozen_into_the_snapshot(client, fake_sb, monkeypatch):
+    """Read live on the portal it would be a figure that moves, printed next to
+    a column of figures that cannot."""
+    from app.utils.pulse import abtest, smartlead
+
+    seen = {}
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+    fake_sb.route("GET", "pulse_copy_variants", lambda call: FakeResponse(200, []))
+    monkeypatch.setattr(smartlead, "is_configured", lambda: True)
+    monkeypatch.setattr(abtest, "smartlead_variants",
+                        lambda e, s, en: [_step()])
+    monkeypatch.setattr(abtest, "manual_variants",
+                        lambda ids: {"variants": [], "winner": None,
+                                     "reason": "", "total_sent": 0,
+                                     "sheets_read": 0, "sheets_skipped": 0,
+                                     "basis": ""})
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert seen["snapshot"]["ab"][0]["label"] == "Version A"
+
+
+def test_a_failing_ab_lookup_never_blocks_a_publish(client, fake_sb, monkeypatch):
+    """The report's own numbers come from our database. Losing a write-up
+    because Smartlead was slow would be a far worse trade."""
+    from app.utils.pulse import abtest, smartlead
+
+    seen = {}
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        _report(status="draft")]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(200, []))[1])
+    fake_sb.route("GET", "pulse_copy_variants", lambda call: FakeResponse(200, []))
+    monkeypatch.setattr(smartlead, "is_configured", lambda: True)
+
+    def boom(*a, **k):
+        raise RuntimeError("429 from Smartlead")
+
+    monkeypatch.setattr(abtest, "smartlead_variants", boom)
+    monkeypatch.setattr(abtest, "manual_variants", boom)
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert r.status_code == 200
+    assert seen["status"] == "published"
+    assert seen["snapshot"]["ab"] == []
+
+
+def test_the_report_shows_the_winner_below_reply_outcomes(client, fake_sb):
+    snap = _snapshot()
+    snap["ab"] = [{"label": "Version A", "campaign": "Acme UK",
+                   "subject": "Quick question about {{company}}",
+                   "body": "<p>Short and direct.</p>",
+                   "reply_rate": 4.0, "positive_rate": 1.2, "sent": 1000,
+                   "basis": "Smartlead's own positive replies"}]
+    report = _report()
+    report["snapshot"] = snap
+    _portal_routes(fake_sb, reports=[report])
+
+    body = client.get("/r/valid-token").text
+    assert "What worked best" in body
+    assert "Quick question about" in body
+    assert "Short and direct." in body
+    assert body.index("Reply outcomes") < body.index("What worked best")
+
+
+def test_a_report_published_before_ab_existed_still_renders(client, fake_sb):
+    _portal_routes(fake_sb)        # its snapshot has no "ab" key at all
+    r = client.get("/r/valid-token")
+    assert r.status_code == 200
+    assert "What worked best" not in r.text
+
+
+# ── Recording what a variant said ───────────────────────────────────────────
+
+def _copy_routes(fake_sb, rows=None, seen=None):
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_copy_variants",
+                  lambda call: FakeResponse(200, rows or []))
+
+    def capture(call):
+        if seen is not None:
+            seen.update(call)
+        return FakeResponse(201, [{"id": "cv1"}])
+
+    fake_sb.route("POST", "pulse_copy_variants", capture)
+
+
+def test_saving_copy_upserts_on_the_variant(client, fake_sb, monkeypatch):
+    from app.utils.pulse import smartlead
+
+    seen = {}
+    _copy_routes(fake_sb, seen=seen)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy",
+                    data={"source_tool": "smartlead", "variant_key": "A",
+                          "campaign_ref": "Acme UK",
+                          "subject": "Quick question",
+                          "body": "<p>Hello</p>"})
+    assert r.status_code == 200
+    assert seen["params"]["on_conflict"] == \
+        "agency_id,client_id,source_tool,campaign_ref,variant_key"
+    assert seen["json"]["variant_key"] == "A"
+    assert seen["json"]["subject"] == "Quick question"
+    assert seen["json"]["entered_by"]
+
+
+def test_recorded_copy_is_sanitised_before_it_is_stored(client, fake_sb, monkeypatch):
+    """It renders on a client-facing report."""
+    from app.utils.pulse import smartlead
+
+    seen = {}
+    _copy_routes(fake_sb, seen=seen)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy",
+                data={"source_tool": "smartlead", "variant_key": "A",
+                      "body": "<p onclick='x()'>hi</p><script>bad()</script>"})
+    assert seen["json"]["body"] == "<p>hi</p>"
+
+
+def test_empty_copy_is_refused_with_a_reason(client, fake_sb, monkeypatch):
+    from app.utils.pulse import smartlead
+
+    _copy_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy",
+                    data={"source_tool": "smartlead", "variant_key": "A",
+                          "subject": "  ", "body": "<p><br></p>"})
+    assert "Add a subject line or some copy" in r.text
+    assert not fake_sb.calls_to("POST", "pulse_copy_variants")
+
+
+def test_copy_with_no_campaign_matches_any_campaign():
+    """A Copy Bank combination is reused wherever it ran, so it should not have
+    to be typed once per campaign."""
+    from app.routers.outbound_pulse import _copy_for
+
+    index = {("manual", "", "S1/B1"): {"subject": "shared"}}
+    assert _copy_for(index, "manual", "Any Campaign", "S1/B1")["subject"] == "shared"
+
+
+def test_campaign_specific_copy_wins_over_the_shared_one():
+    from app.routers.outbound_pulse import _copy_for
+
+    index = {("smartlead", "", "A"): {"subject": "shared"},
+             ("smartlead", "Acme UK", "A"): {"subject": "specific"}}
+    assert _copy_for(index, "smartlead", "Acme UK", "A")["subject"] == "specific"
+
+
+def test_a_copy_read_failure_does_not_take_the_ab_panel_down(client, fake_sb, monkeypatch):
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_copy_variants",
+                  lambda call: FakeResponse(500, {"message": "does not exist"}))
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
+
+    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
+    assert r.status_code == 200
+
+
+# ── The migration ───────────────────────────────────────────────────────────
+
+def _copy_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1] / "migrations"
+            / "outbound_pulse_copy_variants.sql").read_text(encoding="utf-8")
+
+
+def test_the_copy_migration_is_one_transaction_and_re_runnable():
+    sql = _copy_sql()
+    assert sql.index("BEGIN;") < sql.index("CREATE TABLE")
+    assert "CREATE TABLE IF NOT EXISTS pulse_copy_variants" in sql
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+def test_one_copy_record_per_variant():
+    assert "pulse_copy_variants_unique" in _copy_sql()
+
+
+def test_a_copy_record_needs_a_subject_or_a_body():
+    assert "length(btrim(subject)) > 0 OR length(btrim(body)) > 0" in _copy_sql()
+
+
+def test_the_recorded_copy_key_cannot_collide_with_a_dict_method():
+    """`v.copy` in Jinja resolves to dict.copy — the built-in method, always
+    truthy — so every winner rendered as "copy recorded" with nothing in it.
+    Jinja's v['copy'] falls back to the attribute too, so the key has to differ
+    from anything on dict."""
+    import pathlib
+
+    assert not hasattr({}, "variant_copy")
+    ab = (pathlib.Path(__file__).resolve().parents[1] / "app" / "templates"
+          / "partials" / "pulse_ab.html").read_text(encoding="utf-8")
+    assert "v.copy" not in ab
+    assert "v.variant_copy" in ab
+
+
+def test_a_variant_with_no_recorded_copy_offers_to_add_it(client, fake_sb, monkeypatch):
+    from app.utils import google_sheets
+    from app.utils.pulse import abtest, smartlead
+
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_copy_variants", lambda call: FakeResponse(200, []))
+    monkeypatch.setattr(smartlead, "is_configured", lambda: True)
+    monkeypatch.setattr(abtest, "smartlead_variants", lambda e, s, en: [_step()])
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
+
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "Add the copy for A" in body
+    assert "Recorded by" not in body
+
+
+def test_a_variant_with_recorded_copy_shows_it(client, fake_sb, monkeypatch):
+    from app.utils import google_sheets
+    from app.utils.pulse import abtest, smartlead
+
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_copy_variants", lambda call: FakeResponse(200, [
+        {"id": "cv1", "client_id": CLIENT, "source_tool": "smartlead",
+         "campaign_ref": "Acme UK PR", "variant_key": "A",
+         "subject": "The winning line", "body": "<p>Body</p>",
+         "entered_by": "Dylan", "updated_at": None}]))
+    monkeypatch.setattr(smartlead, "is_configured", lambda: True)
+    monkeypatch.setattr(abtest, "smartlead_variants",
+                        lambda e, s, en: [_step(campaign="Acme UK PR")])
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
+
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "The winning line" in body
+    assert "Recorded by Dylan" in body
+    assert "Add the copy for A" not in body

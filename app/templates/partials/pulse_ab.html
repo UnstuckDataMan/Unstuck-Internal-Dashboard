@@ -5,6 +5,65 @@
    manual campaign decides on the team's Lead and Interested statuses. They are
    different measures, so a combined winner would mean nothing. #}
 
+{% if error %}<div class="err-box" style="margin-bottom:12px">{{ error }}</div>{% endif %}
+
+{% macro copy_row(block, v, source, campaign) %}
+{# Smartlead reports a subject per sequence STEP, not per variant, and a manual
+   variant is a Copy Bank index like "S2/B1" — so a winner is routinely known
+   without its text. This is where that gets written down, once. #}
+<div class="ab-copy">
+  {% if v.variant_copy %}
+  <div class="ab-copy-shown">
+    {% if v.variant_copy.subject %}<div class="ab-copy-subject">“{{ v.variant_copy.subject }}”</div>{% endif %}
+    {% if v.variant_copy.body %}<div class="ab-copy-body write-up">{{ v.variant_copy.body | safe }}</div>{% endif %}
+    <div class="ab-copy-meta">
+      Recorded by {{ v.variant_copy.entered_by or "someone" }}
+      · <button type="button" class="note-act"
+                onclick="pulseEditCopy('{{ source }}-{{ campaign | replace(' ', '_') }}-{{ v.variant | replace('/', '_') }}')">Edit</button>
+    </div>
+  </div>
+  {% else %}
+  <button type="button" class="note-act is-go"
+          onclick="pulseEditCopy('{{ source }}-{{ campaign | replace(' ', '_') }}-{{ v.variant | replace('/', '_') }}')">
+    Add the copy for {{ v.variant }}
+  </button>
+  {% endif %}
+
+  <form class="ab-copy-form" hidden
+        id="copy-{{ source }}-{{ campaign | replace(' ', '_') }}-{{ v.variant | replace('/', '_') }}"
+        hx-post="/api/outbound-pulse/clients/{{ client_id }}/copy"
+        hx-target="#pulse-ab" hx-swap="innerHTML">
+    <input type="hidden" name="source_tool" value="{{ source }}">
+    <input type="hidden" name="variant_key" value="{{ v.variant }}">
+    <input type="hidden" name="campaign_ref" value="{{ campaign }}">
+    <input type="hidden" name="range" value="{{ range_key }}">
+    <label class="report-field report-field-wide" style="margin-bottom:10px">
+      <span>Subject line</span>
+      <input type="text" name="subject" maxlength="300"
+             value="{{ v.variant_copy.subject if v.variant_copy else '' }}"
+             placeholder="The subject this version used">
+    </label>
+    <textarea name="body" class="report-body-field" hidden>{{ v.variant_copy.body if v.variant_copy else '' }}</textarea>
+    <div class="rt" data-rt>
+      <div class="rt-bar" role="toolbar" aria-label="Formatting">
+        <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+        <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+        <button type="button" data-cmd="insertUnorderedList" title="Bulleted list">• List</button>
+        <button type="button" data-cmd="createLink" title="Link">Link</button>
+        <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
+      </div>
+      <div class="rt-area" contenteditable="true" spellcheck="true" lang="en-GB"
+           role="textbox" aria-multiline="true" aria-label="Copy for {{ v.variant }}"></div>
+    </div>
+    <div class="report-actions">
+      <button type="button" class="btn btn-download"
+              onclick="pulseEditCopy('{{ source }}-{{ campaign | replace(' ', '_') }}-{{ v.variant | replace('/', '_') }}', false)">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save copy</button>
+    </div>
+  </form>
+</div>
+{% endmacro %}
+
 {% macro variant_table(block, unit) %}
 <table class="ab-table">
   <thead>
@@ -61,6 +120,11 @@
       {% if step.subject %}<span class="ab-subject">{{ step.subject }}</span>{% endif %}
     </div>
     {{ variant_table(step, "step") }}
+    {% for v in step.variants %}
+      {% if step.winner == v.variant %}
+      {{ copy_row(step, v, "smartlead", step.campaign) }}
+      {% endif %}
+    {% endfor %}
   </div>
   {% endfor %}
   {% if smartlead_more %}
@@ -98,6 +162,11 @@
   </p>
   {% else %}
   {{ variant_table(manual, "campaign") }}
+  {% for v in manual.variants %}
+    {% if manual.winner == v.variant %}
+    {{ copy_row(manual, v, "manual", "") }}
+    {% endif %}
+  {% endfor %}
   <p class="pulse-meta ab-note">
     Combined across {{ manual.sheets_read }} campaign{{ "" if manual.sheets_read == 1 else "s" }}.
     Variations are Copy Bank combinations — <b>S2/B1</b> is subject 2 with body 1.
@@ -108,3 +177,12 @@
   </p>
   {% endif %}
 </div>
+
+<script>
+  window.pulseEditCopy = function (id, open) {
+    var form = document.getElementById('copy-' + id);
+    if (!form) return;
+    form.hidden = open === undefined ? false : !open;
+    if (!form.hidden && window.pulseInitEditors) window.pulseInitEditors(form);
+  };
+</script>
