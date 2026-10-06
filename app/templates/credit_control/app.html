@@ -599,6 +599,9 @@ const state = {
   clientCountryFilter: '',
   clientSizeFilter: '',
   commMonth: null,
+  commPeriod: 'year',   // Commission earned over a period: 'month' | 'lastmonth' | 'year' | 'fy' | 'all' | 'custom'
+  commFrom: null,       // custom period start 'YYYY-MM-DD'
+  commTo: null,         // custom period end 'YYYY-MM-DD'
   retScale: '12',       // churn chart window: '6' | '12' | '24' | 'all'
   retRangeStart: null,  // custom churn range 'YYYY-MM'
   retRangeEnd: null,
@@ -4192,6 +4195,22 @@ function renderInsRetentionDetail(bodyEl, filteredClients) {
 
 /* ════════════════ COMMISSIONS VIEW ════════════════ */
 const commissionExcluded = p => (DB.settings.commissionExcluded || []).includes(p);
+// The date range behind the Commission tab's "earned over a period" totals.
+// Commission is counted in the period its payment LANDED (the paid date) — the
+// same rule as the Earned by month table below it.
+const COMM_PERIODS = [['month', 'This month'], ['lastmonth', 'Last month'], ['year', 'This year'], ['fy', 'Financial year'], ['all', 'All time'], ['custom', 'Custom']];
+function commPeriodRange(key) {
+  const cur = currentMonthKey();
+  const endOf = mk => `${mk}-${String(daysInMonth(mk)).padStart(2, '0')}`;
+  if (key === 'month') return { from: `${cur}-01`, to: endOf(cur), label: monthLabel(cur) };
+  if (key === 'lastmonth') { const pm = addMonths(cur, -1); return { from: `${pm}-01`, to: endOf(pm), label: monthLabel(pm) }; }
+  if (key === 'year') { const y = cur.slice(0, 4); return { from: `${y}-01-01`, to: `${y}-12-31`, label: `${y} (1 Jan – 31 Dec)` }; }
+  if (key === 'fy') { const s = fiscalYearStart(cur), e = addMonths(s, 11); return { from: `${s}-01`, to: endOf(e), label: `financial year ${monthLabelShort(s)} – ${monthLabelShort(e)}` }; }
+  if (key === 'all') return { from: '0000-01-01', to: '9999-12-31', label: 'all time' };
+  const a = state.commFrom || `${cur.slice(0, 4)}-01-01`, b = state.commTo || todayISO();
+  const from = a <= b ? a : b, to = a <= b ? b : a;
+  return { from, to, label: `${fmtDate(from)} – ${fmtDate(to)}` };
+}
 function commissionEntries() {
   const cfg = DB.settings.commission;
   const out = [];
@@ -4302,8 +4321,61 @@ function renderCommissions() {
     return `<tr><td><strong>${monthLabel(m)}</strong></td>${cells}<td class="num money" style="color:var(--accent)">${fmtMoney(total)}</td></tr>`;
   }).join('');
 
+  // ── Earned over a chosen period: landed commission per person, with the lines behind it ──
+  const per = commPeriodRange(state.commPeriod);
+  const periodEntries = entries.filter(e => e.inv.paid && e.inv.paidDate && e.inv.paidDate >= per.from && e.inv.paidDate <= per.to);
+  const periodTotal = periodEntries.reduce((s, e) => s + e.amount, 0);
+  const periodCards = people.map(p => {
+    const mine = periodEntries.filter(e => e.person === p).sort((a, b) => b.inv.paidDate.localeCompare(a.inv.paidDate));
+    const total = mine.reduce((s, e) => s + e.amount, 0);
+    return `<div class="comm-card">
+      <div class="name">${esc(p)}</div>
+      <div class="comm-nums">
+        <div><div class="v" style="color:var(--success)">${fmtMoney(total)}</div><div class="l">Earned</div></div>
+        <div><div class="v">${mine.length}</div><div class="l">Commission line${mine.length === 1 ? '' : 's'}</div></div>
+      </div>
+      ${mine.length ? `<details class="brk">
+        <summary>show breakdown</summary>
+        <div class="brk-wrap">
+        <table>
+          <thead><tr><th>Landed</th><th>Client</th><th>Role</th><th class="num">Mo#</th><th class="num">Invoice</th><th class="num">%</th><th class="num">Commission</th></tr></thead>
+          <tbody>${mine.map(e => `<tr>
+            <td class="dim">${fmtDate(e.inv.paidDate)}</td>
+            <td>${esc(e.client.companyName)}</td>
+            <td class="dim" title="${e.role === 'Lead gen' ? 'Sourced the lead that became this client' : 'Closed the deal, turning the lead into a paying client'}">${e.role}</td>
+            <td class="num">${e.inv.monthNumber}</td>
+            <td class="num dim">${fmtMoney(e.inv.amountLanded ?? e.inv.amountGBP)}</td>
+            <td class="num dim">${e.pct}%</td>
+            <td class="num money">${fmtMoney(e.amount)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+        </div>
+      </details>` : `<div class="muted" style="font-size:11px; margin-top:8px">No commission landed in this period</div>`}
+    </div>`;
+  }).join('');
+  const periodHtml = `
+    <h2 class="section" style="margin-top:4px">Commission earned — ${esc(per.label)}</h2>
+    <div class="toolbar" style="margin-bottom:12px">
+      <div class="pills">${COMM_PERIODS.map(([k, l]) => `<button class="pill ${state.commPeriod === k ? 'active' : ''}" data-comm-period="${k}">${l}</button>`).join('')}</div>
+      ${state.commPeriod === 'custom' ? `<span class="dim" style="font-size:12px">From</span><button type="button" class="date-field" id="cm-from">${fmtDate(per.from)}</button><span class="dim" style="font-size:12px">to</span><button type="button" class="date-field" id="cm-to">${fmtDate(per.to)}</button>` : ''}
+      <span class="dim" style="font-size:12px">Counted in the period each payment landed.</span>
+    </div>
+    <div class="comm-cards">
+      <div class="comm-card" style="border-color:var(--accent)">
+        <div class="name">Total — whole team</div>
+        <div class="comm-nums">
+          <div><div class="v" style="color:var(--accent)">${fmtMoney(periodTotal)}</div><div class="l">Earned</div></div>
+          <div><div class="v">${periodEntries.length}</div><div class="l">Commission line${periodEntries.length === 1 ? '' : 's'}</div></div>
+        </div>
+      </div>
+      ${periodCards}
+    </div>
+`;
+
   view.innerHTML = `
-    <div class="toolbar">
+    ${periodHtml}
+
+    <div class="toolbar" style="margin-top:30px">
       <div class="month-nav">
         <button id="cm-prev">‹</button>
         <select id="cm-month">${months.map(k => `<option value="${k}" ${k === sel ? 'selected' : ''}>${monthLabel(k)}</option>`).join('')}</select>
@@ -4327,6 +4399,19 @@ function renderCommissions() {
   view.querySelector('#cm-month').onchange = e => { state.commMonth = e.target.value; renderCommissions(); };
   view.querySelector('#cm-prev').onclick = () => { const i = months.indexOf(sel); if (i > 0) { state.commMonth = months[i-1]; renderCommissions(); } };
   view.querySelector('#cm-next').onclick = () => { const i = months.indexOf(sel); if (i < months.length - 1) { state.commMonth = months[i+1]; renderCommissions(); } };
+  view.querySelectorAll('[data-comm-period]').forEach(b => b.onclick = () => {
+    if (b.dataset.commPeriod === 'custom' && !state.commFrom) { state.commFrom = per.from; state.commTo = per.to; }
+    state.commPeriod = b.dataset.commPeriod; renderCommissions();
+  });
+  const fromBtn = view.querySelector('#cm-from'), toBtn = view.querySelector('#cm-to');
+  if (fromBtn) fromBtn.onclick = () => openDatePicker(fromBtn, {
+    value: per.from, allowClear: false,
+    onSelect: key => { state.commFrom = key; if ((state.commTo || '') < key) state.commTo = key; renderCommissions(); }
+  });
+  if (toBtn) toBtn.onclick = () => openDatePicker(toBtn, {
+    value: per.to, allowClear: false,
+    onSelect: key => { state.commTo = key; if ((state.commFrom || '') > key) state.commFrom = key; renderCommissions(); }
+  });
 }
 
 /* ════════════════ SETTINGS VIEW ════════════════ */
