@@ -987,6 +987,7 @@ function buildNextInvoiceFor(client, targetMonth) {
 // beyond the one month ticked; everyone else gets their next invoice via
 // buildNextInvoiceFor(). Advances the wizard's frontier on completion.
 function generateInvoicesForMonth(targetMonth, rosterClientIds, { leaving, skip }) {
+  const created = [];
   for (const cid of rosterClientIds) {
     const c = clientById(cid);
     if (!c) continue;
@@ -1001,10 +1002,11 @@ function generateInvoicesForMonth(targetMonth, rosterClientIds, { leaving, skip 
       continue;
     }
     const inv = buildNextInvoiceFor(c, targetMonth);
-    if (inv) DB.invoices.push(inv);
+    if (inv) { DB.invoices.push(inv); created.push(inv); }
   }
   DB.settings.invoicingGeneratedThrough = targetMonth;
   touch();
+  return created;
 }
 // Undoes the most recent "Generate next month" run for targetMonth: deletes
 // every invoice the wizard itself created for that month (generatedByWizard)
@@ -2023,6 +2025,35 @@ function renderInvoicesCalendar() {
   wireInvoiceRowActions(view);
 }
 
+/* ── "Report 3 Discount Offer" reminder ── */
+// Shown right after a month is generated: lists every client whose freshly
+// generated invoice is their 3rd, since some of them may need the "Report 3
+// Discount Offer:…" email sent on the date of their 3rd report. Nothing is
+// shown when there are none.
+function showReport3Reminder(targetMonth, createdInvoices) {
+  const third = (createdInvoices || [])
+    .filter(i => Number(i.monthNumber) === 3 && clientById(i.clientId))
+    .map(i => ({ inv: i, client: clientById(i.clientId) }))
+    .sort((a, b) => a.client.companyName.localeCompare(b.client.companyName));
+  if (!third.length) return;
+  openModal(`
+    <div class="modal-head"><h3>Report 3 Discount Offer — ${esc(monthLabel(targetMonth))}</h3><button class="modal-x" data-close>×</button></div>
+    <p class="note" style="margin-bottom:14px">For the ${third.length} client${third.length === 1 ? '' : 's'} below, the invoice just generated is their <strong>3rd</strong>. Some of them may need a <strong>“Report 3 Discount Offer:…”</strong> email sent on the date of their 3rd report — worth checking each one.</p>
+    <div class="tbl-wrap" style="max-height:380px; overflow-y:auto">
+      <table>
+        <thead><tr><th>Client</th><th>AM</th><th>Issue date</th><th>Due date</th><th class="num">Fee £</th></tr></thead>
+        <tbody>${third.map(({ inv, client }) => `<tr>
+          <td><strong>${esc(client.companyName)}</strong><div class="sub">${esc(client.package || '')}</div></td>
+          <td class="dim">${esc(client.accountManager || '')}</td>
+          <td class="dim">${fmtDate(inv.issueDate)}</td>
+          <td class="dim">${fmtDate(inv.dueDate)}</td>
+          <td class="num money">${fmtMoney(inv.amountGBP)}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>
+    <div class="modal-foot"><button class="btn btn-primary" data-close>Got it</button></div>`, true);
+}
+
 /* ── Generate-next-month wizard ── */
 // The deliberate, reviewable replacement for the old silent auto-generation:
 // always targets exactly one month — the one right after
@@ -2082,8 +2113,9 @@ function openGenerateMonthWizard() {
       const rosterIds = roster.map(c => c.id);
       broughtBackIds.forEach(id => { const c = clientById(id); if (c) c.status = 'active'; });
       closeModal();
-      generateInvoicesForMonth(targetMonth, rosterIds, { leaving, skip });
+      const created = generateInvoicesForMonth(targetMonth, rosterIds, { leaving, skip });
       renderAll();
+      showReport3Reminder(targetMonth, created);
     };
   };
   render();
