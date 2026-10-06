@@ -1195,30 +1195,40 @@ def _manual_sheet_ids(client_id: str) -> list[str]:
         return []
 
 
-@router.get("/api/outbound-pulse/clients/{client_id}/ab")
-async def client_ab_tests(
-    request:   Request,
-    client_id: str,
-    range:     str = Query("30d"),
-    date_from: str = Query(""),
-    date_to:   str = Query(""),
-):
+def _copy_index(client_id: str) -> dict[tuple[str, str, str], dict]:
+    """Written-down copy, keyed the way a variant identifies itself.
+
+    An empty campaign_ref matches any campaign, which is what a Copy Bank
+    combination is — the same text reused wherever it ran — so a lookup falls
+    back to it rather than demanding the copy be typed once per campaign.
+    """
+    index: dict[tuple[str, str, str], dict] = {}
+    for row in store.list_copy_variants(client_id):
+        index[(str(row.get("source_tool") or ""),
+               str(row.get("campaign_ref") or ""),
+               str(row.get("variant_key") or ""))] = row
+    return index
+
+
+def _copy_for(index: dict, source: str, campaign: str, variant: str) -> dict | None:
+    return (index.get((source, campaign, variant))
+            or index.get((source, "", variant)))
+
+
+def _ab_panel(request: Request, client_id: str, rng: dict, error: str = ""):
     """Winning copy variation, per source.
 
     Deliberately two separate verdicts. Smartlead decides on its own positive
     replies; a manual campaign decides on the team's Lead and Interested
     statuses. Adding them together would produce a number that means nothing.
     """
-    rng = _resolve_range(range, date_from, date_to)
     start = rng["from"] or (today_utc() - timedelta(days=29))
     end = rng["to"] or today_utc()
+    copy_index = _copy_index(client_id)
 
     smartlead_steps, smartlead_error = [], ""
-    try:
-        campaigns = [c for c in store.list_campaigns(
-            client_id=client_id, source_tool=SOURCE_SMARTLEAD)]
-    except PulseNotReady as exc:
-        return _not_ready_box(exc)
+    campaigns = store.list_campaigns(client_id=client_id,
+                                     source_tool=SOURCE_SMARTLEAD)
 
     if not smartlead.is_configured():
         smartlead_error = "No Smartlead API key is set, so variants cannot be read."
@@ -1237,18 +1247,90 @@ async def client_ab_tests(
                 continue
             for step in steps:
                 step["campaign"] = campaign.get("name") or external
+                for variant in step["variants"]:
+                    variant["variant_copy"] = _copy_for(
+                        copy_index, SOURCE_SMARTLEAD, step["campaign"],
+                        variant["variant"])
                 smartlead_steps.append(step)
 
     manual = abtest.manual_variants(_manual_sheet_ids(client_id))
+    for variant in manual["variants"]:
+        variant["variant_copy"] = _copy_for(copy_index, SOURCE_MANUAL, "",
+                                    variant["variant"])
 
     return templates.TemplateResponse("partials/pulse_ab.html", {
         "request":          request,
+        "client_id":        client_id,
         "smartlead_steps":  smartlead_steps,
         "smartlead_error":  smartlead_error,
         "smartlead_more":   max(0, len(campaigns) - _AB_MAX_CAMPAIGNS),
         "manual":           manual,
         "range":            rng,
+        "range_key":        rng["preset"],
+        "error":            error,
     })
+
+
+@router.get("/api/outbound-pulse/clients/{client_id}/ab")
+async def client_ab_tests(
+    request:   Request,
+    client_id: str,
+    range:     str = Query("30d"),
+    date_from: str = Query(""),
+    date_to:   str = Query(""),
+):
+    try:
+        return _ab_panel(request, client_id,
+                         _resolve_range(range, date_from, date_to))
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+@router.post("/api/outbound-pulse/clients/{client_id}/copy")
+async def save_variant_copy(
+    request:      Request,
+    client_id:    str,
+    source_tool:  str = Form(""),
+    variant_key:  str = Form(""),
+    campaign_ref: str = Form(""),
+    subject:      str = Form(""),
+    body:         str = Form(""),
+    range:        str = Form("30d"),
+    user:         dict = Depends(auth.require_login),
+):
+    """Write down what a variant actually said.
+
+    Smartlead reports a subject per sequence STEP rather than per variant, and
+    a manual campaign's variant is a Copy Bank index like "S2/B1" — so a winner
+    is often known without its text. This is how that gets filled in, and it is
+    what lets the client's report show the message rather than a letter.
+    """
+    rng = _resolve_range(range, "", "")
+    try:
+        if not variant_key:
+            return _ab_panel(request, client_id, rng,
+                             error="That variant could not be identified.")
+        clean_subject = subject.strip()[:300]
+        # Sanitised here, at the one point markup crosses from an author to a
+        # reader: this body renders on a client-facing report.
+        clean_body = richtext.sanitize(body)
+        if not clean_subject and not richtext.to_text(clean_body):
+            return _ab_panel(request, client_id, rng,
+                             error="Add a subject line or some copy.")
+        if not store.upsert_copy_variant(
+                client_id=client_id,
+                source_tool=source_tool or SOURCE_SMARTLEAD,
+                variant_key=variant_key,
+                campaign_ref=campaign_ref,
+                subject=clean_subject,
+                body=clean_body,
+                entered_by=user.get("name", "") or user.get("email", "")):
+            return _ab_panel(request, client_id, rng,
+                             error="Could not save that copy. The details are "
+                                   "in the server log.")
+        return _ab_panel(request, client_id, rng)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
 
 
 # ── Client reports ─────────────────────────────────────────────
@@ -1271,8 +1353,51 @@ def report_snapshot(client_id: str, start: date, end: date) -> dict:
         "by_source":  by_source,
         "trend":      bucket_timeseries(store.funnel_timeseries(
                           client_id=client_id, date_from=start, date_to=end)),
+        # Frozen with everything else. Reading it live on the portal would put
+        # a figure that moves next to a column of figures that cannot.
+        "ab":         _report_ab_winners(client_id, start, end),
         "taken_at":   datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _report_ab_winners(client_id: str, start: date, end: date) -> list[dict]:
+    """Winning copy for the report, or an empty list.
+
+    Never raises. This reaches out to Smartlead and to Google Sheets, both of
+    which can be slow or down, and neither is worth failing a publish over —
+    the report's actual numbers come from our own database. A missing A/B
+    section is a missing section; a publish that dies at the last step loses
+    the write-up with it.
+    """
+    steps: list[dict] = []
+    copy_index = _copy_index(client_id)
+    try:
+        if smartlead.is_configured():
+            for campaign in store.list_campaigns(
+                    client_id=client_id,
+                    source_tool=SOURCE_SMARTLEAD)[:_AB_MAX_CAMPAIGNS]:
+                external = str(campaign.get("external_campaign_id") or "")
+                if not external:
+                    continue
+                for step in abtest.smartlead_variants(external, start, end):
+                    step["campaign"] = campaign.get("name") or external
+                    for variant in step["variants"]:
+                        variant["variant_copy"] = _copy_for(
+                            copy_index, SOURCE_SMARTLEAD, step["campaign"],
+                            variant["variant"])
+                    steps.append(step)
+    except Exception as exc:
+        logger.warning("Pulse: A/B unavailable for the report on %s: %s",
+                       client_id, exc)
+    try:
+        manual = abtest.manual_variants(_manual_sheet_ids(client_id))
+        for variant in manual["variants"]:
+            variant["variant_copy"] = _copy_for(copy_index, SOURCE_MANUAL, "",
+                                        variant["variant"])
+    except Exception as exc:
+        logger.warning("Pulse: manual A/B unavailable for %s: %s", client_id, exc)
+        manual = None
+    return abtest.winners_for_report(steps, manual)
 
 
 def _default_period() -> tuple[date, date]:

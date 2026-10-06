@@ -107,6 +107,9 @@ def _snapshot_view(report: dict) -> dict:
         "funnel":     funnel_with_rates(counts),
         "by_channel": snapshot.get("by_channel") or {},
         "trend":      snapshot.get("trend") or {"unit": "day", "buckets": []},
+        # Absent from any report published before A/B was captured, which is
+        # why every field here is read defensively rather than indexed.
+        "ab":         snapshot.get("ab") or [],
         "total_sent": counts.get(EVENT_SENT, 0) or 0,
     }
 
@@ -178,6 +181,6 @@ async def portal(request: Request, token: str, report: str = Query("")):
     }
     context.update(_snapshot_view(current) if current else {
         "counts": {}, "funnel": [], "by_channel": {},
-        "trend": {"unit": "day", "buckets": []}, "total_sent": 0,
+        "trend": {"unit": "day", "buckets": []}, "ab": [], "total_sent": 0,
     })
     return _private(templates.TemplateResponse("portal.html", context))
