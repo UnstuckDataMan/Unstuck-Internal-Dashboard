@@ -218,6 +218,44 @@
 </div>
 
 <!-- ── Client portal access ─────────────────────────────────────── -->
+{% if manual_campaigns %}
+<div class="pulse-section">
+  <p class="section-label">Manual campaigns</p>
+  {# From the DNC &amp; Merger tool. These cannot appear in the table above:
+     their outcomes are recorded against the client rather than the campaign,
+     so the funnel has no per-campaign figures to show for them. #}
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Campaign</th><th>Sender</th><th>Prospects</th><th>Sent</th><th>Created</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for c in manual_campaigns %}
+        <tr>
+          <td title="{{ c.campaign_name }}">{{ (c.campaign_name or "(unnamed)")[:48] }}</td>
+          <td>{{ c.sender_profile_name or "—" }}</td>
+          <td>{{ "{:,}".format(c.total_prospects or 0) }}</td>
+          <td>{{ "{:,}".format(c.sent_count or 0) }}</td>
+          <td>{{ c.created_at[:10] if c.created_at else "—" }}</td>
+          <td>
+            {% if c.sheet_url %}
+            <a href="{{ c.sheet_url }}" target="_blank" rel="noopener noreferrer"
+               class="note-act">Sheet</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="pulse-meta" style="margin-top:10px;line-height:1.55">
+    Outcomes for these are counted against the client, not the campaign, so
+    their leads and replies appear in the funnel above under
+    <b>DNC &amp; Merger</b> rather than row by row here.
+  </p>
+</div>
+{% endif %}
+
 <div class="pulse-panel">
   <h3>Winning copy</h3>
   <p class="panel-hint">

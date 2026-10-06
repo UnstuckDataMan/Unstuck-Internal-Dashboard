@@ -630,8 +630,13 @@ def test_unknown_preset_falls_back_to_30d():
 
 # ── Portal access management ──────────────────────────────────────────────────
 
-def test_creating_a_portal_link_stores_only_a_hash(client, fake_sb):
-    """The plaintext token is shown once and never persisted."""
+def test_a_portal_link_is_stored_so_it_can_be_reopened(client, fake_sb):
+    """Deliberately changed: the token used to be hashed and discarded, so a
+    link was shown once and could only be re-issued. The team needs to open a
+    client's report themselves, so it is kept.
+
+    The hash remains the lookup key — the stored token is display only and is
+    never part of resolving a link."""
     import hashlib
     import re
 
@@ -652,7 +657,7 @@ def test_creating_a_portal_link_stores_only_a_hash(client, fake_sb):
     assert match, "the plaintext link should be shown once"
     token = match.group(1)
 
-    assert "token" not in captured
+    assert captured["token"] == token
     assert captured["token_hash"] == hashlib.sha256(token.encode()).hexdigest()
     assert captured["agency_id"] == AGENCY
     assert captured["client_id"] == CLIENT
@@ -5091,3 +5096,162 @@ def test_only_mode_cannot_be_stored_empty():
 
 def test_the_mode_is_constrained_to_the_two_it_supports():
     assert "CHECK (mode IN ('exclude', 'only'))" in _mode_sql()
+
+
+# ── The portal link is readable from the client profile ──────────────────────
+
+def _access_rows(fake_sb, rows):
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_client_access", lambda call: FakeResponse(200, rows))
+
+
+def test_a_stored_link_is_shown_and_openable(client, fake_sb):
+    _access_rows(fake_sb, [{
+        "id": "a1", "label": "Sarah", "created_by": "dylan@unstuck-agency.com",
+        "created_at": "2026-09-01T09:00:00+00:00", "expires_at": None,
+        "revoked_at": None, "last_used_at": None, "view_count": 3,
+        "token": "abc123token",
+    }])
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/access").text
+    assert "/r/abc123token" in body
+    assert ">Open<" in body
+    assert "not recoverable" not in body
+
+
+def test_a_link_issued_before_tokens_were_stored_says_so(client, fake_sb):
+    """A hash cannot be reversed. Saying "not recoverable" beats showing a
+    broken link or pretending the row is fine."""
+    _access_rows(fake_sb, [{
+        "id": "a1", "label": "Old one", "created_by": "", "created_at": None,
+        "expires_at": None, "revoked_at": None, "last_used_at": None,
+        "view_count": 0, "token": None,
+    }])
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/access").text
+    assert "not recoverable" in body
+    assert ">Open<" not in body
+
+
+def test_a_revoked_link_is_never_offered_to_open(client, fake_sb):
+    _access_rows(fake_sb, [{
+        "id": "a1", "label": "Gone", "created_by": "", "created_at": None,
+        "expires_at": None, "revoked_at": "2026-09-05T09:00:00+00:00",
+        "last_used_at": None, "view_count": 2, "token": "stillhere",
+    }])
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/access").text
+    assert "/r/stillhere" not in body
+    assert "revoked" in body
+
+
+def test_the_link_is_read_back_with_the_access_list(client, fake_sb):
+    from tests.conftest import param_values
+
+    _access_rows(fake_sb, [])
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/access")
+    call = fake_sb.calls_to("GET", "pulse_client_access")[0]
+    assert "token" in param_values(call, "select")[0]
+
+
+def test_resolving_a_link_still_matches_on_the_hash_only(client, fake_sb):
+    """The stored token is display only. If it ever became the lookup key, a
+    read of the table would be enough to authenticate."""
+    from tests.conftest import param_values
+
+    _portal_routes(fake_sb)
+    client.get("/r/valid-token")
+    call = fake_sb.calls_to("GET", "pulse_client_access")[0]
+    assert param_values(call, "token_hash")
+    assert param_values(call, "token") == []
+
+
+def test_the_visible_links_migration_keeps_the_hash_as_the_key():
+    import pathlib
+
+    sql = (pathlib.Path(__file__).resolve().parents[1] / "migrations"
+           / "outbound_pulse_visible_links.sql").read_text(encoding="utf-8")
+    assert "ADD COLUMN IF NOT EXISTS token TEXT" in sql
+    assert "DROP COLUMN" not in sql           # token_hash stays
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+# ── Manual campaigns on the client profile ──────────────────────────────────
+
+def test_manual_campaigns_are_listed_on_the_client_page(client, fake_sb):
+    """They cannot appear in the funnel's campaign table: their outcomes are
+    recorded against the client, so pulse_manual_daily carries a NULL
+    campaign_id by design."""
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "campaigns", lambda call: FakeResponse(200, [
+        {"id": "mc1", "campaign_name": "Acme - PR Directors",
+         "sender_profile_name": "Sarah", "sheet_url": "https://sheets/x",
+         "total_prospects": 420, "sent_count": 410,
+         "created_at": "2026-09-02T09:00:00+00:00"},
+    ]))
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "Manual campaigns" in body
+    assert "Acme - PR Directors" in body
+    assert "420" in body
+    assert "https://sheets/x" in body
+
+
+def test_the_manual_section_is_absent_when_there_are_none(client, fake_sb):
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "campaigns", lambda call: FakeResponse(200, []))
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "Manual campaigns" not in body
+
+
+def test_manual_campaigns_are_scoped_to_the_client(client, fake_sb):
+    from tests.conftest import param_values
+
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "campaigns", lambda call: FakeResponse(200, []))
+    client.get(f"/outbound-pulse/clients/{CLIENT}")
+    for call in fake_sb.calls_to("GET", "campaigns"):
+        assert param_values(call, "client_id") == [f"eq.{CLIENT}"]
+
+
+def test_a_failing_campaigns_read_does_not_break_the_client_page(client, fake_sb):
+    """A supporting list, not the page."""
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "campaigns",
+                  lambda call: FakeResponse(500, {"message": "nope"}))
+    r = client.get(f"/outbound-pulse/clients/{CLIENT}")
+    assert r.status_code == 200
+    assert "Acme" in r.text
+
+
+# ── Hand entry is LinkedIn only ─────────────────────────────────────────────
+
+def test_hand_entry_is_linkedin_only():
+    """Meet Alfred is the LinkedIn channel, and it is the one source nothing
+    here can read for itself. Email is covered by Smartlead and the DNC tool."""
+    from app.utils.pulse import hand_entry
+
+    assert hand_entry.CHANNEL == "linkedin"
+    assert hand_entry.CHANNELS == ("linkedin",)
+
+
+def test_the_entry_form_offers_no_channel_choice(client, fake_sb):
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_hand_entries", lambda call: FakeResponse(200, []))
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries").text
+    assert "<select name=\"channel\"" not in body
+    assert 'name="channel" value="linkedin"' in body
+    # And the labels are the LinkedIn ones.
+    assert "Connection requests sent" in body
+    assert "Emails sent" not in body
+
+
+def test_a_posted_email_channel_is_ignored(client, fake_sb):
+    """Nothing writes an email row any more, whatever the form says."""
+    seen = {}
+    fake_sb.route("GET", "pulse_hand_entries", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, []))
+    fake_sb.route("POST", "pulse_hand_entries",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(201, [{"id": "h1"}]))[1])
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                data={"channel": "email", "period_month": "2026-09",
+                      "sent": "100", "confirm": "1"})
+    assert seen["channel"] == "linkedin"

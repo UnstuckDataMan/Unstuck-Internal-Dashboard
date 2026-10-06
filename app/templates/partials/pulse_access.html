@@ -1,12 +1,16 @@
-{# Portal links for one client. Context: links, client_id, new_link.
-   new_link is the plaintext token URL, shown exactly once at creation — only
-   its hash is stored, so it cannot be recovered later, only re-issued. #}
+{# Portal links for one client. Context: links, client_id, portal_base, new_link.
+
+   The link is stored now, not just its hash, so the team can open a client's
+   report themselves. See migrations/outbound_pulse_visible_links.sql for what
+   that trades — in short, the internal site is behind the organisation's
+   Google auth, but the token is also at rest in the database.
+
+   Links issued before that change hold only a hash, which cannot be reversed,
+   so they show as unavailable rather than pretending otherwise. #}
 
 {% if new_link %}
 <div class="access-new">
-  <p class="access-new-label">
-    Copy this link now — it is shown once and cannot be retrieved again.
-  </p>
+  <p class="access-new-label">Link created.</p>
   <div class="access-new-row">
     <input type="text" readonly value="{{ new_link }}" id="new-portal-link">
     <button type="button" class="btn btn-primary" onclick="
@@ -23,30 +27,47 @@
 
 {% if not links %}
 <p class="pulse-meta" style="margin-top:12px">
-  No portal links yet. Create one to give this client read-only access to their funnel.
+  No portal links yet. Create one to give this client read-only access to their
+  reports — and to open them yourself.
 </p>
 {% else %}
 <div class="tbl-wrap" style="margin-top:12px;margin-bottom:0">
   <table>
     <thead>
-      <tr><th>Label</th><th>Created</th><th>Expires</th><th>Views</th><th>Last viewed</th><th></th></tr>
+      <tr>
+        <th>Label</th><th>Link</th><th>Created</th><th>Expires</th>
+        <th>Views</th><th>Last viewed</th><th></th>
+      </tr>
     </thead>
     <tbody>
       {% for link in links %}
+      {% set url = portal_base ~ "/r/" ~ link.token if link.token else "" %}
       <tr{% if link.revoked_at %} class="row-revoked"{% endif %}>
         <td>{{ link.label or "(unlabelled)" }}{% if link.revoked_at %} · revoked{% endif %}</td>
+        <td class="access-link-cell">
+          {% if link.revoked_at %}
+            <span class="pulse-meta">revoked</span>
+          {% elif url %}
+            <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open</a>
+            <button type="button" class="note-act" data-copy="{{ url }}">Copy</button>
+          {% else %}
+            {# Issued before the link was stored. A hash cannot be reversed. #}
+            <span class="pulse-meta" title="Issued before links were stored, and a hash cannot be reversed">
+              not recoverable — re-issue
+            </span>
+          {% endif %}
+        </td>
         <td>{{ link.created_at[:10] if link.created_at else "—" }}</td>
         <td>{{ link.expires_at[:10] if link.expires_at else "never" }}</td>
         <td>{{ link.view_count or 0 }}</td>
-        <td>{{ link.last_used_at[:16].replace("T", " ") if link.last_used_at else "never" }}</td>
+        <td>{{ link.last_used_at[:16] | replace("T", " ") if link.last_used_at else "never" }}</td>
         <td>
           {% if not link.revoked_at %}
-          <button type="button" class="btn-delete"
+          <button type="button" class="icon-btn icon-btn-danger"
                   hx-delete="/api/outbound-pulse/clients/{{ client_id }}/access/{{ link.id }}"
-                  hx-target="#pulse-access"
-                  hx-swap="innerHTML"
-                  hx-confirm="Revoke this portal link? Anyone holding it loses access immediately."
-                  title="Revoke link">✕</button>
+                  hx-target="#pulse-access" hx-swap="innerHTML"
+                  hx-confirm="Revoke this link? The client will lose access immediately."
+                  title="Revoke">×</button>
           {% endif %}
         </td>
       </tr>
@@ -55,3 +76,15 @@
   </table>
 </div>
 {% endif %}
+
+<script>
+  // Delegated, because this partial is swapped in on every change.
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-copy]');
+    if (!btn) return;
+    navigator.clipboard.writeText(btn.getAttribute('data-copy')).then(function () {
+      btn.textContent = 'Copied';
+      setTimeout(function () { btn.textContent = 'Copy'; }, 1600);
+    });
+  });
+</script>

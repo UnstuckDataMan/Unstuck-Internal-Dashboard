@@ -886,7 +886,8 @@ def latest_sync_per_tool() -> dict[str, dict]:
 # ── Portal access ─────────────────────────────────────────────────────────────
 
 def create_access(client_id: str, token_hash: str, label: str,
-                  created_by: str, expires_at: str | None) -> dict | None:
+                  created_by: str, expires_at: str | None,
+                  token: str = "") -> dict | None:
     try:
         r = http_req.post(
             f"{SUPABASE_URL}/rest/v1/pulse_client_access",
@@ -895,6 +896,10 @@ def create_access(client_id: str, token_hash: str, label: str,
                 "agency_id":  current_agency_id(),
                 "client_id":  client_id,
                 "token_hash": token_hash,
+                # Stored so the team can open a client's report themselves.
+                # Never used for lookup — token_hash stays the key — so this
+                # column is display only. See the migration for the trade.
+                "token":      token,
                 "label":      label or "",
                 "created_by": created_by or "",
                 "expires_at": expires_at,
@@ -920,7 +925,8 @@ def access_by_token_hash(token_hash: str) -> dict | None:
 
 def list_access(client_id: str) -> list[dict]:
     return _get("pulse_client_access", _scoped({
-        "select":    "id,label,created_by,created_at,expires_at,revoked_at,last_used_at,view_count",
+        "select":    ("id,label,created_by,created_at,expires_at,revoked_at,"
+                      "last_used_at,view_count,token"),
         "client_id": f"eq.{client_id}",
         "order":     "created_at.desc",
     }))
