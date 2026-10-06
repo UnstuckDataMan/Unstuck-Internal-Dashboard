@@ -639,6 +639,21 @@
   .cal-chip-name { font-size: 11px; font-weight: 600; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal-chip-amt { font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
+  /* ── Chart reveal: every chart wipes in left to right when its page is opened ── */
+  @keyframes chartWipe { from { clip-path: inset(-12px 100% -12px -12px); } to { clip-path: inset(-12px -12px -12px -12px); } }
+  .view.reveal-on .progress-bars:not(.reveal) .progress-bar,
+  .view.reveal-on .ins-bar-track,
+  .view.reveal-on .chart-wrap svg,
+  .view.reveal-on .am-pie-wrap svg,
+  .view.reveal-on .comm-card .bar {
+    animation: chartWipe .9s cubic-bezier(.22, 1, .36, 1) backwards;
+    animation-delay: calc(var(--ri, 0) * 70ms + 80ms);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .view.reveal-on .progress-bars:not(.reveal) .progress-bar, .view.reveal-on .ins-bar-track,
+    .view.reveal-on .chart-wrap svg, .view.reveal-on .am-pie-wrap svg, .view.reveal-on .comm-card .bar { animation: none; }
+  }
+
   /* ── AM Performance ── */
   .am-subtabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
   .am-subtab { padding: 9px 16px; background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; color: var(--text-dim); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -846,6 +861,7 @@ async function load() {
   const autoChurned = applyAutoChurnDetection();
   if (invoiceMonthsChanged || autoChurned.length) touch(); else indicator('saved', 'Saved');
   renderAll();
+  revealCharts(document.querySelector('.view.active'));
 }
 function normalise() {
   DB.settings ||= {};
@@ -1484,6 +1500,24 @@ function openDatePicker(anchorEl, { value, min, max, onSelect, allowClear = true
   }, 0);
 }
 
+/* ════════════════ Chart reveal ════════════════ */
+// Plays the left-to-right wipe on every chart in a view — progress bars, ranked
+// bars, line/bar SVG charts, pies and commission bars — staggered top to bottom.
+// Called when a tab is clicked, when the app first loads, and when you move
+// between pages inside a tab (Insights pages, AM Performance pages); ordinary
+// re-renders (changing a toggle or filter) don't replay it.
+const REVEAL_SEL = '.progress-bars:not(.reveal) .progress-bar, .ins-bar-track, .chart-wrap svg, .am-pie-wrap svg, .comm-card .bar';
+function revealCharts(view) {
+  if (!view) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  view.querySelectorAll(REVEAL_SEL).forEach((el, i) => el.style.setProperty('--ri', Math.min(i, 14)));
+  view.classList.remove('reveal-on');
+  void view.offsetWidth;   // restart the animation if it was already running
+  view.classList.add('reveal-on');
+  clearTimeout(view._revealTimer);
+  view._revealTimer = setTimeout(() => view.classList.remove('reveal-on'), 2400);
+}
+
 /* ════════════════ Tabs ════════════════ */
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   state.tab = t.dataset.tab;
@@ -1493,6 +1527,7 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + state.tab));
   renderAll();
+  revealCharts(document.getElementById('view-' + state.tab));
 });
 
 function renderAll() {
@@ -3772,6 +3807,7 @@ function renderInsights() {
 
   bodyEl.classList.add(state.insNavDir === 'back' ? 'ins-enter-back' : 'ins-enter-fwd');
   requestAnimationFrame(() => requestAnimationFrame(() => bodyEl.classList.add('ins-enter-active')));
+  if (insBarsReveal) revealCharts(view);
 }
 
 // Trailing N months ending at the real current month — e.g. the "Year" bar
@@ -4739,7 +4775,7 @@ function renderAmPerf() {
     </div>
     <div id="am-body"></div>`;
   view.querySelectorAll('[data-am-tab]').forEach(b => b.onclick = () => {
-    state.amTab = b.dataset.amTab; state.amSel = null; state.amIndustry = null; renderAmPerf();
+    state.amTab = b.dataset.amTab; state.amSel = null; state.amIndustry = null; renderAmPerf(); revealCharts(document.getElementById('view-amperf'));
   });
   const body = view.querySelector('#am-body');
   if (state.amTab === 'team') renderAmTeam(body);
@@ -5043,7 +5079,7 @@ function renderAmList(body) {
   };
   input.addEventListener('input', apply);
   apply();
-  body.querySelectorAll('[data-am-open]').forEach(b => b.onclick = () => { state.amSel = b.dataset.amOpen; state.amIndustry = null; state.amClientStatus = 'all'; renderAmPerf(); });
+  body.querySelectorAll('[data-am-open]').forEach(b => b.onclick = () => { state.amSel = b.dataset.amOpen; state.amIndustry = null; state.amClientStatus = 'all'; renderAmPerf(); revealCharts(document.getElementById('view-amperf')); });
 }
 
 /* ── One account manager ── */
@@ -5149,8 +5185,8 @@ function renderAmDetail(body, name) {
   };
   body.querySelectorAll('[data-am-status]').forEach(b => b.onclick = () => { state.amClientStatus = b.dataset.amStatus; applyStatus(); });
   applyStatus();
-  body.querySelector('#am-back').onclick = () => { state.amSel = null; state.amIndustry = null; renderAmPerf(); };
-  body.querySelectorAll('[data-am-ind]').forEach(el => el.onclick = () => { state.amIndustry = el.dataset.amInd; renderAmPerf(); });
+  body.querySelector('#am-back').onclick = () => { state.amSel = null; state.amIndustry = null; renderAmPerf(); revealCharts(document.getElementById('view-amperf')); };
+  body.querySelectorAll('[data-am-ind]').forEach(el => el.onclick = () => { state.amIndustry = el.dataset.amInd; renderAmPerf(); revealCharts(document.getElementById('view-amperf')); });
 }
 
 /* ── One account manager's clients in one industry ── */
@@ -5181,7 +5217,7 @@ function renderAmIndustryClients(body, name, industry) {
         </tr>`).join('') : '<tr><td colspan="4"><div class="empty">No clients in this industry.</div></td></tr>'}</tbody>
       </table>
     </div>`;
-  body.querySelector('#am-back-detail').onclick = () => { state.amIndustry = null; renderAmPerf(); };
+  body.querySelector('#am-back-detail').onclick = () => { state.amIndustry = null; renderAmPerf(); revealCharts(document.getElementById('view-amperf')); };
 }
 
 // Client performance indicator — now the 4th Overview tile (bottom of the
