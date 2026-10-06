@@ -3891,7 +3891,7 @@ def _two_clients(fake_sb, prefs=None):
     ]))
     # prefs: None = no row (never chosen), else a list for the stored row.
     fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(
-        200, [] if prefs is None else [{"excluded_client_ids": prefs}]))
+        200, [] if prefs is None else [{"mode": "exclude", "client_ids": prefs}]))
 
 
 # ── The three states, which is the whole point of the schema ────────────────
@@ -3969,7 +3969,7 @@ def test_a_hidden_client_still_has_a_working_page(client, fake_sb):
     """Hiding is about your list, not about access."""
     _detail_routes(fake_sb)
     fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(
-        200, [{"excluded_client_ids": [CLIENT]}]))
+        200, [{"mode": "exclude", "client_ids": [CLIENT]}]))
     r = client.get(f"/outbound-pulse/clients/{CLIENT}")
     assert r.status_code == 200
     assert "Acme" in r.text
@@ -3978,7 +3978,7 @@ def test_a_hidden_client_still_has_a_working_page(client, fake_sb):
 def test_the_client_portal_ignores_overview_exclusions(client, fake_sb):
     _portal_routes(fake_sb)
     fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(
-        200, [{"excluded_client_ids": [CLIENT]}]))
+        200, [{"mode": "exclude", "client_ids": [CLIENT]}]))
     r = client.get("/r/valid-token")
     assert r.status_code == 200
     assert "September 2026" in r.text
@@ -4017,7 +4017,7 @@ def test_saving_upserts_on_the_user_and_the_agency(client, fake_sb):
     assert r.status_code == 200
     assert seen["params"]["on_conflict"] == "agency_id,user_email"
     assert "merge-duplicates" in seen["headers"].get("Prefer", "")
-    assert seen["json"]["excluded_client_ids"] == [CLIENT]
+    assert seen["json"]["client_ids"] == [CLIENT]
     assert seen["json"]["user_email"] == seen["json"]["user_email"].lower()
 
 
@@ -4038,7 +4038,7 @@ def test_saving_nothing_writes_an_empty_list_rather_than_doing_nothing(client, f
                   lambda call: (seen.update(call.get("json") or {}),
                                 FakeResponse(201, []))[1])
     client.post("/api/outbound-pulse/exclusions", data={})
-    assert seen["excluded_client_ids"] == []
+    assert seen["client_ids"] == []
 
 
 def test_resetting_deletes_the_row_rather_than_saving_an_empty_list(client, fake_sb):
@@ -4065,7 +4065,7 @@ def test_an_unknown_client_id_is_dropped_rather_than_written(client, fake_sb):
 
     client.post("/api/outbound-pulse/exclusions",
                 data={"excluded": [CLIENT, "not-a-uuid", "../../etc"]})
-    assert seen["excluded_client_ids"] == [CLIENT]
+    assert seen["client_ids"] == [CLIENT]
 
 
 def test_preferences_are_agency_scoped(client, fake_sb):
@@ -4911,3 +4911,183 @@ def test_a_variant_with_recorded_copy_shows_it(client, fake_sb, monkeypatch):
     assert "The winning line" in body
     assert "Recorded by Dylan" in body
     assert "Add the copy for A" not in body
+
+
+# ── Show only, as well as hide ───────────────────────────────────────────────
+
+def _three_clients(fake_sb, prefs=None):
+    """Acme, Northfield and the business-development client, all with activity."""
+    OTHER = "66666666-6666-6666-6666-666666666666"
+    fake_sb.route("GET", "clients", lambda call: FakeResponse(200, [
+        {"id": CLIENT, "name": "Acme", "color": None, "emoji": None, "active": True},
+        {"id": OTHER, "name": "Northfield", "color": None, "emoji": None, "active": True},
+        {"id": BD, "name": "Unstuck - Business Development", "color": None,
+         "emoji": None, "active": True},
+    ]))
+    fake_sb.route("GET", "pulse_campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 1000, "day": "2026-09-01"},
+        {"client_id": OTHER, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 2000, "day": "2026-09-01"},
+        {"client_id": BD, "channel": "email", "source_tool": "smartlead",
+         "event_type": "sent", "events": 400, "day": "2026-09-01"},
+    ]))
+    fake_sb.route("GET", "pulse_user_prefs",
+                  lambda call: FakeResponse(200, [] if prefs is None else [prefs]))
+    return OTHER
+
+
+def test_show_only_keeps_just_the_chosen_clients(client, fake_sb):
+    other = _three_clients(fake_sb, {"mode": "only", "client_ids": [CLIENT]})
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "Acme" in body
+    assert "Northfield" not in body
+    assert "1,000" in body               # Acme alone
+    assert "3,400" not in body           # not the whole agency
+
+
+def test_hide_and_show_only_are_the_same_selection_applied_two_ways(client, fake_sb):
+    """One client ticked: hidden under exclude, the only one left under only."""
+    _three_clients(fake_sb, {"mode": "exclude", "client_ids": [CLIENT]})
+    hidden = client.get("/api/outbound-pulse/overview").text
+    assert "Acme" not in hidden.split("Hiding")[0]
+
+    _three_clients(fake_sb, {"mode": "only", "client_ids": [CLIENT]})
+    only = client.get("/api/outbound-pulse/overview").text
+    assert "Acme" in only
+    assert "Northfield" not in only
+
+
+def test_show_only_names_what_it_is_showing_not_what_it_hid(client, fake_sb):
+    """Listing everything left out would be most of the agency."""
+    _three_clients(fake_sb, {"mode": "only", "client_ids": [CLIENT]})
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "Showing only Acme" in body
+    assert "Hiding" not in body
+
+
+def test_hide_mode_still_names_what_it_hid(client, fake_sb):
+    _three_clients(fake_sb, {"mode": "exclude", "client_ids": [BD]})
+    body = client.get("/api/outbound-pulse/overview").text
+    assert "Hiding Unstuck - Business Development" in body
+    assert "Showing only" not in body
+
+
+def test_the_panel_offers_both_modes(client, fake_sb):
+    _three_clients(fake_sb)
+    body = client.get("/api/outbound-pulse/exclusions").text
+    assert 'value="exclude"' in body
+    assert 'value="only"' in body
+    assert "Hide these" in body
+    assert "Show only these" in body
+
+
+def test_the_panel_summary_counts_the_right_way_round(client, fake_sb):
+    _three_clients(fake_sb, {"mode": "only", "client_ids": [CLIENT]})
+    assert "Showing 1 client" in client.get("/api/outbound-pulse/exclusions").text
+
+    _three_clients(fake_sb, {"mode": "exclude", "client_ids": [CLIENT]})
+    assert "1 client hidden" in client.get("/api/outbound-pulse/exclusions").text
+
+
+def test_the_mode_is_saved_with_the_selection(client, fake_sb):
+    seen = {}
+    _three_clients(fake_sb)
+    fake_sb.route("POST", "pulse_user_prefs",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(201, []))[1])
+
+    client.post("/api/outbound-pulse/exclusions",
+                data={"mode": "only", "excluded": [CLIENT]})
+    assert seen["mode"] == "only"
+    assert seen["client_ids"] == [CLIENT]
+
+
+def test_show_only_nothing_is_refused_rather_than_saved(client, fake_sb):
+    """An overview with nothing in it reads as broken, not as a filter."""
+    _three_clients(fake_sb)
+    fake_sb.route("POST", "pulse_user_prefs", lambda call: FakeResponse(201, []))
+
+    r = client.post("/api/outbound-pulse/exclusions", data={"mode": "only"})
+    assert "Pick at least one client to show" in r.text
+    assert not fake_sb.calls_to("POST", "pulse_user_prefs")
+
+
+def test_a_rejected_save_keeps_the_mode_the_user_picked(client, fake_sb):
+    """Snapping the radio back to what is stored would hide what went wrong."""
+    _three_clients(fake_sb)
+    r = client.post("/api/outbound-pulse/exclusions", data={"mode": "only"})
+    body = r.text
+    only_radio = body[body.index('value="only"'):body.index('value="only"') + 60]
+    assert "checked" in only_radio
+
+
+def test_hiding_nothing_is_still_storable(client, fake_sb):
+    """Exclude mode with an empty list is "show me everything" and must stay
+    saveable — it is the state that distinguishes chosen from never-chosen."""
+    seen = {}
+    _three_clients(fake_sb)
+    fake_sb.route("POST", "pulse_user_prefs",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(201, []))[1])
+
+    r = client.post("/api/outbound-pulse/exclusions", data={"mode": "exclude"})
+    assert r.headers.get("HX-Trigger") == "pulseRefresh"
+    assert seen["client_ids"] == []
+    assert seen["mode"] == "exclude"
+
+
+def test_an_unknown_mode_falls_back_to_hiding(client, fake_sb):
+    seen = {}
+    _three_clients(fake_sb)
+    fake_sb.route("POST", "pulse_user_prefs",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(201, []))[1])
+
+    client.post("/api/outbound-pulse/exclusions",
+                data={"mode": "sideways", "excluded": [CLIENT]})
+    assert seen["mode"] == "exclude"
+
+
+def test_a_stored_mode_that_makes_no_sense_reads_as_hiding(fake_sb):
+    """A row written by an older or a broken client must not blank the view."""
+    from app.utils.pulse import store
+
+    fake_sb.route("GET", "pulse_user_prefs", lambda call: FakeResponse(
+        200, [{"mode": "nonsense", "client_ids": [CLIENT]}]))
+    assert store.get_user_filter("dev@local")["mode"] == store.FILTER_EXCLUDE
+
+
+def test_resetting_still_returns_to_the_default_whichever_mode(client, fake_sb):
+    _three_clients(fake_sb, {"mode": "only", "client_ids": [CLIENT]})
+    fake_sb.route("DELETE", "pulse_user_prefs", lambda call: FakeResponse(204, []))
+
+    r = client.delete("/api/outbound-pulse/exclusions")
+    assert r.headers.get("HX-Trigger") == "pulseRefresh"
+    assert fake_sb.calls_to("DELETE", "pulse_user_prefs")
+
+
+# ── The migration ───────────────────────────────────────────────────────────
+
+def _mode_sql():
+    import pathlib
+    return (pathlib.Path(__file__).resolve().parents[1] / "migrations"
+            / "outbound_pulse_user_prefs_mode.sql").read_text(encoding="utf-8")
+
+
+def test_the_mode_migration_is_one_transaction_and_re_runnable():
+    sql = _mode_sql()
+    assert sql.index("BEGIN;") < sql.index("ALTER TABLE")
+    assert "ADD COLUMN IF NOT EXISTS mode" in sql
+    # The rename is guarded, so a second run does not fail on a missing column.
+    assert "column_name = 'excluded_client_ids'" in sql
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+def test_only_mode_cannot_be_stored_empty():
+    assert "mode <> 'only' OR cardinality(client_ids) > 0" in _mode_sql()
+
+
+def test_the_mode_is_constrained_to_the_two_it_supports():
+    assert "CHECK (mode IN ('exclude', 'only'))" in _mode_sql()

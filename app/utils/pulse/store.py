@@ -1124,25 +1124,30 @@ def delete_hand_entry(entry_id: str) -> bool:
 # ── Per-user view preferences ───────────────────────────────────
 
 
-def get_user_exclusions(user_email: str) -> list[str] | None:
-    """Clients this user hides from the internal overview.
+# How a saved selection is applied. One list, one mode — a second list would
+# let both be non-empty at once with nothing in the row saying which won.
+FILTER_EXCLUDE = "exclude"
+FILTER_ONLY    = "only"
 
-    None means "has never chosen" and is NOT the same as []. The caller applies
-    the house default for None and hides nothing for []; the difference is
-    whether a row exists, and migrations/outbound_pulse_user_prefs.sql explains
-    why it has to be.
+
+def get_user_filter(user_email: str) -> dict | None:
+    """How this person has narrowed the overview, or None if they never have.
+
+    None means "has never chosen" and is NOT the same as a saved empty list.
+    The caller applies the house default for None and shows everything for an
+    empty exclude list; see migrations/outbound_pulse_user_prefs.sql.
 
     Never raises. A missing table or a slow query must not cost someone the
     overview itself, so a failed read reads as "has not chosen" and the default
-    applies. The exclusions panel surfaces the real error, which is the one
-    place it is actionable.
+    applies. The panel surfaces the real error, which is where it is
+    actionable.
     """
     email = (user_email or "").strip().lower()
     if not email:
         return None
     try:
         rows = _get("pulse_user_prefs", _scoped({
-            "select":     "excluded_client_ids",
+            "select":     "mode,client_ids",
             "user_email": f"eq.{email}",
             "limit":      "1",
         }))
@@ -1151,14 +1156,19 @@ def get_user_exclusions(user_email: str) -> list[str] | None:
         return None
     if not rows:
         return None
-    return [str(cid) for cid in (rows[0].get("excluded_client_ids") or [])]
+    mode = str(rows[0].get("mode") or FILTER_EXCLUDE)
+    return {
+        "mode": mode if mode in (FILTER_EXCLUDE, FILTER_ONLY) else FILTER_EXCLUDE,
+        "ids":  [str(cid) for cid in (rows[0].get("client_ids") or [])],
+    }
 
 
-def set_user_exclusions(user_email: str, client_ids: list[str]) -> bool:
-    """Save this user's exclusion list, creating the row on first save.
+def set_user_filter(user_email: str, mode: str, client_ids: list[str]) -> bool:
+    """Save how this person wants the overview narrowed.
 
-    An empty list is a real answer — it is how someone says "show me every
-    client" — so it is written rather than skipped.
+    An empty list is a real answer in exclude mode — it is how someone says
+    "show me every client" — so it is written rather than skipped. In only mode
+    it is refused by the database, because it would select nothing at all.
     """
     email = (user_email or "").strip().lower()
     if not email:
@@ -1171,9 +1181,10 @@ def set_user_exclusions(user_email: str, client_ids: list[str]) -> bool:
             json={
                 "agency_id":  current_agency_id(),
                 "user_email": email,
+                "mode":       mode if mode in (FILTER_EXCLUDE, FILTER_ONLY) else FILTER_EXCLUDE,
                 # Strings, not UUID objects: requests cannot encode those, and
                 # the payload would fail only in production.
-                "excluded_client_ids": [str(c) for c in client_ids],
+                "client_ids": [str(c) for c in client_ids],
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
             timeout=10,
@@ -1188,7 +1199,7 @@ def set_user_exclusions(user_email: str, client_ids: list[str]) -> bool:
         return False
 
 
-def clear_user_exclusions(user_email: str) -> bool:
+def clear_user_filter(user_email: str) -> bool:
     """Delete the row, returning this user to the house default.
 
     Deliberately a DELETE and not a save of []: those are different states, and

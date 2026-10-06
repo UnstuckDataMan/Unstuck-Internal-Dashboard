@@ -1,12 +1,18 @@
-{# Clients hidden from this overview, per person. Context: clients, hidden,
-   hidden_ids, is_default, error.
+{# Which clients the overview shows, per person. Context: clients, chosen_ids,
+   mode, only, hidden, shown, is_default, error.
+
+   One list of clients and a mode, rather than two lists: hiding three and
+   showing only three are the same selection applied two ways, and two lists
+   could both be non-empty with nothing saying which won.
 
    A checkbox list rather than a <select multiple>: the native control hides
-   its own state behind a scrollbar, and the one thing this feature must never
-   do is let a filtered total look like an unfiltered one. #}
+   its own state behind a scrollbar, and the one thing this must never do is
+   let a filtered total look like an unfiltered one. #}
 <details class="pulse-excl">
   <summary class="pulse-excl-summary">
-    {% if hidden %}
+    {% if only %}
+      Showing {{ shown | length }} client{{ "" if shown | length == 1 else "s" }}
+    {% elif hidden %}
       {{ hidden | length }} client{{ "" if hidden | length == 1 else "s" }} hidden
     {% else %}
       All clients shown
@@ -20,15 +26,36 @@
         hx-swap="innerHTML">
     {% if error %}<div class="err-box" style="margin-bottom:10px">{{ error }}</div>{% endif %}
 
+    {# The mode re-renders on change so the hint and the summary match the
+       boxes before anything is saved. #}
+    <div class="pulse-excl-mode">
+      <label>
+        <input type="radio" name="mode" value="exclude"
+               {% if not only %}checked{% endif %}>
+        Hide these
+      </label>
+      <label>
+        <input type="radio" name="mode" value="only"
+               {% if only %}checked{% endif %}>
+        Show only these
+      </label>
+    </div>
+
     <p class="pulse-meta" style="margin:0 0 10px;line-height:1.55">
-      A hidden client leaves this overview and its totals. Their own page,
-      their reports and their portal link are unchanged.
+      {% if only %}
+      Only the ticked clients appear on this overview, and only they are in its
+      totals.
+      {% else %}
+      A ticked client leaves this overview and its totals.
+      {% endif %}
+      Their own page, their reports and their portal link are unchanged either
+      way.
     </p>
 
     {% for c in clients %}
     <label class="pulse-excl-row">
       <input type="checkbox" name="excluded" value="{{ c.id }}"
-             {% if c.id | string in hidden_ids %}checked{% endif %}>
+             {% if c.id | string in chosen_ids %}checked{% endif %}>
       {{ c.name }}
     </label>
     {% endfor %}
