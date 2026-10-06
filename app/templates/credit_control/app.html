@@ -4,6 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Credit Control — Unstuck Agency</title>
+<script>
+// The dashboard apps (Credit Control, Commission, Operational Settings, Insights,
+// AM Performance) all share this one page; the script at the bottom decides which tabs
+// and header each one shows. Keep the page hidden until that has run, so the full
+// tab bar (Invoices / Clients / Insights / …) never flashes up first. Keep this list in
+// step with CC_ROUTE_CONFIG below. The timeout is a fail-safe in case the script errors.
+(function () {
+  if (['/credit-control', '/commission', '/operational-settings', '/insights', '/am-performance'].indexOf(location.pathname) === -1) return;
+  document.documentElement.classList.add('cc-pending');
+  setTimeout(function () { document.documentElement.classList.remove('cc-pending'); }, 4000);
+})();
+</script>
+<style>html.cc-pending body { visibility: hidden; }</style>
 <style>
   :root {
     --bg:           #0b0b18;
@@ -5915,6 +5928,7 @@ window.CC_CONFIG = Object.assign({
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + cfg.defaultTab));
   }
   if (_ccRouteCfg) applyDashboardChrome(cfg);
+  document.documentElement.classList.remove('cc-pending');   // configured — safe to show the page
 })();
 
 // When served inside the Unstuck dashboard, swap the standalone app's own
