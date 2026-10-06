@@ -587,6 +587,7 @@ const state = {
   calDate: null,         // 'YYYY-MM-DD' anchor date for the calendar view
   clientSearch: '',
   clientFilter: 'all',
+  clientWideFilter: '',
   clientIndustryFilter: '',
   clientCountryFilter: '',
   clientSizeFilter: '',
@@ -597,6 +598,7 @@ const state = {
   retMetrics: ['churn'], // churn chart series shown, any combination of: 'churn' | 'new' | 'left'
   insPage: 'overview',   // 'overview' | 'retention' | 'ltv' | 'revenue' — unified dashboard router
   insNavDir: 'fwd',      // 'fwd' | 'back' — which way the page-transition animation runs
+  insFilterWide: '',
   insFilterIndustry: '', // dashboard-wide narrowing filter — '' | a value | UNCLASSIFIED
   insFilterCountry: '',
   insFilterSize: '',
@@ -604,6 +606,7 @@ const state = {
   insBasis: 'realised',  // 'realised' | 'running' | 'combination' — see basisSplit()
   insDim: 'general',    // 'general' | 'industry' | 'companySize' | 'country' — LTV detail's "compare by" picker
   insPredBasis: 'realised', // 'realised' | 'running' | 'combination' — see basisSplit()
+  insPredWide: [],
   insPredIndustries: [],
   insPredSizes: [],
   insPredCountries: [],
@@ -697,6 +700,18 @@ function normalise() {
   DB.settings.revenueTargets ||= {};
   DB.clients ||= [];
   DB.invoices ||= [];
+  // Wider industries: broader clusters that the specific industry tags roll up
+  // into. Seeded ONCE, with a first-pass grouping, when a dataset has never had
+  // them (kept in memory and persisted with the next ordinary save — nothing is
+  // written just for seeding). After that the Operational Settings screen owns
+  // them, and an empty list is respected rather than re-seeded.
+  if (!Array.isArray(DB.settings.wideIndustries)) {
+    DB.settings.wideIndustries = [...DEFAULT_WIDE_INDUSTRIES];
+    DB.settings.industryGroups = {};
+    const known = new Set([...DB.settings.industries, ...DB.clients.map(c => c.industry).filter(Boolean)]);
+    for (const [ind, wide] of Object.entries(DEFAULT_INDUSTRY_GROUPS)) if (known.has(ind)) DB.settings.industryGroups[ind] = wide;
+  }
+  DB.settings.industryGroups ||= {};
   // An invoice's `month` is keyed off its due date, not its issue date (see
   // buildNextInvoiceFor()) — re-synced here on every load so it's always
   // self-consistent, including retroactively for invoices created before
@@ -1135,10 +1150,24 @@ document.addEventListener('change', e => {
   const key = sel.dataset.addList;
   const name = (prompt(`Add a new ${ADD_LIST_LABELS[key] || 'option'}:`) || '').trim();
   if (!name) { sel.value = sel.dataset.prevValue || ''; return; }
-  if (!DB.settings[key].includes(name)) { DB.settings[key].push(name); touch(); }
+  if (!DB.settings[key].includes(name)) {
+    DB.settings[key].push(name);
+    if (key === 'industries') promptWideIndustry(name);
+    touch();
+  }
   setSelectValue(sel, name);
   sel.dataset.prevValue = name;
+  sel.dispatchEvent(new Event('input', { bubbles: true }));
 });
+// A brand-new industry has no wider industry yet — ask once, right then, so it
+// doesn't silently land in "Not grouped". Blank leaves it for Operational Settings.
+function promptWideIndustry(industry) {
+  const wides = DB.settings.wideIndustries || [];
+  if (!wides.length) return;
+  const ans = (prompt(`Which wider industry does "${industry}" belong to?\n\n${wides.join('\n')}\n\nType one of the above, or leave blank to group it later in Operational Settings.`) || '').trim();
+  const hit = wides.find(w => w.toLowerCase() === ans.toLowerCase());
+  if (hit) DB.settings.industryGroups[industry] = hit;
+}
 
 /* ════════════════ Custom month picker (dark-themed, replaces native input[type=month]) ════════════════ */
 let monthPopEl = null;
@@ -2101,14 +2130,45 @@ const UNCLASSIFIED = 'UNCLASSIFIED'; // sentinel for "no value set" in industry/
 // options nobody uses any more, which would just be dead ends there. Whatever
 // is currently selected is always kept so a selection never silently vanishes.
 // (Add/edit client forms still read the full settings lists directly.)
-function optionsInUse(field, list, keep = []) {
-  const used = new Set(DB.clients.map(c => c[field]).filter(Boolean));
+function optionsInUse(field, list, keep = [], clients = DB.clients) {
+  const used = new Set(clients.map(c => fieldValue(c, field)).filter(Boolean));
   const keepSet = new Set([].concat(keep));
   const out = list.filter(v => used.has(v) || keepSet.has(v));
   for (const v of [...used].sort()) if (!out.includes(v)) out.push(v);
   return out;
 }
-const hasUnclassified = field => DB.clients.some(c => !c[field]);
+const hasUnclassified = (field, clients = DB.clients) => clients.some(c => !fieldValue(c, field));
+
+// ── Wider industries ──
+// Each specific industry tag rolls up into one wider industry via
+// settings.industryGroups (industry -> wider industry). A client keeps only its
+// specific industry; its wider industry is always derived from this mapping, so
+// regrouping an industry in Operational Settings regroups every client at once.
+const DEFAULT_WIDE_INDUSTRIES = ['SaaS', 'Marketing', 'PR & Communications', 'Creative & Media', 'Professional services', 'Technology', 'Non-profit & Funding', 'Other'];
+const DEFAULT_INDUSTRY_GROUPS = {
+  'SaaS': 'SaaS', 'SaaS - Business management': 'SaaS', 'SaaS - E-commerce': 'SaaS', 'SaaS - HRTech': 'SaaS',
+  'SaaS - MarTech': 'SaaS', 'SaaS - Other': 'SaaS', 'SaaS - Productivity': 'SaaS', 'SaaS - PropTech': 'SaaS', 'SaaS - SalesTech': 'SaaS',
+  'Digital marketing': 'Marketing', '360 marketing agency': 'Marketing', 'Event marketing': 'Marketing',
+  'Influencer marketing': 'Marketing', 'Marketing': 'Marketing', 'Marketing & PR': 'Marketing',
+  'PR': 'PR & Communications',
+  'Branding': 'Creative & Media', 'Design agency': 'Creative & Media', 'Media production': 'Creative & Media', 'Audio production': 'Creative & Media',
+  'Accounting': 'Professional services', 'Consultancy': 'Professional services', 'B2B service': 'Professional services',
+  'Recruitment': 'Professional services', 'Research': 'Professional services', 'Training': 'Professional services',
+  'Tech': 'Technology', 'Tech development': 'Technology', 'Web development': 'Technology', 'MSP': 'Technology',
+  'Non-Profit': 'Non-profit & Funding', 'Funding': 'Non-profit & Funding',
+  'Other': 'Other', 'B2C': 'Other',
+};
+// '' when the client has no industry, or its industry isn't grouped yet.
+function wideIndustryOf(c) {
+  if (!c.industry) return '';
+  const g = (DB.settings.industryGroups || {})[c.industry];
+  return g && (DB.settings.wideIndustries || []).includes(g) ? g : '';
+}
+// c[field], except the derived 'wideIndustry' pseudo-field.
+const fieldValue = (c, field) => field === 'wideIndustry' ? wideIndustryOf(c) : c[field];
+// Clients inside a chosen wider industry (or UNCLASSIFIED = none) — lets the
+// specific-industry dropdown only offer industries within the chosen cluster.
+const clientsInWide = w => !w ? DB.clients : DB.clients.filter(c => w === UNCLASSIFIED ? !wideIndustryOf(c) : wideIndustryOf(c) === w);
 
 /* ════════════════ CLIENTS VIEW ════════════════ */
 function renderClients() {
@@ -2122,15 +2182,16 @@ function renderClients() {
   if (state.clientFilter === 'churned') list = list.filter(c => c.status === 'churned');
   if (q) list = list.filter(c => (c.companyName + ' ' + (c.qbName||'') + ' ' + (c.email||'')).toLowerCase().includes(q));
 
-  const applyDimFilter = (field, value) => { if (value) list = list.filter(c => value === UNCLASSIFIED ? !c[field] : c[field] === value); };
+  const applyDimFilter = (field, value) => { if (value) list = list.filter(c => value === UNCLASSIFIED ? !fieldValue(c, field) : fieldValue(c, field) === value); };
+  applyDimFilter('wideIndustry', state.clientWideFilter);
   applyDimFilter('industry', state.clientIndustryFilter);
   applyDimFilter('country', state.clientCountryFilter);
   applyDimFilter('companySize', state.clientSizeFilter);
 
-  const dimSelect = (id, label, list, current, field) => `<select id="${id}">
+  const dimSelect = (id, label, list, current, field, within = DB.clients) => `<select id="${id}">
       <option value="">All ${esc(label)}</option>
-      ${optionsInUse(field, list, current).map(v => `<option value="${esc(v)}" ${current===v?'selected':''}>${esc(v)}</option>`).join('')}
-      ${hasUnclassified(field) || current===UNCLASSIFIED ? `<option value="${UNCLASSIFIED}" ${current===UNCLASSIFIED?'selected':''}>Unclassified</option>` : ''}
+      ${optionsInUse(field, list, current, within).map(v => `<option value="${esc(v)}" ${current===v?'selected':''}>${esc(v)}</option>`).join('')}
+      ${hasUnclassified(field, within) || current===UNCLASSIFIED ? `<option value="${UNCLASSIFIED}" ${current===UNCLASSIFIED?'selected':''}>Unclassified</option>` : ''}
     </select>`;
 
   view.innerHTML = `
@@ -2140,7 +2201,8 @@ function renderClients() {
         ${[['all','All'],['active','Active'],['churned','Churned']]
           .map(([k,l]) => `<button class="pill ${state.clientFilter===k?'active':''}" data-f="${k}">${l}</button>`).join('')}
       </div>
-      ${dimSelect('cl-industry-filter', 'industries', DB.settings.industries, state.clientIndustryFilter, 'industry')}
+      ${dimSelect('cl-wide-filter', 'wider industries', DB.settings.wideIndustries, state.clientWideFilter, 'wideIndustry')}
+      ${dimSelect('cl-industry-filter', 'industries', DB.settings.industries, state.clientIndustryFilter, 'industry', clientsInWide(state.clientWideFilter))}
       ${dimSelect('cl-country-filter', 'countries', DB.settings.countries, state.clientCountryFilter, 'country')}
       ${dimSelect('cl-size-filter', 'sizes', DB.settings.companySizes, state.clientSizeFilter, 'companySize')}
       <div class="spacer"></div>
@@ -2186,6 +2248,12 @@ function renderClients() {
   const si = view.querySelector('#cl-search');
   si.oninput = () => { state.clientSearch = si.value; renderClients(); view.querySelector('#cl-search').focus(); const el = view.querySelector('#cl-search'); el.setSelectionRange(el.value.length, el.value.length); };
   view.querySelectorAll('.pill').forEach(p => p.onclick = () => { state.clientFilter = p.dataset.f; renderClients(); });
+  view.querySelector('#cl-wide-filter').onchange = e => {
+    state.clientWideFilter = e.target.value;
+    const inWide = clientsInWide(state.clientWideFilter);
+    if (state.clientIndustryFilter && state.clientIndustryFilter !== UNCLASSIFIED && !inWide.some(c => c.industry === state.clientIndustryFilter)) state.clientIndustryFilter = '';
+    renderClients();
+  };
   view.querySelector('#cl-industry-filter').onchange = e => { state.clientIndustryFilter = e.target.value; renderClients(); };
   view.querySelector('#cl-country-filter').onchange = e => { state.clientCountryFilter = e.target.value; renderClients(); };
   view.querySelector('#cl-size-filter').onchange = e => { state.clientSizeFilter = e.target.value; renderClients(); };
@@ -2281,7 +2349,8 @@ function clientForm(cid, onCreated) {
       <div class="fld full"><label>Email(s)</label><input id="cf-email" value="${esc(c?.email || '')}"></div>
       <div class="fld"><label>Account manager</label><select id="cf-am" data-add-list="accountManagers">${selectOptions(s.accountManagers, c?.accountManager, true, 'accountManagers')}</select></div>
       <div class="fld"><label>Package</label><select id="cf-pkg" data-add-list="packages">${selectOptions(s.packages, c?.package, true, 'packages')}</select></div>
-      <div class="fld"><label>Industry</label><select id="cf-industry" data-add-list="industries">${selectOptions(s.industries, c?.industry, true, 'industries')}</select></div>
+      <div class="fld"><label>Industry</label><select id="cf-industry" data-add-list="industries">${selectOptions(s.industries, c?.industry, true, 'industries')}</select>
+        <div class="muted" id="cf-wide-hint" style="font-size:11px; margin-top:4px"></div></div>
       <div class="fld"><label>Country</label><select id="cf-country" data-add-list="countries">${selectOptions(s.countries, c?.country, true, 'countries')}</select></div>
       <div class="fld"><label>Company size</label><select id="cf-size" data-add-list="companySizes">${selectOptions(s.companySizes, c?.companySize, true, 'companySizes')}</select></div>
       <div class="fld"><label>Monthly fee £ *</label><input type="number" step="0.01" id="cf-gbp" value="${c?.feeGBP ?? ''}"></div>
@@ -2312,6 +2381,14 @@ function clientForm(cid, onCreated) {
 
   const $ = id => document.getElementById(id);
   $('cf-status').onchange = () => { $('cf-churn-wrap').style.display = $('cf-status').value === 'churned' ? 'block' : 'none'; };
+  const updateWideHint = () => {
+    const ind = $('cf-industry').value;
+    const wide = ind && ind !== ADD_NEW_OPTION ? ((DB.settings.industryGroups || {})[ind] || '') : '';
+    $('cf-wide-hint').textContent = !ind || ind === ADD_NEW_OPTION ? '' : wide ? `Wider industry: ${wide}` : 'Not in a wider industry yet — set it in Operational Settings.';
+  };
+  $('cf-industry').addEventListener('change', updateWideHint);
+  $('cf-industry').addEventListener('input', updateWideHint);
+  updateWideHint();
 
   $('cf-save').onclick = () => {
     const name = $('cf-name').value.trim();
@@ -2611,16 +2688,15 @@ function tenureSummary(clients) {
 function clientBuckets(field, clients = DB.clients) {
   const map = new Map();
   for (const c of clients) {
-    const key = c[field] || 'Unclassified';
+    const key = field === 'wideIndustry' ? (wideIndustryOf(c) || (c.industry ? 'Not grouped' : 'Unclassified')) : (c[field] || 'Unclassified');
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(c);
   }
   const buckets = [...map.entries()].map(([name, clients]) => ({ name, clients }));
-  buckets.sort((a, b) => {
-    if (a.name === 'Unclassified') return 1;
-    if (b.name === 'Unclassified') return -1;
-    return b.clients.length - a.clients.length;
-  });
+  // "Unclassified" (no value) always last; "Not grouped" (industry set but not
+  // in a wider industry yet) just before it.
+  const tail = n => n === 'Unclassified' ? 2 : n === 'Not grouped' ? 1 : 0;
+  buckets.sort((a, b) => tail(a.name) - tail(b.name) || b.clients.length - a.clients.length);
   return buckets;
 }
 // Multi-select cohort filter for the predictive tool: each array is an
@@ -2629,8 +2705,9 @@ function clientBuckets(field, clients = DB.clients) {
 // including ones with no value set for it (a deliberate "don't care" state,
 // not "match blank only"). Reuses the exact same Realised/Running/Combination
 // split as the Insights tab (basisSplit()) so the two never disagree.
-function predictForFilters({ industries = [], sizes = [], countries = [] }) {
+function predictForFilters({ wideIndustries = [], industries = [], sizes = [], countries = [] }) {
   const matches = c =>
+    (!wideIndustries.length || wideIndustries.includes(wideIndustryOf(c))) &&
     (!industries.length || industries.includes(c.industry || '')) &&
     (!sizes.length || sizes.includes(c.companySize || '')) &&
     (!countries.length || countries.includes(c.country || ''));
@@ -3276,8 +3353,8 @@ function showRetentionMonthModal(m, metric) {
 }
 
 /* ════════════════ INSIGHTS VIEW ════════════════ */
-const INS_DIM_LABEL = { general: 'General', industry: 'Industry', companySize: 'Company size', country: 'Country' };
-const INS_DIM_SETTINGS_KEY = { industry: 'industries', companySize: 'companySizes', country: 'countries' };
+const INS_DIM_LABEL = { general: 'General', wideIndustry: 'Wider industry', industry: 'Industry', companySize: 'Company size', country: 'Country' };
+const INS_DIM_SETTINGS_KEY = { wideIndustry: 'wideIndustries', industry: 'industries', companySize: 'companySizes', country: 'countries' };
 // Trims a month-keyed row list to the trailing insTrendScale window — always
 // first dropping anything after the real current month, since invoices get
 // auto-generated ahead of time as the Invoices tab is browsed, and a trend
@@ -3315,6 +3392,7 @@ const INS_PAGE_LABEL = { overview: 'Overview', retention: 'Retention', ltv: 'Lif
 function dashboardFilteredClients() {
   const match = (val, filter) => !filter || (filter === UNCLASSIFIED ? !val : val === filter);
   return DB.clients.filter(c =>
+    match(wideIndustryOf(c), state.insFilterWide) &&
     match(c.industry, state.insFilterIndustry) &&
     match(c.country, state.insFilterCountry) &&
     match(c.companySize, state.insFilterSize));
@@ -3332,10 +3410,10 @@ function renderInsights() {
   const page = state.insPage;
   const filteredClients = dashboardFilteredClients();
 
-  const filterDimSelect = (id, label, list, current, field) => `<select id="${id}">
+  const filterDimSelect = (id, label, list, current, field, within = DB.clients) => `<select id="${id}">
       <option value="">All ${esc(label)}</option>
-      ${optionsInUse(field, list, current).map(v => `<option value="${esc(v)}" ${current===v?'selected':''}>${esc(v)}</option>`).join('')}
-      ${hasUnclassified(field) || current===UNCLASSIFIED ? `<option value="${UNCLASSIFIED}" ${current===UNCLASSIFIED?'selected':''}>Unclassified</option>` : ''}
+      ${optionsInUse(field, list, current, within).map(v => `<option value="${esc(v)}" ${current===v?'selected':''}>${esc(v)}</option>`).join('')}
+      ${hasUnclassified(field, within) || current===UNCLASSIFIED ? `<option value="${UNCLASSIFIED}" ${current===UNCLASSIFIED?'selected':''}>Unclassified</option>` : ''}
     </select>`;
 
   view.innerHTML = `
@@ -3346,7 +3424,8 @@ function renderInsights() {
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
           <button class="btn btn-sm" id="ins-back">← Overview</button>
           ${page === 'revenue' ? '' : `
-            ${filterDimSelect('ins-filter-industry', 'industries', DB.settings.industries, state.insFilterIndustry, 'industry')}
+            ${filterDimSelect('ins-filter-wide', 'wider industries', DB.settings.wideIndustries, state.insFilterWide, 'wideIndustry')}
+            ${filterDimSelect('ins-filter-industry', 'industries', DB.settings.industries, state.insFilterIndustry, 'industry', clientsInWide(state.insFilterWide))}
             ${filterDimSelect('ins-filter-country', 'countries', DB.settings.countries, state.insFilterCountry, 'country')}
             ${filterDimSelect('ins-filter-size', 'sizes', DB.settings.companySizes, state.insFilterSize, 'companySize')}
           `}
@@ -3364,6 +3443,13 @@ function renderInsights() {
   const goTo = p => { state.insNavDir = p === 'overview' ? 'back' : 'fwd'; state.insPage = p; renderInsights(); };
   const backBtn = view.querySelector('#ins-back');
   if (backBtn) backBtn.onclick = () => goTo('overview');
+  const filterWideEl = view.querySelector('#ins-filter-wide');
+  if (filterWideEl) filterWideEl.onchange = e => {
+    state.insFilterWide = e.target.value;
+    const inWide = clientsInWide(state.insFilterWide);
+    if (state.insFilterIndustry && state.insFilterIndustry !== UNCLASSIFIED && !inWide.some(c => c.industry === state.insFilterIndustry)) state.insFilterIndustry = '';
+    renderInsights();
+  };
   const filterIndustryEl = view.querySelector('#ins-filter-industry');
   if (filterIndustryEl) filterIndustryEl.onchange = e => { state.insFilterIndustry = e.target.value; renderInsights(); };
   const filterCountryEl = view.querySelector('#ins-filter-country');
@@ -3485,7 +3571,7 @@ function renderInsOverview(bodyEl, goTo) {
   // happens to be set to on the (separate) LTV detail page.
   const topBuckets = (field, metric, n = 5) => {
     const rows = clientBuckets(field)
-      .filter(b => b.name !== 'Unclassified')
+      .filter(b => b.name !== 'Unclassified' && b.name !== 'Not grouped')
       .map(b => ({
         name: b.name,
         ltv: basisPick(ltvSummary(b.clients), 'combination'),
@@ -3562,7 +3648,7 @@ function renderInsOverview(bodyEl, goTo) {
           <div class="stat ok"><div class="v">${ltvCombined.avg != null ? fmtMoney(ltvCombined.avg) : '—'}</div><div class="l">Avg combined ${insTerm('LTV')}</div><div class="s">${ltvCombined.count} client${ltvCombined.count === 1 ? '' : 's'}</div></div>
           <div class="stat"><div class="v">${tenureCombined.avg != null ? tenureCombined.avg.toFixed(1) : '—'}</div><div class="l">Avg combined tenure (mo)</div><div class="s">${tenureCombined.count} client${tenureCombined.count === 1 ? '' : 's'}</div></div>
         </div>
-        ${miniBarBlock('Industry', 'industry')}
+        ${miniBarBlock('Wider industry', 'wideIndustry')}
         ${miniBarBlock('Country', 'country')}
       </div>
 
@@ -3599,7 +3685,7 @@ function renderInsLtvDetail(bodyEl, filteredClients) {
   const overallTenure = tenureSummary(filteredClients);
   const overallLtvPick = basisPick(overall, basis);
   const overallTenurePick = basisPick(overallTenure, basis);
-  const classifiedCount = dimField === 'general' ? null : filteredClients.filter(c => c[dimField]).length;
+  const classifiedCount = dimField === 'general' ? null : filteredClients.filter(c => fieldValue(c, dimField)).length;
 
   // "General" has no dimension to group by — the comparison/breakdown
   // section below is skipped entirely for it, leaving just the overall KPIs.
@@ -3619,7 +3705,7 @@ function renderInsLtvDetail(bodyEl, filteredClients) {
   // Unclassified is excluded here (it isn't a real segment to compare), same
   // as the churn trend chart below. Used both for the two separate
   // leaderboards and, in the stacked layout, zipped into one paired comparison.
-  const classifiedCombinedRows = combinedRows.filter(r => r.name !== 'Unclassified' && r.ltvAvg != null);
+  const classifiedCombinedRows = combinedRows.filter(r => r.name !== 'Unclassified' && r.name !== 'Not grouped' && r.ltvAvg != null);
   const ltvBarRows = [...classifiedCombinedRows].sort((a, b) => b.ltvAvg - a.ltvAvg)
     .map(r => ({ name: r.name, value: r.ltvAvg, count: r.basisCount }));
   const ltvBarHtml = buildBarChart(ltvBarRows, { fmt: fmtMoney, color: 'var(--neutral)', metric: 'ltv', dim: dimField });
@@ -3849,7 +3935,7 @@ function renderInsPredictTile(bodyEl) {
           : `<span class="muted">None set up yet — add some in Settings.</span>`}
       </div>
     </div>`;
-  const predict = predictForFilters({ industries: state.insPredIndustries, sizes: state.insPredSizes, countries: state.insPredCountries });
+  const predict = predictForFilters({ wideIndustries: state.insPredWide, industries: state.insPredIndustries, sizes: state.insPredSizes, countries: state.insPredCountries });
   const basis = state.insPredBasis;
   const ltvPick = basisPick(predict.ltv, basis);
   const tenurePick = basisPick(predict.tenure, basis);
@@ -3860,6 +3946,7 @@ function renderInsPredictTile(bodyEl) {
   bodyEl.innerHTML = `
     <div class="chart-card">
       <div class="chart-head"><h3>Client performance indicator</h3></div>
+      ${pillGroup('Wider industry', optionsInUse('wideIndustry', DB.settings.wideIndustries, state.insPredWide), state.insPredWide, 'wide')}
       ${pillGroup('Industry', optionsInUse('industry', DB.settings.industries, state.insPredIndustries), state.insPredIndustries, 'industries')}
       ${pillGroup('Company size', optionsInUse('companySize', DB.settings.companySizes, state.insPredSizes), state.insPredSizes, 'sizes')}
       ${pillGroup('Country', optionsInUse('country', DB.settings.countries, state.insPredCountries), state.insPredCountries, 'countries')}
@@ -3883,7 +3970,7 @@ function renderInsPredictTile(bodyEl) {
   // Re-renders just this tile (not renderInsights()) so toggling a filter
   // here doesn't replay the Overview's whole page-enter animation — this
   // tile isn't navigating anywhere, just updating its own numbers.
-  const PRED_STATE_KEY = { industries: 'insPredIndustries', sizes: 'insPredSizes', countries: 'insPredCountries' };
+  const PRED_STATE_KEY = { wide: 'insPredWide', industries: 'insPredIndustries', sizes: 'insPredSizes', countries: 'insPredCountries' };
   bodyEl.querySelectorAll('[data-group]').forEach(group => {
     const stateKey = PRED_STATE_KEY[group.dataset.group];
     group.querySelectorAll('.pill').forEach(p => p.onclick = () => {
@@ -4196,11 +4283,43 @@ function renderSettings() {
       <div class="chip-add"><input id="add-${key}" placeholder="Add name…"><button class="btn btn-sm" data-add="${key}">Add</button></div>
     </div>`;
 
+  // Wider industries: the clusters themselves, plus where each specific
+  // industry tag rolls up to. Industries are listed ungrouped-first so gaps are
+  // impossible to miss; includes any tag a client uses that isn't in the list.
+  const wideCard = () => {
+    const wides = s.wideIndustries, groups = s.industryGroups;
+    const counts = new Map();
+    DB.clients.forEach(c => { if (c.industry) counts.set(c.industry, (counts.get(c.industry) || 0) + 1); });
+    const all = [...new Set([...s.industries, ...counts.keys()])];
+    const grouped = i => wides.includes(groups[i]);
+    all.sort((a, b) => (grouped(a) - grouped(b)) || (grouped(a) ? wides.indexOf(groups[a]) - wides.indexOf(groups[b]) : 0) || a.localeCompare(b));
+    const ungrouped = all.filter(i => !grouped(i)).length;
+    return `
+    <div class="card">
+      <h3>Wider industries</h3>
+      <div class="desc">Clusters the specific industry tags into broader groups — e.g. every “SaaS - …” tag under SaaS — for the wider picture in Insights, the filters and the Client performance indicator. Each client keeps its specific industry; its wider industry follows from the mapping below, so regrouping an industry regroups all its clients at once.</div>
+      <div class="chips">${wides.map((v, i) => `<span class="chip">${esc(v)}<button data-wide-rename="${i}" title="Rename">✎</button><button data-wide-rm="${i}" title="Remove">×</button></span>`).join('') || '<span class="muted" style="font-size:12px">None yet.</span>'}</div>
+      <div class="chip-add"><input id="add-wide" placeholder="Add wider industry…"><button class="btn btn-sm" data-wide-add>Add</button></div>
+      ${ungrouped ? `<p class="note" style="color:var(--warn); margin-top:12px">${ungrouped} industr${ungrouped === 1 ? 'y isn’t' : 'ies aren’t'} in a wider industry yet — those clients show as “Not grouped” in the wider-industry charts.</p>` : ''}
+      <div class="tbl-wrap" id="wide-map-wrap" style="max-height:380px; overflow-y:auto; margin-top:12px">
+        <table>
+          <thead><tr><th>Industry</th><th class="num">Clients</th><th>Wider industry</th></tr></thead>
+          <tbody>${all.map(i => `<tr>
+            <td>${esc(i)}</td>
+            <td class="num">${counts.get(i) || 0}</td>
+            <td><select data-ind-group="${esc(i)}"><option value="">— Not grouped —</option>${wides.map(w => `<option value="${esc(w)}" ${groups[i] === w ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></td>
+          </tr>`).join('') || '<tr><td colspan="3"><div class="empty">No industries yet.</div></td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+  };
+
   view.innerHTML = `
     ${chipList('salesTeam', 'Sales team', 'People who can earn commission — selectable as Lead generated by / Converted by on each client.')}
     ${chipList('accountManagers', 'Account managers', 'Selectable as the AM on each client.')}
     ${chipList('packages', 'Packages', 'Service packages selectable on each client.')}
     ${chipList('industries', 'Industries', 'Selectable on each client — powers the Insights tab\'s industry breakdown.')}
+    ${wideCard()}
     ${chipList('countries', 'Countries', 'Selectable on each client — powers the Insights tab\'s country breakdown.')}
     ${chipList('companySizes', 'Company sizes', 'Headcount bands selectable on each client — powers the Insights tab\'s size breakdown.')}
 
@@ -4266,6 +4385,44 @@ function renderSettings() {
   view.querySelectorAll('#add-industries, #add-countries, #add-companySizes').forEach(inp => {
     inp.onkeydown = e => { if (e.key === 'Enter') inp.nextElementSibling.click(); };
   });
+  const keepMapScroll = fn => {
+    const before = view.querySelector('#wide-map-wrap');
+    const top = before ? before.scrollTop : 0;
+    fn();
+    const after = document.getElementById('wide-map-wrap');
+    if (after) after.scrollTop = top;
+  };
+  const addWide = () => {
+    const v = view.querySelector('#add-wide').value.trim();
+    if (!v || s.wideIndustries.includes(v)) return;
+    s.wideIndustries.push(v); touch(); renderSettings();
+  };
+  view.querySelector('[data-wide-add]').onclick = addWide;
+  view.querySelector('#add-wide').onkeydown = e => { if (e.key === 'Enter') addWide(); };
+  view.querySelectorAll('[data-wide-rename]').forEach(b => b.onclick = () => {
+    const i = Number(b.dataset.wideRename), old = s.wideIndustries[i];
+    const name = (prompt(`Rename wider industry "${old}" to:`, old) || '').trim();
+    if (!name || name === old) return;
+    if (s.wideIndustries.includes(name)) { confirmModal(`There is already a wider industry called <strong>${esc(name)}</strong>.`, () => {}, 'OK'); return; }
+    s.wideIndustries[i] = name;
+    for (const k of Object.keys(s.industryGroups)) if (s.industryGroups[k] === old) s.industryGroups[k] = name;
+    touch(); renderAll();
+  });
+  view.querySelectorAll('[data-wide-rm]').forEach(b => b.onclick = () => {
+    const i = Number(b.dataset.wideRm), name = s.wideIndustries[i];
+    const n = Object.values(s.industryGroups).filter(v => v === name).length;
+    const remove = () => {
+      s.wideIndustries.splice(i, 1);
+      for (const k of Object.keys(s.industryGroups)) if (s.industryGroups[k] === name) delete s.industryGroups[k];
+      touch(); renderAll();
+    };
+    if (n) confirmModal(`Remove <strong>${esc(name)}</strong>? ${n} industr${n === 1 ? 'y' : 'ies'} will become “Not grouped”.`, remove, 'Remove');
+    else remove();
+  });
+  view.querySelectorAll('[data-ind-group]').forEach(sel => sel.onchange = () => keepMapScroll(() => {
+    if (sel.value) s.industryGroups[sel.dataset.indGroup] = sel.value; else delete s.industryGroups[sel.dataset.indGroup];
+    touch(); renderAll();
+  }));
   view.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {
     const [key, i] = b.dataset.rm.split(':');
     s[key].splice(Number(i), 1); touch(); renderSettings();
