@@ -87,7 +87,10 @@ ROUTE_TOOL_MAP: tuple[tuple[str, str], ...] = (
     ("/commission",                       "commission"),
     ("/operational-settings",             "operational_settings"),
     ("/insights",                         "insights"),
-    ("/am-performance",                   "am_performance"),
+    # /am-performance is deliberately NOT mapped either: it is open to anyone with the
+    # am_performance tool OR the insights tool (it is part of the same reporting
+    # family), which a single prefix -> one tool entry cannot express. The route
+    # checks that itself (_require_am_access in app/routers/credit_control.py).
     # /api/credit-control/* (shared by all four pages above) is deliberately
     # NOT mapped here — a single prefix can only map to one tool, but any of
     # the four tool keys should be able to reach the shared data endpoints.

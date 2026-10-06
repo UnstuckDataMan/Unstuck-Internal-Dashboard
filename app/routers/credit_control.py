@@ -53,6 +53,17 @@ def _require_cc_access(request: Request) -> dict:
     return user
 
 
+# AM Performance: its own tool, but anyone who already has Insights may open it too.
+_AM_TOOLS = {"am_performance", "insights"}
+
+
+def _require_am_access(request: Request) -> dict:
+    user = auth.require_login(request)
+    if auth.auth_enabled() and not (_AM_TOOLS & set(user.get("tools") or [])):
+        raise HTTPException(status_code=403, detail="No access to AM Performance")
+    return user
+
+
 def _serve_app() -> HTMLResponse:
     return HTMLResponse(_APP_HTML_PATH.read_text(encoding="utf-8"))
 
@@ -78,7 +89,7 @@ async def insights_page(_user: dict = Depends(_require_cc_access)):
 
 
 @router.get("/am-performance")
-async def am_performance_page(_user: dict = Depends(_require_cc_access)):
+async def am_performance_page(_user: dict = Depends(_require_am_access)):
     return _serve_app()
 
 
