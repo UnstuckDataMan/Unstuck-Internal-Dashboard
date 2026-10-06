@@ -232,6 +232,15 @@
   /* Goal marker on the revenue "This period" bars — a solid line at the target,
      so it stays visible when the goal has been exceeded (no hashed gap then). */
   .progress-goal { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.4); z-index: 2; }
+  /* Revenue "This period" bars: more air between bars, the current month set a
+     little apart, and a left-to-right wipe when the page is opened. */
+  .progress-bars.spaced { gap: 20px; }
+  .progress-bars.spaced .progress-bar-row.current { padding-bottom: 18px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+  @keyframes barWipe { from { clip-path: inset(0 100% 0 0 round 8px); } to { clip-path: inset(0 0 0 0 round 8px); } }
+  .progress-bars.reveal .progress-bar { animation: barWipe .9s cubic-bezier(.22, 1, .36, 1) both; animation-delay: calc(var(--i, 0) * 120ms + 100ms); }
+  @media (prefers-reduced-motion: reduce) { .progress-bars.reveal .progress-bar { animation: none; } }
+  .pb-custom { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); margin: 6px 0 14px 132px; }
+  .pb-custom .date-field { border-color: var(--border-hi); font-size: 12px; font-weight: 600; color: var(--text); }
   .progress-seg {
     height: 100%; transition: filter .15s; cursor: pointer;
     display: flex; align-items: center; justify-content: center; overflow: hidden;
@@ -688,6 +697,8 @@ const state = {
   insProjMirror: false, // Revenue page only: when on, Past data and Projections always cover the same span
   insCmp: null,         // Revenue page compare builder: { base, others[] } selections (see insCmpMonths)
   insCmpPick: null,     // id of the compare slot waiting for a month to be clicked on the chart
+  insBarCustom: null,   // Revenue "This period" custom bar: { from, to } months, or null for none
+  insBarsAnim: false,   // set when the Insights tab/page is opened so its bars wipe in left to right
   insBasis: 'realised',  // 'realised' | 'running' | 'combination' — see basisSplit()
   insDim: 'general',    // 'general' | 'industry' | 'companySize' | 'country' — LTV detail's "compare by" picker
   insPredBasis: 'realised', // 'realised' | 'running' | 'combination' — see basisSplit()
@@ -1410,7 +1421,7 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   state.tab = t.dataset.tab;
   // Clicking Insights always lands on its Overview — never wherever a
   // Retention/LTV/Revenue drill-down happened to be left.
-  if (t.dataset.tab === 'insights') state.insPage = 'overview';
+  if (t.dataset.tab === 'insights') { state.insPage = 'overview'; state.insBarsAnim = true; }
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + state.tab));
   renderAll();
@@ -3634,7 +3645,6 @@ function renderInsights() {
   const filteredClients = dashboardFilteredClients();
   // 24M was dropped from the Revenue page's Past data — move anyone sitting on it.
   if (page === 'revenue' && state.insTrendScale === '24') state.insTrendScale = '12';
-  const projSpan = page === 'revenue' ? insProjectionSpan() : 0;
 
   const filterDimSelect = (id, label, list, current, field, within = DB.clients) => `<select id="${id}">
       <option value="">All ${esc(label)}</option>
@@ -3655,26 +3665,7 @@ function renderInsights() {
             ${filterDimSelect('ins-filter-country', 'countries', DB.settings.countries, state.insFilterCountry, 'country')}
             ${filterDimSelect('ins-filter-size', 'sizes', DB.settings.companySizes, state.insFilterSize, 'companySize')}
           `}
-          ${page === 'retention' ? '' : page === 'revenue' ? `
-            <div class="tf-groups">
-              <div class="tf-group" title="How much history the charts plot — Year-to-date runs 1 Aug to the current month">
-                <div class="tf-label">Past data</div>
-                <div class="pills" id="ins-trend-pills">
-                  ${[['1', '1M'], ['3', '3M'], ['6', '6M'], ['12', '12M'], ['ytd', 'YTD'], ['all', 'All'], ['custom', 'Custom']].map(([k, l]) => `<button class="pill ${state.insTrendScale === k ? 'active' : ''}" data-scale="${k}">${l}</button>`).join('')}
-                </div>
-                ${state.insTrendScale === 'custom' ? `<div class="tf-custom">From <button type="button" class="date-field" id="ins-cust-from" title="First month of the range">${esc(monthLabelShort(state.insTrendFrom || currentMonthKey()))}</button> to <button type="button" class="date-field" id="ins-cust-to" title="Last month of the range (up to the current month)">${esc(monthLabelShort(state.insTrendTo || currentMonthKey()))}</button></div>` : ''}
-              </div>
-              <button type="button" class="tf-link ${state.insProjMirror ? 'on' : ''}" id="ins-mirror" title="${state.insProjMirror ? 'Mirror is on — changing either side sets the other to the same span. Click to unlink.' : 'Link the two sides so that changing one sets the other to the same span'}">
-                <span class="ic">⇄</span>Mirror
-              </button>
-              <div class="tf-group proj" title="How far ahead the target line runs, after the current month — up to the last month a target is set for">
-                <div class="tf-label">Projections${projSpan && ![3, 6, 12].includes(projSpan) ? ` · next ${projSpan} month${projSpan === 1 ? '' : 's'}` : ''}</div>
-                <div class="pills" id="ins-proj-pills">
-                  ${[['off', 'Off'], ['3', '3M'], ['6', '6M'], ['12', '12M']].map(([k, l]) => `<button class="pill ${(k === 'off' ? projSpan === 0 : projSpan === Number(k)) ? 'active' : ''}" data-proj="${k}">${l}</button>`).join('')}
-                </div>
-              </div>
-            </div>
-          ` : `
+          ${page === 'retention' || page === 'revenue' ? '' : `
             <div class="pills" id="ins-trend-pills" title="How many months of history the trend charts below plot — Year-to-date runs 1 Aug to the current month">
               ${[['1', '1M'], ['3', '3M'], ['6', '6M'], ['12', '12M'], ['ytd', 'YTD'], ['24', '24M'], ['all', 'All']].map(([k, l]) => `<button class="pill ${state.insTrendScale === k ? 'active' : ''}" data-scale="${k}">${l}</button>`).join('')}
             </div>
@@ -3685,7 +3676,7 @@ function renderInsights() {
     `}
     <div class="ins-page" id="ins-page-body"></div>`;
 
-  const goTo = p => { state.insNavDir = p === 'overview' ? 'back' : 'fwd'; state.insPage = p; renderInsights(); };
+  const goTo = p => { state.insNavDir = p === 'overview' ? 'back' : 'fwd'; state.insPage = p; state.insBarsAnim = true; renderInsights(); };
   const backBtn = view.querySelector('#ins-back');
   if (backBtn) backBtn.onclick = () => goTo('overview');
   const filterWideEl = view.querySelector('#ins-filter-wide');
@@ -3701,42 +3692,10 @@ function renderInsights() {
   if (filterCountryEl) filterCountryEl.onchange = e => { state.insFilterCountry = e.target.value; renderInsights(); };
   const filterSizeEl = view.querySelector('#ins-filter-size');
   if (filterSizeEl) filterSizeEl.onchange = e => { state.insFilterSize = e.target.value; renderInsights(); };
-  view.querySelectorAll('#ins-trend-pills [data-scale]').forEach(p => p.onclick = () => {
-    // First time on Custom: start from whatever range is showing now.
-    if (p.dataset.scale === 'custom' && !(state.insTrendFrom && state.insTrendTo)) {
-      const w = insTrendWindow(insRevenueMonthList().map(m => ({ m })));
-      state.insTrendFrom = w.length ? w[0].m : currentMonthKey();
-      state.insTrendTo = w.length ? w[w.length - 1].m : currentMonthKey();
-    }
-    state.insTrendScale = p.dataset.scale; renderInsights();
-  });
-  const custFromBtn = view.querySelector('#ins-cust-from'), custToBtn = view.querySelector('#ins-cust-to');
-  if (custFromBtn) custFromBtn.onclick = () => openMonthPicker(custFromBtn, {
-    value: state.insTrendFrom, max: currentMonthKey(),
-    onSelect: key => { state.insTrendFrom = key; if ((state.insTrendTo || '') < key) state.insTrendTo = key; renderInsights(); }
-  });
-  if (custToBtn) custToBtn.onclick = () => openMonthPicker(custToBtn, {
-    value: state.insTrendTo, max: currentMonthKey(),
-    onSelect: key => { state.insTrendTo = key; if ((state.insTrendFrom || '') > key) state.insTrendFrom = key; renderInsights(); }
-  });
-  // Projection pills: with Mirror on, picking a span here sets Past data to the
-  // same span (the projection follows automatically); "Off" unlinks and switches
-  // projections off. With Mirror off they only set the projection.
-  view.querySelectorAll('#ins-proj-pills [data-proj]').forEach(p => p.onclick = () => {
-    const k = p.dataset.proj;
-    if (k === 'off') { state.insProjScale = 'off'; state.insProjMirror = false; }
-    else if (state.insProjMirror) state.insTrendScale = k;
-    else state.insProjScale = k;
-    renderInsights();
-  });
-  const mirrorBtn = view.querySelector('#ins-mirror');
-  if (mirrorBtn) mirrorBtn.onclick = () => {
-    if (state.insProjMirror) { const n = insProjectionSpan(); state.insProjScale = n ? String(n) : 'off'; state.insProjMirror = false; }
-    else state.insProjMirror = true;
-    renderInsights();
-  };
+  view.querySelectorAll('#ins-trend-pills [data-scale]').forEach(p => p.onclick = () => { state.insTrendScale = p.dataset.scale; renderInsights(); });
 
   const bodyEl = view.querySelector('#ins-page-body');
+  insBarsReveal = !!state.insBarsAnim; state.insBarsAnim = false;
   if (page === 'retention') renderInsRetentionDetail(bodyEl, filteredClients);
   else if (page === 'ltv') renderInsLtvDetail(bodyEl, filteredClients);
   else if (page === 'revenue') renderInsRevenueDetail(bodyEl, filteredClients);
@@ -3792,13 +3751,13 @@ function monthRangeLabel(months) {
   if (months.length === 1) return monthLabelShort(months[0]);
   return `${monthLabelShort(months[0])} – ${monthLabelShort(months[months.length - 1])}`;
 }
-function revBarRowHtml(label, bar, subLabel) {
+function revBarRowHtml(label, bar, subLabel, idx = 0, cls = '') {
   // Always the same label-column width (whether or not a row has a
   // sub-label) so every bar track starts and ends at the same x position —
   // otherwise a date range on Year/the scale bar but not Month shifts that
   // row's track and the bars stop lining up.
-  return `<div class="progress-bar-row">
-    <div class="progress-bar-label" style="width:84px; white-space:normal; line-height:1.3">
+  return `<div class="progress-bar-row ${cls}" style="--i:${idx}">
+    <div class="progress-bar-label" style="width:120px; white-space:normal; line-height:1.3; text-transform:none; letter-spacing:0; font-size:12px">
       ${esc(label)}
       ${subLabel ? `<div style="font-size:9px; font-weight:600; letter-spacing:0; text-transform:none; color:var(--text-muted); margin-top:2px">${esc(subLabel)}</div>` : ''}
     </div>
@@ -3906,9 +3865,9 @@ function renderInsOverview(bodyEl, goTo) {
           <div class="stat ok"><div class="v">${newThisMonth}</div><div class="l">New clients — ${monthLabelShort(monthKey)}</div></div>
           <div class="stat ok"><div class="v">${newLast3}</div><div class="l">New clients — last 3 months</div></div>
         </div>
-        <div class="progress-bars" style="margin-top:14px">
-          ${revBarRowHtml('Month', monthBar)}
-          ${revBarRowHtml('Year', yearBar, monthRangeLabel(yearBarMonths))}
+        <div class="progress-bars spaced ${insBarsReveal ? 'reveal' : ''}" style="margin-top:14px">
+          ${revBarRowHtml(monthLabel(monthKey), monthBar, '', 0, 'current')}
+          ${revBarRowHtml('Last 12 months', yearBar, monthRangeLabel(yearBarMonths), 1)}
         </div>
         ${revBarLegendHtml()}
       </div>
@@ -4077,37 +4036,12 @@ function renderInsLtvDetail(bodyEl, filteredClients) {
 // concentration, package mix, and sales attribution. Unlike LTV detail,
 // this one isn't gated by insDim — it's always the full breakdown.
 function renderInsRevenueDetail(bodyEl, filteredClients) {
-  // "This period" snapshot bars — whole-company figures (unfiltered, like
-  // the Target vs Landed charts below), matching the Overview Revenue
-  // tile's own bars exactly via the shared revBarStats/revBarRowHtml.
+  // "This period" bars are whole-company figures (unfiltered) built by
+  // insPeriodBarsHtml(); the chart below needs just the current month's expected.
   const snapRows = retentionRows();
   const snapLatest = currentSnapshotRow(snapRows);
   const monthKey = currentMonthKey();
-  const monthGoal = targetForMonth(monthKey);
   const monthExpected = snapLatest ? (snapLatest.expected ?? snapLatest.mrr) : 0;
-  const monthLanded = landedForMonth(monthKey);
-  const snapMonthBar = revBarStats(monthLanded, monthExpected, monthGoal);
-  // "Year" = the trailing 12 months ending at the current month, not the
-  // Jan–Dec calendar year.
-  const yearBarMonths = trailingMonths(snapRows, 12);
-  const yearSums = sumRevenueOverMonths(snapRows, yearBarMonths);
-  const snapYearBar = revBarStats(yearSums.landed, yearSums.expected, yearSums.goal);
-
-  // Third bar — whatever window the time-frame toggle (top right) is set
-  // to, so that selection gets the same Landed vs Expected vs Goal view as
-  // the fixed Month/Year bars. Skipped whenever its window covers exactly
-  // the same months as Month or Year already does, so there's never a
-  // redundant third bar just repeating one of the other two (e.g. picking
-  // "1M" is exactly the Month bar; picking "12M" is exactly the Year bar).
-  const scaleMonths = insTrendWindow(snapRows).map(r => r.m);
-  const sameMonths = (a, b) => a.length === b.length && a.every((m, i) => m === b[i]);
-  const showScaleBar = scaleMonths.length > 0 && !sameMonths(scaleMonths, [monthKey]) && !sameMonths(scaleMonths, yearBarMonths);
-  let scaleBar = null, scaleLabel = '';
-  if (showScaleBar) {
-    const scaleSums = sumRevenueOverMonths(snapRows, scaleMonths);
-    scaleBar = revBarStats(scaleSums.landed, scaleSums.expected, scaleSums.goal);
-    scaleLabel = { '1': '1M', '3': '3M', '6': '6M', '12': '12M', 'ytd': 'YTD', '24': '24M', 'all': 'All', 'custom': 'Custom' }[state.insTrendScale] || state.insTrendScale;
-  }
 
   // Months come from the union of invoiced months and months someone's
   // actually set a target for, capped at the real current month — invoices
@@ -4154,13 +4088,9 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   const salesRows = salesAttributionStats();
 
   bodyEl.innerHTML = `
-    ${insSectionHead('This period', 'Landed vs. expected if every invoice due this period lands vs. goal.')}
+    ${insSectionHead('This period', 'The current month first, then each past window from shortest to longest — landed vs. expected if every invoice due lands vs. goal.')}
     <div class="chart-card">
-      <div class="progress-bars">
-        ${revBarRowHtml('Month', snapMonthBar)}
-        ${revBarRowHtml('Year', snapYearBar, monthRangeLabel(yearBarMonths))}
-        ${showScaleBar ? revBarRowHtml(scaleLabel, scaleBar, monthRangeLabel(scaleMonths)) : ''}
-      </div>
+      ${insPeriodBarsHtml(snapRows, { custom: true })}
       ${revBarLegendHtml()}
     </div>
 
@@ -4173,6 +4103,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
           <button class="pill ${state.insRevMonthlyChart === 'bar' ? 'active' : ''}" data-revchart="m:bar">Bar</button>
         </div>
       </div>
+      ${insRevTimeframesHtml()}
       <div class="chart-legend">
         ${state.insRevMonthlyChart === 'bar'
           ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
@@ -4216,6 +4147,8 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
       </table>
     </div>`;
 
+  insWireRevTimeframes(bodyEl);
+  insWirePeriodBars(bodyEl);
   bodyEl.querySelectorAll('[data-revchart]').forEach(p => p.onclick = () => {
     const [, type] = p.dataset.revchart.split(':');
     state.insRevMonthlyChart = type;
@@ -4224,6 +4157,123 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
 
   if (state.insRevMonthlyChart === 'line' && revMonthlyChart?.months?.length) wireLineChartHover(bodyEl.querySelector('#ins-rev-m-wrap'), revMonthlyChart);
   insCmpMount({ monthKey, monthExpected, pastMonths: pastRows.map(r => r.m), projMonths, chart: revMonthlyChart, wrap: bodyEl.querySelector('#ins-rev-m-wrap') });
+}
+
+/* ── Revenue "This period" bars ── */
+let insBarsReveal = false;   // true for the render that follows opening the page/tab — plays the left-to-right wipe
+// The current month first (set slightly apart), then every past-data window in
+// time order, shortest to longest — each its own bar of Landed / Expected / Goal.
+// Windows that cover exactly the same months as an earlier bar are merged into it
+// (labelled with both names) rather than repeated. `custom` adds an optional bar
+// with its own From–To range, independent of the graph's timeframes.
+function insPeriodBarsHtml(rows, { custom = false } = {}) {
+  const cur = currentMonthKey();
+  const upTo = rows.filter(r => r.m <= cur);
+  const latest = currentSnapshotRow(rows);
+  const same = (a, b) => a.length === b.length && a.every((m, i) => m === b[i]);
+  const statsFor = months => { const s = sumRevenueOverMonths(rows, months); return revBarStats(s.landed, s.expected, s.goal); };
+
+  const monthBar = revBarStats(landedForMonth(cur), latest ? (latest.expected ?? latest.mrr) : 0, targetForMonth(cur));
+  const cats = [
+    ['Last 3 months', trailingMonths(rows, 3)],
+    ['Last 6 months', trailingMonths(rows, 6)],
+    ['Year to date', upTo.filter(r => r.m >= fiscalYearStart(cur)).map(r => r.m)],
+    ['Last 12 months', trailingMonths(rows, 12)],
+    ['All time', upTo.map(r => r.m)],
+  ];
+  const bars = [];
+  cats.forEach(([label, months]) => {
+    if (!months.length || same(months, [cur])) return;
+    const dup = bars.find(b => same(b.months, months));
+    if (dup) dup.label += ` / ${label.toLowerCase()}`;
+    else bars.push({ label, months });
+  });
+  bars.sort((a, b) => a.months.length - b.months.length);
+
+  const cb = custom ? state.insBarCustom : null;
+  const customMonths = cb ? upTo.filter(r => r.m >= (cb.from <= cb.to ? cb.from : cb.to) && r.m <= (cb.from <= cb.to ? cb.to : cb.from)).map(r => r.m) : [];
+
+  let i = 0;
+  const html = `<div class="progress-bars spaced ${insBarsReveal ? 'reveal' : ''}">
+      ${revBarRowHtml(monthLabel(cur), monthBar, '', i++, 'current')}
+      ${bars.map(b => revBarRowHtml(b.label.charAt(0).toUpperCase() + b.label.slice(1), statsFor(b.months), monthRangeLabel(b.months), i++)).join('')}
+      ${cb && customMonths.length ? revBarRowHtml('Custom', statsFor(customMonths), monthRangeLabel(customMonths), i++) : ''}
+    </div>
+    ${custom ? `<div class="pb-custom">${cb
+      ? `Custom bar: from <button type="button" class="date-field" id="pb-cust-from">${esc(monthLabelShort(cb.from))}</button> to <button type="button" class="date-field" id="pb-cust-to">${esc(monthLabelShort(cb.to))}</button> <button type="button" class="cmpx-x" id="pb-cust-rm" title="Remove the custom bar">×</button>`
+      : `<button type="button" class="btn btn-sm" id="pb-cust-add">＋ Custom bar</button>`}</div>` : ''}`;
+  return html;
+}
+function insWirePeriodBars(root) {
+  const cur = currentMonthKey();
+  const add = root.querySelector('#pb-cust-add');
+  if (add) add.onclick = () => { state.insBarCustom = { from: addMonths(cur, -5), to: cur }; renderInsights(); };
+  const rm = root.querySelector('#pb-cust-rm');
+  if (rm) rm.onclick = () => { state.insBarCustom = null; renderInsights(); };
+  const f = root.querySelector('#pb-cust-from'), t = root.querySelector('#pb-cust-to');
+  if (f) f.onclick = () => openMonthPicker(f, { value: state.insBarCustom.from, max: cur,
+    onSelect: key => { state.insBarCustom.from = key; if (state.insBarCustom.to < key) state.insBarCustom.to = key; renderInsights(); } });
+  if (t) t.onclick = () => openMonthPicker(t, { value: state.insBarCustom.to, max: cur,
+    onSelect: key => { state.insBarCustom.to = key; if (state.insBarCustom.from > key) state.insBarCustom.from = key; renderInsights(); } });
+}
+
+/* ── Revenue page: Past data / Projections timeframes (these drive the graph only) ── */
+function insRevTimeframesHtml() {
+  const projSpan = insProjectionSpan();
+  return `<div class="tf-groups" style="margin-bottom:14px">
+      <div class="tf-group" title="How much history the graph plots — Year-to-date runs 1 Aug to the current month">
+        <div class="tf-label">Past data</div>
+        <div class="pills" id="ins-trend-pills">
+          ${[['1', '1M'], ['3', '3M'], ['6', '6M'], ['12', '12M'], ['ytd', 'YTD'], ['all', 'All'], ['custom', 'Custom']].map(([k, l]) => `<button class="pill ${state.insTrendScale === k ? 'active' : ''}" data-scale="${k}">${l}</button>`).join('')}
+        </div>
+        ${state.insTrendScale === 'custom' ? `<div class="tf-custom">From <button type="button" class="date-field" id="ins-cust-from" title="First month of the range">${esc(monthLabelShort(state.insTrendFrom || currentMonthKey()))}</button> to <button type="button" class="date-field" id="ins-cust-to" title="Last month of the range (up to the current month)">${esc(monthLabelShort(state.insTrendTo || currentMonthKey()))}</button></div>` : ''}
+      </div>
+      <button type="button" class="tf-link ${state.insProjMirror ? 'on' : ''}" id="ins-mirror" title="${state.insProjMirror ? 'Mirror is on — changing either side sets the other to the same span. Click to unlink.' : 'Link the two sides so that changing one sets the other to the same span'}">
+        <span class="ic">⇄</span>Mirror
+      </button>
+      <div class="tf-group proj" title="How far ahead the target line runs, after the current month — up to the last month a target is set for">
+        <div class="tf-label">Projections${projSpan && ![3, 6, 12].includes(projSpan) ? ` · next ${projSpan} month${projSpan === 1 ? '' : 's'}` : ''}</div>
+        <div class="pills" id="ins-proj-pills">
+          ${[['off', 'Off'], ['3', '3M'], ['6', '6M'], ['12', '12M']].map(([k, l]) => `<button class="pill ${(k === 'off' ? projSpan === 0 : projSpan === Number(k)) ? 'active' : ''}" data-proj="${k}">${l}</button>`).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+function insWireRevTimeframes(root) {
+  root.querySelectorAll('#ins-trend-pills [data-scale]').forEach(p => p.onclick = () => {
+    // First time on Custom: start from whatever range is showing now.
+    if (p.dataset.scale === 'custom' && !(state.insTrendFrom && state.insTrendTo)) {
+      const w = insTrendWindow(insRevenueMonthList().map(m => ({ m })));
+      state.insTrendFrom = w.length ? w[0].m : currentMonthKey();
+      state.insTrendTo = w.length ? w[w.length - 1].m : currentMonthKey();
+    }
+    state.insTrendScale = p.dataset.scale; renderInsights();
+  });
+  const custFromBtn = root.querySelector('#ins-cust-from'), custToBtn = root.querySelector('#ins-cust-to');
+  if (custFromBtn) custFromBtn.onclick = () => openMonthPicker(custFromBtn, {
+    value: state.insTrendFrom, max: currentMonthKey(),
+    onSelect: key => { state.insTrendFrom = key; if ((state.insTrendTo || '') < key) state.insTrendTo = key; renderInsights(); }
+  });
+  if (custToBtn) custToBtn.onclick = () => openMonthPicker(custToBtn, {
+    value: state.insTrendTo, max: currentMonthKey(),
+    onSelect: key => { state.insTrendTo = key; if ((state.insTrendFrom || '') > key) state.insTrendFrom = key; renderInsights(); }
+  });
+  // Projection pills: with Mirror on, picking a span here sets Past data to the
+  // same span (the projection follows automatically); "Off" unlinks and switches
+  // projections off. With Mirror off they only set the projection.
+  root.querySelectorAll('#ins-proj-pills [data-proj]').forEach(p => p.onclick = () => {
+    const k = p.dataset.proj;
+    if (k === 'off') { state.insProjScale = 'off'; state.insProjMirror = false; }
+    else if (state.insProjMirror) state.insTrendScale = k;
+    else state.insProjScale = k;
+    renderInsights();
+  });
+  const mirrorBtn = root.querySelector('#ins-mirror');
+  if (mirrorBtn) mirrorBtn.onclick = () => {
+    if (state.insProjMirror) { const n = insProjectionSpan(); state.insProjScale = n ? String(n) : 'off'; state.insProjMirror = false; }
+    else state.insProjMirror = true;
+    renderInsights();
+  };
 }
 
 /* ── Revenue page: compare timeframes and points ── */
