@@ -701,25 +701,6 @@
       <div class="tool-grid g2">
 
 
-        {% if 'insights' in tools %}
-        <a href="/insights" class="card-link anim" style="--d:0.04s">
-          <div class="tool-card">
-            <div class="card-bar"></div>
-            <div class="card-body">
-              <div class="card-icon">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="18" y1="20" x2="18" y2="10"/>
-                  <line x1="12" y1="20" x2="12" y2="4"/>
-                  <line x1="6" y1="20" x2="6" y2="14"/>
-                </svg>
-              </div>
-              <h2>Insights</h2>
-              <p>Retention, lifetime value and revenue — churn trends, client performance and goal tracking.</p>
-            </div>
-          </div>
-        </a>
-        {% endif %}
-
         {% if 'client_profiles' in tools %}
         <a href="/client-profiles" class="card-link anim" style="--d:0.04s">
           <div class="tool-card">
@@ -897,6 +878,25 @@
               </div>
               <h2>Client Performance & Reports</h2>
               <p>Campaign performance per client from Smartlead, Meet Alfred and manual campaigns — sent, replied, leads and lead rate — plus the monthly reports clients read on their own link.</p>
+            </div>
+          </div>
+        </a>
+        {% endif %}
+
+        {% if 'insights' in tools %}
+        <a href="/insights" class="card-link anim" style="--d:0.11s">
+          <div class="tool-card">
+            <div class="card-bar"></div>
+            <div class="card-body">
+              <div class="card-icon">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="20" x2="18" y2="10"/>
+                  <line x1="12" y1="20" x2="12" y2="4"/>
+                  <line x1="6" y1="20" x2="6" y2="14"/>
+                </svg>
+              </div>
+              <h2>Insights</h2>
+              <p>Retention, lifetime value and revenue — churn trends, client performance and goal tracking.</p>
             </div>
           </div>
         </a>
