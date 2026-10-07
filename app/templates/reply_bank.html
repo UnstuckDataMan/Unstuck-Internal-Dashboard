@@ -2615,6 +2615,7 @@ function adminAddOption(category) {
   adminSaveOptions();
   adminRenderOptionsList(category);
   populateDropdowns();
+  refreshExportPills(category);
   render();
 }
 
@@ -2625,7 +2626,51 @@ function adminRemoveOption(category, item) {
   adminSaveOptions();
   adminRenderOptionsList(category);
   populateDropdowns();
+  refreshExportPills(category);
   render();
+}
+
+// Rebuild one export-tab pill group after an option is added/removed,
+// preserving the currently-selected state for items that still exist.
+function refreshExportPills(category) {
+  const map = { industries: 'exp-industries', territories: 'exp-territories', senders: 'exp-senders' };
+  const containerId = map[category];
+  if (!containerId) return;
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const isMulti      = category !== 'senders';
+  const prevSelected = new Set([...container.querySelectorAll('.adm-export-pill.sel')].map(p => p.dataset.value));
+
+  container.innerHTML = '';
+  OPTIONS[category].forEach((val, i) => {
+    const pill = document.createElement('span');
+    // New items default to selected; existing items keep their prior state.
+    const sel = isMulti ? (prevSelected.size === 0 || prevSelected.has(val)) : i === 0;
+    pill.className     = 'adm-export-pill' + (sel ? ' sel' : '');
+    pill.dataset.value = val;
+    pill.textContent   = val;
+    pill.addEventListener('click', () => {
+      if (isMulti) {
+        pill.classList.toggle('sel');
+      } else {
+        container.querySelectorAll('.adm-export-pill').forEach(p => p.classList.remove('sel'));
+        pill.classList.add('sel');
+      }
+      const allBtn = document.getElementById(`${containerId}-toggle`);
+      if (allBtn) {
+        const allSel = container.querySelectorAll('.adm-export-pill.sel').length === OPTIONS[category].length;
+        allBtn.textContent = allSel ? 'Deselect all' : 'Select all';
+      }
+    });
+    container.appendChild(pill);
+  });
+
+  const allBtn = document.getElementById(`${containerId}-toggle`);
+  if (allBtn) {
+    const allSel = container.querySelectorAll('.adm-export-pill.sel').length === OPTIONS[category].length;
+    allBtn.textContent = allSel ? 'Deselect all' : 'Select all';
+  }
 }
 
 ['industries', 'territories', 'senders'].forEach(cat => {
