@@ -663,6 +663,16 @@
   .bd-key.hash-orange { background: repeating-linear-gradient(135deg, transparent 0 4px, rgba(245,158,11,.55) 4px 5px); box-shadow: inset 0 0 0 1px rgba(245,158,11,.65); }
   .bd-key.line { width: 3px; height: 16px; border-radius: 0; }
   .bd-sub { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin: 18px 0 8px; }
+  /* Insights report export */
+  .ins-export-row { display: flex; justify-content: flex-end; margin: 0 0 12px; }
+  .rpt-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .rpt-choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border-hi); border-radius: 10px; cursor: pointer; background: var(--bg); }
+  .rpt-choice:hover { border-color: var(--accent); }
+  .rpt-choice:has(input:checked) { border-color: var(--accent); background: rgba(167, 139, 250, .1); }
+  .rpt-choice input { margin-top: 3px; }
+  .rpt-choice strong { display: block; font-size: 13px; }
+  .rpt-choice span { display: block; font-size: 11px; color: var(--text-dim); margin-top: 2px; line-height: 1.4; }
+  .rpt-incl { display: flex; flex-direction: column; gap: 8px; }
   /* Progress bars: a hovered section pops out slightly (like the AM pies) and a tooltip says what it is and its value */
   .progress-bar > .progress-seg, .progress-bar > .progress-gap { transition: transform .16s ease, box-shadow .16s ease, filter .15s; }
   .progress-bar > .progress-seg:hover, .progress-bar > .progress-gap:hover { transform: scale(1.03, 1.3); z-index: 3; box-shadow: 0 6px 16px rgba(0, 0, 0, .5); }
@@ -4050,6 +4060,7 @@ function renderInsights() {
     </select>`;
 
   view.innerHTML = `
+    <div class="ins-export-row"><button type="button" class="btn btn-sm" id="ins-export-btn" title="Export a visual or stats report of the Insights sections as a PDF or Google Doc">⬇ Export report</button></div>
     ${page === 'overview' ? '' : `
     <div class="chart-card">
       <div class="chart-head">
@@ -4076,6 +4087,8 @@ function renderInsights() {
   const goTo = p => { state.insNavDir = p === 'overview' ? 'back' : 'fwd'; state.insPage = p; state.insBarsAnim = true; renderInsights(); };
   const backBtn = view.querySelector('#ins-back');
   if (backBtn) backBtn.onclick = () => goTo('overview');
+  const exportBtn = view.querySelector('#ins-export-btn');
+  if (exportBtn) exportBtn.onclick = openInsExportModal;
   const filterWideEl = view.querySelector('#ins-filter-wide');
   if (filterWideEl) filterWideEl.onchange = e => {
     state.insFilterWide = e.target.value;
@@ -5669,6 +5682,698 @@ function renderAmIndustryClients(body, name, industry) {
       </table>
     </div>`;
   body.querySelector('#am-back-detail').onclick = () => { state.amIndustry = null; renderAmPerf(); revealCharts(document.getElementById('view-amperf')); };
+}
+
+/* ════════════════ INSIGHTS REPORT EXPORT ════════════════ */
+// Two kinds of report, each as a PDF or a Google Doc (.docx), built from whichever Insights sections
+// are ticked:
+//   Visual — the tool's own tiles, bars and charts, in the same colours, for sharing. PDF: a dark,
+//            print-ready page (browser "Save as PDF"). Google Doc: the same visuals as pictures in a .docx.
+//   Stats  — the key figures broken down into clean tables. PDF: a light, print-ready page.
+//            Google Doc: a .docx with real tables.
+// Everything is computed from the same functions the tool itself uses, with the filters/timeframes
+// currently selected, so a report always matches what is on screen.
+const RPT_SECTIONS = [
+  ['revenue', 'Revenue', 'This month\'s MRR, average client value and client volume; the period bars; and the monthly charts against target'],
+  ['billing', 'Billing', 'Package mix, client concentration and sales attribution'],
+  ['churn', 'Churn & retention', 'Churn over each window, retention, and the month-by-month picture'],
+  ['ltv', 'Lifetime value & tenure', 'LTV and tenure on every basis, broken down by industry, country and company size'],
+  ['predict', 'Client performance indicator', 'Expected LTV and tenure for the cohort currently selected (Visual report only)'],
+];
+const RPT_NAME = { visual: 'Visual report', stats: 'Stats report' };
+
+function rptState() {
+  state.insExport ||= { type: 'visual', format: 'pdf', sections: RPT_SECTIONS.map(s => s[0]) };
+  return state.insExport;
+}
+function openInsExportModal() {
+  const cfg = rptState();
+  const defTitle = `Insights ${cfg.type === 'stats' ? 'stats' : 'visual'} report — ${monthLabel(currentMonthKey())}`;
+  const choice = (name, value, title, desc) => `<label class="rpt-choice"><input type="radio" name="${name}" value="${value}" ${cfg[name === 'rpt-type' ? 'type' : 'format'] === value ? 'checked' : ''}><div><strong>${title}</strong><span>${desc}</span></div></label>`;
+  openModal(`
+    <div class="modal-head"><h3>Export insights report</h3><button class="modal-x" data-close>×</button></div>
+    <div class="fld"><label>Report type</label>
+      <div class="rpt-choices">
+        ${choice('rpt-type', 'visual', 'Visual report', 'The tool’s own tiles, bars and charts, in the same colours — for sharing what’s in the tool.')}
+        ${choice('rpt-type', 'stats', 'Stats report', 'The key stats broken down into clean tables and figures.')}
+      </div></div>
+    <div class="fld"><label>Format</label>
+      <div class="rpt-choices">
+        ${choice('rpt-format', 'pdf', 'PDF', 'Downloads a finished .pdf file straight to your computer.')}
+        ${choice('rpt-format', 'docx', 'Google Doc', 'Downloads a .docx you can open in Google Docs (upload to Drive → Open with → Google Docs).')}
+      </div></div>
+    <div class="fld"><label>Include</label>
+      <div class="rpt-incl">${RPT_SECTIONS.map(([k, l, d]) => `<label class="chk" id="rpt-incl-${k}" title="${esc(d)}"><input type="checkbox" data-rpt-sec="${k}" ${cfg.sections.includes(k) ? 'checked' : ''}> <span><strong>${esc(l)}</strong> <span class="dim" style="font-size:11px">— ${esc(d)}</span></span></label>`).join('')}</div></div>
+    <div class="fld"><label>Report title</label><input id="rpt-title" value="${esc(defTitle)}"></div>
+    <p class="note" id="rpt-note" style="margin:0"></p>
+    <div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="rpt-go">Export report</button></div>`, true);
+
+  const sync = () => {
+    const type = document.querySelector('input[name="rpt-type"]:checked').value;
+    const pred = document.querySelector('[data-rpt-sec="predict"]');
+    pred.disabled = type === 'stats';
+    document.getElementById('rpt-incl-predict').style.opacity = type === 'stats' ? '.45' : '1';
+    document.getElementById('rpt-note').textContent = type === 'stats'
+      ? 'The stats report leaves out the Client performance indicator — it is an interactive tool, not a set of stats.'
+      : 'The visual report uses the colours and charts you see in the tool, with the filters and timeframes currently selected.';
+    const t = document.getElementById('rpt-title');
+    if (/^Insights (stats|visual) report — /.test(t.value)) t.value = `Insights ${type === 'stats' ? 'stats' : 'visual'} report — ${monthLabel(currentMonthKey())}`;
+  };
+  document.querySelectorAll('input[name="rpt-type"]').forEach(r => r.onchange = sync);
+  sync();
+  document.getElementById('rpt-go').onclick = async () => {
+    cfg.type = document.querySelector('input[name="rpt-type"]:checked').value;
+    cfg.format = document.querySelector('input[name="rpt-format"]:checked').value;
+    cfg.sections = [...document.querySelectorAll('[data-rpt-sec]')].filter(c => c.checked && !c.disabled).map(c => c.dataset.rptSec);
+    const title = document.getElementById('rpt-title').value.trim() || defTitle;
+    if (!cfg.sections.length) { document.getElementById('rpt-note').textContent = 'Tick at least one section to include.'; return; }
+    closeModal();
+    try { await insRunReport(cfg.type, cfg.format, cfg.sections, title); }
+    catch (err) { console.error(err); openModal(`<div class="modal-head"><h3>Couldn’t build the report</h3><button class="modal-x" data-close>×</button></div><p style="font-size:13px; color:var(--text-dim); line-height:1.6">${esc(err && err.message ? err.message : String(err))}</p><p class="note">The visual report needs a Chromium-based browser (Chrome or Edge) to turn the charts into pictures — the stats report works in any browser.</p><div class="modal-foot"><button class="btn btn-primary" data-close>Close</button></div>`); }
+  };
+}
+
+async function insRunReport(type, format, sectionIds, title) {
+  const meta = { title, generated: new Date().toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' }), kind: RPT_NAME[type] };
+  const stamp = todayISO();
+  if (type === 'stats') {
+    const blocks = rptStatsBlocks(sectionIds);
+    if (format === 'pdf') return rptDownloadPdf(rptPdfStats(meta, blocks), `Insights-Stats-Report-${stamp}.pdf`);
+    return rptDownloadDocx(await rptDocxFromBlocks(meta, blocks, false), `Insights-Stats-Report-${stamp}.docx`);
+  }
+  const secs = rptVisualSections(sectionIds);
+  if (format === 'pdf') return rptDownloadPdf(await rptPdfVisual(meta, secs), `Insights-Visual-Report-${stamp}.pdf`);
+  const blocks = [];
+  for (const sec of secs) {
+    blocks.push({ t: 'h2', text: sec.title, pageBreak: blocks.length > 0 });
+    for (const html of sec.items) blocks.push({ t: 'img', img: await rptRasterize(html, 1100) });
+  }
+  return rptDownloadDocx(await rptDocxFromBlocks(meta, blocks, true), `Insights-Visual-Report-${stamp}.docx`);
+}
+
+// The app's own stylesheet (the biggest <style> on the page), so a visual report looks exactly like the tool.
+function rptAppCss() {
+  return [...document.querySelectorAll('style')].map(s => s.textContent).sort((a, b) => b.length - a.length)[0] || '';
+}
+
+// ════════ STATS REPORT — the figures, as blocks ════════
+// Block types: { t:'h2'|'h3'|'p'|'note', text } · { t:'kv', rows:[[label, value, note]] } · { t:'table', head:[], rows:[[]], align:['l','r',..] }
+function rptStatsBlocks(ids) {
+  const rows = retentionRows();
+  const cur = currentMonthKey();
+  const out = [];
+  if (ids.includes('revenue')) out.push(...rptStatsRevenue(rows, cur));
+  if (ids.includes('billing')) out.push(...rptStatsBilling());
+  if (ids.includes('churn')) out.push(...rptStatsChurn(rows, cur));
+  if (ids.includes('ltv')) out.push(...rptStatsLtv());
+  return out;
+}
+const rptPct = v => v == null || !isFinite(v) ? '—' : v.toFixed(1) + '%';
+const rptSigned = v => v == null || !isFinite(v) ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`;
+const rptChange = (now, before) => (now == null || before == null || !before) ? null : (now - before) / before * 100;
+
+function rptStatsRevenue(rows, cur) {
+  const blocks = [{ t: 'h2', text: 'Revenue' }];
+  const latest = currentSnapshotRow(rows);
+  const expected = latest ? (latest.expected ?? latest.mrr) : 0, landed = landedForMonth(cur);
+  const curRow = rows.find(r => r.m === cur), prevKey = addMonths(cur, -1), prevRow = rows.find(r => r.m === prevKey);
+  const avg = curRow && curRow.count ? curRow.mrr / curRow.count : null, prevAvg = prevRow && prevRow.count ? prevRow.mrr / prevRow.count : null;
+  const goal = targetForMonth(cur), cGoal = targetForMetric('vol', cur), aGoal = targetForMetric('avg', cur);
+  const vs = (v, g, f) => g != null ? `${f(g)} target${g ? ` — ${Math.round(v / g * 100)}% of it` : ''}` : 'no target set';
+  blocks.push({ t: 'h3', text: `This month — ${monthLabel(cur)}` });
+  blocks.push({ t: 'kv', rows: [
+    ['MRR (expected to land)', fmtMoney(expected), vs(expected, goal, fmtMoney)],
+    ['Landed so far this month', fmtMoney(landed), 'cash received, by the date it was paid'],
+    ['MRR change on last month', rptSigned(rptChange(expected, landedForMonth(prevKey))), `against ${monthLabel(prevKey)}'s landed MRR`],
+    ['Average value per client', avg != null ? fmtMoney(avg) : '—', vs(avg || 0, aGoal, fmtMoney)],
+    ['Average value change on last month', rptSigned(rptChange(avg, prevAvg)), ''],
+    ['Clients invoiced', curRow ? String(curRow.count) : '—', vs(curRow ? curRow.count : 0, cGoal, v => String(v))],
+    ['Client change on last month', rptSigned(rptChange(curRow ? curRow.count : null, prevRow ? prevRow.count : null)), ''],
+    ['New clients this month', latest ? String(latest.newClients || 0) : '—', ''],
+  ] });
+
+  // by period (the same windows as the bars)
+  const upTo = rows.filter(r => r.m <= cur);
+  const fyStart = fiscalYearStart(cur);
+  const fyList = Array.from({ length: 12 }, (_, k) => addMonths(fyStart, k));
+  const fyGoal = fyList.reduce((g, m) => { const t = targetForMetric('mrr', m); return t == null ? g : (g || 0) + t; }, null);
+  const periods = [['This month', [cur], false], ['Last 3 months', trailingMonths(rows, 3), false], ['Last 6 months', trailingMonths(rows, 6), false],
+    ['Year to date', upTo.filter(r => r.m >= fyStart).map(r => r.m), false], ['Last 12 months', trailingMonths(rows, 12), false], ['All time', upTo.map(r => r.m), true]];
+  const prow = ([label, months, noGoal]) => {
+    const s = sumRevenueOverMonths(rows, months);
+    const goalV = noGoal ? null : s.goal;
+    // % of target compares like with like: expected revenue in just the months that HAVE a target, against those targets.
+    const tMonths = months.filter(m => targetForMetric('mrr', m) != null);
+    const tExpected = goalV && tMonths.length ? sumRevenueOverMonths(rows, tMonths).expected : null;
+    return [label, monthRangeLabel(months), fmtMoney(s.landed), fmtMoney(Math.max(0, s.expected - s.landed)), fmtMoney(s.expected), goalV != null ? fmtMoney(goalV) : '—', tExpected != null && goalV ? Math.round(tExpected / goalV * 100) + '%' : '—'];
+  };
+  blocks.push({ t: 'h3', text: 'By period' });
+  blocks.push({ t: 'table', head: ['Period', 'Months', 'Landed', 'Still to land', 'Expected total', 'Target', '% of target'], align: ['l', 'l', 'r', 'r', 'r', 'r', 'r'], rows: periods.map(prow) });
+  if (fyGoal != null) {
+    const ytd = sumRevenueOverMonths(rows, periods[3][1]);
+    blocks.push({ t: 'p', text: `Financial year ${monthRangeLabel(fyList)}: full-year target ${fmtMoney(fyGoal)}. Expected so far is ${fmtMoney(ytd.expected)} (${Math.round(ytd.expected / fyGoal * 100)}% of the year's target); the target for the months gone is ${ytd.goal != null ? fmtMoney(ytd.goal) : '—'}.` });
+  }
+  blocks.push({ t: 'note', text: 'Landed is counted in the month the money was paid; expected in the month an invoice falls due. Expected total = landed + still to land. The target for a period is the sum of the targets set for its months (a month with no target adds nothing), and % of target compares expected revenue in just the months that have a target with those targets.' });
+
+  // month by month
+  const months12 = upTo.slice(-12);
+  blocks.push({ t: 'h3', text: 'Month by month — last 12 months' });
+  blocks.push({ t: 'table', head: ['Month', 'MRR', 'Target', 'Avg client value', 'Target', 'Clients', 'Target'], align: ['l', 'r', 'r', 'r', 'r', 'r', 'r'],
+    rows: months12.map(r => {
+      const mrr = r.m === cur ? expected : landedForMonth(r.m);
+      const t1 = targetForMetric('mrr', r.m), t2 = targetForMetric('avg', r.m), t3 = targetForMetric('vol', r.m);
+      return [monthLabel(r.m) + (r.m === cur ? ' *' : ''), fmtMoney(mrr), t1 != null ? fmtMoney(t1) : '—', r.count ? fmtMoney(r.mrr / r.count) : '—', t2 != null ? fmtMoney(t2) : '—', String(r.count), t3 != null ? String(t3) : '—'];
+    }) });
+  blocks.push({ t: 'note', text: '* The current month shows what is expected to land rather than cash received so far. Average client value = billed in the month ÷ clients invoiced.' });
+  return blocks;
+}
+
+function rptStatsBilling() {
+  const conc = revenueConcentration(10), pkg = packageMixRows(), sales = salesAttributionStats();
+  const blocks = [{ t: 'h2', text: 'Billing' }];
+  blocks.push({ t: 'kv', rows: [[`Top ${conc.topN} clients' share of active MRR`, rptPct(conc.pct), `${fmtMoney(conc.topSum)} of ${fmtMoney(conc.totalMRR)}`]] });
+  blocks.push({ t: 'h3', text: pkg.month ? `Package mix — ${monthLabel(pkg.month)} (${fmtMoney(pkg.total)})` : 'Package mix' });
+  blocks.push({ t: 'table', head: ['Package', '£', '% of MRR'], align: ['l', 'r', 'r'], rows: pkg.rows.map(r => [r.name, fmtMoney(r.amount), rptPct(r.pct)]) });
+  blocks.push({ t: 'h3', text: `Top ${conc.topN} clients by monthly fee` });
+  blocks.push({ t: 'table', head: ['Client', 'Monthly fee', '% of active MRR'], align: ['l', 'r', 'r'], rows: conc.top.map(c => [c.companyName, fmtMoney(c.feeGBP), conc.totalMRR ? rptPct((Number(c.feeGBP) || 0) / conc.totalMRR * 100) : '—']) });
+  blocks.push({ t: 'h3', text: 'Sales attribution (lead gen / converter)' });
+  blocks.push({ t: 'table', head: ['Person', 'Clients', 'Avg LTV', 'Total LTV'], align: ['l', 'r', 'r', 'r'], rows: sales.map(r => [r.person, String(r.clientCount), r.avgLTV != null ? fmtMoney(r.avgLTV) : '—', fmtMoney(r.totalLTV)]) });
+  return blocks;
+}
+
+function rptStatsChurn(rows, cur) {
+  const goals = DB.settings.retention;
+  const withPct = rows.filter(r => r.churnPct != null && r.m <= cur);
+  const fyStart = fiscalYearStart(cur);
+  const windows = [['Last month', withPct.slice(-1)], ['Last 3 months', withPct.slice(-3)], ['Last 12 months', withPct.slice(-12)], ['Year to date', withPct.filter(r => r.m >= fyStart)], ['All time', withPct]];
+  const blocks = [{ t: 'h2', text: 'Churn & retention' }];
+  const churned = DB.clients.filter(c => c.status === 'churned');
+  const active = DB.clients.length - churned.length;
+  blocks.push({ t: 'kv', rows: [
+    ['Clients', String(DB.clients.length), `${active} active · ${churned.length} churned`],
+    ['Average months to churn', avgOf(churned.map(c => clientMaxMonthNo(c.id))) != null ? avgOf(churned.map(c => clientMaxMonthNo(c.id))).toFixed(1) : '—', 'across churned clients'],
+    ['Churn goals', `${goals.longTermGoalPct}% long term · ${goals.shortTermGoalPct}% short term`, 'at or under the long-term goal is good; over the short-term goal is a concern'],
+  ] });
+  blocks.push({ t: 'h3', text: 'Churn by window' });
+  blocks.push({ t: 'table', head: ['Window', 'Churn', 'Retention', 'Clients lost', 'Clients at start of months', 'Months', 'Against goal'], align: ['l', 'r', 'r', 'r', 'r', 'r', 'l'],
+    rows: windows.map(([label, subset]) => {
+      const w = weightedChurn(subset);
+      const cls = w ? goalClass(w.pct, goals) : '';
+      return [label, w ? rptPct(w.pct) : '—', w ? rptPct(100 - w.pct) : '—', w ? String(w.lostSum) : '—', w ? String(w.baseSum) : '—', w ? String(w.monthCount) : '—', cls === 'ok' ? 'Within goal' : cls === 'warn' ? 'Above long-term goal' : cls === 'bad' ? 'Above short-term goal' : '—'];
+    }) });
+  blocks.push({ t: 'note', text: 'Churn for a window = clients lost ÷ clients at the start of each month, summed across the window (not an average of monthly percentages).' });
+  blocks.push({ t: 'h3', text: 'Month by month — last 12 months' });
+  blocks.push({ t: 'table', head: ['Month', 'Clients invoiced', 'New', 'Retained', 'Lost', 'Churn', 'Retention'], align: ['l', 'r', 'r', 'r', 'r', 'r', 'r'],
+    rows: rows.filter(r => r.m <= cur).slice(-12).map(r => [monthLabel(r.m), String(r.count), String(r.newClients ?? 0), r.retained != null ? String(r.retained) : '—', r.lost != null ? String(r.lost) : '—', rptPct(r.churnPct), rptPct(r.retPct)]) });
+  return blocks;
+}
+
+function rptStatsLtv() {
+  const blocks = [{ t: 'h2', text: 'Lifetime value & tenure' }];
+  const l = ltvSummary(DB.clients), t = tenureSummary(DB.clients);
+  const basisNote = { realised: 'churned clients only — final figures', running: 'active clients only — still growing', combination: 'churned clients plus active clients already past the Realised average' };
+  blocks.push({ t: 'h3', text: 'By basis — all clients' });
+  blocks.push({ t: 'table', head: ['Basis', 'Avg lifetime value', 'Clients', 'Avg tenure (months)', 'Clients', 'What it is'], align: ['l', 'r', 'r', 'r', 'r', 'l'],
+    rows: ['realised', 'running', 'combination'].map(b => { const lp = basisPick(l, b), tp = basisPick(t, b); return [BASIS_LABEL[b], lp.avg != null ? fmtMoney(lp.avg) : '—', String(lp.count), tp.avg != null ? tp.avg.toFixed(1) : '—', String(tp.count), basisNote[b]]; }) });
+  const dims = [['wideIndustry', 'Wider industry'], ['industry', 'Industry'], ['country', 'Country'], ['companySize', 'Company size']];
+  for (const [field, label] of dims) {
+    const buckets = clientBuckets(field).filter(b => b.name !== 'Unclassified' && b.name !== 'Not grouped');
+    if (!buckets.length) continue;
+    blocks.push({ t: 'h3', text: `By ${label.toLowerCase()} — combination basis` });
+    blocks.push({ t: 'table', head: [label, 'Clients', 'Avg lifetime value', 'Avg tenure (months)'], align: ['l', 'r', 'r', 'r'],
+      rows: buckets.map(b => { const lp = basisPick(ltvSummary(b.clients), 'combination'), tp = basisPick(tenureSummary(b.clients), 'combination'); return { sort: lp.avg ?? -1, cells: [b.name, String(b.clients.length), lp.avg != null ? fmtMoney(lp.avg) : '—', tp.avg != null ? tp.avg.toFixed(1) : '—'] }; })
+        .sort((a, b) => b.sort - a.sort).map(r => r.cells) });
+  }
+  blocks.push({ t: 'note', text: 'Lifetime value includes any manual adjustments set on a client. Clients with no value set for a dimension are left out of that dimension\'s table.' });
+  return blocks;
+}
+
+// ════════ VISUAL REPORT — the tool's own tiles and charts ════════
+// Each section is a list of HTML snippets (cards) built with the tool's own functions, so they carry the
+// tool's classes and colours. They are wrapped in #view-insights when shown, as the tool's CSS expects.
+function rptOverviewTiles() {
+  const tmp = document.createElement('div');
+  insBarsReveal = false;
+  renderInsOverview(tmp, () => {});     // renders into a detached element, so nothing on screen changes
+  decorateBars(tmp);
+  const pick = sel => { const el = tmp.querySelector(sel); if (!el) return ''; const c = el.cloneNode(true); c.removeAttribute('title'); c.classList.remove('ov-tile'); return c.outerHTML; };
+  return { churn: pick('.chart-card[data-page="retention"]'), ltv: pick('.chart-card[data-page="ltv"]'), predict: pick('#ov-predict-tile') };
+}
+function rptRevenueChart(metric, rows) {
+  const cur = currentMonthKey();
+  const latest = currentSnapshotRow(rows);
+  const monthExpected = latest ? (latest.expected ?? latest.mrr) : 0;
+  const pastRows = insTrendWindow(insRevenueMonthList().map(m => ({ m })));
+  const projMonths = insProjectionMonths(metric);
+  const monthRows = [...pastRows, ...projMonths.map(m => ({ m, projected: true }))];
+  const byM = new Map(rows.map(r => [r.m, r]));
+  const other = m => { const r = byM.get(m); if (!r || !r.count) return null; return metric === 'avg' ? r.mrr / r.count : r.count; };
+  const info = { mrr: ['MRR against target', 'MRR', 'var(--success)'], avg: ['Average client value against target', 'Average client value', '#22d3ee'], vol: ['Client volume against target', 'Clients invoiced', '#f472b6'] }[metric];
+  const series = metric === 'mrr'
+    ? [{ name: 'Target', color: 'var(--accent)', points: monthRows.map(r => ({ m: r.m, v: targetForMetric('mrr', r.m) })) },
+       { name: 'MRR', color: 'var(--success)', points: monthRows.map(r => r.projected ? { m: r.m, v: null } : r.m === cur ? { m: r.m, v: monthExpected, color: 'var(--warn)', tooltipLabel: 'MRR — expected to land' } : { m: r.m, v: landedForMonth(r.m) }) }]
+    : [{ name: 'Target', color: 'var(--accent)', points: monthRows.map(r => ({ m: r.m, v: targetForMetric(metric, r.m) })) },
+       { name: info[1], color: info[2], points: monthRows.map(r => ({ m: r.m, v: r.projected ? null : other(r.m) })) }];
+  const opts = { yUnit: metric === 'vol' ? '' : '£', id: 'rpt-' + metric, projectedFrom: projMonths[0] || null };
+  const chart = state.insRevMonthlyChart === 'bar' ? buildGroupedBarChart(series, { ...opts, lineSeries: ['Target'] }) : buildLineChart(series, opts);
+  const keys = `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span><span class="key"><span class="dot" style="background:${info[2]}"></span>${esc(info[1])}</span>${metric === 'mrr' ? '<span class="key"><span class="dot" style="background:var(--warn)"></span>MRR — expected to land (current month)</span>' : ''}${projMonths.length ? '<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>' : ''}`;
+  return `<div class="chart-card"><div class="chart-head"><h3>${esc(info[0])}</h3><span class="dim" style="font-size:12px">${esc(monthRangeLabel([...pastRows.map(r => r.m), ...projMonths]))}</span></div><div class="chart-legend" style="margin:0 0 10px">${keys}</div><div class="chart-wrap">${chart.html}</div></div>`;
+}
+function rptRevenueVisual(rows) {
+  const cur = currentMonthKey();
+  const curRow = rows.find(r => r.m === cur), prevKey = addMonths(cur, -1), prevRow = rows.find(r => r.m === prevKey);
+  const latest = currentSnapshotRow(rows);
+  const expected = latest ? (latest.expected ?? latest.mrr) : 0;
+  const avg = curRow && curRow.count ? curRow.mrr / curRow.count : null, prevAvg = prevRow && prevRow.count ? prevRow.mrr / prevRow.count : null;
+  const prevShort = MON3[Number(prevKey.slice(5)) - 1], curShort = MON3[Number(cur.slice(5)) - 1] + ' ' + cur.slice(2, 4);
+  const chg = (now, before) => { const p = rptChange(now, before); return p == null ? '<span class="muted">no change to show</span>' : `<span class="${p >= 0 ? 'cmp-up' : 'cmp-down'}">${p >= 0 ? '▲' : '▼'} ${Math.abs(p).toFixed(1)}%</span> <span class="muted">vs ${prevShort}</span>`; };
+  const box = (label, val, change) => `<div class="stat"><div class="l" style="margin:0 0 4px">${label} <span style="text-transform:none; letter-spacing:0; font-weight:500">· ${curShort}</span></div><div class="v">${val}</div><div class="s" style="margin-top:4px">${change}</div></div>`;
+  const boxes = `<div class="stats" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:0">
+      ${box('Monthly revenue (MRR)', fmtMoney(expected), chg(expected, landedForMonth(prevKey)))}
+      ${box('Average value per client', avg != null ? fmtMoney(avg) : '—', chg(avg, prevAvg))}
+      ${box('Clients invoiced', curRow ? String(curRow.count) : '—', chg(curRow ? curRow.count : null, prevRow ? prevRow.count : null))}
+    </div>`;
+  const wrap = document.createElement('div');
+  insBarsReveal = false;
+  wrap.innerHTML = insPeriodBarsHtml(rows, { custom: false });
+  decorateBars(wrap);
+  return [
+    `<div class="chart-card"><div class="chart-head"><h3>Revenue — ${esc(monthLabel(cur))}</h3></div>${boxes}</div>`,
+    `<div class="chart-card"><div class="chart-head"><h3>This period</h3></div>${wrap.innerHTML}${revBarLegendHtml({ fy: true })}</div>`,
+    rptRevenueChart('mrr', rows), rptRevenueChart('avg', rows), rptRevenueChart('vol', rows),
+  ];
+}
+function rptBillingVisual() {
+  const conc = revenueConcentration(10), pkg = packageMixRows(), sales = salesAttributionStats();
+  const tbl = (head, rows, empty) => `<div class="tbl-wrap"><table><thead><tr>${head}</tr></thead><tbody>${rows || `<tr><td colspan="9"><div class="empty">${empty}</div></td></tr>`}</tbody></table></div>`;
+  return [`<div class="chart-card"><div class="chart-head"><h3>Billing</h3></div>
+    <div class="stats"><div class="stat"><div class="v">${conc.pct.toFixed(1)}%</div><div class="l">Top ${conc.topN} clients' share of ${insTerm('MRR')}</div></div></div>
+    ${tbl('<th>Package</th><th class="num">£</th><th class="num">% of MRR</th>', pkg.rows.map(r => `<tr><td>${esc(r.name)}</td><td class="num money">${fmtMoney(r.amount)}</td><td class="num">${r.pct.toFixed(1)}%</td></tr>`).join(''), 'No invoices yet.')}
+    ${pkg.month ? `<p class="note">Package mix for ${monthLabel(pkg.month)} (${fmtMoney(pkg.total)} total).</p>` : ''}
+    ${tbl(`<th>Client</th><th class="num">${insTerm('MRR')} £</th><th class="num">% of active ${insTerm('MRR')}</th>`, conc.top.map(c => `<tr><td>${esc(c.companyName)}</td><td class="num money">${fmtMoney(c.feeGBP)}</td><td class="num">${conc.totalMRR ? ((Number(c.feeGBP) || 0) / conc.totalMRR * 100).toFixed(1) : '0.0'}%</td></tr>`).join(''), 'No active clients.')}
+    ${tbl(`<th>Person</th><th class="num">Clients</th><th class="num">Avg ${insTerm('LTV')}</th><th class="num">Total ${insTerm('LTV')}</th>`, sales.map(r => `<tr><td>${esc(r.person)}</td><td class="num">${r.clientCount}</td><td class="num money">${r.avgLTV != null ? fmtMoney(r.avgLTV) : '—'}</td><td class="num money">${fmtMoney(r.totalLTV)}</td></tr>`).join(''), 'No sales attribution set on any client yet.')}
+  </div>`];
+}
+function rptVisualSections(ids) {
+  const rows = retentionRows();
+  const tiles = ids.some(i => ['churn', 'ltv', 'predict'].includes(i)) ? rptOverviewTiles() : {};
+  const out = [];
+  if (ids.includes('revenue')) out.push({ title: 'Revenue', items: rptRevenueVisual(rows) });
+  if (ids.includes('billing')) out.push({ title: 'Billing', items: rptBillingVisual() });
+  if (ids.includes('churn') && tiles.churn) out.push({ title: 'Churn & retention', items: [tiles.churn] });
+  if (ids.includes('ltv') && tiles.ltv) out.push({ title: 'Lifetime value & tenure', items: [tiles.ltv] });
+  if (ids.includes('predict') && tiles.predict) out.push({ title: 'Client performance indicator', items: [tiles.predict] });
+  return out;
+}
+// ════════ Google Doc (.docx) — a small hand-built Word file, no libraries ════════
+// Turns a chunk of the tool's HTML into a PNG (via an SVG foreignObject), so a visual report can be a .docx.
+async function rptRasterCanvas(html, widthPx) {
+  const css = rptAppCss().replace(/:root\b/g, '.rpt-root');
+  const font = getComputedStyle(document.body).fontFamily;
+  const host = document.createElement('div');
+  host.style.cssText = `position:fixed; left:-12000px; top:0; width:${widthPx}px; pointer-events:none`;
+  host.innerHTML = `<div id="view-insights" class="rpt-root view active" style="display:block; width:${widthPx}px; box-sizing:border-box; padding:14px; background:#0b0b18; color:var(--text)">${html}</div>`;
+  document.body.appendChild(host);
+  const node = host.firstChild;
+  node.style.fontFamily = font;   // set through the DOM — the font list contains quotes that would break an inline attribute
+  decorateBars(node);
+  // Let the layout settle — but never wait on animation frames alone, which browsers pause for hidden/background tabs.
+  await Promise.race([new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))), new Promise(r => setTimeout(r, 120))]);
+  const h = Math.ceil(node.scrollHeight);
+  const xhtml = new XMLSerializer().serializeToString(node);
+  host.remove();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${h}"><foreignObject x="0" y="0" width="${widthPx}" height="${h}"><style><![CDATA[${css}]]></style>${xhtml}</foreignObject></svg>`;
+  const img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('The browser couldn’t turn the charts into pictures.')); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
+  const scale = 2, canvas = document.createElement('canvas');
+  canvas.width = widthPx * scale; canvas.height = h * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0b0b18'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.scale(scale, scale); ctx.drawImage(img, 0, 0);
+  return { canvas, w: widthPx, h };
+}
+async function rptRasterize(html, widthPx) {
+  const { canvas, w, h } = await rptRasterCanvas(html, widthPx);
+  const blob = await new Promise((res, rej) => { try { canvas.toBlob(b => b ? res(b) : rej(new Error('The browser blocked turning the charts into pictures.')), 'image/png'); } catch (e) { rej(new Error('The browser blocked turning the charts into pictures.')); } });
+  return { bytes: new Uint8Array(await blob.arrayBuffer()), w, h };
+}
+
+const dxEsc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const dxRun = (text, o = {}) => `<w:r><w:rPr>${o.b ? '<w:b/>' : ''}${o.i ? '<w:i/>' : ''}${o.color ? `<w:color w:val="${o.color}"/>` : ''}${o.sz ? `<w:sz w:val="${o.sz}"/>` : ''}</w:rPr><w:t xml:space="preserve">${dxEsc(text)}</w:t></w:r>`;
+const dxPara = (runs, o = {}) => `<w:p><w:pPr>${o.style ? `<w:pStyle w:val="${o.style}"/>` : ''}${o.keep ? '<w:keepNext/>' : ''}<w:spacing w:before="${o.before ?? 0}" w:after="${o.after ?? 80}"/>${o.jc ? `<w:jc w:val="${o.jc}"/>` : ''}</w:pPr>${o.pageBreak ? '<w:r><w:br w:type="page"/></w:r>' : ''}${runs}</w:p>`;
+function dxTable(head, rows, align, totalW) {
+  const n = head.length;
+  const first = Math.round(totalW * (n <= 3 ? 0.4 : n <= 5 ? 0.28 : 0.22)), rest = Math.floor((totalW - first) / (n - 1));
+  const widths = head.map((_, i) => i === 0 ? first : rest);
+  const border = '<w:tblBorders><w:top w:val="single" w:sz="4" w:color="D0D0DC"/><w:bottom w:val="single" w:sz="4" w:color="D0D0DC"/><w:insideH w:val="single" w:sz="4" w:color="E3E3EA"/></w:tblBorders>';
+  const cell = (text, i, o = {}) => `<w:tc><w:tcPr><w:tcW w:w="${widths[i]}" w:type="dxa"/>${o.fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.fill}"/>` : ''}</w:tcPr>${dxPara(dxRun(text, { b: o.b, color: o.color, sz: 18 }), { jc: align[i] === 'r' ? 'right' : 'left', after: 20, before: 20 })}</w:tc>`;
+  return `<w:tbl><w:tblPr><w:tblW w:w="${totalW}" w:type="dxa"/>${border}<w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="70" w:type="dxa"/><w:right w:w="70" w:type="dxa"/></w:tblCellMar></w:tblPr>
+    <w:tblGrid>${widths.map(w => `<w:gridCol w:w="${w}"/>`).join('')}</w:tblGrid>
+    <w:tr><w:trPr><w:tblHeader/></w:trPr>${head.map((h, i) => cell(h, i, { fill: '2D2A55', b: true, color: 'FFFFFF' })).join('')}</w:tr>
+    ${rows.map((r, ri) => `<w:tr>${r.map((c, i) => cell(c, i, { fill: ri % 2 ? 'F6F6FB' : '' })).join('')}</w:tr>`).join('')}</w:tbl>${dxPara('', { after: 100 })}`;
+}
+function dxImage(rId, id, w, h, maxDxa) {
+  const cx = Math.round(maxDxa * 635), cy = Math.round(cx * h / w);
+  return `<w:p><w:pPr><w:spacing w:before="0" w:after="160"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${id}" name="Picture ${id}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="${id}" name="chart${id}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+}
+async function rptDocxFromBlocks(meta, blocks, landscape) {
+  const pageW = landscape ? 16838 : 11906, pageH = landscape ? 11906 : 16838, margin = landscape ? 720 : 1000;
+  const contentW = pageW - margin * 2;
+  const files = [];
+  let rels = '', imgN = 0, body = '';
+  body += dxPara(dxRun(meta.title, { b: true, sz: 44, color: '1B1840' }), { after: 40 });
+  body += dxPara(dxRun(`${meta.kind} · Generated ${meta.generated}`, { sz: 20, color: '777777' }), { after: 200 });
+  for (const b of blocks) {
+    if (b.t === 'h2') body += dxPara(dxRun(b.text, { b: true, sz: 32, color: '2D2A55' }), { style: 'Heading1', keep: true, before: 240, after: 120, pageBreak: b.pageBreak });
+    else if (b.t === 'h3') body += dxPara(dxRun(b.text, { b: true, sz: 24, color: '2D2A55' }), { style: 'Heading2', keep: true, before: 160, after: 80 });
+    else if (b.t === 'p') body += dxPara(dxRun(b.text, { sz: 21 }), { after: 100 });
+    else if (b.t === 'note') body += dxPara(dxRun(b.text, { sz: 17, i: true, color: '777777' }), { after: 120 });
+    else if (b.t === 'kv') body += dxTable(['', '', ''], b.rows.map(r => [r[0], r[1], r[2] || '']), ['l', 'r', 'l'], contentW).replace(/<w:tr><w:trPr><w:tblHeader\/><\/w:trPr>.*?<\/w:tr>/s, '');
+    else if (b.t === 'table') body += dxTable(b.head, b.rows, b.align, contentW);
+    else if (b.t === 'img') {
+      imgN++;
+      const rId = 'rIdImg' + imgN;
+      files.push({ name: `word/media/chart${imgN}.png`, data: b.img.bytes });
+      rels += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/chart${imgN}.png"/>`;
+      body += dxImage(rId, imgN, b.img.w, b.img.h, contentW);
+    }
+  }
+  const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+  const enc = new TextEncoder();
+  const text = (name, s) => files.push({ name, data: enc.encode(s) });
+  text('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`);
+  text('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
+  text('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdSty" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${rels}</Relationships>`);
+  text('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="21"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:outlineLvl w:val="1"/></w:pPr></w:style></w:styles>`);
+  text('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${NS}><w:body>${body}<w:sectPr><w:pgSz w:w="${pageW}" w:h="${pageH}"${landscape ? ' w:orient="landscape"' : ''}/><w:pgMar w:top="${margin}" w:right="${margin}" w:bottom="${margin}" w:left="${margin}" w:header="400" w:footer="400" w:gutter="0"/></w:sectPr></w:body></w:document>`);
+  // Word likes [Content_Types].xml and the package relationships first in the archive.
+  const rank = f => f.name === '[Content_Types].xml' ? 0 : f.name.startsWith('_rels/') ? 1 : f.name.startsWith('word/') && !f.name.startsWith('word/media/') ? 2 : 3;
+  files.sort((a, b) => rank(a) - rank(b));
+  return rptZip(files);
+}
+// Minimal ZIP writer (stored, no compression) — enough for a .docx.
+const RPT_CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function rptCrc32(bytes) { let c = 0xFFFFFFFF; for (let i = 0; i < bytes.length; i++) c = RPT_CRC[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function rptZip(files) {
+  const enc = new TextEncoder(), chunks = [], central = [];
+  let offset = 0;
+  const u16 = n => [n & 255, (n >>> 8) & 255], u32 = n => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+  const push = a => { const u = a instanceof Uint8Array ? a : Uint8Array.from(a); chunks.push(u); offset += u.length; };
+  for (const f of files) {
+    const name = enc.encode(f.name), crc = rptCrc32(f.data), size = f.data.length;
+    const startOffset = offset;
+    push([0x50, 0x4B, 3, 4, ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(size), ...u32(size), ...u16(name.length), ...u16(0)]);
+    push(name); push(f.data);
+    central.push([0x50, 0x4B, 1, 2, ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(size), ...u32(size), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(startOffset), ...name]);
+  }
+  const cdStart = offset;
+  central.forEach(c => push(c));
+  const cdSize = offset - cdStart;
+  push([0x50, 0x4B, 5, 6, 0, 0, 0, 0, ...u16(files.length), ...u16(files.length), ...u32(cdSize), ...u32(cdStart), 0, 0]);
+  const out = new Uint8Array(offset);
+  let p = 0;
+  chunks.forEach(c => { out.set(c, p); p += c.length; });
+  return out;
+}
+function rptDownloadDocx(bytes, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  openModal(`
+    <div class="modal-head"><h3>Open it as a Google Doc</h3><button class="modal-x" data-close>×</button></div>
+    <p style="font-size:13px; color:var(--text-dim); line-height:1.6"><strong>${esc(name)}</strong> has been downloaded. To turn it into a Google Doc:</p>
+    <ol style="font-size:13px; color:var(--text-dim); line-height:1.8; margin:8px 0 0 18px">
+      <li>Open Google Drive and choose <strong>New → File upload</strong>, then pick the file.</li>
+      <li>Right-click the uploaded file → <strong>Open with → Google Docs</strong>.</li>
+    </ol>
+    <div class="modal-foot"><button class="btn" data-close>Close</button><a class="btn btn-primary" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noopener">Open Google Drive</a></div>`);
+}
+
+// ════════ Direct PDF — a small hand-built PDF writer, no libraries ════════
+// Standard Helvetica (so no font files to embed), WinAnsi text, and lossless Flate images for the visual report.
+const RPT_WIN1252 = { 0x20AC: 0x80, 0x201A: 0x82, 0x0192: 0x83, 0x201E: 0x84, 0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87, 0x02C6: 0x88, 0x2030: 0x89, 0x0160: 0x8A, 0x2039: 0x8B, 0x0152: 0x8C, 0x017D: 0x8E, 0x2018: 0x91, 0x2019: 0x92, 0x201C: 0x93, 0x201D: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97, 0x02DC: 0x98, 0x2122: 0x99, 0x0161: 0x9A, 0x203A: 0x9B, 0x0153: 0x9C, 0x017E: 0x9E, 0x0178: 0x9F };
+const RPT_SWAP = { '−': '-', '→': '->', '←': '<-', '≥': '>=', '≤': '<=', '▲': '+', '▼': '-', ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', '‐': '-', '‑': '-' };
+function rptPdfClean(s) {
+  let out = '';
+  for (const ch of String(s ?? '')) {
+    if (RPT_SWAP[ch] !== undefined) { out += RPT_SWAP[ch]; continue; }
+    const c = ch.codePointAt(0);
+    if ((c >= 32 && c < 127) || (c >= 0xA0 && c <= 0xFF) || RPT_WIN1252[c] !== undefined) out += ch;
+    else if (c < 32) out += ' ';
+    else { const base = ch.normalize('NFD').replace(/[̀-ͯ]/g, ''); out += /^[\x20-\x7e]+$/.test(base) ? base : '?'; }
+  }
+  return out;
+}
+function rptPdfHex(clean) {
+  let h = '';
+  for (const ch of clean) { const c = ch.codePointAt(0); h += (RPT_WIN1252[c] ?? c).toString(16).padStart(2, '0'); }
+  return '<' + h + '>';
+}
+// Arial and Helvetica share metrics, so the browser can measure text that the PDF will draw in Helvetica.
+let rptMeasureCtx = null;
+function rptTextW(s, f, size) {
+  rptMeasureCtx ||= document.createElement('canvas').getContext('2d');
+  rptMeasureCtx.font = `${f === 'b' ? 'bold ' : f === 'i' ? 'italic ' : ''}100px Arial, Helvetica, "Liberation Sans", sans-serif`;
+  return rptMeasureCtx.measureText(s).width * size / 100;
+}
+function rptWrap(s, f, size, maxW) {
+  const lines = [];
+  for (const para of String(s).split('\n')) {
+    let line = '';
+    for (const word of para.split(' ')) {
+      const t = line ? line + ' ' + word : word;
+      if (!line || rptTextW(t, f, size) <= maxW) line = t;
+      else { lines.push(line); line = word; }
+      while (line.length > 1 && rptTextW(line, f, size) > maxW) {   // a single word wider than the column
+        let k = line.length - 1;
+        while (k > 1 && rptTextW(line.slice(0, k), f, size) > maxW) k--;
+        lines.push(line.slice(0, k)); line = line.slice(k);
+      }
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+async function rptDeflate(bytes) {
+  const cs = new CompressionStream('deflate');     // zlib format — what PDF's FlateDecode expects
+  const w = cs.writable.getWriter(); w.write(bytes); w.close();
+  return new Uint8Array(await new Response(cs.readable).arrayBuffer());
+}
+function rptPdf(pageW, pageH, title) {
+  const enc = new TextEncoder();
+  const objs = [null, null, null, null, null, null];     // 1 catalog · 2 pages · 3-5 fonts · 6 info
+  const num = v => String(Math.round(v * 100) / 100);
+  const rgb = hex => { const n = parseInt(hex, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => (v / 255).toFixed(3)).join(' '); };
+  const FONT = { r: 'F1', b: 'F2', i: 'F3' };
+  const doc = {
+    pages: [], cur: null,
+    newPage(bg) {
+      this.cur = { ops: [], imgs: new Map() }; this.pages.push(this.cur);
+      if (bg) this.rect(0, 0, pageW, pageH, bg);
+    },
+    rect(x, y, w, h, col) { this.cur.ops.push(`${rgb(col)} rg ${num(x)} ${num(pageH - y - h)} ${num(w)} ${num(h)} re f`); },
+    line(x1, y1, x2, y2, col, lw = 0.6) { this.cur.ops.push(`${rgb(col)} RG ${num(lw)} w ${num(x1)} ${num(pageH - y1)} m ${num(x2)} ${num(pageH - y2)} l S`); },
+    text(x, y, s, f, size, col) {
+      const clean = rptPdfClean(s);
+      if (!clean) return;
+      this.cur.ops.push(`BT /${FONT[f]} ${num(size)} Tf ${rgb(col)} rg ${num(x)} ${num(pageH - y)} Td ${rptPdfHex(clean)} Tj ET`);
+    },
+    // img: { num, name } from addImage. x, y = top-left, top-down coordinates.
+    image(img, x, y, w, h) {
+      this.cur.imgs.set(img.name, img.num);
+      this.cur.ops.push(`q ${num(w)} 0 0 ${num(h)} ${num(x)} ${num(pageH - y - h)} cm /${img.name} Do Q`);
+    },
+    addImage({ data, pw, ph, filter, predictor }) {
+      objs.push([`<< /Type /XObject /Subtype /Image /Width ${pw} /Height ${ph} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /${filter}${predictor ? ` /DecodeParms << /Predictor 15 /Colors 3 /BitsPerComponent 8 /Columns ${pw} >>` : ''} /Length ${data.length} >>\nstream\n`, data, '\nendstream']);
+      return { num: objs.length, name: 'Im' + objs.length };
+    },
+    finish() {
+      const kids = [];
+      for (const p of this.pages) {
+        const content = enc.encode(p.ops.join('\n'));
+        objs.push([`<< /Length ${content.length} >>\nstream\n`, content, '\nendstream']);
+        const cNum = objs.length;
+        const xo = [...p.imgs].map(([n, o]) => `/${n} ${o} 0 R`).join(' ');
+        objs.push([`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(pageW)} ${num(pageH)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> /XObject << ${xo} >> >> /Contents ${cNum} 0 R >>`]);
+        kids.push(objs.length + ' 0 R');
+      }
+      objs[0] = ['<< /Type /Catalog /Pages 2 0 R >>'];
+      objs[1] = [`<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${kids.length} >>`];
+      ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique'].forEach((n, i) => { objs[2 + i] = [`<< /Type /Font /Subtype /Type1 /BaseFont /${n} /Encoding /WinAnsiEncoding >>`]; });
+      const d = new Date(), p2 = v => String(v).padStart(2, '0');
+      const titleHex = 'FEFF' + [...String(title)].map(ch => { const c = ch.codePointAt(0); return c > 0xFFFF ? '003F' : c.toString(16).padStart(4, '0'); }).join('');
+      objs[5] = [`<< /Title <${titleHex}> /Producer (Credit Control) /CreationDate (D:${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}) >>`];
+      const parts = [new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34, 0x0A, 0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A])];
+      let len = parts[0].length;
+      const push = c => { const b = typeof c === 'string' ? enc.encode(c) : c; parts.push(b); len += b.length; };
+      const offsets = [];
+      objs.forEach((chunks, i) => { offsets.push(len); push(`${i + 1} 0 obj\n`); chunks.forEach(push); push('\nendobj\n'); });
+      const xref = len;
+      push(`xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('')}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info 6 0 R >>\nstartxref\n${xref}\n%%EOF`);
+      const out = new Uint8Array(len); let at = 0;
+      for (const b of parts) { out.set(b, at); at += b.length; }
+      return out;
+    },
+  };
+  return doc;
+}
+// A rasterised chunk of the tool's HTML → a lossless PDF image (PNG "Up" predictor + Flate); JPEG if the browser can't deflate.
+async function rptPdfImage(doc, html, widthPx) {
+  const { canvas, w, h } = await rptRasterCanvas(html, widthPx);
+  const pw = canvas.width, ph = canvas.height;
+  if (typeof CompressionStream === 'undefined') {
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.93));
+    return { img: doc.addImage({ data: new Uint8Array(await blob.arrayBuffer()), pw, ph, filter: 'DCTDecode' }), w, h };
+  }
+  const px = canvas.getContext('2d').getImageData(0, 0, pw, ph).data, row = pw * 3;
+  const raw = new Uint8Array(row * ph);
+  for (let y = 0, s = 0, o = 0; y < ph; y++) for (let x = 0; x < pw; x++, s += 4) { raw[o++] = px[s]; raw[o++] = px[s + 1]; raw[o++] = px[s + 2]; }
+  const filt = new Uint8Array((row + 1) * ph);
+  for (let y = 0; y < ph; y++) {
+    const o = y * (row + 1); filt[o] = 2;                                  // PNG filter type 2 = Up
+    for (let x = 0; x < row; x++) filt[o + 1 + x] = (raw[y * row + x] - (y ? raw[(y - 1) * row + x] : 0)) & 255;
+  }
+  return { img: doc.addImage({ data: await rptDeflate(filt), pw, ph, filter: 'FlateDecode', predictor: true }), w, h };
+}
+function rptPdfFooters(doc, pageW, pageH, margin, left, col) {
+  doc.pages.forEach((pg, i) => {
+    doc.cur = pg;
+    doc.text(margin, pageH - 22, left, 'r', 7.5, col);
+    const t = `Page ${i + 1} of ${doc.pages.length}`;
+    doc.text(pageW - margin - rptTextW(t, 'r', 7.5), pageH - 22, t, 'r', 7.5, col);
+  });
+}
+
+// Stats report → portrait A4 with real, selectable text and tables.
+function rptPdfStats(meta, blocks) {
+  const W = 595.28, H = 841.89, M = 40, top = 46, bottom = 50, cw = W - M * 2;
+  const doc = rptPdf(W, H, meta.title);
+  doc.newPage();
+  let y = top;
+  const ensure = h => { if (y + h > H - bottom) { doc.newPage(); y = top; } };
+  const para = (s, f, size, lead, col) => {
+    for (const ln of rptWrap(rptPdfClean(s), f, size, cw)) { ensure(lead); doc.text(M, y + size, ln, f, size, col); y += lead; }
+  };
+  para(meta.title, 'b', 20, 25, '1B1840');
+  para(`${meta.kind} · Generated ${meta.generated}`, 'r', 9.5, 13, '777777');
+  y += 6;
+  for (const b of blocks) {
+    if (b.t === 'h2') {
+      if (y > top + 1) y += 12;
+      ensure(28 + 70);
+      doc.text(M, y + 13, b.text, 'b', 14, '2D2A55');
+      doc.line(M, y + 19, M + cw, y + 19, '5B4BD6', 1.2);
+      y += 28;
+    } else if (b.t === 'h3') {
+      if (y > top + 1) y += 8;
+      ensure(16 + 50);
+      doc.text(M, y + 10.5, b.text, 'b', 10.5, '2D2A55');
+      y += 16;
+    } else if (b.t === 'p') { para(b.text, 'r', 9.5, 13, '111111'); y += 4; }
+    else if (b.t === 'note') { para(b.text, 'i', 8.5, 11.5, '777777'); y += 4; }
+    else if (b.t === 'kv') {
+      const cws = [cw * 0.34, cw * 0.22, cw * 0.44];
+      for (const [l, v, n] of b.rows) {
+        const L = rptWrap(rptPdfClean(l), 'r', 9.5, cws[0] - 12), V = rptWrap(rptPdfClean(v), 'b', 11, cws[1] - 12), N = rptWrap(rptPdfClean(n || ''), 'r', 8, cws[2] - 12);
+        const h = Math.max(L.length * 13, V.length * 15, N.length * 11) + 9;
+        ensure(h);
+        L.forEach((t, i) => doc.text(M + 6, y + 4 + 9.5 + i * 13, t, 'r', 9.5, '444444'));
+        V.forEach((t, i) => doc.text(M + cws[0] + 6, y + 4 + 11 + i * 15, t, 'b', 11, '111111'));
+        N.forEach((t, i) => doc.text(M + cws[0] + cws[1] + 6, y + 4 + 8 + i * 11, t, 'r', 8, '777777'));
+        doc.line(M, y + h, M + cw, y + h, 'E3E3EA');
+        y += h;
+      }
+      y += 8;
+    } else if (b.t === 'table') {
+      const n = b.head.length, pad = 5;
+      const cells = b.rows.map(r => r.map(c => rptPdfClean(c)));
+      const heads = b.head.map(h => rptPdfClean(h).toUpperCase());
+      const nat = heads.map((h, i) => Math.max(rptTextW(h, 'b', 7.5), ...cells.map(r => rptTextW(r[i] || '', 'r', 8.5))) + pad * 2 + 2);
+      let widths = nat.slice();
+      const sum = nat.reduce((a, c) => a + c, 0);
+      if (sum <= cw) widths = nat.map(v => v * cw / sum);
+      else {   // short columns keep their natural width; the long ones share what's left and wrap
+        const fixed = new Array(n).fill(false);
+        let remain = cw, again = true;
+        while (again) {
+          again = false;
+          const free = fixed.filter(f => !f).length;
+          if (!free) break;
+          const share = remain / free;
+          nat.forEach((v, i) => { if (!fixed[i] && v <= share) { fixed[i] = true; widths[i] = v; remain -= v; again = true; } });
+        }
+        const natFree = nat.reduce((a, v, i) => a + (fixed[i] ? 0 : v), 0);
+        nat.forEach((v, i) => { if (!fixed[i]) widths[i] = remain * v / natFree; });
+      }
+      const xs = widths.map((_, i) => M + widths.slice(0, i).reduce((a, c) => a + c, 0));
+      const headLines = heads.map((h, i) => rptWrap(h, 'b', 7.5, widths[i] - pad * 2));
+      const hh = Math.max(...headLines.map(l => l.length)) * 10 + 9;
+      const drawHead = () => {
+        doc.rect(M, y, cw, hh, '2D2A55');
+        headLines.forEach((ls, i) => ls.forEach((t, k) => {
+          const x = b.align[i] === 'r' ? xs[i] + widths[i] - pad - rptTextW(t, 'b', 7.5) : xs[i] + pad;
+          doc.text(x, y + 5 + 7.5 + k * 10, t, 'b', 7.5, 'FFFFFF');
+        }));
+        y += hh;
+      };
+      const lay = r => { const ls = r.map((c, i) => rptWrap(c, 'r', 8.5, widths[i] - pad * 2)); return { ls, h: Math.max(...ls.map(l => l.length)) * 11 + 7 }; };
+      const laid = cells.map(lay);
+      ensure(hh + (laid[0] ? laid[0].h : 0));
+      drawHead();
+      laid.forEach((row, ri) => {
+        if (y + row.h > H - bottom) { doc.newPage(); y = top; drawHead(); }
+        if (ri % 2) doc.rect(M, y, cw, row.h, 'F6F6FB');
+        row.ls.forEach((ls, i) => ls.forEach((t, k) => {
+          const x = b.align[i] === 'r' ? xs[i] + widths[i] - pad - rptTextW(t, 'r', 8.5) : xs[i] + pad;
+          doc.text(x, y + 3.5 + 8.5 + k * 11, t, 'r', 8.5, '111111');
+        }));
+        doc.line(M, y + row.h, M + cw, y + row.h, 'E3E3EA');
+        y += row.h;
+      });
+      y += 8;
+    }
+  }
+  rptPdfFooters(doc, W, H, M, meta.title, '888888');
+  return doc.finish();
+}
+
+// Visual report → landscape A4 in the tool's dark theme, built from the same rasterised cards as the Google Doc.
+async function rptPdfVisual(meta, secs) {
+  const W = 841.89, H = 595.28, M = 28, top = 30, bottom = 34, cw = W - M * 2, BG = '0B0B18';
+  const doc = rptPdf(W, H, meta.title);
+  doc.newPage(BG);
+  let y = top;
+  doc.text(M, y + 22, meta.title, 'b', 22, 'E0E0F0');
+  doc.text(M, y + 40, `${meta.kind} · Generated ${meta.generated}`, 'r', 10, '8080A8');
+  y += 58;
+  for (let si = 0; si < secs.length; si++) {
+    const sec = secs[si];
+    if (si > 0) { doc.newPage(BG); y = top; }
+    doc.text(M, y + 15, sec.title, 'b', 16, 'E0E0F0');
+    doc.line(M, y + 23, M + cw, y + 23, '2A2A48', 0.8);
+    y += 34;
+    let first = true;
+    for (const html of sec.items) {
+      const r = await rptPdfImage(doc, html, 1100);
+      let w = cw, h = r.h * cw / r.w;
+      if (y + h > H - bottom && !first && (H - bottom - y) / h < 0.7) { doc.newPage(BG); y = top; }   // only start a new page if shrinking to fit would be too small
+      const room = H - bottom - y;
+      if (h > room) { w *= room / h; h = room; }     // too tall even for a fresh page → shrink to fit
+      doc.image(r.img, M + (cw - w) / 2, y, w, h);
+      y += h + 12; first = false;
+    }
+  }
+  rptPdfFooters(doc, W, H, M, meta.title, '50507A');
+  return doc.finish();
+}
+function rptDownloadPdf(bytes, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 
 // Client performance indicator — now the 4th Overview tile (bottom of the
