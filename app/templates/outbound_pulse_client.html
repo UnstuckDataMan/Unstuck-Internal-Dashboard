@@ -283,6 +283,24 @@
 </div>
 
 <div class="pulse-panel">
+  <h3>Lead quality</h3>
+  <p class="panel-hint">
+    From this client's Performance Tracker sheet — how closely each lead
+    matched their ICP, and who we actually reached. The breakdown loads when
+    you open it: it reads a few thousand rows out of Google, on a budget shared
+    with the hourly campaign sync.
+  </p>
+  <div id="pulse-tracker-link"
+       hx-get="/api/outbound-pulse/clients/{{ client.id }}/tracker"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="skel-stack" role="status" aria-label="Loading the tracker link">
+      <div class="skel-card"><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
+    </div>
+  </div>
+</div>
+
+<div class="pulse-panel">
   <h3>Enter figures by hand</h3>
   <p class="panel-hint">
     For a tool this dashboard cannot reach — Meet Alfred, principally. Figures

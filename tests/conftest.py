@@ -50,6 +50,16 @@ class FakeResponse:
         self.text    = json.dumps(self._json) if text is None else text
         self.ok      = status_code < 400
 
+    @property
+    def content(self) -> bytes:
+        """The real Response has this, so the fake must too.
+
+        Code that asks "did the server send a body?" before calling .json()
+        is normal against requests, and a fake missing the attribute turns
+        that into an AttributeError the caller logs as a failed write.
+        """
+        return self.text.encode("utf-8")
+
     def json(self):
         return self._json
 

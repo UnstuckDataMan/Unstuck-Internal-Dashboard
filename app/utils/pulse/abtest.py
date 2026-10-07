@@ -132,7 +132,8 @@ def smartlead_variants(external_campaign_id: str, start: date, end: date) -> lis
     return steps
 
 
-def winners_for_report(steps: list[dict], manual: dict | None = None) -> list[dict]:
+def winners_for_report(steps: list[dict],
+                       manual: dict | list[dict] | None = None) -> list[dict]:
     """The decided winners only, trimmed for a client-facing report.
 
     A client gets the result, not the method: which message worked and by how
@@ -165,28 +166,67 @@ def winners_for_report(steps: list[dict], manual: dict | None = None) -> list[di
             "sent":          best.get("sent", 0),
             "basis":         step.get("basis", ""),
         })
-    if manual and manual.get("winner"):
-        best = next((v for v in manual["variants"]
-                     if v["variant"] == manual["winner"]), None)
-        if best is not None:
-            copy = best.get("variant_copy") or {}
-            out.append({
-                "label":         f"Version {manual['winner']}",
-                "campaign":      "Manual campaigns",
-                "subject":       copy.get("subject", ""),
-                "body":          copy.get("body", ""),
-                "reply_rate":    best.get("reply_rate"),
-                "positive_rate": best.get("positive_rate"),
-                "sent":          best.get("sent", 0),
-                "basis":         manual.get("basis", ""),
-            })
+    # A dict is one combined verdict, a list is one per campaign. Both are
+    # accepted because reports published before the per-campaign breakdown
+    # existed are replayed through here when they are re-published.
+    blocks = [manual] if isinstance(manual, dict) else list(manual or [])
+    for block in blocks:
+        if not block or not block.get("winner"):
+            continue
+        best = next((v for v in block["variants"]
+                     if v["variant"] == block["winner"]), None)
+        if best is None:
+            continue
+        copy = best.get("variant_copy") or {}
+        out.append({
+            "label":         f"Version {block['winner']}",
+            # Named per campaign now. "Manual campaigns" was accurate when
+            # there was one combined verdict and would be a lie against a
+            # figure that covers one campaign.
+            "campaign":      block.get("name") or "Manual campaigns",
+            "subject":       copy.get("subject", ""),
+            "body":          copy.get("body", ""),
+            "reply_rate":    best.get("reply_rate"),
+            "positive_rate": best.get("positive_rate"),
+            "sent":          best.get("sent", 0),
+            "basis":         block.get("basis", ""),
+        })
     return out
 
 
 # ── Manual ────────────────────────────────────────────────────────────────────
 
-def manual_variants(sheet_ids: list[str]) -> dict:
-    """Variant stats across a client's manual campaign sheets, combined.
+_MANUAL_BASIS = "your Lead and Interested statuses"
+
+
+def _blank_variant(key: str) -> dict:
+    return {"variant": key, "is_baseline": False, "sent": 0, "reply": 0,
+            "positive": 0, "unsubscribe": 0, "lead": 0, "interested": 0}
+
+
+def _add_row(totals: dict[str, dict], row: dict) -> None:
+    agg = totals.setdefault(row["variant"], _blank_variant(row["variant"]))
+    agg["sent"] += row.get("total", 0)
+    for field in ("reply", "positive", "unsubscribe", "lead", "interested"):
+        agg[field] += row.get(field, 0)
+
+
+def manual_breakdown(campaigns: list[dict]) -> dict:
+    """Variant stats per manual campaign, and across all of them.
+
+    `campaigns` carries whatever identifies a campaign to the rest of the app:
+    `sheet_id` to read, `ref` to key its written-down copy against, `name` to
+    print, and the Copy Bank `territory`/`industry` the merge recorded.
+
+    PER CAMPAIGN IS THE REAL TEST. A campaign is one send of one Copy Bank
+    entry, so "S1/B1" means one specific message inside it and the winner is a
+    verdict about that message. Across campaigns the same label can be two
+    different messages, which is why the combined figure below carries
+    `shared_copy` rather than being presented as equivalent.
+
+    COMBINED IS STILL WORTH HAVING, because a single campaign often has too
+    little volume to call and several campaigns of the same copy do not. It is
+    computed from the same reads, so it costs no extra requests.
 
     All-time, not windowed: the sheet records a prospect's current status with
     no date against it, so there is no honest way to bound this by a period.
@@ -195,9 +235,13 @@ def manual_variants(sheet_ids: list[str]) -> dict:
     """
     from app.utils.google_sheets import read_ab_stats
 
-    totals: dict[str, dict] = {}
+    blocks: list[dict] = []
+    combined: dict[str, dict] = {}
+    sources: list[tuple[str, str]] = []
     read, skipped = 0, 0
-    for sheet_id in sheet_ids:
+
+    for campaign in campaigns:
+        sheet_id = str(campaign.get("sheet_id") or "")
         if not sheet_id:
             continue
         try:
@@ -207,23 +251,54 @@ def manual_variants(sheet_ids: list[str]) -> dict:
             logger.warning("Pulse A/B: sheet %s unreadable: %s", sheet_id, exc)
             continue
         read += 1
-        for row in rows:
-            agg = totals.setdefault(row["variant"], {
-                "variant": row["variant"], "is_baseline": False,
-                "sent": 0, "reply": 0, "positive": 0, "unsubscribe": 0,
-                "lead": 0, "interested": 0,
-            })
-            agg["sent"] += row.get("total", 0)
-            agg["reply"] += row.get("reply", 0)
-            agg["positive"] += row.get("positive", 0)
-            agg["unsubscribe"] += row.get("unsubscribe", 0)
-            agg["lead"] += row.get("lead", 0)
-            agg["interested"] += row.get("interested", 0)
 
-    result = _decide(list(totals.values()))
+        totals: dict[str, dict] = {}
+        for row in rows:
+            _add_row(totals, row)
+            _add_row(combined, row)
+        if not totals:
+            continue        # a sheet with no variant column is not a test
+
+        territory = str(campaign.get("territory") or "")
+        industry = str(campaign.get("industry") or "")
+        if territory and industry and (territory, industry) not in sources:
+            sources.append((territory, industry))
+
+        block = _decide(list(totals.values()))
+        block.update({
+            "ref":       str(campaign.get("ref") or sheet_id),
+            "name":      str(campaign.get("name") or "").strip() or "Untitled campaign",
+            "territory": territory,
+            "industry":  industry,
+            "basis":     _MANUAL_BASIS,
+        })
+        blocks.append(block)
+
+    # Biggest first: the campaign with the most behind it is the one a reader
+    # should weigh most, and it is the one that most often has a verdict.
+    blocks.sort(key=lambda b: b["total_sent"], reverse=True)
+
+    result = _decide(list(combined.values()))
     result.update({
+        "basis": _MANUAL_BASIS,
+        # One Copy Bank entry behind every campaign means a label means the
+        # same message throughout, and only then can the combined figures be
+        # traced back to copy.
+        "shared_copy": len(sources) == 1,
+        "copy_sources": sources,
+    })
+    return {
+        "campaigns":      blocks,
+        "combined":       result,
         "sheets_read":    read,
         "sheets_skipped": skipped,
-        "basis":          "your Lead and Interested statuses",
-    })
-    return result
+        "basis":          _MANUAL_BASIS,
+    }
+
+
+def manual_variants(sheet_ids: list[str]) -> dict:
+    """The combined verdict alone, for callers with only sheet ids to hand."""
+    out = manual_breakdown([{"sheet_id": s} for s in sheet_ids])
+    return {**out["combined"],
+            "sheets_read":    out["sheets_read"],
+            "sheets_skipped": out["sheets_skipped"]}

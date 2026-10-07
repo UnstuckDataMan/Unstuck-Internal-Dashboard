@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import secrets
 from datetime import date, datetime, timedelta, timezone
 from html import escape
@@ -26,12 +27,15 @@ from app.utils.dates import today_utc
 from app.utils.pulse import (
     abtest,
     hand_entry,
+    tracker,
     meet_alfred,
     richtext,
     smartlead,
     store,
     sync as pulse_sync,
 )
+from app.utils import copy_bank as shared_copy_bank
+from app.utils import google_sheets
 from app.utils.pulse.reports import report_heading
 from app.utils.pulse.normalize import (
     CHANNEL_EMAIL,
@@ -967,7 +971,8 @@ async def revoke_client_access(request: Request, client_id: str, access_id: str)
 
 def _hand_entry_panel(request: Request, client_id: str, error: str = "",
                       notice: str = "", channel: str = "",
-                      month: str = ""):
+                      month: str = "", values: dict | None = None,
+                      source_note: str = ""):
     entries = store.list_hand_entries(client_id)
     for entry in entries:
         parsed = hand_entry.parse_month(str(entry.get("period_month") or ""))
@@ -986,6 +991,11 @@ def _hand_entry_panel(request: Request, client_id: str, error: str = "",
         "labels":    hand_entry.labels_for(),
         "channel":   hand_entry.CHANNEL,
         "month":     month,
+        # What the person typed, so a re-render gives it back. The overlap
+        # warning is a round trip to the server: without this, "save again to
+        # confirm" came back to an empty form and confirmed a month of zeros.
+        "values":      values or {},
+        "source_note": source_note,
         "error":     error,
         "notice":    notice,
     })
@@ -1029,18 +1039,30 @@ async def save_client_hand_entry(
     # LinkedIn always: Meet Alfred is the only source a person keys in.
     chan = hand_entry.CHANNEL
     month = hand_entry.parse_month(period_month)
+    typed = {"sent": sent, "opened": opened, "replied": replied,
+             "meetings": meetings, "bounced": bounced,
+             "unsubscribed": unsubscribed}
+    note = source_note.strip()
     try:
         if month is None:
             return _hand_entry_panel(request, client_id, "Pick a month.",
-                                     channel=chan)
-        metrics, error = hand_entry.clean_metrics({
-            "sent": sent, "opened": opened, "replied": replied,
-            "meetings": meetings, "bounced": bounced,
-            "unsubscribed": unsubscribed,
-        })
+                                     channel=chan, values=typed,
+                                     source_note=note)
+        metrics, error = hand_entry.clean_metrics(typed)
         if error:
             return _hand_entry_panel(request, client_id, error, channel=chan,
-                                     month=month.isoformat()[:7])
+                                     month=month.isoformat()[:7],
+                                     values=typed, source_note=note)
+        if not any(metrics.values()):
+            # Every field blank or zero. The funnel view skips zero rows, so
+            # this would save a record that shows up nowhere and looks exactly
+            # like the save having failed.
+            return _hand_entry_panel(
+                request, client_id,
+                "Enter at least one figure. To remove a month you have already "
+                "entered, delete it below.",
+                channel=chan, month=month.isoformat()[:7],
+                values=typed, source_note=note)
 
         if not confirm:
             start, end = hand_entry.month_bounds(month)
@@ -1054,6 +1076,7 @@ async def save_client_hand_entry(
                 return _hand_entry_panel(
                     request, client_id,
                     channel=chan, month=month.isoformat()[:7],
+                    values=typed, source_note=note,
                     notice=(f"{named} already reported sends for "
                             f"{hand_entry.month_label(month)}. Entering figures "
                             f"here adds to those rather than replacing them — "
@@ -1063,14 +1086,15 @@ async def save_client_hand_entry(
             client_id=client_id, channel=chan,
             period_month=month.isoformat(),
             metrics=metrics,
-            source_note=source_note.strip(),
+            source_note=note,
             entered_by=user.get("name", "") or user.get("email", ""),
         )
         if not saved:
             return _hand_entry_panel(
                 request, client_id,
                 "Could not save that. The details are in the server log.",
-                channel=chan, month=month.isoformat()[:7])
+                channel=chan, month=month.isoformat()[:7],
+                values=typed, source_note=note)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 
@@ -1241,12 +1265,16 @@ def manual_campaigns(client_id: str) -> list[dict]:
         return []
 
 
-def _manual_sheet_ids(client_id: str) -> list[str]:
-    """Campaign sheets for this client, newest first.
+def _manual_ab_campaigns(client_id: str) -> list[dict]:
+    """This client's manual campaigns, as the A/B breakdown needs them.
 
     Read straight from the mail-merge `campaigns` table rather than through
     Pulse: manual campaigns are that tool's records, and Pulse only ever reads
     their aggregates.
+
+    `ref` is the campaign row's id rather than its name. Copy written down
+    against a campaign is keyed by it, and a renamed campaign must not lose
+    the copy somebody typed for it.
     """
     from app.utils.supabase import SUPABASE_URL, sb_headers
 
@@ -1258,7 +1286,8 @@ def _manual_sheet_ids(client_id: str) -> list[str]:
         r = http.get(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             params={
-                "select":    "sheet_id,campaign_name,completed_at",
+                "select":    ("id,sheet_id,campaign_name,completed_at,"
+                              "copy_territory,copy_industry"),
                 "client_id": f"eq.{client_id}",
                 "order":     "completed_at.desc.nullslast",
                 "limit":     str(_AB_MAX_CAMPAIGNS),
@@ -1267,20 +1296,59 @@ def _manual_sheet_ids(client_id: str) -> list[str]:
             timeout=15,
         )
         if r.status_code >= 400:
-            return []
-        return [str(row.get("sheet_id") or "") for row in r.json()
-                if row.get("sheet_id")]
+            # The copy-source columns may not be migrated here. Fall back to
+            # the ids alone: the breakdown is still worth showing without the
+            # copy, and losing the whole panel over it would not be.
+            return _manual_ab_campaigns_without_copy(client_id)
+        rows = r.json()
     except Exception as exc:
         logger.warning("Pulse A/B: could not list campaigns for %s: %s", client_id, exc)
         return []
+    return [{
+        "ref":       str(row.get("id") or row.get("sheet_id") or ""),
+        "name":      str(row.get("campaign_name") or ""),
+        "sheet_id":  str(row.get("sheet_id") or ""),
+        "territory": str(row.get("copy_territory") or ""),
+        "industry":  str(row.get("copy_industry") or ""),
+    } for row in rows if row.get("sheet_id")]
+
+
+def _manual_ab_campaigns_without_copy(client_id: str) -> list[dict]:
+    from app.utils.supabase import SUPABASE_URL, sb_headers
+
+    import requests as http
+
+    try:
+        r = http.get(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            params={
+                "select":    "id,sheet_id,campaign_name",
+                "client_id": f"eq.{client_id}",
+                "limit":     str(_AB_MAX_CAMPAIGNS),
+            },
+            headers=sb_headers(),
+            timeout=15,
+        )
+        if r.status_code >= 400:
+            return []
+        rows = r.json()
+    except Exception:
+        return []
+    return [{
+        "ref":       str(row.get("id") or row.get("sheet_id") or ""),
+        "name":      str(row.get("campaign_name") or ""),
+        "sheet_id":  str(row.get("sheet_id") or ""),
+        "territory": "", "industry": "",
+    } for row in rows if row.get("sheet_id")]
 
 
 def _copy_index(client_id: str) -> dict[tuple[str, str, str], dict]:
     """Written-down copy, keyed the way a variant identifies itself.
 
-    An empty campaign_ref matches any campaign, which is what a Copy Bank
-    combination is — the same text reused wherever it ran — so a lookup falls
-    back to it rather than demanding the copy be typed once per campaign.
+    An empty campaign_ref matches any campaign — copy recorded before the
+    per-campaign breakdown existed, or deliberately recorded once for every
+    campaign that reused it — so a lookup falls back to it rather than
+    demanding the same text be typed against each campaign.
     """
     index: dict[tuple[str, str, str], dict] = {}
     for row in store.list_copy_variants(client_id):
@@ -1293,6 +1361,88 @@ def _copy_index(client_id: str) -> dict[tuple[str, str, str], dict]:
 def _copy_for(index: dict, source: str, campaign: str, variant: str) -> dict | None:
     return (index.get((source, campaign, variant))
             or index.get((source, "", variant)))
+
+
+def _copy_bank_lookup(client_id: str):
+    """Resolve manual variant labels against the Copy Bank, entry by entry.
+
+    A manual variant is an index — "S1/B1" is subject 1 with body 1 — so the
+    text is already written down and nobody should have to type it again. The
+    merge records which entry it pulled, in campaigns.copy_territory /
+    copy_industry, which is the piece that makes the index resolvable.
+
+    Returns resolve(territory, industry, label). Each distinct entry is
+    fetched once however many labels are looked up against it; an entry with
+    no territory or industry recorded resolves to nothing, because a campaign
+    run without choosing a copy source has nothing to resolve against.
+    """
+    cache: dict[tuple[str, str], dict | None] = {}
+
+    def entry(territory: str, industry: str) -> dict | None:
+        key = (territory, industry)
+        if key not in cache:
+            content, found = shared_copy_bank.fetch_content(
+                client_id, territory, industry)
+            cache[key] = shared_copy_bank.extract(content) if found else None
+        return cache[key]
+
+    def resolve(territory: str, industry: str, label: str) -> dict | None:
+        if not territory or not industry:
+            return None
+        copy = entry(territory, industry)
+        if copy is None:
+            return None
+        hit = shared_copy_bank.variant_in(copy, label)
+        if hit is None:
+            return None
+        return {
+            "subject": hit["subject"],
+            # Copy Bank stores a body as plain text and renders it with
+            # textContent, so it has never been escaped — and this body goes
+            # on to a client-facing report.
+            "body":    richtext.from_text(hit["body"]),
+            "from_copy_bank": True,
+            "source_label":   f"{territory} · {industry}",
+        }
+
+    return resolve
+
+
+def _attach_manual_copy(client_id: str, breakdown: dict, copy_index: dict) -> str:
+    """Put the copy against every manual variant. Returns a note for the view.
+
+    PER CAMPAIGN THERE IS NO AMBIGUITY. A campaign pulled exactly one Copy
+    Bank entry, so its labels resolve against that entry and nothing else.
+    That is the whole reason the breakdown is worth having: combined across
+    campaigns, "S1/B1" can be two different messages and the sheet cannot say
+    which one a prospect got, so the combined block only resolves when every
+    campaign drew on the same entry.
+
+    Copy typed by hand always wins. It is somebody correcting what the index
+    resolves to, and `_copy_for` falls back from this campaign's own entry to
+    one recorded against every campaign.
+    """
+    resolve = _copy_bank_lookup(client_id)
+
+    for block in breakdown["campaigns"]:
+        for variant in block["variants"]:
+            variant["variant_copy"] = (
+                _copy_for(copy_index, SOURCE_MANUAL, block["ref"], variant["variant"])
+                or resolve(block["territory"], block["industry"], variant["variant"]))
+
+    combined = breakdown["combined"]
+    territory, industry = (combined["copy_sources"] or [("", "")])[0]
+    for variant in combined["variants"]:
+        variant["variant_copy"] = (
+            _copy_for(copy_index, SOURCE_MANUAL, "", variant["variant"])
+            or (resolve(territory, industry, variant["variant"])
+                if combined["shared_copy"] else None))
+
+    if len(combined["copy_sources"]) > 1:
+        return (f"These campaigns pulled {len(combined['copy_sources'])} different "
+                "Copy Bank entries, so a label like S1/B1 is not the same message "
+                "in each. The per-campaign results above are the ones to read.")
+    return ""
 
 
 def _ab_panel(request: Request, client_id: str, rng: dict, error: str = ""):
@@ -1333,10 +1483,8 @@ def _ab_panel(request: Request, client_id: str, rng: dict, error: str = ""):
                         variant["variant"])
                 smartlead_steps.append(step)
 
-    manual = abtest.manual_variants(_manual_sheet_ids(client_id))
-    for variant in manual["variants"]:
-        variant["variant_copy"] = _copy_for(copy_index, SOURCE_MANUAL, "",
-                                    variant["variant"])
+    manual = abtest.manual_breakdown(_manual_ab_campaigns(client_id))
+    manual["copy_note"] = _attach_manual_copy(client_id, manual, copy_index)
 
     return templates.TemplateResponse("partials/pulse_ab.html", {
         "request":          request,
@@ -1413,6 +1561,203 @@ async def save_variant_copy(
         return _not_ready_box(exc)
 
 
+# ── The ICP Performance Tracker ────────────────────────────────
+
+def _tracker_link_panel(request: Request, client_id: str, error: str = "",
+                        notice: str = ""):
+    """The link form and its status. Cheap — one Postgres read, no sheet."""
+    tracker_row = store.get_tracker(client_id)
+    return templates.TemplateResponse("partials/pulse_tracker_link.html", {
+        "request":   request,
+        "client_id": client_id,
+        "tracker":   tracker_row,
+        "error":     error,
+        "notice":    notice,
+    })
+
+
+@router.get("/api/outbound-pulse/clients/{client_id}/tracker")
+async def tracker_link(request: Request, client_id: str):
+    try:
+        return _tracker_link_panel(request, client_id)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+@router.post("/api/outbound-pulse/clients/{client_id}/tracker")
+async def link_tracker(
+    request:   Request,
+    client_id: str,
+    sheet_url: str = Form(""),
+    tab_title: str = Form(""),
+    user:      dict = Depends(auth.require_login),
+):
+    """Point this client at their Performance Tracker sheet.
+
+    The sheet is READ BEFORE IT IS STORED. extract_sheet_id falls through to
+    returning whatever it was given, so a pasted Notion link becomes a
+    "sheet id" that 404s on every later read with no clue why. Reading the
+    header row first costs one request and turns "the panel is broken" into
+    a message naming the actual problem, at the moment it can be fixed.
+    """
+    pasted = (sheet_url or "").strip()
+    tab = (tab_title or "").strip() or tracker.DEFAULT_TAB
+    try:
+        if not pasted:
+            return _tracker_link_panel(request, client_id,
+                                       "Paste the Performance Tracker sheet's link.")
+        if tab.lower() in tracker.FORBIDDEN_TABS:
+            # Locked, different schema, and not ours. Refuse by name rather
+            # than letting it fail later as an unreadable column layout.
+            return _tracker_link_panel(
+                request, client_id,
+                "“Raw Leads” is locked and has a different layout. "
+                "Point this at the “All leads” tab.")
+
+        sheet_id = google_sheets.extract_sheet_id(pasted)
+        if not _looks_like_a_sheet_id(sheet_id):
+            return _tracker_link_panel(
+                request, client_id,
+                "That does not look like a Google Sheets link. Copy the URL "
+                "from the sheet's address bar.")
+        if not google_sheets.is_configured():
+            return _tracker_link_panel(
+                request, client_id,
+                "Google Sheets is not configured on this server, so the link "
+                "cannot be checked. Ask an administrator to set "
+                "GOOGLE_SHEETS_SA_JSON.")
+
+        try:
+            headers = google_sheets.read_tracker_headers(sheet_id, tab)
+        except google_sheets.TrackerUnavailable as exc:
+            return _tracker_link_panel(request, client_id, str(exc))
+        except Exception as exc:
+            logger.warning("Pulse: tracker probe failed for %s: %s", client_id, exc)
+            return _tracker_link_panel(
+                request, client_id,
+                "That sheet could not be read. The details are in the server log.")
+
+        columns, warnings = tracker.resolve_columns(headers)
+        if "date" not in columns:
+            # Without a date nothing can be tied to a report period, and a
+            # period figure built from undated rows would be fiction.
+            return _tracker_link_panel(
+                request, client_id,
+                f"The “{tab}” tab has no date column, so leads cannot be "
+                "matched to a reporting period. Expected a column ending in "
+                "“Date/Time”.")
+
+        if not store.set_tracker(client_id=client_id, sheet_id=sheet_id,
+                                 sheet_url=pasted, tab_title=tab,
+                                 linked_by=user.get("name", "") or user.get("email", "")):
+            return _tracker_link_panel(
+                request, client_id,
+                "Could not save that link. The details are in the server log.")
+
+        notice = "Sheet linked."
+        if warnings:
+            notice += " " + " ".join(warnings)
+        return _tracker_link_panel(request, client_id, notice=notice)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+@router.delete("/api/outbound-pulse/clients/{client_id}/tracker")
+async def unlink_tracker(request: Request, client_id: str):
+    try:
+        store.clear_tracker(client_id)
+        return _tracker_link_panel(request, client_id, notice="Sheet unlinked.")
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+def _looks_like_a_sheet_id(value: str) -> bool:
+    """Google keys are a long run of url-safe characters and nothing else.
+
+    extract_sheet_id returns its input when the URL does not match, so this is
+    what stops a pasted Notion page being stored as a spreadsheet key.
+    """
+    return bool(re.fullmatch(r"[A-Za-z0-9_\-]{20,}", value or ""))
+
+
+def _tracker_panel(request: Request, client_id: str, rng: dict):
+    """The lead-quality breakdown. One sheet read, then everything else is
+    filtered in the browser from the rows this ships with it."""
+    tracker_row = store.get_tracker(client_id)
+    context = {
+        "request":   request,
+        "client_id": client_id,
+        "tracker":   tracker_row,
+        "range":     rng,
+        "rows":      [],
+        "summary":   None,
+        "meta":      {},
+        "error":     "",
+        "read_at":   datetime.now(timezone.utc).strftime("%H:%M"),
+    }
+    if not tracker_row:
+        context["error"] = "No Performance Tracker sheet is linked for this client."
+        return templates.TemplateResponse("partials/pulse_tracker.html", context)
+
+    sheet_id = str(tracker_row.get("sheet_id") or "")
+    tab = str(tracker_row.get("tab_title") or tracker.DEFAULT_TAB)
+    try:
+        raw = google_sheets.read_tracker_rows(sheet_id, tab)
+    except google_sheets.TrackerUnavailable as exc:
+        store.set_tracker_status(client_id, str(exc))
+        context["error"] = str(exc)
+        return templates.TemplateResponse("partials/pulse_tracker.html", context)
+    except Exception as exc:
+        logger.warning("Pulse: tracker read failed for %s: %s", client_id, exc)
+        store.set_tracker_status(client_id, "The sheet could not be read.")
+        context["error"] = ("That sheet could not be read. The details are in "
+                            "the server log.")
+        return templates.TemplateResponse("partials/pulse_tracker.html", context)
+
+    headers = list(raw[0].keys()) if raw else []
+    rows, meta = tracker.parse_rows(raw, headers)
+    store.set_tracker_status(client_id, "")
+
+    # The initial view matches the range the page is showing, so the panel
+    # agrees with the funnel above it. Every row ships regardless, so widening
+    # to all time is a click in the browser rather than another sheet read.
+    scoped = tracker.in_period(rows, rng.get("from"), rng.get("to"))
+    context.update({
+        "rows":     rows,
+        "summary":  tracker.summarise(scoped),
+        "meta":     meta,
+        # Orderings and labels travel WITH the rows, so the browser's filtered
+        # recount hardcodes no business rule and cannot drift from Python's.
+        "config":   {
+            "seniority": [[k, tracker.SENIORITY_LABELS[k]]
+                          for k in tracker.SENIORITY_ORDER],
+            "bands":     [[k, l] for k, l, _lo, _hi in tracker.ICP_BANDS]
+                         + [list(tracker.UNRATED_BAND)],
+            "top_n":     tracker.TOP_N,
+            "top_rated_from": tracker.TOP_RATED_FROM,
+        },
+        "in_range": len(scoped),
+        "from":     rng["from"].isoformat() if rng.get("from") else "",
+        "to":       rng["to"].isoformat() if rng.get("to") else "",
+    })
+    return templates.TemplateResponse("partials/pulse_tracker.html", context)
+
+
+@router.get("/api/outbound-pulse/clients/{client_id}/tracker/leads")
+async def tracker_leads(
+    request:   Request,
+    client_id: str,
+    range:     str = Query("30d"),
+    date_from: str = Query(""),
+    date_to:   str = Query(""),
+):
+    try:
+        return _tracker_panel(request, client_id,
+                              _resolve_range(range, date_from, date_to))
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
 # ── Client reports ─────────────────────────────────────────────
 
 
@@ -1436,8 +1781,62 @@ def report_snapshot(client_id: str, start: date, end: date) -> dict:
         # Frozen with everything else. Reading it live on the portal would put
         # a figure that moves next to a column of figures that cannot.
         "ab":         _report_ab_winners(client_id, start, end),
+        "icp":        _report_icp(client_id, start, end),
         "taken_at":   datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _report_icp(client_id: str, start: date, end: date) -> dict:
+    """Lead quality for the report's period, frozen at publish.
+
+    Never raises, for the same reason _report_ab_winners does not: this reaches
+    out to Google, and a slow or revoked sheet is not worth failing a publish
+    over. A missing section is a missing section; a publish that dies at the
+    last step loses the account manager's write-up with it.
+
+    Returns {} — which renders nothing at all — when no sheet is linked, when
+    the sheet cannot be read, when it has no date column (a period figure built
+    from undated rows would be fiction), and when the period contains no leads.
+
+    CARRIES ALL-TIME ALONGSIDE THE PERIOD. A month of outbound is a handful of
+    graded leads, so a monthly average on its own is noise. The sheet's own
+    summary makes the same comparison, which is a fair sign of how it gets read.
+    """
+    try:
+        linked = store.get_tracker(client_id)
+        if not linked:
+            return {}
+        rows_raw = google_sheets.read_tracker_rows(
+            str(linked.get("sheet_id") or ""),
+            str(linked.get("tab_title") or tracker.DEFAULT_TAB))
+        headers = list(rows_raw[0].keys()) if rows_raw else []
+        rows, meta = tracker.parse_rows(rows_raw, headers)
+        if not meta.get("has_dates") or not rows:
+            return {}
+
+        scoped = tracker.in_period(rows, start, end)
+        if not scoped:
+            return {}
+
+        summary = tracker.summarise(scoped)
+        everything = tracker.summarise(rows)
+        summary.update({
+            "version": 1,
+            "top_rated_from": tracker.TOP_RATED_FROM,
+            "all_time": {
+                "total":   everything["total"],
+                "rated":   everything["rated"],
+                "average": everything["average"],
+            },
+        })
+        # The ranked job titles stay internal: a client's report wants the
+        # shape of who we reached, not a list of individual prospects.
+        summary.pop("roles", None)
+        return summary
+    except Exception as exc:
+        logger.warning("Pulse: lead quality unavailable for the report on %s: %s",
+                       client_id, exc)
+        return {}
 
 
 def _report_ab_winners(client_id: str, start: date, end: date) -> list[dict]:
@@ -1470,13 +1869,15 @@ def _report_ab_winners(client_id: str, start: date, end: date) -> list[dict]:
         logger.warning("Pulse: A/B unavailable for the report on %s: %s",
                        client_id, exc)
     try:
-        manual = abtest.manual_variants(_manual_sheet_ids(client_id))
-        for variant in manual["variants"]:
-            variant["variant_copy"] = _copy_for(copy_index, SOURCE_MANUAL, "",
-                                        variant["variant"])
+        breakdown = abtest.manual_breakdown(_manual_ab_campaigns(client_id))
+        _attach_manual_copy(client_id, breakdown, copy_index)
+        # Per campaign, not combined. A campaign is one send of one Copy Bank
+        # entry, so its winner is a verdict the client can act on; the
+        # combined figure can span two different messages under one label.
+        manual = breakdown["campaigns"]
     except Exception as exc:
         logger.warning("Pulse: manual A/B unavailable for %s: %s", client_id, exc)
-        manual = None
+        manual = []
     return abtest.winners_for_report(steps, manual)
 
 
@@ -1487,8 +1888,13 @@ def _default_period() -> tuple[date, date]:
     return end.replace(day=1), end
 
 
+# Typed, not clicked. Short enough to type without copying, specific enough
+# that it cannot be the result of hitting return on a focused field.
+_CLEAR_REPORTS_WORD = "DELETE"
+
+
 def _reports_panel(request: Request, client_id: str, error: str = "",
-                   editing: str = ""):
+                   editing: str = "", notice: str = "", clearing: bool = False):
     reports = store.list_reports(client_id)
     start, end = _default_period()
     taken = {(str(r.get("period_start")), str(r.get("period_end"))) for r in reports}
@@ -1505,7 +1911,12 @@ def _reports_panel(request: Request, client_id: str, error: str = "",
         "reports":     reports,
         "client_id":   client_id,
         "error":       error,
+        "notice":      notice,
         "editing":     editing,
+        # Kept open across a refused confirmation, so a mistyped word does not
+        # also collapse the form it was typed into.
+        "clearing":    clearing,
+        "clear_word":  _CLEAR_REPORTS_WORD,
         "next_start":  start.isoformat(),
         "next_end":    end.isoformat(),
     })
@@ -1550,6 +1961,54 @@ async def create_client_report(
                 "Could not create that report. There may already be one for "
                 "that exact period.")
         return _reports_panel(request, client_id, editing=str(created["id"]))
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+# Registered BEFORE the /reports/{report_id} routes. FastAPI matches in
+# definition order, so declared after them "clear" binds as a report id
+# and this never runs.
+@router.post("/api/outbound-pulse/clients/{client_id}/reports/clear")
+async def clear_client_reports(
+    request:   Request,
+    client_id: str,
+    confirm:   str = Form(""),
+    user:      dict = Depends(auth.require_login),
+):
+    """Wipe this client's whole report history. Nothing comes back.
+
+    Guarded by a typed word rather than a confirm dialog. The capability
+    already exists one row at a time, so this is not about who may do it — it
+    is about not doing it by reflex on a live client, where the thing lost is
+    every published report they can currently open.
+
+    Logged with the name of whoever did it, because the client noticing their
+    history is gone is a question somebody has to be able to answer.
+    """
+    try:
+        if confirm.strip().upper() != _CLEAR_REPORTS_WORD:
+            return _reports_panel(
+                request, client_id,
+                f"Type {_CLEAR_REPORTS_WORD} to confirm. Nothing has been deleted.",
+                clearing=True)
+        removed = store.delete_all_reports(client_id)
+        if removed is None:
+            return _reports_panel(
+                request, client_id,
+                "Could not clear the reports. The details are in the server log.")
+        logger.warning("Pulse: %s cleared %d report(s) for client %s",
+                       user.get("email") or user.get("name") or "someone",
+                       removed, client_id)
+        if not removed:
+            # Somebody else got there first, most likely. Saying the link now
+            # has no history would be claiming credit for a delete that did
+            # nothing, and the reader cannot tell the two apart otherwise.
+            return _reports_panel(request, client_id,
+                                  notice="There was nothing left to clear.")
+        return _reports_panel(
+            request, client_id,
+            notice=(f"Cleared {removed} report{'' if removed == 1 else 's'}. "
+                    "The client's link now has no history on it."))
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 

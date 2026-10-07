@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 
 import requests as http_req
 from fastapi import APIRouter, Depends, Request
@@ -10,6 +9,7 @@ from pydantic import BaseModel
 
 from app import auth
 from app.deps import templates
+from app.utils import copy_bank as shared_copy_bank
 
 log = logging.getLogger(__name__)
 
@@ -81,65 +81,33 @@ def copy_bank_profiles():
 def copy_bank_template(client_id: str, territory: str, industry: str, channel: str = "email"):
     url = os.environ.get("SUPABASE_URL", "")
 
-    # Bizdev content uses simple territory_industry keys; clients use __c__ prefix
-    if client_id == "bizdev":
-        cb_key = f"{territory}_{industry}"
-    else:
-        cb_key = f"__c__{client_id}__{territory}_{industry}"
-
-    resp = http_req.get(
-        f"{url}/rest/v1/copy_bank_templates",
-        params={"key": f"eq.{cb_key}", "select": "content"},
-        headers=_sb_headers(),
-        timeout=10,
-    )
-    rows = resp.json()
-
-    # Fallback: if no client key found, try bizdev key format (covers migrated profiles)
-    if not rows and client_id != "bizdev":
-        cb_key = f"{territory}_{industry}"
-        resp = http_req.get(
-            f"{url}/rest/v1/copy_bank_templates",
-            params={"key": f"eq.{cb_key}", "select": "content"},
-            headers=_sb_headers(),
-            timeout=10,
-        )
-        rows = resp.json()
-
-    c = (rows[0].get("content") or {}) if rows else {}
+    # Key building and the bizdev fallback live in app/utils/copy_bank.py, so
+    # that Client Performance & Reports resolves a variant against exactly the
+    # entry Copy Bank would show for it.
+    content, found = shared_copy_bank.fetch_content(client_id, territory, industry)
+    copy = shared_copy_bank.extract(content, channel)
 
     # LinkedIn and Chaser are ordered, body-only "steps" sequences; email and
     # flyout have subject lines + body variations.
     if channel in ("linkedin", "chaser"):
-        ch       = c.get(channel) or {}
-        subjects = []
-        bodies   = [s["body"] for s in (ch.get("steps") or []) if s.get("body", "").strip()]
+        bodies = copy["bodies"]
         # Chaser fallback: when this industry has no chaser of its own, use the
         # client's profile-level default chaser (Copy Bank seeds it the same way).
         if channel == "chaser" and not bodies:
             bodies = _profile_default_chaser(url, client_id)
-        return {"subjects": subjects, "bodies": bodies}
+        return {"subjects": [], "bodies": bodies}
 
-    if not rows:
+    if not found:
         return {"subjects": [], "bodies": []}
 
     # flyout only available for Biz Dev; anything else falls back to email
-    ch_key   = "flyout" if channel == "flyout" else "email"
-    ch       = c.get(ch_key) or {}
-    subjects = [s for s in (ch.get("subjects") or []) if s and s.strip()]
-    bodies   = [v["body"] for v in (ch.get("variations") or []) if v.get("body", "").strip()]
-    return {"subjects": subjects, "bodies": bodies}
+    return copy
 
 
-_VARIANT_RE = re.compile(r"^\s*S(\d+)\s*/\s*B(\d+)\s*$")
-
-
-def _parse_variant(v: str) -> tuple[int | None, int | None]:
-    """'S2/B1' → (subject_idx=1, body_idx=0), 0-based to match Copy Bank arrays."""
-    m = _VARIANT_RE.match(str(v or ""))
-    if not m:
-        return (None, None)
-    return (int(m.group(1)) - 1, int(m.group(2)) - 1)
+# Shared with Client Performance & Reports, which resolves the same labels
+# against the same arrays. Two copies of this would drift the moment either
+# tool changed what a label looks like.
+_parse_variant = shared_copy_bank.parse_variant
 
 
 @router.get("/api/copy-bank/ab-winner")

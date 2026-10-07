@@ -422,6 +422,24 @@ def empty_funnel() -> dict[str, int]:
     return {stage: 0 for stage in FUNNEL_STAGES}
 
 
+def without(counts: dict[str, int], part: dict[str, int]) -> dict[str, int]:
+    """One funnel minus another, stage by stage, never below zero.
+
+    Used to take LinkedIn out of a client's totals. By SUBTRACTION rather than
+    by reading the email channel directly, so that a row carrying no channel —
+    or a channel added later — stays in the figures a client is shown instead
+    of disappearing from both halves of the page.
+
+    Clamped at zero because the two sides are counted independently: a late
+    sync landing between them must not be able to produce a negative send
+    count on a client's report.
+    """
+    if not part:
+        return dict(counts)
+    return {stage: max(0, (counts.get(stage, 0) or 0) - (part.get(stage, 0) or 0))
+            for stage in set(counts) | set(part)}
+
+
 def opens_are_tracked(counts: dict[str, int]) -> bool:
     """Whether the Opened stage carries real information for these counts.
 

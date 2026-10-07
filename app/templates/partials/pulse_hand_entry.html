@@ -27,6 +27,7 @@
     <label class="report-field report-field-wide">
       <span>Where from <em>optional</em></span>
       <input type="text" name="source_note" maxlength="300"
+             value="{{ source_note }}"
              placeholder="e.g. Meet Alfred dashboard, 3 Oct">
     </label>
   </div>
@@ -35,7 +36,11 @@
     {% for m in metrics %}
     <label class="hand-field">
       <span>{{ labels[m] }}</span>
-      <input type="number" name="{{ m }}" min="0" step="1" placeholder="0" inputmode="numeric">
+      {# Given back on every re-render. The overlap warning is a round trip to
+         the server, and an empty form came back from it — so "Save anyway"
+         confirmed a month of zeros and the figures were silently lost. #}
+      <input type="number" name="{{ m }}" min="0" step="1" placeholder="0"
+             inputmode="numeric" value="{{ values.get(m, '') }}">
     </label>
     {% endfor %}
   </div>
