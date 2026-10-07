@@ -827,6 +827,7 @@ const state = {
   insBarLayout: 'separate', // 'separate' | 'stacked'
   insBarSort: 'ltv',        // 'ltv' | 'tenure' | 'list' — only used in 'stacked' layout
   insRevMonthlyChart: 'line', // 'bar' | 'line' — Target vs Landed, monthly
+  insRevMetric: 'mrr',        // 'mrr' | 'avg' | 'vol' — what the monthly revenue chart plots: Target vs MRR, average client value, client volume
 };
 
 /* ════════════════ Persistence ════════════════ */
@@ -3656,7 +3657,7 @@ function buildLineChart(seriesList, opts = {}) {
     months.forEach((m, i) => { const d = Math.abs(x(i) - relX); if (d < bd) { bd = d; best = i; } });
     return best;
   };
-  return { html, months, series: usable, x, y, W, H, id, fmtV, tooltipLabelFn, xc: x, halfW, padT, padB, idxAt };
+  return { html, months, series: usable, x, y, W, H, id, fmtV, tooltipLabelFn, xc: x, halfW, padT, padB, padL, padR, idxAt };
 }
 // Generic hover/crosshair wiring for a buildLineChart() result — one tooltip
 // listing every series' value for whichever month is nearest the cursor
@@ -3796,7 +3797,7 @@ function buildGroupedBarChart(seriesList, opts = {}) {
       ${xLabelsSvg}
     </svg>`;
   const idxAt = relX => { const i = Math.floor((relX - padL) / groupW); return (relX < padL || i < 0 || i >= n) ? -1 : i; };
-  return { html, months, W, H, padT, padB, xc: i => x(i) + groupW / 2, halfW: groupW / 2, idxAt };
+  return { html, months, W, H, padT, padB, xc: i => x(i) + groupW / 2, halfW: groupW / 2, padL, padR, idxAt };
 }
 
 // A neutral-grey fade for ranked bar lists — row 0 (the top/longest bar)
@@ -4483,9 +4484,18 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   const pastRows = insTrendWindow(revenueMonths.map(m => ({ m })));
   // Projections: the chosen number of future months, target line only — there
   // is no MRR to show for a month that hasn't happened yet.
-  const projMonths = insProjectionMonths();
+  const metric = state.insRevMetric;
+  const projMonthsAll = insProjectionMonths();
+  // Projections are targets, so they only apply to the Target vs MRR view.
+  const projMonths = metric === 'mrr' ? projMonthsAll : [];
   const revMonthRows = [...pastRows, ...projMonths.map(m => ({ m, projected: true }))];
-  const revMonthlySeries = [
+  // Average client value and client volume come straight from each month's invoicing: how many
+  // clients were invoiced, and what was billed to them (MRR ÷ clients = average client value).
+  const byMonthRow = new Map(snapRows.map(r => [r.m, r]));
+  const otherValue = (m) => { const row = byMonthRow.get(m); if (!row || !row.count) return null; return metric === 'avg' ? row.mrr / row.count : row.count; };
+  const revMonthlySeries = metric !== 'mrr' ? [
+    { name: metric === 'avg' ? 'Average client value' : 'Clients invoiced', color: metric === 'avg' ? '#22d3ee' : '#f472b6', points: revMonthRows.map(r => ({ m: r.m, v: otherValue(r.m) })) },
+  ] : [
     { name: 'Target', color: 'var(--accent)', points: revMonthRows.map(r => ({ m: r.m, v: targetForMonth(r.m) })) },
     // MRR here is cash landed for a completed month; for the current
     // (still-elapsing) month it's what's expected to land — every invoice
@@ -4500,14 +4510,50 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   ];
   const projectedFrom = projMonths[0] || null;
   const revMonthlyChart = state.insRevMonthlyChart === 'bar'
-    ? buildGroupedBarChart(revMonthlySeries, { yUnit: '£', id: 'ins-rev-m', lineSeries: ['Target'], projectedFrom })
-    : buildLineChart(revMonthlySeries, { yUnit: '£', id: 'ins-rev-m', projectedFrom });
+    ? buildGroupedBarChart(revMonthlySeries, { yUnit: metric === 'vol' ? '' : '£', id: 'ins-rev-m', lineSeries: metric === 'mrr' ? ['Target'] : [], projectedFrom })
+    : buildLineChart(revMonthlySeries, { yUnit: metric === 'vol' ? '' : '£', id: 'ins-rev-m', projectedFrom });
   const lastTargetMonth = Object.keys(DB.settings.revenueTargets || {}).filter(m => DB.settings.revenueTargets[m] != null).sort().pop();
   const projAsked = insProjectionSpan();
   const projNote = !projAsked ? ''
+    : metric !== 'mrr' ? 'Projections are targets, so they only show on the MRR view.'
     : !projMonths.length ? 'No future targets are set — add some in Operational Settings to project them.'
     : (projMonths.length < projAsked
         ? `Targets are only set up to ${monthLabel(lastTargetMonth)}, so the projection stops there.` : '');
+
+  // What the legend says depends on what the chart plots (Target vs MRR, average client value, client volume).
+  const metricInfo = {
+    avg: { label: 'Average client value', color: '#22d3ee', note: 'Revenue billed in the month ÷ clients invoiced that month — the average monthly value of a client.' },
+    vol: { label: 'Clients invoiced', color: '#f472b6', note: 'How many clients were invoiced in the month — client volume.' },
+  }[metric];
+  const legendHtml = metric !== 'mrr'
+    ? `<div class="chart-legend"><span class="key"><span class="dot" style="background:${metricInfo.color}"></span>${esc(metricInfo.label)}</span><span class="key" style="opacity:.85">${esc(metricInfo.note)}</span></div>`
+    : `<div class="chart-legend">
+        ${state.insRevMonthlyChart === 'bar'
+          ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
+          : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
+        <span class="key"><span class="dot" style="background:var(--success)"></span>${insTerm('MRR')}</span>
+        <span class="key"><span class="dot" style="background:var(--warn)"></span>${insTerm('MRR')} — expected to land (current month)</span>
+        ${projMonths.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
+      </div>`;
+
+  // Three simple boxes above the chart: what it is, this month's value, and the % change on last month.
+  // They double as the selector — clicking one switches the chart to it.
+  const curRow = byMonthRow.get(monthKey), prevKey = addMonths(monthKey, -1), prevRow = byMonthRow.get(prevKey);
+  const curAvg = curRow && curRow.count ? curRow.mrr / curRow.count : null;
+  const prevAvg = prevRow && prevRow.count ? prevRow.mrr / prevRow.count : null;
+  const pctChange = (now, before) => (now == null || before == null || !before) ? null : (now - before) / before * 100;
+  const prevShort = MON3[Number(prevKey.slice(5)) - 1];
+  const changeHtml = (pct, tip) => pct == null
+    ? '<span class="muted">no change to show</span>'
+    : `<span class="${pct >= 0 ? 'cmp-up' : 'cmp-down'}" title="${esc(tip)}">${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}%</span> <span class="muted">vs ${prevShort}</span>`;
+  const curShort = MON3[Number(monthKey.slice(5)) - 1] + ' ' + monthKey.slice(2, 4);
+  const metricBox = (key, label, valueHtml, changeInner) => `<button type="button" class="stat clickable-stat ${metric === key ? 'filter-active' : ''}" data-revmetric="${key}" title="Show this on the chart below" style="text-align:left; font:inherit; color:inherit">
+      <div class="l" style="margin:0 0 4px">${label} <span style="text-transform:none; letter-spacing:0; font-weight:500">· ${curShort}</span></div><div class="v">${valueHtml}</div><div class="s" style="margin-top:4px">${changeInner}</div></button>`;
+  const metricBoxesHtml = `<div class="stats" style="margin-bottom:14px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px">
+      ${metricBox('mrr', `Monthly revenue (${insTerm('MRR')})`, fmtMoney(monthExpected), changeHtml(pctChange(monthExpected, landedForMonth(prevKey)), `This month's MRR (expected to land) against ${monthLabel(prevKey)}'s MRR as plotted on the chart (cash that landed)`))}
+      ${metricBox('avg', 'Average value per client', curAvg != null ? fmtMoney(curAvg) : '—', changeHtml(pctChange(curAvg, prevAvg), 'Against last month'))}
+      ${metricBox('vol', 'Clients invoiced', curRow ? String(curRow.count) : '—', changeHtml(pctChange(curRow ? curRow.count : null, prevRow ? prevRow.count : null), 'Against last month'))}
+    </div>`;
 
   // Compare builder (Past vs. projections, points, custom ranges) — mounted
   // below the chart once the page HTML is in place; see insCmpMount().
@@ -4525,23 +4571,20 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
     </div>
 
     ${insSectionHead('Revenue targets', 'Target vs. MRR — cash landed for completed months, expected-to-land for the current one. Past data sets how far back to look; Projections extends the target line ahead and compares it with the past. Set targets on Settings or directly on a month\'s Invoices tab.')}
+    ${metricBoxesHtml}
     <div class="chart-card">
       <div class="chart-head">
         <h3>Monthly</h3>
+        <div class="pills" id="ins-rev-metric-pills" title="What the chart plots: the monthly targets against MRR, the average value of a client each month, or how many clients were invoiced each month">
+          ${[['mrr', 'MRR'], ['avg', 'Average client value'], ['vol', 'Client volume']].map(([k, l]) => `<button class="pill ${metric === k ? 'active' : ''}" data-revmetric="${k}">${l}</button>`).join('')}
+        </div>
         <div class="pills" id="ins-rev-m-pills" title="Chart type for the monthly Target vs MRR chart">
           <button class="pill ${state.insRevMonthlyChart === 'line' ? 'active' : ''}" data-revchart="m:line">Line</button>
           <button class="pill ${state.insRevMonthlyChart === 'bar' ? 'active' : ''}" data-revchart="m:bar">Bar</button>
         </div>
       </div>
       ${insRevTimeframesHtml()}
-      <div class="chart-legend">
-        ${state.insRevMonthlyChart === 'bar'
-          ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
-          : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
-        <span class="key"><span class="dot" style="background:var(--success)"></span>${insTerm('MRR')}</span>
-        <span class="key"><span class="dot" style="background:var(--warn)"></span>${insTerm('MRR')} — expected to land (current month)</span>
-        ${projMonths.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
-      </div>
+      ${legendHtml}
       <div class="chart-wrap" id="ins-rev-m-wrap">${revMonthlyChart.html}</div>
       ${projNote ? `<p class="note" style="margin:10px 0 0">${esc(projNote)}</p>` : ''}
       ${comparisonHtml}
@@ -4579,6 +4622,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
 
   insWireRevTimeframes(bodyEl);
   insWirePeriodBars(bodyEl);
+  bodyEl.querySelectorAll('[data-revmetric]').forEach(p => p.onclick = () => { state.insRevMetric = p.dataset.revmetric; renderInsights(); });
   bodyEl.querySelectorAll('[data-revchart]').forEach(p => p.onclick = () => {
     const [, type] = p.dataset.revchart.split(':');
     state.insRevMonthlyChart = type;
@@ -4586,7 +4630,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   });
 
   if (state.insRevMonthlyChart === 'line' && revMonthlyChart?.months?.length) wireLineChartHover(bodyEl.querySelector('#ins-rev-m-wrap'), revMonthlyChart);
-  insCmpMount({ monthKey, monthExpected, pastMonths: pastRows.map(r => r.m), projMonths, chart: revMonthlyChart, wrap: bodyEl.querySelector('#ins-rev-m-wrap') });
+  insCmpMount({ monthKey, monthExpected, pastMonths: pastRows.map(r => r.m), projMonths: projMonthsAll, chart: revMonthlyChart, wrap: bodyEl.querySelector('#ins-rev-m-wrap') });
 }
 
 /* ── Revenue "This period" bars ── */
@@ -4884,7 +4928,9 @@ function insCmpPaint(ctx, cols) {
     const idxs = insCmpMonths(sel, ctx).map(m => chart.months.indexOf(m)).filter(i => i >= 0);
     if (!idxs.length) return;
     const i0 = Math.min(...idxs), i1 = Math.max(...idxs);
-    const x0 = chart.xc(i0) - chart.halfW, w = chart.xc(i1) - chart.xc(i0) + 2 * chart.halfW;
+    // Keep the band inside the plot area — on a line chart the first/last month sit on the plot edges, so
+    // an unclamped band would spill over the Y-axis labels and dim them.
+    const x0 = Math.max(chart.padL, chart.xc(i0) - chart.halfW), w = Math.min(chart.W - chart.padR, chart.xc(i1) + chart.halfW) - x0;
     const h = chart.H - chart.padT - chart.padB;
     const previewing = state.insCmpPick === sel.id && insCmpHover;
     out += `<rect x="${x0}" y="${chart.padT}" width="${w}" height="${h}" fill="${color}" opacity="${previewing ? 0.22 : 0.14}"${previewing ? ` stroke="${color}" stroke-dasharray="4 3"` : ''}/>
