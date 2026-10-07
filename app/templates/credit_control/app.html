@@ -112,6 +112,9 @@
   }
   select:focus, input:focus, textarea:focus { border-color: var(--accent-from); }
   select option { background: #1a1a30; }
+  /* Invoices tab: the AM column is a quiet dropdown that looks like text until hovered */
+  .inv-am { padding: 3px 4px; border: 1px solid transparent; background: transparent; color: inherit; font-size: inherit; border-radius: 6px; cursor: pointer; max-width: 150px; text-overflow: ellipsis; }
+  .inv-am:hover, .inv-am:focus { border-color: var(--border-hi); background: var(--bg-input); }
   input[type="checkbox"] { accent-color: var(--accent-from); width: 16px; height: 16px; cursor: pointer; }
   .no-spin::-webkit-outer-spin-button, .no-spin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .no-spin { -moz-appearance: textfield; }
@@ -1198,6 +1201,42 @@ function openHandoverModal(client, fromAM, toAM) {
     touch(); closeModal(); renderAll();
   };
 }
+// Changing the account manager straight from a row in the Invoices tab. Always asks whether
+// the change should also apply to every later invoice for the client (and become the client's
+// account manager, so everything generated from here on follows). Closing the prompt without
+// choosing puts the dropdown back.
+function changeInvoiceAmModal(inv, newAM) {
+  const client = clientById(inv.clientId);
+  const oldAM = invoiceAM(inv);
+  newAM = (newAM || '').trim();
+  if (!client || !newAM || newAM === oldAM) { renderInvoices(); return; }
+  const clientAM = (client.accountManager || '').trim();
+  const later = DB.invoices.filter(i => i.clientId === client.id && i.id !== inv.id && i.month > inv.month).length;
+  modalOnCancel = () => renderInvoices();
+  openModal(`
+    <div class="modal-head"><h3>Change account manager</h3><button class="modal-x" data-close>×</button></div>
+    <p style="font-size:13px; line-height:1.6; color:var(--text-dim)"><strong>${esc(client.companyName)}</strong> — ${esc(monthLabel(inv.month))} invoice: <strong>${esc(oldAM || 'no account manager')}</strong> → <strong>${esc(newAM)}</strong>.</p>
+    <p style="font-size:13px; line-height:1.6; color:var(--text-dim); margin-top:8px">Change the account manager for <strong>all of ${esc(client.companyName)}'s invoices from ${esc(monthLabel(inv.month))} onward</strong> too${later ? ` (${later} later invoice${later === 1 ? '' : 's'} already generated)` : ''}? ${esc(newAM)} would become the client's account manager${clientAM && clientAM !== newAM ? ` (currently ${esc(clientAM)})` : ''}, so every invoice generated from here on goes to ${esc(newAM)}. Invoices before ${esc(monthLabel(inv.month))} keep their account manager.</p>
+    <div class="modal-foot">
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn" id="iam-just">Just this invoice</button>
+      <button class="btn btn-primary" id="iam-onward">This and all later invoices</button>
+    </div>`);
+  document.getElementById('iam-just').onclick = () => {
+    modalOnCancel = null;
+    inv.accountManager = newAM;
+    touch(); closeModal(); renderAll();
+  };
+  document.getElementById('iam-onward').onclick = () => {
+    modalOnCancel = null;
+    if (clientAM && clientAM !== newAM) stampUnassignedInvoices(client.id, clientAM);   // earlier history keeps the previous account manager
+    for (const i of DB.invoices) if (i.clientId === client.id && i.month >= inv.month) i.accountManager = newAM;
+    client.accountManager = newAM;
+    const list = (DB.settings.accountManagers ||= []);
+    if (!list.includes(newAM)) list.push(newAM);
+    touch(); closeModal(); renderAll();
+  };
+}
 function startOfWeekMon(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
@@ -1654,6 +1693,10 @@ function wireInvoiceRowActions(view) {
       onSelect: key => { inv.paidDate = key || todayISO(); touch(); renderInvoices(); }
     });
   });
+  view.querySelectorAll('[data-inv-am]').forEach(sel => sel.onchange = () => {
+    const inv = DB.invoices.find(i => i.id === sel.dataset.invAm);
+    if (inv) changeInvoiceAmModal(inv, sel.value);
+  });
   view.querySelectorAll('[data-inv-edit]').forEach(b => b.onclick = () => invoiceForm(b.dataset.invEdit));
   view.querySelectorAll('[data-inv-delete]').forEach(b => b.onclick = e => {
     e.stopPropagation();
@@ -2019,7 +2062,7 @@ function invoiceRow(inv) {
     <td style="text-align:center"><input type="checkbox" data-inv-paid="${inv.id}" ${inv.paid ? 'checked' : ''}></td>
     <td style="text-align:center"><input type="checkbox" data-inv-uncertain="${inv.id}" ${inv.uncertain ? 'checked' : ''} title="Uncertain — not sure this will be paid. Still issued as normal; left out of forecasts until it's paid."></td>
     <td class="dim">${inv.paid ? `<button type="button" class="date-field${inv.paidDate ? '' : ' empty'}" data-inv-paiddate="${inv.id}" data-value="${esc(inv.paidDate || '')}">${inv.paidDate ? fmtDate(inv.paidDate) : 'Set date'}</button>` : '—'}</td>
-    <td class="dim">${esc(invoiceAM(inv))}</td>
+    <td class="dim"><select class="inv-am" data-inv-am="${inv.id}" title="Change this invoice's account manager">${selectOptions(DB.settings.accountManagers, invoiceAM(inv), !invoiceAM(inv))}</select></td>
     <td class="dim small" style="max-width:180px; overflow:hidden; text-overflow:ellipsis" title="${esc(inv.notes || '')}">${esc(inv.notes || '')}</td>
   </tr>`;
 }
