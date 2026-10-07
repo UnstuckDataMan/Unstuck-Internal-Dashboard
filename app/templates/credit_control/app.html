@@ -3250,7 +3250,7 @@ const BASIS_LABEL = { realised: 'Realised', running: 'Running', combination: 'Co
 // ── Display-only figure overrides (Insights › Lifetime value) ──
 // Some figures sometimes need to be shown differently without touching the data. Shift+click a figure on the Lifetime
 // value page to type what it should show; the real clients and invoices are never changed, and nothing marks an edited
-// figure. "Reset figures" at the top of the page clears them all. Overrides live in DB.settings.displayOverrides, keyed:
+// figure. "Reboot figures" at the top of the page clears them all. Overrides live in DB.settings.displayOverrides, keyed:
 //   ltv|<basis>|<scope> · tenure|<basis>|<scope>   average LTV / tenure          (scope = 'overall' or '<dimension>:<group>')
 //   n|<basis>|<scope>                              clients behind a group's average
 //   nltv|… / nten|…                                clients behind the overall LTV / tenure average
@@ -3283,7 +3283,7 @@ function openFigEditModal(fig) {
     <div class="modal-head"><h3>Edit figure</h3><button class="modal-x" data-close>×</button></div>
     <p style="font-size:13px; color:var(--text-dim); line-height:1.5; margin-bottom:10px">${esc(fig.label)}</p>
     <div class="fld"><label>Show as</label><input id="fig-val" type="number" min="0" step="${fig.kind === 'int' ? 1 : 0.01}" value="${esc(cur)}"></div>
-    <p class="note" style="margin:0">Only changes what is displayed — no client or invoice data is touched. “Reset figures” at the top of the page puts everything back.</p>
+    <p class="note" style="margin:0">Only changes what is displayed — no client or invoice data is touched. “Reboot figures” at the top of the page puts everything back.</p>
     <div class="modal-foot">${has ? '<button class="btn" id="fig-restore">Restore this figure</button>' : ''}<button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="fig-save">Save</button></div>`);
   const input = document.getElementById('fig-val');
   input.focus(); input.select();
@@ -4114,7 +4114,7 @@ function renderInsights() {
     </select>`;
 
   view.innerHTML = `
-    <div class="ins-export-row">${page === 'ltv' || page === 'overview' ? `<button type="button" class="btn btn-sm" id="ins-reset-figs" ${ovrCount() ? '' : 'disabled'}>↺ Reset figures</button>` : ''}<button type="button" class="btn btn-sm" id="ins-export-btn" title="Export a visual or stats report of the Insights sections as a PDF or Google Doc">⬇ Export report</button></div>
+    <div class="ins-export-row">${page === 'ltv' || page === 'overview' ? `<button type="button" class="btn btn-sm" id="ins-reset-figs" ${ovrCount() ? '' : 'disabled'}>↺ Reboot figures</button>` : ''}<button type="button" class="btn btn-sm" id="ins-export-btn" title="Export a visual or stats report of the Insights sections as a PDF or Google Doc">⬇ Export report</button></div>
     ${page === 'overview' ? '' : `
     <div class="chart-card">
       <div class="chart-head">
@@ -4144,7 +4144,7 @@ function renderInsights() {
   const exportBtn = view.querySelector('#ins-export-btn');
   if (exportBtn) exportBtn.onclick = openInsExportModal;
   const resetFigs = view.querySelector('#ins-reset-figs');
-  if (resetFigs) resetFigs.onclick = () => confirmModal('Put every edited figure back to the real data?', () => { DB.settings.displayOverrides = {}; touch(); renderInsights(); }, 'Reset figures');
+  if (resetFigs) resetFigs.onclick = () => confirmModal('Put every edited figure back to the real data?', () => { DB.settings.displayOverrides = {}; touch(); renderInsights(); }, 'Reboot figures');
   const filterWideEl = view.querySelector('#ins-filter-wide');
   if (filterWideEl) filterWideEl.onchange = e => {
     state.insFilterWide = e.target.value;
