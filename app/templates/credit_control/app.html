@@ -1074,7 +1074,8 @@ function buildNextInvoiceFor(client, targetMonth) {
     amountEUR: client.feeEUR ?? null,
     package: client.package || '', packageOverride: false,
     issued: false, paid: false, paidDate: null, notes: '',
-    generatedByWizard: true
+    generatedByWizard: true,
+    accountManager: (client.accountManager || '').trim()   // who owns this invoice from the start
   };
 }
 // Applies the Generate-next-month wizard's decisions for every client on its
@@ -1157,6 +1158,45 @@ function applyPackageToFutureInvoices(clientId, newPackage) {
     if (inv.package !== newPackage) { inv.package = newPackage; changed = true; }
   }
   return changed;
+}
+// ── Account-manager ownership of invoices ──
+// Each invoice records the account manager responsible for it (`accountManager`), so when a
+// client is handed from one AM to another, the invoices from before the handover stay with the
+// previous AM and only later ones go to the new one. An invoice with no AM stamped yet (all the
+// older ones) simply follows its client's current AM until something stamps it. A new invoice is
+// stamped with the client's AM when it is generated.
+const invoiceAM = inv => ((inv.accountManager || '').trim() || (clientById(inv.clientId)?.accountManager || '').trim());
+// Freezes a client's not-yet-stamped invoices to `am` (done just before the client's AM changes,
+// so changing the client's AM can never rewrite history).
+function stampUnassignedInvoices(clientId, am) {
+  for (const inv of DB.invoices) if (inv.clientId === clientId && !(inv.accountManager || '').trim()) inv.accountManager = am;
+}
+// Shown after a client's account manager is changed: history stays with the previous AM and
+// everything generated from now on goes to the new one; this lets the handover month be set
+// earlier (e.g. the current month's invoice already exists but is the new AM's).
+function openHandoverModal(client, fromAM, toAM) {
+  const nextGen = addMonths(DB.settings.invoicingGeneratedThrough, 1);
+  openModal(`
+    <div class="modal-head"><h3>Account manager change — ${esc(client.companyName)}</h3><button class="modal-x" data-close>×</button></div>
+    <p style="font-size:13px; line-height:1.6; color:var(--text-dim)"><strong>${esc(client.companyName)}</strong> is now with <strong>${esc(toAM)}</strong> (was ${esc(fromAM)}). Invoices up to now stay with ${esc(fromAM)}, and every invoice generated from here on goes to ${esc(toAM)}.</p>
+    <div class="fld" style="margin-top:12px"><label>${esc(toAM)} takes over from invoice month</label><input type="month" id="ho-month" value="${nextGen}"></div>
+    <p class="note" id="ho-note"></p>
+    <div class="modal-foot"><button class="btn" data-close>Keep as is</button><button class="btn btn-primary" id="ho-save">Apply</button></div>`);
+  const mine = DB.invoices.filter(i => i.clientId === client.id);
+  const describe = () => {
+    const m = document.getElementById('ho-month').value;
+    const moving = mine.filter(i => m && i.month >= m).length;
+    document.getElementById('ho-note').textContent = moving
+      ? `${moving} already-generated invoice${moving === 1 ? '' : 's'} from ${monthLabel(m)} onward will move to ${toAM}; the ${mine.length - moving} before it stay with ${fromAM}.`
+      : `No already-generated invoices are from ${m ? monthLabel(m) : 'that month'} onward, so nothing moves yet — ${toAM} simply gets the next ones generated.`;
+  };
+  document.getElementById('ho-month').addEventListener('input', describe);
+  describe();
+  document.getElementById('ho-save').onclick = () => {
+    const m = document.getElementById('ho-month').value;
+    if (m) for (const inv of mine) if (inv.month >= m) inv.accountManager = toAM;
+    touch(); closeModal(); renderAll();
+  };
 }
 function startOfWeekMon(iso) {
   const [y, m, d] = iso.split('-').map(Number);
@@ -1979,7 +2019,7 @@ function invoiceRow(inv) {
     <td style="text-align:center"><input type="checkbox" data-inv-paid="${inv.id}" ${inv.paid ? 'checked' : ''}></td>
     <td style="text-align:center"><input type="checkbox" data-inv-uncertain="${inv.id}" ${inv.uncertain ? 'checked' : ''} title="Uncertain — not sure this will be paid. Still issued as normal; left out of forecasts until it's paid."></td>
     <td class="dim">${inv.paid ? `<button type="button" class="date-field${inv.paidDate ? '' : ' empty'}" data-inv-paiddate="${inv.id}" data-value="${esc(inv.paidDate || '')}">${inv.paidDate ? fmtDate(inv.paidDate) : 'Set date'}</button>` : '—'}</td>
-    <td class="dim">${esc(c?.accountManager || '')}</td>
+    <td class="dim">${esc(invoiceAM(inv))}</td>
     <td class="dim small" style="max-width:180px; overflow:hidden; text-overflow:ellipsis" title="${esc(inv.notes || '')}">${esc(inv.notes || '')}</td>
   </tr>`;
 }
@@ -2273,6 +2313,7 @@ function invoiceForm(invId, presetClientId) {
       <div class="fld"><label>Month</label><input type="month" id="if-month" value="${esc(defMonth)}"></div>
       <div class="fld"><label>Month number (1 = first invoice)</label><input type="number" id="if-mono" min="1" value="${inv?.monthNumber ?? ''}"></div>
       <div class="fld"><label>Package</label><select id="if-pkg" data-add-list="packages">${selectOptions(DB.settings.packages, inv?.package, true, 'packages')}</select></div>
+      <div class="fld"><label>Account manager</label><select id="if-am" data-add-list="accountManagers">${selectOptions(DB.settings.accountManagers, inv ? invoiceAM(inv) : '', true, 'accountManagers')}</select></div>
       <div class="fld"><label>Issue date</label><input type="date" id="if-issue" value="${esc(inv?.issueDate || '')}"></div>
       <div class="fld"><label>Due date</label><input type="date" id="if-due" value="${esc(inv?.dueDate || '')}"></div>
       <div class="fld"><label>Amount £</label><input type="number" step="0.01" id="if-gbp" value="${inv?.amountGBP ?? ''}"></div>
@@ -2319,6 +2360,7 @@ function invoiceForm(invId, presetClientId) {
       $('if-usd').value = c.feeUSD ?? '';
       $('if-eur').value = c.feeEUR ?? '';
       setSelectValue($('if-pkg'), c.package);
+      setSelectValue($('if-am'), (c.accountManager || '').trim());
       const sched = nextInvoiceSchedule(c.id);
       $('if-mono').value = sched.monthNumber;
       $('if-issue').value = sched.issueDate || '';
@@ -2346,6 +2388,7 @@ function invoiceForm(invId, presetClientId) {
     // and inv are the same object, so this must run first to see the
     // pre-edit issued/issueDate rather than whatever's about to be saved.
     const wasIssueOverdue = !!inv && isIssueOverdue(inv);
+    const amBefore = inv ? invoiceAM(inv) : '';
     const rec = inv || { id: uid() };
     rec.clientId   = $('if-client').value;
     rec.monthNumber= $('if-mono').value ? Number($('if-mono').value) : null;
@@ -2372,6 +2415,11 @@ function invoiceForm(invId, presetClientId) {
     // Matching the client's package (still following it) keeps it unlocked.
     rec.packageOverride = rec.package !== (clientById(rec.clientId)?.package || '');
     rec.notes      = $('if-notes').value.trim();
+    // The invoice's account manager: a new invoice is always stamped; an existing one is only
+    // stamped if it already was, or if you actually changed it (so just opening and saving an
+    // older invoice doesn't freeze it to today's client AM).
+    const amVal = ($('if-am').value === ADD_NEW_OPTION ? '' : $('if-am').value).trim();
+    if (!inv || (inv.accountManager || '').trim() || amVal !== amBefore) rec.accountManager = amVal;
     if (!inv) DB.invoices.push(rec);
     touch(); closeModal(); state.invMonth = rec.month; renderAll();
   };
@@ -2655,6 +2703,11 @@ function clientForm(cid, onCreated) {
     if (!name) { $('cf-name').focus(); return; }
     const rec = c || { id: uid() };
     const oldPackage = c?.package || '';
+    // Changing a client's account manager must never rewrite history: first freeze every invoice
+    // that has no AM of its own to the previous AM, then (after saving) offer the handover month.
+    const oldAM = (c?.accountManager || '').trim(), newAM = ($('cf-am').value || '').trim();
+    const amChanged = !!c && !!oldAM && newAM !== oldAM && newAM !== ADD_NEW_OPTION;
+    if (amChanged) stampUnassignedInvoices(c.id, oldAM);
     rec.companyName = name;
     rec.qbName      = $('cf-qb').value.trim();
     rec.email       = $('cf-email').value.trim();
@@ -2684,6 +2737,7 @@ function clientForm(cid, onCreated) {
     modalOnCancel = null; // this is a successful save, not a cancel — don't run the invoice form's fallback
     closeModal(); renderAll();
     if (!c && onCreated) onCreated(rec.id);
+    if (amChanged) openHandoverModal(rec, oldAM, newAM);
   };
 
   if (c) $('cf-del')?.addEventListener('click', () => {
@@ -4619,15 +4673,15 @@ function insCmpMount(ctx) {
 }
 
 /* ════════════════ AM PERFORMANCE ════════════════ */
-// Tracks how each account manager (the client's `accountManager` field) is
-// performing. Two sub-tabs: Team (every AM side by side) and Account Managers
+// Tracks how each account manager is performing, from who OWNED each invoice (see
+// invoiceAM) — so a client handed from one AM to another counts for each of them only
+// for their own period. Two sub-tabs: Team (every AM side by side) and Account Managers
 // (a searchable list → one AM's detail page → an industry's client list).
 //
 // Money is the same landed-value logic used everywhere else (invoiceValueForLTV:
 // what actually landed once paid, the invoiced amount while unpaid, 0 for an
-// uncertain unpaid invoice). A client belongs to whichever AM is on its record
-// now — churned clients stay attributed to their AM, so lifetime figures
-// include everyone they have ever worked with.
+// uncertain unpaid invoice). A client counts for every AM who has owned one of its
+// invoices; churned and handed-over clients stay in that AM's lifetime figures.
 const AM_UNASSIGNED = 'Unassigned';
 const AM_COLORS = ['#a78bfa', '#22d3ee', '#f472b6', '#facc15', '#fb923c', '#34d399', '#60a5fa', '#f87171', '#c084fc', '#a3e635'];
 const AM_TIMEFRAMES = [['month', 'This month'], ['3', '3M'], ['6', '6M'], ['12', '12M'], ['ytd', 'YTD'], ['all', 'All time']];
@@ -4637,13 +4691,64 @@ const AM_BASIS = [
   ['running', 'Running', 'Active clients only — still growing, not final.'],
   ['combination', 'Combination', 'Churned clients plus any active client already past the Realised average.'],
 ];
-const amNameOf = c => (c.accountManager || '').trim() || AM_UNASSIGNED;
 const amIsActive = c => c.status !== 'churned';
-const amClientsOf = name => DB.clients.filter(c => amNameOf(c) === name);
-// Every named AM that has at least one client (active or churned): the ones in
-// Settings first, in that order, then any others alphabetically.
+const amStateLabel = s => ({ active: 'Active', churned: 'Churned', handed: 'Handed over' })[s] || s;
+// Who owned what. Built once per render (renderAmPerf clears the cache) from each invoice's
+// owner (invoiceAM), so a client who moved from one AM to another appears under BOTH — each
+// with only their own invoices. For one (account manager, client) pair this gives a row that
+// looks like the client (so the charts and tables can use it as one) plus:
+//   _ltv     what that AM's invoices for the client are worth
+//   _tenure  how many invoices (months) the AM billed for the client
+//   _state   'active' (still theirs), 'churned' (client left) or 'handed' (passed to someone else)
+// A handed-over or churned relationship counts as "ended" for Realised / Combination.
+function amModel() {
+  if (amCache) return amCache;
+  const byClient = new Map(DB.clients.map(c => [c.id, c]));
+  const curOf = c => (c.accountManager || '').trim() || AM_UNASSIGNED;
+  const invOwner = new Map(), timeline = new Map(), rels = new Map();
+  const getRel = (name, c) => {
+    let m = rels.get(name); if (!m) rels.set(name, m = new Map());
+    let r = m.get(c.id); if (!r) m.set(c.id, r = { client: c, name, invoices: [] });
+    return r;
+  };
+  for (const inv of DB.invoices) {
+    const c = byClient.get(inv.clientId);
+    if (!c) continue;
+    const name = ((inv.accountManager || '').trim() || (c.accountManager || '').trim()) || AM_UNASSIGNED;
+    invOwner.set(inv.id, name);
+    getRel(name, c).invoices.push(inv);
+    if (!timeline.has(c.id)) timeline.set(c.id, []);
+    timeline.get(c.id).push({ m: inv.month || '', name });
+  }
+  for (const t of timeline.values()) t.sort((a, b) => a.m.localeCompare(b.m));
+  for (const c of DB.clients) getRel(curOf(c), c);   // the current AM always has a relationship, even before their first invoice
+  const byName = new Map();
+  for (const [name, m] of rels) {
+    byName.set(name, [...m.values()].map(r => {
+      const c = r.client;
+      const state = curOf(c) !== name ? 'handed' : c.status === 'churned' ? 'churned' : 'active';
+      return { ...c, status: state === 'active' ? 'active' : 'churned', _state: state, _am: name,
+        _ltv: r.invoices.reduce((s, i) => s + invoiceValueForLTV(i), 0), _tenure: r.invoices.length };
+    }));
+  }
+  // The AM responsible for a client in a given month: the owner of that month's invoice, or of
+  // the nearest earlier one (so a skipped / bridged month stays with whoever had the client).
+  const ownerAt = (cid, m) => {
+    const t = timeline.get(cid);
+    if (!t || !t.length) return curOf(byClient.get(cid));
+    let pick = null;
+    for (const e of t) { if (e.m <= m) pick = e; else break; }
+    return (pick || t[0]).name;
+  };
+  return (amCache = { rels: byName, invOwner, ownerAt });
+}
+let amCache = null;
+// One AM's relationships (optionally only for clients in `poolIds`).
+const amRelsOf = (name, poolIds) => (amModel().rels.get(name) || []).filter(r => !poolIds || poolIds.has(r.id));
+// Every named AM who has a relationship with at least one client: the ones in Settings
+// first, in that order, then any others alphabetically.
 function amNames() {
-  const real = new Set(DB.clients.map(amNameOf).filter(n => n !== AM_UNASSIGNED));
+  const real = new Set([...amModel().rels.entries()].filter(([n, rs]) => n !== AM_UNASSIGNED && rs.length).map(([n]) => n));
   const ordered = (DB.settings.accountManagers || []).filter(n => real.has(n));
   const rest = [...real].filter(n => !ordered.includes(n)).sort((a, b) => a.localeCompare(b));
   return [...ordered, ...rest];
@@ -4666,51 +4771,50 @@ function amWindowLabel(scale) {
   const ms = amWindowMonths(scale);
   return scale === 'month' ? monthLabel(currentMonthKey()) : monthRangeLabel(ms);
 }
-// How many clients each AM had on the books during the window — a client counts
-// if it was present (invoiced, or bridged/skipped) in any month of it.
+// How many clients each AM had on the books during the window — a client counts for an AM if
+// it was present (invoiced, or bridged/skipped) in any month of it while that AM had it. A client
+// handed over inside the window counts for both AMs.
 function amClientCountsIn(months, clients = DB.clients) {
-  const mset = new Set(months);
-  const counts = new Map();
+  const mset = new Set(months), model = amModel(), counts = new Map();
   for (const c of clients) {
-    const present = [...clientEffectiveContinuity(c.id).months].some(m => mset.has(m)) || (c.skipMonths || []).some(m => mset.has(m));
-    if (!present) continue;
-    const n = amNameOf(c);
-    counts.set(n, (counts.get(n) || 0) + 1);
+    const present = [...clientEffectiveContinuity(c.id).months, ...(c.skipMonths || [])].filter(m => mset.has(m));
+    if (!present.length) continue;
+    for (const n of new Set(present.map(m => model.ownerAt(c.id, m)))) counts.set(n, (counts.get(n) || 0) + 1);
   }
   return counts;
 }
-// The subset of `clients` that were on the books in any month of the window.
-function amClientsPresentIn(clients, months) {
-  const mset = new Set(months);
-  return clients.filter(c => [...clientEffectiveContinuity(c.id).months].some(m => mset.has(m)) || (c.skipMonths || []).some(m => mset.has(m)));
+// The subset of one AM's relationships that were on the books in any month of the window.
+function amRelsPresentIn(rels, months) {
+  const mset = new Set(months), model = amModel();
+  return rels.filter(r => [...clientEffectiveContinuity(r.id).months, ...(r.skipMonths || [])].some(m => mset.has(m) && model.ownerAt(r.id, m) === r._am));
 }
-// £ per AM from invoices due in the window (invoice.month is the due month).
-function amRevenueIn(months, clients = DB.clients) {
-  const mset = new Set(months);
-  const owner = new Map(clients.map(c => [c.id, amNameOf(c)]));
-  const out = new Map();
+// £ per AM from invoices due in the window (invoice.month is the due month), by who owned each invoice.
+function amRevenueIn(months, poolIds) {
+  const mset = new Set(months), model = amModel(), out = new Map();
   for (const inv of DB.invoices) {
-    if (!mset.has(inv.month)) continue;
-    const n = owner.get(inv.clientId);
+    if (!mset.has(inv.month) || (poolIds && !poolIds.has(inv.clientId))) continue;
+    const n = model.invOwner.get(inv.id);
     if (!n) continue;
     out.set(n, (out.get(n) || 0) + invoiceValueForLTV(inv));
   }
   return out;
 }
-// Average of a per-client value for one AM's clients, on the chosen basis.
-function amPick(clients, valueFn, basis) {
+// Average of `key` ('_ltv' | '_tenure') over one AM's relationships, on the chosen basis.
+function amPick(rels, key, basis) {
   if (basis === 'all') {
-    const vals = clients.map(c => valueFn(c.id));
+    const vals = rels.map(r => r[key]);
     return { avg: avgOf(vals), count: vals.length };
   }
-  return basisPick(basisSplit(clients, valueFn), basis);
+  const byId = new Map(rels.map(r => [r.id, r]));
+  return basisPick(basisSplit(rels, id => byId.get(id)[key]), basis);
 }
-function amMonthStats(clients, m) {
-  const ids = new Set(clients.map(c => c.id));
+function amMonthStats(name, m) {
+  const model = amModel();
   const invs = DB.invoices.filter(i => i.month === m);
-  const value = invs.filter(i => ids.has(i.clientId)).reduce((s, i) => s + invoiceValueForLTV(i), 0);
+  const mine = invs.filter(i => model.invOwner.get(i.id) === name);
+  const value = mine.reduce((s, i) => s + invoiceValueForLTV(i), 0);
   const company = invs.reduce((s, i) => s + invoiceValueForLTV(i), 0);
-  const invoiced = new Set(invs.filter(i => ids.has(i.clientId)).map(i => i.clientId)).size;
+  const invoiced = new Set(mine.map(i => i.clientId)).size;
   return { value, company, pct: company ? value / company * 100 : null, invoiced, perClient: invoiced ? value / invoiced : null };
 }
 
@@ -4768,6 +4872,7 @@ function amPieHtml(rows, fmt = fmtMoney, opts = {}) {
 function renderAmPerf() {
   const view = document.getElementById('view-amperf');
   if (!view || !DB || state.tab !== 'amperf') return;
+  amCache = null;   // rebuild who-owned-what for this render
   view.innerHTML = `
     <div class="am-subtabs">
       <button type="button" class="am-subtab ${state.amTab === 'ams' ? 'active' : ''}" data-am-tab="ams">Account Managers</button>
@@ -4832,6 +4937,7 @@ function amFilterSummary() {
 function amTeamSections() {
   const names = amNames();
   const pool = amScopeClients();   // clients matching the Team filters
+  const poolIds = new Set(pool.map(c => c.id));
   const basis = state.amBasis;
   const [, basisName, basisTitle] = AM_BASIS.find(b => b[0] === basis);
 
@@ -4843,7 +4949,7 @@ function amTeamSections() {
   clientRows.forEach(r => { r.note = `${(r.value / clientTotal * 100).toFixed(0)}%`; });
 
   const rMonths = amWindowMonths(state.amRevScale);
-  const rev = amRevenueIn(rMonths, pool);
+  const rev = amRevenueIn(rMonths, poolIds);
   const revRows = [...names, AM_UNASSIGNED].map(n => ({ name: n, value: rev.get(n) || 0, color: amColor(n) }))
     .filter(r => r.value > 0).sort((a, b) => b.value - a.value);
   const revTotal = revRows.reduce((s, r) => s + r.value, 0);
@@ -4851,10 +4957,13 @@ function amTeamSections() {
 
   // Lifetime value and tenure stay lifetime figures; the timeframe picks which clients
   // are included — those on the books during it ('all' = every client).
-  const avgRows = (fn, scale) => {
-    const scoped = scale === 'all' ? pool : amClientsPresentIn(pool, amWindowMonths(scale));
-    return names.map(n => { const p = amPick(scoped.filter(c => amNameOf(c) === n), fn, basis); return { name: n, value: p.avg, note: `${p.count} client${p.count === 1 ? '' : 's'}`, color: amColor(n) }; })
-      .filter(r => r.value != null).sort((a, b) => b.value - a.value);
+  const avgRows = (key, scale) => {
+    return names.map(n => {
+      let rels = amRelsOf(n, poolIds);
+      if (scale !== 'all') rels = amRelsPresentIn(rels, amWindowMonths(scale));
+      const p = amPick(rels, key, basis);
+      return { name: n, value: p.avg, note: `${p.count} client${p.count === 1 ? '' : 's'}`, color: amColor(n) };
+    }).filter(r => r.value != null).sort((a, b) => b.value - a.value);
   };
   const scopeNote = scale => scale === 'all' ? '' : ` Clients on the books during ${amWindowLabel(scale)}; figures are lifetime.`;
 
@@ -4867,10 +4976,10 @@ function amTeamSections() {
       rows: revRows, fmt: fmtMoney, valueWidth: 190, center: true, shareLabel: 'Share', valueLabel: 'Revenue' },
     { key: 'Ltv', title: 'Average client lifetime value', basis: true, timeframe: 'amLtvScale', timeframeTip: 'Which clients: those on the books at any point in this period (All time = every client)',
       sub: `${basisName} basis — ${basisTitle}${scopeNote(state.amLtvScale)}`,
-      rows: avgRows(clientLifetimeValue, state.amLtvScale), fmt: fmtMoney, valueWidth: 190, center: false, shareLabel: 'Clients counted', valueLabel: 'Average lifetime value' },
+      rows: avgRows('_ltv', state.amLtvScale), fmt: fmtMoney, valueWidth: 190, center: false, shareLabel: 'Clients counted', valueLabel: 'Average lifetime value' },
     { key: 'Tenure', title: 'Average client tenure', basis: true, timeframe: 'amTenureScale', timeframeTip: 'Which clients: those on the books at any point in this period (All time = every client)',
       sub: `${basisName} basis — ${basisTitle} Tenure is months billed.${scopeNote(state.amTenureScale)}`,
-      rows: avgRows(clientMaxMonthNo, state.amTenureScale), fmt: v => v.toFixed(1) + ' mo', valueWidth: 170, center: false, shareLabel: 'Clients counted', valueLabel: 'Average tenure' },
+      rows: avgRows('_tenure', state.amTenureScale), fmt: v => v.toFixed(1) + ' mo', valueWidth: 170, center: false, shareLabel: 'Clients counted', valueLabel: 'Average tenure' },
   ];
 }
 function renderAmTeam(body) {
@@ -5047,12 +5156,12 @@ function amExportDoc() {
 
 /* ── Account Managers: searchable list ── */
 function renderAmList(body) {
-  const names = amNames().filter(n => amClientsOf(n).some(amIsActive));
+  const names = amNames().filter(n => amRelsOf(n).some(amIsActive));
   const cur = currentMonthKey();
   const cards = names.map(n => {
-    const clients = amClientsOf(n);
+    const clients = amRelsOf(n);
     const active = clients.filter(amIsActive);
-    const st = amMonthStats(clients, cur);
+    const st = amMonthStats(n, cur);
     return `<button type="button" class="am-card" data-am-open="${esc(n)}" data-name="${esc(n.toLowerCase())}" style="--c:${amColor(n)}">
       <div class="am-card-name">${esc(n)}</div>
       <div class="am-card-stats">
@@ -5084,13 +5193,14 @@ function renderAmList(body) {
 
 /* ── One account manager ── */
 function renderAmDetail(body, name) {
-  const clients = amClientsOf(name);
+  const clients = amRelsOf(name);
   if (!clients.length) { state.amSel = null; renderAmList(body); return; }
   const cur = currentMonthKey();
   const basis = state.amBasis;
-  const st = amMonthStats(clients, cur);
+  const st = amMonthStats(name, cur);
   const active = clients.filter(amIsActive);
-  const careerLtv = clients.reduce((s, c) => s + clientLifetimeValue(c.id), 0);
+  const nChurned = clients.filter(c => c._state === 'churned').length, nHanded = clients.filter(c => c._state === 'handed').length;
+  const careerLtv = clients.reduce((s, c) => s + c._ltv, 0);
   const color = amColor(name);
 
   const buckets = clientBuckets('industry', clients);
@@ -5098,21 +5208,21 @@ function renderAmDetail(body, name) {
   // still active and hasn't passed the Realised average. Those industries are still
   // listed, below the ranked ones, faded and in italics, at their active clients'
   // current figure (current tenure / lifetime value so far) with the clients named.
-  const industryRows = fn => {
+  const industryRows = key => {
     const ranked = [], pending = [];
     buckets.forEach(b => {
-      const p = amPick(b.clients, fn, basis);
+      const p = amPick(b.clients, key, basis);
       const attrs = `data-am-ind="${esc(b.name)}"`;
       if (p.avg != null) { ranked.push({ name: b.name, value: p.avg, note: `${p.count}`, attrs }); return; }
       const act = basis === 'combination' ? b.clients.filter(amIsActive) : [];
-      if (act.length) pending.push({ name: b.name, value: avgOf(act.map(c => fn(c.id))), note: `${act.length} active`, attrs, faded: true,
+      if (act.length) pending.push({ name: b.name, value: avgOf(act.map(c => c[key])), note: `${act.length} active`, attrs, faded: true,
         sub: `${act.map(c => c.companyName).join(', ')} — still active, current figure` });
     });
     ranked.sort((a, b) => b.value - a.value);
     pending.sort((a, b) => b.value - a.value);
     return [...ranked.map((r, i) => ({ ...r, color: greyFade(i, ranked.length) })), ...pending.map(r => ({ ...r, color: 'var(--neutral)' }))];
   };
-  const tenureRowsIn = industryRows(clientMaxMonthNo), ltvRowsIn = industryRows(clientLifetimeValue);
+  const tenureRowsIn = industryRows('_tenure'), ltvRowsIn = industryRows('_ltv');
   const fadedNote = rows => rows.some(r => r.faded) ? ' Faded italic rows are active clients who don’t have a Combination figure yet, shown at their current figure.' : '';
   const tenureBars = amBarsHtml(tenureRowsIn, { fmt: v => v.toFixed(1) + ' mo', valueWidth: 110 });
   const ltvBars = amBarsHtml(ltvRowsIn, { fmt: fmtMoney, valueWidth: 150 });
@@ -5126,13 +5236,13 @@ function renderAmDetail(body, name) {
     <div class="toolbar" style="margin-bottom:14px">
       <button type="button" class="btn btn-sm" id="am-back">← All account managers</button>
       <h2 style="font-size:20px; font-weight:800; letter-spacing:-.3px; display:flex; align-items:center; gap:10px"><span class="dot" style="background:${color}; width:12px; height:12px"></span>${esc(name)}</h2>
-      <span class="dim" style="font-size:12px">${active.length} active · ${clients.length - active.length} churned</span>
+      <span class="dim" style="font-size:12px">${active.length} active · ${nChurned} churned${nHanded ? ` · ${nHanded} handed over` : ''}</span>
     </div>
 
     <div class="stats">
       <div class="stat"><div class="v">${fmtMoney(st.value)}</div><div class="l">${esc(monthLabel(cur))} value</div><div class="s">${st.pct != null ? `${st.pct.toFixed(1)}% of the company's ${fmtMoney(st.company)}` : 'no company revenue yet'}</div></div>
       <div class="stat"><div class="v">${st.perClient != null ? fmtMoney(st.perClient) : '—'}</div><div class="l">Revenue per client — ${esc(monthLabelShort(cur))}</div><div class="s">${st.invoiced} client${st.invoiced === 1 ? '' : 's'} invoiced this month</div></div>
-      <div class="stat ok"><div class="v">${fmtMoney(careerLtv)}</div><div class="l">Career lifetime value</div><div class="s">all invoices of ${clients.length} client${clients.length === 1 ? '' : 's'}, active and churned</div></div>
+      <div class="stat ok"><div class="v">${fmtMoney(careerLtv)}</div><div class="l">Career lifetime value</div><div class="s">the invoices ${esc(name)} owned, across ${clients.length} client${clients.length === 1 ? '' : 's'}</div></div>
     </div>
 
     <div class="am-grid">
@@ -5160,18 +5270,18 @@ function renderAmDetail(body, name) {
     <h2 class="section" style="margin-top:20px">${esc(name)}'s clients</h2>
     <div class="toolbar" style="margin-bottom:10px">
       <span class="dim" style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em">Status</span>
-      <div class="pills" id="am-status-pills">${[['all', 'All', clients.length], ['active', 'Active', active.length], ['churned', 'Churned', clients.length - active.length]]
+      <div class="pills" id="am-status-pills">${[['all', 'All', clients.length], ['active', 'Active', active.length], ['churned', 'Churned', nChurned], ...(nHanded ? [['handed', 'Handed over', nHanded]] : [])]
         .map(([k, l, n]) => `<button type="button" class="pill ${state.amClientStatus === k ? 'active' : ''}" data-am-status="${k}">${l} (${n})</button>`).join('')}</div>
     </div>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Client</th><th>Status</th><th>Industry</th><th class="num">Monthly fee</th><th class="num">Lifetime value</th></tr></thead>
-        <tbody>${clientRows.map(c => `<tr data-status="${amIsActive(c) ? 'active' : 'churned'}">
+        <tbody>${clientRows.map(c => `<tr data-status="${c._state}">
           <td><strong>${esc(c.companyName)}</strong></td>
-          <td class="${amIsActive(c) ? '' : 'dim'}">${amIsActive(c) ? 'Active' : 'Churned'}</td>
+          <td class="${amIsActive(c) ? '' : 'dim'}">${amStateLabel(c._state)}</td>
           <td class="dim">${esc(c.industry || 'Unclassified')}</td>
           <td class="num money">${fmtMoney(c.feeGBP)}</td>
-          <td class="num money">${fmtMoney(clientLifetimeValue(c.id))}</td>
+          <td class="num money">${fmtMoney(c._ltv)}</td>
         </tr>`).join('')}<tr id="am-clients-empty" style="display:none"><td colspan="5"><div class="empty">No clients with this status.</div></td></tr></tbody>
       </table>
     </div>`;
@@ -5191,10 +5301,10 @@ function renderAmDetail(body, name) {
 
 /* ── One account manager's clients in one industry ── */
 function renderAmIndustryClients(body, name, industry) {
-  const clients = amClientsOf(name).filter(c => (c.industry || 'Unclassified') === industry)
-    .sort((a, b) => clientLifetimeValue(b.id) - clientLifetimeValue(a.id));
-  const avgLtv = avgOf(clients.map(c => clientLifetimeValue(c.id)));
-  const avgTen = avgOf(clients.map(c => clientMaxMonthNo(c.id)));
+  const clients = amRelsOf(name).filter(c => (c.industry || 'Unclassified') === industry)
+    .sort((a, b) => b._ltv - a._ltv);
+  const avgLtv = avgOf(clients.map(c => c._ltv));
+  const avgTen = avgOf(clients.map(c => c._tenure));
   body.innerHTML = `
     <div class="toolbar" style="margin-bottom:14px">
       <button type="button" class="btn btn-sm" id="am-back-detail">← ${esc(name)}</button>
@@ -5211,9 +5321,9 @@ function renderAmIndustryClients(body, name, industry) {
         <thead><tr><th>Client</th><th>Status</th><th class="num">Lifetime value</th><th class="num">Tenure</th></tr></thead>
         <tbody>${clients.length ? clients.map(c => `<tr>
           <td><strong>${esc(c.companyName)}</strong></td>
-          <td class="${amIsActive(c) ? '' : 'dim'}">${amIsActive(c) ? 'Active' : 'Churned'}</td>
-          <td class="num money">${fmtMoney(clientLifetimeValue(c.id))}</td>
-          <td class="num">${clientMaxMonthNo(c.id)} mo</td>
+          <td class="${amIsActive(c) ? '' : 'dim'}">${amStateLabel(c._state)}</td>
+          <td class="num money">${fmtMoney(c._ltv)}</td>
+          <td class="num">${c._tenure} mo</td>
         </tr>`).join('') : '<tr><td colspan="4"><div class="empty">No clients in this industry.</div></td></tr>'}</tbody>
       </table>
     </div>`;
