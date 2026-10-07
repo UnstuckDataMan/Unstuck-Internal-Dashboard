@@ -915,6 +915,8 @@ function normalise() {
   // has actually set a target for exist here; everything else reads as "no
   // target set" rather than 0.
   DB.settings.revenueTargets ||= {};
+  DB.settings.clientTargets ||= {};      // client-count target per month
+  DB.settings.avgValueTargets ||= {};    // average-client-value (£) target per month
   DB.clients ||= [];
   DB.invoices ||= [];
   // Wider industries: broader clusters that the specific industry tags roll up
@@ -3140,6 +3142,17 @@ function fiscalYearStart(key) {
 // from Settings or directly from that month's own Invoices tab — both write
 // to the same DB.settings.revenueTargets map, so they can never disagree.
 function targetForMonth(m) { return DB.settings.revenueTargets[m] ?? null; }
+// Client-count and average-client-value targets work exactly like the revenue targets: one independent
+// figure per 'YYYY-MM', set in Operational Settings (clientTargets / avgValueTargets). metric: 'mrr' | 'vol' | 'avg'.
+function targetMapFor(metric) {
+  return metric === 'vol' ? (DB.settings.clientTargets ||= {}) : metric === 'avg' ? (DB.settings.avgValueTargets ||= {}) : DB.settings.revenueTargets;
+}
+function targetForMetric(metric, m) { return targetMapFor(metric)[m] ?? null; }
+function setTargetOnMap(map, m, value) {
+  if (value === '' || value == null || isNaN(Number(value))) delete map[m];
+  else map[m] = Number(value);
+  touch();
+}
 function setTargetForMonth(m, value) {
   if (value === '' || value == null || isNaN(Number(value))) delete DB.settings.revenueTargets[m];
   else DB.settings.revenueTargets[m] = Number(value);
@@ -3968,11 +3981,11 @@ function insProjectionSpan() {
   const k = state.insProjScale;
   return !k || k === 'off' ? 0 : Number(k);
 }
-function insProjectionMonths() {
+function insProjectionMonths(metric = 'mrr') {
   const n = insProjectionSpan();
   if (!n) return [];
   const cur = currentMonthKey();
-  const targets = DB.settings.revenueTargets || {};
+  const targets = targetMapFor(metric) || {};
   const lastTarget = Object.keys(targets).filter(m => m > cur && targets[m] != null).sort().pop();
   if (!lastTarget) return [];
   const out = [];
@@ -4485,16 +4498,16 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   // Projections: the chosen number of future months, target line only — there
   // is no MRR to show for a month that hasn't happened yet.
   const metric = state.insRevMetric;
-  const projMonthsAll = insProjectionMonths();
-  // Projections are targets, so they only apply to the Target vs MRR view.
-  const projMonths = metric === 'mrr' ? projMonthsAll : [];
+  // Every view has its own targets now, so projections (target only) work on all three.
+  const projMonths = insProjectionMonths(metric);
   const revMonthRows = [...pastRows, ...projMonths.map(m => ({ m, projected: true }))];
   // Average client value and client volume come straight from each month's invoicing: how many
   // clients were invoiced, and what was billed to them (MRR ÷ clients = average client value).
   const byMonthRow = new Map(snapRows.map(r => [r.m, r]));
   const otherValue = (m) => { const row = byMonthRow.get(m); if (!row || !row.count) return null; return metric === 'avg' ? row.mrr / row.count : row.count; };
   const revMonthlySeries = metric !== 'mrr' ? [
-    { name: metric === 'avg' ? 'Average client value' : 'Clients invoiced', color: metric === 'avg' ? '#22d3ee' : '#f472b6', points: revMonthRows.map(r => ({ m: r.m, v: otherValue(r.m) })) },
+    { name: 'Target', color: 'var(--accent)', points: revMonthRows.map(r => ({ m: r.m, v: targetForMetric(metric, r.m) })) },
+    { name: metric === 'avg' ? 'Average client value' : 'Clients invoiced', color: metric === 'avg' ? '#22d3ee' : '#f472b6', points: revMonthRows.map(r => ({ m: r.m, v: r.projected ? null : otherValue(r.m) })) },
   ] : [
     { name: 'Target', color: 'var(--accent)', points: revMonthRows.map(r => ({ m: r.m, v: targetForMonth(r.m) })) },
     // MRR here is cash landed for a completed month; for the current
@@ -4510,13 +4523,13 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   ];
   const projectedFrom = projMonths[0] || null;
   const revMonthlyChart = state.insRevMonthlyChart === 'bar'
-    ? buildGroupedBarChart(revMonthlySeries, { yUnit: metric === 'vol' ? '' : '£', id: 'ins-rev-m', lineSeries: metric === 'mrr' ? ['Target'] : [], projectedFrom })
+    ? buildGroupedBarChart(revMonthlySeries, { yUnit: metric === 'vol' ? '' : '£', id: 'ins-rev-m', lineSeries: ['Target'], projectedFrom })
     : buildLineChart(revMonthlySeries, { yUnit: metric === 'vol' ? '' : '£', id: 'ins-rev-m', projectedFrom });
-  const lastTargetMonth = Object.keys(DB.settings.revenueTargets || {}).filter(m => DB.settings.revenueTargets[m] != null).sort().pop();
+  const tmap = targetMapFor(metric) || {};
+  const lastTargetMonth = Object.keys(tmap).filter(m => tmap[m] != null).sort().pop();
   const projAsked = insProjectionSpan();
   const projNote = !projAsked ? ''
-    : metric !== 'mrr' ? 'Projections are targets, so they only show on the MRR view.'
-    : !projMonths.length ? 'No future targets are set — add some in Operational Settings to project them.'
+    : !projMonths.length ? 'No future targets are set for this view — add some in Operational Settings to project them.'
     : (projMonths.length < projAsked
         ? `Targets are only set up to ${monthLabel(lastTargetMonth)}, so the projection stops there.` : '');
 
@@ -4526,7 +4539,14 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
     vol: { label: 'Clients invoiced', color: '#f472b6', note: 'How many clients were invoiced in the month — client volume.' },
   }[metric];
   const legendHtml = metric !== 'mrr'
-    ? `<div class="chart-legend"><span class="key"><span class="dot" style="background:${metricInfo.color}"></span>${esc(metricInfo.label)}</span><span class="key" style="opacity:.85">${esc(metricInfo.note)}</span></div>`
+    ? `<div class="chart-legend">
+        ${state.insRevMonthlyChart === 'bar'
+          ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
+          : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
+        <span class="key"><span class="dot" style="background:${metricInfo.color}"></span>${esc(metricInfo.label)}</span>
+        ${projMonths.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
+        <span class="key" style="opacity:.85">${esc(metricInfo.note)}</span>
+      </div>`
     : `<div class="chart-legend">
         ${state.insRevMonthlyChart === 'bar'
           ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
@@ -4570,7 +4590,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
       ${revBarLegendHtml({ fy: true })}
     </div>
 
-    ${insSectionHead('Revenue targets', 'Target vs. MRR — cash landed for completed months, expected-to-land for the current one. Past data sets how far back to look; Projections extends the target line ahead and compares it with the past. Set targets on Settings or directly on a month\'s Invoices tab.')}
+    ${insSectionHead('Revenue targets', 'Targets vs. actuals by month — MRR (cash landed for completed months, expected-to-land for the current one), average client value and client volume. Past data sets how far back to look; Projections extends the target line ahead and compares it with the past. Set all three kinds of target in Operational Settings; revenue targets can also be set directly on a month\'s Invoices tab.')}
     ${metricBoxesHtml}
     <div class="chart-card">
       <div class="chart-head">
@@ -4630,7 +4650,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   });
 
   if (state.insRevMonthlyChart === 'line' && revMonthlyChart?.months?.length) wireLineChartHover(bodyEl.querySelector('#ins-rev-m-wrap'), revMonthlyChart);
-  insCmpMount({ monthKey, monthExpected, pastMonths: pastRows.map(r => r.m), projMonths: projMonthsAll, chart: revMonthlyChart, wrap: bodyEl.querySelector('#ins-rev-m-wrap') });
+  insCmpMount({ monthKey, monthExpected, pastMonths: pastRows.map(r => r.m), projMonths: insProjectionMonths('mrr'), chart: revMonthlyChart, wrap: bodyEl.querySelector('#ins-rev-m-wrap') });
 }
 
 /* ── Revenue "This period" bars ── */
@@ -6156,7 +6176,7 @@ function renderSettings() {
   // coming year can be filled in without first adding each month. A slot with no
   // target is just an empty input (nothing is stored until a value is typed).
   const targetSlotStart = currentMonthKey(), targetSlotEnd = addMonths(targetSlotStart, 12);
-  const targetMonths = [...new Set([...Object.keys(s.revenueTargets), ...Array.from({ length: 13 }, (_, i) => addMonths(targetSlotStart, i))])].sort();
+  const targetMonths = [...new Set([...Object.keys(s.revenueTargets), ...Object.keys(s.clientTargets || {}), ...Object.keys(s.avgValueTargets || {}), ...Array.from({ length: 13 }, (_, i) => addMonths(targetSlotStart, i))])].sort();
 
   view.innerHTML = `
     ${chipList('salesTeam', 'Sales team', 'People who can earn commission — selectable as Lead generated by / Converted by on each client.')}
@@ -6169,16 +6189,21 @@ function renderSettings() {
     ${chipList('companySizes', 'Company sizes', 'Headcount bands selectable on each client — powers the Insights tab\'s size breakdown.')}
 
     <div class="card">
-      <h3>Revenue targets</h3>
-      <div class="desc">A £ target for a specific month — each month is independent (e.g. September 2026 and September 2027 don't share a target). The current month and the next 12 always have a slot below — just type a figure; use "Add month" only to set a target further ahead (or further back). Also editable directly from that month's Invoices tab; both places write the same value. Yearly targets shown in Insights are just the sum of whichever months in that year have one set.</div>
+      <h3>Monthly targets</h3>
+      <div class="desc">Three targets for each month — revenue (£), number of clients, and average client value (£). Each month is independent (e.g. September 2026 and September 2027 don't share a target), and any box can be left empty for no target. The current month and the next 12 always have a slot below — just type a figure; use "Add month" only to go further ahead (or back). Revenue targets can also be edited from that month's Invoices tab; both places write the same value. Yearly figures in Insights are just the sum of whichever months in that year have a target.</div>
       <div class="tbl-wrap" id="rt-targets-wrap" style="max-height:280px; overflow-y:auto; margin-bottom:12px">
         <table>
-          <thead><tr><th>Month</th><th class="num">Target £</th><th></th></tr></thead>
+          <thead><tr><th>Month</th><th class="num">Revenue £</th><th class="num">Clients</th><th class="num">Avg client value £</th><th></th></tr></thead>
           <tbody>
-            ${targetMonths.map(m => { const has = s.revenueTargets[m] != null; return `<tr>
+            ${targetMonths.map(m => {
+              const rv = s.revenueTargets[m], cv = (s.clientTargets || {})[m], av = (s.avgValueTargets || {})[m];
+              const has = rv != null || cv != null || av != null;
+              return `<tr>
               <td>${esc(monthLabel(m))}${m === targetSlotStart ? ' <span class="muted" style="font-size:11px">· this month</span>' : ''}</td>
-              <td class="num"><input type="number" step="0.01" class="no-spin" style="width:120px; text-align:right" data-target-input="${m}" value="${has ? s.revenueTargets[m] : ''}" placeholder="Not set"></td>
-              <td>${has ? `<button class="btn btn-sm btn-danger" data-target-rm="${m}" title="${m >= targetSlotStart && m <= targetSlotEnd ? 'Clear target' : 'Remove target'}">×</button>` : ''}</td>
+              <td class="num"><input type="number" step="0.01" class="no-spin" style="width:110px; text-align:right" data-target-input="${m}" value="${rv != null ? rv : ''}" placeholder="Not set"></td>
+              <td class="num"><input type="number" step="1" min="0" class="no-spin" style="width:80px; text-align:right" data-ctarget-input="${m}" value="${cv != null ? cv : ''}" placeholder="Not set"></td>
+              <td class="num"><input type="number" step="0.01" min="0" class="no-spin" style="width:110px; text-align:right" data-atarget-input="${m}" value="${av != null ? av : ''}" placeholder="Not set"></td>
+              <td>${has ? `<button class="btn btn-sm btn-danger" data-target-rm="${m}" title="${m >= targetSlotStart && m <= targetSlotEnd ? 'Clear this month\'s targets' : 'Remove this month'}">×</button>` : ''}</td>
             </tr>`; }).join('')}
           </tbody>
         </table>
@@ -6294,8 +6319,16 @@ function renderSettings() {
   view.querySelectorAll('[data-target-input]').forEach(inp => {
     inp.onchange = () => keepTargetsScroll(() => { setTargetForMonth(inp.dataset.targetInput, inp.value); renderSettings(); });
   });
+  view.querySelectorAll('[data-ctarget-input]').forEach(inp => {
+    inp.onchange = () => keepTargetsScroll(() => { setTargetOnMap(s.clientTargets ||= {}, inp.dataset.ctargetInput, inp.value); renderSettings(); });
+  });
+  view.querySelectorAll('[data-atarget-input]').forEach(inp => {
+    inp.onchange = () => keepTargetsScroll(() => { setTargetOnMap(s.avgValueTargets ||= {}, inp.dataset.atargetInput, inp.value); renderSettings(); });
+  });
   view.querySelectorAll('[data-target-rm]').forEach(b => b.onclick = () => keepTargetsScroll(() => {
-    delete s.revenueTargets[b.dataset.targetRm]; touch(); renderSettings();
+    const m = b.dataset.targetRm;
+    delete s.revenueTargets[m]; delete (s.clientTargets || {})[m]; delete (s.avgValueTargets || {})[m];
+    touch(); renderSettings();
   }));
   view.querySelector('#target-add-btn').onclick = () => {
     const btn = view.querySelector('#target-add-btn');
