@@ -17,16 +17,27 @@ import pytest
 from app.utils.pulse import tracker
 
 
-HEADERS = ["Dovetail Date/Time", "Lead", "Channel", "Headcount", "Job role",
+HEADERS = ["Date/Time", "Lead", "Channel", "Headcount", "Job role",
            "Industry", "Location", "ICP rating", "Category", "Sale stage",
            "Additional notes"]
+
+
+# The live sheets open with a banner naming the client and put the column
+# names on row 2, so every fixture here is a grid with that shape.
+BANNER = ["Dovetail"] + [""] * (len(HEADERS) - 1)
 
 
 def _row(day, lead="acme.com", channel="Smartlead", headcount="11-50",
          role="Head of Growth", industry="Marketing", location="United Kingdom",
          icp="8", category="Lead", stage="", notes=""):
-    return dict(zip(HEADERS, [day, lead, channel, headcount, role, industry,
-                              location, icp, category, stage, notes]))
+    return [day, lead, channel, headcount, role, industry,
+            location, icp, category, stage, notes]
+
+
+def _grid(rows, headers=None, banner=True):
+    out = [list(BANNER)] if banner else []
+    out.append(list(headers if headers is not None else HEADERS))
+    return out + [list(r) for r in rows]
 
 
 def _sheet():
@@ -56,12 +67,12 @@ def _sheet():
     # carrying nothing but a formula result.
     rows += [_row("", lead="", channel="", headcount="", role="", industry="",
                   location="", icp="-", category="") for _ in range(40)]
-    return rows
+    return _grid(rows)
 
 
 @pytest.fixture
 def parsed():
-    rows, meta = tracker.parse_rows(_sheet(), HEADERS)
+    rows, meta = tracker.parse_rows(_sheet())
     return rows, meta
 
 
@@ -126,18 +137,19 @@ def test_headers_match_whatever_the_spacing_and_case():
 
 
 def test_a_missing_column_disables_its_breakdown_rather_than_guessing():
-    headers = [h for h in HEADERS if h != "Industry"]
-    rows, meta = tracker.parse_rows(
-        [{k: v for k, v in r.items() if k != "Industry"} for r in _sheet()],
-        headers)
+    drop = HEADERS.index("Industry")
+    headers = [h for i, h in enumerate(HEADERS) if i != drop]
+    rows, meta = tracker.parse_rows(_grid(
+        [[c for i, c in enumerate(r) if i != drop] for r in _sheet()[2:]],
+        headers))
     assert all(r["industry"] == tracker.UNSPECIFIED for r in rows)
     assert len(rows) == 8, "losing one column must not lose the leads"
 
 
 def test_without_a_date_column_nothing_is_returned():
     """A period figure built from undated rows would be fiction."""
-    rows, meta = tracker.parse_rows([{"Lead": "a.com", "ICP rating": "8"}],
-                                    ["Lead", "ICP rating"])
+    rows, meta = tracker.parse_rows(
+        _grid([["a.com", "8"]], ["Lead", "ICP rating"]))
     assert rows == []
     assert meta["has_dates"] is False
 
@@ -153,25 +165,25 @@ def test_us_dates_are_read_month_first(parsed):
 def test_a_day_first_column_is_detected_across_the_whole_sheet():
     """"23/9/2025" can only be day-first, and that settles "1/5/2026" too.
     Deciding per row would read one column as a mixture of both."""
-    rows = [_row("23/9/2025"), _row("1/5/2026")]
-    parsed, meta = tracker.parse_rows(rows, HEADERS)
+    parsed, meta = tracker.parse_rows(
+        _grid([_row("23/9/2025"), _row("1/5/2026")]))
     assert meta["date_order"] == "dmy"
     assert sorted(r["day"] for r in parsed) == ["2025-09-23", "2026-05-01"]
 
 
 def test_an_entirely_ambiguous_column_falls_back_to_month_first():
-    parsed, meta = tracker.parse_rows([_row("1/5/2026")], HEADERS)
+    parsed, meta = tracker.parse_rows(_grid([_row("1/5/2026")], HEADERS))
     assert meta["date_order"] == "mdy"
     assert parsed[0]["day"] == "2026-01-05"
 
 
 def test_an_iso_date_cell_is_understood():
-    parsed, _ = tracker.parse_rows([_row("2026-04-09")], HEADERS)
+    parsed, _ = tracker.parse_rows(_grid([_row("2026-04-09")], HEADERS))
     assert parsed[0]["day"] == "2026-04-09"
 
 
 def test_an_impossible_date_is_not_a_lead():
-    parsed, meta = tracker.parse_rows([_row("13/45/2026")], HEADERS)
+    parsed, meta = tracker.parse_rows(_grid([_row("13/45/2026")], HEADERS))
     assert parsed == []
     assert meta["skipped"] == 1
 
@@ -202,7 +214,7 @@ def test_an_ungraded_lead_never_drags_the_average_down(parsed):
 
 def test_the_average_is_absent_rather_than_zero_when_nothing_is_graded():
     """0.00 average ICP is the single worst thing this feature could print."""
-    rows, _ = tracker.parse_rows([_row("1/5/2026", icp="-")], HEADERS)
+    rows, _ = tracker.parse_rows(_grid([_row("1/5/2026", icp="-")], HEADERS))
     summary = tracker.summarise(rows)
     assert summary["average"] is None
     assert summary["median"] is None
@@ -245,8 +257,8 @@ def test_a_blank_headcount_is_unspecified_and_still_counted(parsed):
 def test_a_band_google_turned_into_a_date_is_surfaced_not_dropped():
     """Typing 1-10 into Sheets can produce 1/10/2025. The fix is in the sheet,
     so it has to be visible rather than quietly binned."""
-    rows, meta = tracker.parse_rows([_row("1/5/2026", headcount="1/10/2025")],
-                                    HEADERS)
+    rows, meta = tracker.parse_rows(_grid([_row("1/5/2026", headcount="1/10/2025")],
+                                    HEADERS))
     assert rows[0]["headcount"] == tracker.UNRECOGNISED
     assert meta["unrecognised_bands"] == 1
 
@@ -284,9 +296,8 @@ def test_trailing_geography_is_stripped_so_one_role_is_one_row():
     assert tracker.clean_role("Head of People & Operations UK") == \
         "Head of People & Operations"
     assert tracker.clean_role("Head of Growth (EMEA)") == "Head of Growth"
-    rows, _ = tracker.parse_rows(
-        [_row("1/5/2026", role="Head of Growth UK"),
-         _row("1/6/2026", role="Head of Growth")], HEADERS)
+    rows, _ = tracker.parse_rows(_grid([_row("1/5/2026", role="Head of Growth UK"),
+         _row("1/6/2026", role="Head of Growth")], HEADERS))
     roles = tracker.summarise(rows)["roles"]
     assert roles == [{"label": "Head of Growth", "count": 2}]
 
@@ -316,9 +327,8 @@ def test_a_blank_channel_is_its_own_bucket_so_the_split_adds_up(parsed):
 # ── Top-N ────────────────────────────────────────────────────────────────────
 
 def test_a_long_industry_tail_collapses_into_other():
-    rows, _ = tracker.parse_rows(
-        [_row(f"1/{d}/2026", industry=f"Industry {d}") for d in range(1, 13)],
-        HEADERS)
+    rows, _ = tracker.parse_rows(_grid([_row(f"1/{d}/2026", industry=f"Industry {d}") for d in range(1, 13)],
+        HEADERS))
     industries = tracker.summarise(rows)["industry"]
     other = industries[-1]
     assert other["label"] == "Other"
@@ -328,9 +338,8 @@ def test_a_long_industry_tail_collapses_into_other():
 
 def test_a_tail_of_one_is_named_rather_than_called_other():
     """"Other: 1" hides a name for no gain."""
-    rows, _ = tracker.parse_rows(
-        [_row(f"1/{d}/2026", industry=f"Industry {d}") for d in range(1, 10)],
-        HEADERS)
+    rows, _ = tracker.parse_rows(_grid([_row(f"1/{d}/2026", industry=f"Industry {d}") for d in range(1, 10)],
+        HEADERS))
     labels = [e["label"] for e in tracker.summarise(rows)["industry"]]
     assert "Other" not in labels
     assert len(labels) == 9
@@ -386,3 +395,82 @@ def test_a_row_carries_its_own_derived_fields(parsed):
     assert row["icp_band"] == "9_10"
     assert row["headcount_order"] == 1.0
     assert row["channel_label"] == "LinkedIn"
+
+
+# ── Finding the header row ───────────────────────────────────────────────────
+#
+# This is the bug that reached production. A real tracker opens with a banner
+# naming the client -- "Dovetail" alone in A1, the rest of the row blank -- and
+# puts the column names on row 2. Taking row 1 as the header gave a sheet with
+# one usable column and no ICP rating, and the panel reported that as a warning
+# rather than a failure, so it looked linked and was empty.
+#
+# It was not caught earlier because the sheet was profiled through Google's
+# gviz CSV endpoint, which INFERS headers and silently concatenates a two-row
+# header into one label ("Dovetail" + "Date/Time" -> "Dovetail Date/Time").
+# The Sheets API returns the raw grid. These tests use raw grids.
+
+def test_a_banner_row_above_the_headers_is_not_the_header():
+    index, headers = tracker.find_header(_sheet())
+    assert index == 1, "row 2 holds the column names"
+    assert headers[0] == "Date/Time"
+    assert "ICP rating" in headers
+
+
+def test_the_real_sheets_shape_resolves_every_column():
+    _rows, meta = tracker.parse_rows(_sheet())
+    assert meta["header_row"] == 2
+    assert not meta["warnings"], meta["warnings"]
+    assert set(meta["columns"]) >= {"date", "icp", "headcount", "role",
+                                    "industry", "location", "category"}
+
+
+def test_a_sheet_with_no_banner_still_works():
+    """The banner is a convention, not a rule."""
+    grid = _grid([_row("1/5/2026")], banner=False)
+    index, headers = tracker.find_header(grid)
+    assert index == 0
+    assert headers[0] == "Date/Time"
+    rows, meta = tracker.parse_rows(grid)
+    assert len(rows) == 1 and not meta["warnings"]
+
+
+def test_several_banner_rows_are_skipped():
+    grid = [["Dovetail x Unstuck"] + [""] * 10,
+            [""] * 11,
+            ["Updated weekly"] + [""] * 10] + _grid([_row("1/5/2026")], banner=False)
+    rows, meta = tracker.parse_rows(grid)
+    assert meta["header_row"] == 4
+    assert len(rows) == 1
+
+
+def test_the_header_is_the_row_naming_the_most_columns():
+    """Scored, not hardcoded to row 2 -- so a sheet that puts its headers
+    anywhere near the top still reads."""
+    assert tracker.header_score(["Dovetail", "", ""]) == 0
+    assert tracker.header_score(list(HEADERS)) >= 10
+    assert tracker.header_score(["9/23/2025", "acme.com", "Smartlead"]) <= 1
+
+
+def test_a_grid_with_no_recognisable_header_falls_back_to_the_first_row():
+    """And then says what it could not find, by name, rather than guessing."""
+    grid = [["alpha", "beta"], ["1", "2"]]
+    index, headers = tracker.find_header(grid)
+    assert index == 0 and headers == ["alpha", "beta"]
+    _rows, meta = tracker.parse_rows(grid)
+    assert any("ICP" in w for w in meta["warnings"])
+
+
+def test_a_repeated_column_name_is_read_once():
+    grid = [list(HEADERS) + ["Industry"],
+            _row("1/5/2026") + ["ignored"]]
+    rows, _meta = tracker.parse_rows(grid)
+    assert rows[0]["industry"] == "Marketing", "the first Industry column wins"
+
+
+def test_data_above_the_header_row_is_not_counted_as_leads():
+    """A banner that happens to hold a date must not become a lead."""
+    grid = [["9/23/2025"] + [""] * 10] + _grid([_row("1/5/2026")], banner=False)
+    rows, meta = tracker.parse_rows(grid)
+    assert len(rows) == 1
+    assert rows[0]["day"] == "2026-01-05"

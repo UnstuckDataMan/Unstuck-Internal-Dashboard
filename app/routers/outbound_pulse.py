@@ -1628,7 +1628,8 @@ async def link_tracker(
                 "GOOGLE_SHEETS_SA_JSON.")
 
         try:
-            headers = google_sheets.read_tracker_headers(sheet_id, tab)
+            values = google_sheets.read_tracker_values(sheet_id, tab)
+            _index, headers = tracker.find_header(values)
         except google_sheets.TrackerUnavailable as exc:
             return _tracker_link_panel(request, client_id, str(exc))
         except Exception as exc:
@@ -1702,7 +1703,7 @@ def _tracker_panel(request: Request, client_id: str, rng: dict):
     sheet_id = str(tracker_row.get("sheet_id") or "")
     tab = str(tracker_row.get("tab_title") or tracker.DEFAULT_TAB)
     try:
-        raw = google_sheets.read_tracker_rows(sheet_id, tab)
+        values = google_sheets.read_tracker_values(sheet_id, tab)
     except google_sheets.TrackerUnavailable as exc:
         store.set_tracker_status(client_id, str(exc))
         context["error"] = str(exc)
@@ -1714,8 +1715,7 @@ def _tracker_panel(request: Request, client_id: str, rng: dict):
                             "the server log.")
         return templates.TemplateResponse("partials/pulse_tracker.html", context)
 
-    headers = list(raw[0].keys()) if raw else []
-    rows, meta = tracker.parse_rows(raw, headers)
+    rows, meta = tracker.parse_rows(values)
     store.set_tracker_status(client_id, "")
 
     # The initial view matches the range the page is showing, so the panel
@@ -1806,11 +1806,10 @@ def _report_icp(client_id: str, start: date, end: date) -> dict:
         linked = store.get_tracker(client_id)
         if not linked:
             return {}
-        rows_raw = google_sheets.read_tracker_rows(
+        values = google_sheets.read_tracker_values(
             str(linked.get("sheet_id") or ""),
             str(linked.get("tab_title") or tracker.DEFAULT_TAB))
-        headers = list(rows_raw[0].keys()) if rows_raw else []
-        rows, meta = tracker.parse_rows(rows_raw, headers)
+        rows, meta = tracker.parse_rows(values)
         if not meta.get("has_dates") or not rows:
             return {}
 
