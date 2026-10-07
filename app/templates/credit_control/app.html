@@ -1273,9 +1273,16 @@ const invForClient = id => DB.invoices.filter(i => i.clientId === id)
 function invoiceMonths() {
   return [...new Set(DB.invoices.map(i => i.month).filter(Boolean))].sort();
 }
-function clientMaxMonthNo(id) {
+// A client's tenure in months. The old Google-sheet history wasn't kept with these statistics in
+// mind, so a client can carry a manual `tenureOverride` that replaces the figure worked out from
+// its invoices everywhere tenure is shown. clientCalcMonthNo is always the invoice-based figure.
+function clientCalcMonthNo(id) {
   const nums = DB.invoices.filter(i => i.clientId === id).map(i => Number(i.monthNumber) || 0);
   return nums.length ? Math.max(...nums) : 0;
+}
+function clientMaxMonthNo(id) {
+  const c = clientById(id);
+  return c && c.tenureOverride != null ? c.tenureOverride : clientCalcMonthNo(id);
 }
 function isOverdue(inv) {
   return !inv.paid && inv.dueDate && inv.dueDate < todayISO();
@@ -2586,7 +2593,7 @@ function renderClients() {
               <td class="dim small">${esc(c.package || '')}</td>
               <td class="num money">${fmtMoney(c.feeGBP)}</td>
               <td class="dim">${monthLabelShort(c.startMonth)}</td>
-              <td class="num">${mo || '—'}</td>
+              <td class="num">${mo || '—'}${c.tenureOverride != null ? '<span title="Tenure set manually" style="color:var(--accent)">*</span>' : ''}</td>
               <td class="dim">${esc(c.leadGenBy || '—')}</td>
               <td class="dim">${esc(c.convertedBy || '—')}</td>
               <td class="muted">›</td>
@@ -2637,7 +2644,8 @@ function clientDetail(cid) {
     </div>
 
     <div class="stats">
-      <div class="stat"><div class="v">${months || '—'}</div><div class="l">Months with us</div></div>
+      <div class="stat"><div class="v">${months || '—'}</div><div class="l">Months with us</div>${c.tenureOverride != null ? '<div class="s" style="color:var(--accent)">set manually</div>' : ''}</div>
+      <div class="stat"><div class="v">${fmtMoney(clientLifetimeValue(cid))}</div><div class="l">Lifetime value</div><div class="s"${c.ltvOverride != null ? ' style="color:var(--accent)"' : ''}>${c.ltvOverride != null ? 'set manually' : 'from invoices'}</div></div>
       <div class="stat"><div class="v">${fmtMoney(c.feeGBP)}</div><div class="l">Current fee</div></div>
       <div class="stat"><div class="v">${fmtMoney(lifetimeBilled)}</div><div class="l">Lifetime billed</div></div>
       <div class="stat ok"><div class="v">${fmtMoney(lifetimePaid)}</div><div class="l">Lifetime collected</div></div>
@@ -2720,6 +2728,9 @@ function clientForm(cid, onCreated) {
       <div class="fld"><label>Converted by (${s.commission.converterPct}%)</label><select id="cf-conv" data-add-list="salesTeam">${selectOptions(s.salesTeam, c?.convertedBy, true, 'salesTeam')}</select></div>
       <div class="fld"><label class="chk"><input type="checkbox" id="cf-auto" ${c?.autoIssue ? 'checked' : ''}> Issues automatically (GoCardless)</label>
         <label class="chk"><input type="checkbox" id="cf-mm" ${c?.mailMerge ? 'checked' : ''}> Mail merge</label></div>
+      <div class="fld"><label>Lifetime value override £</label><input type="number" step="0.01" min="0" id="cf-ltv-ovr" value="${c?.ltvOverride ?? ''}" placeholder="${c ? 'Calculated: ' + fmtMoney(clientCalcLifetimeValue(c.id)) : 'Calculated from invoices'}"></div>
+      <div class="fld"><label>Tenure override (months)</label><input type="number" step="1" min="0" id="cf-ten-ovr" value="${c?.tenureOverride ?? ''}" placeholder="${c ? 'Calculated: ' + clientCalcMonthNo(c.id) : 'Calculated from invoices'}"></div>
+      <div class="fld full"><p class="note" style="margin:0"><strong>Manual lifetime value / tenure</strong> — for when the invoice history is incomplete. A figure here replaces the calculated one everywhere LTV and tenure are shown (Insights, AM Performance); leave it blank to use the calculated figure. Revenue, invoices and commission aren't affected.</p></div>
       <div class="fld full"><label>Notes</label><textarea id="cf-notes">${esc(c?.notes || '')}</textarea></div>
     </div>
     ${c ? `<p class="note">Changing <strong>Package</strong> here carries forward onto all of this client's not-yet-issued invoices — except any invoice where you've manually set a different package, which stays locked.</p>` : ''}
@@ -2774,6 +2785,9 @@ function clientForm(cid, onCreated) {
     rec.autoIssue   = $('cf-auto').checked;
     rec.mailMerge   = $('cf-mm').checked;
     rec.notes       = $('cf-notes').value.trim();
+    const numOrNull = v => { v = String(v).trim(); const n = Number(v); return v === '' || !isFinite(n) || n < 0 ? null : n; };
+    rec.ltvOverride    = numOrNull($('cf-ltv-ovr').value);
+    rec.tenureOverride = numOrNull($('cf-ten-ovr').value);
     if (!c) DB.clients.push(rec);
     if (c && rec.package !== oldPackage) applyPackageToFutureInvoices(rec.id, rec.package);
     touch();
@@ -3004,8 +3018,15 @@ function invoiceValueForLTV(inv) {
 // (Insights expected, the Invoices tab's Total bar, package mix, commission
 // owed, running LTV). Once paid it is an ordinary landed invoice.
 function isUncertainUnpaid(inv) { return !!inv.uncertain && !inv.paid; }
-function clientLifetimeValue(cid) {
+// A client's lifetime value. A manual `ltvOverride` (for history the old Google sheet didn't
+// capture) replaces the invoice-based figure everywhere LTV is shown; revenue, invoices and
+// commission always use the real invoices. clientCalcLifetimeValue is the invoice-based figure.
+function clientCalcLifetimeValue(cid) {
   return invForClient(cid).reduce((s, inv) => s + invoiceValueForLTV(inv), 0);
+}
+function clientLifetimeValue(cid) {
+  const c = clientById(cid);
+  return c && c.ltvOverride != null ? c.ltvOverride : clientCalcLifetimeValue(cid);
 }
 const avgOf = arr => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null;
 // Splits any client array into three lenses on the same underlying values:
@@ -4748,7 +4769,7 @@ function amModel() {
   if (amCache) return amCache;
   const byClient = new Map(DB.clients.map(c => [c.id, c]));
   const curOf = c => (c.accountManager || '').trim() || AM_UNASSIGNED;
-  const invOwner = new Map(), timeline = new Map(), rels = new Map();
+  const invOwner = new Map(), timeline = new Map(), rels = new Map(), tot = new Map();   // tot: per client, all its invoices' value and count
   const getRel = (name, c) => {
     let m = rels.get(name); if (!m) rels.set(name, m = new Map());
     let r = m.get(c.id); if (!r) m.set(c.id, r = { client: c, name, invoices: [] });
@@ -4760,6 +4781,8 @@ function amModel() {
     const name = ((inv.accountManager || '').trim() || (c.accountManager || '').trim()) || AM_UNASSIGNED;
     invOwner.set(inv.id, name);
     getRel(name, c).invoices.push(inv);
+    const t = tot.get(c.id) || tot.set(c.id, { val: 0, n: 0 }).get(c.id);
+    t.val += invoiceValueForLTV(inv); t.n++;
     if (!timeline.has(c.id)) timeline.set(c.id, []);
     timeline.get(c.id).push({ m: inv.month || '', name });
   }
@@ -4770,8 +4793,14 @@ function amModel() {
     byName.set(name, [...m.values()].map(r => {
       const c = r.client;
       const state = curOf(c) !== name ? 'handed' : c.status === 'churned' ? 'churned' : 'active';
+      // A manual lifetime value / tenure on the client is shared between the account managers who
+      // owned its invoices, in proportion to their share of the invoices (all of it if there is one).
+      const relVal = r.invoices.reduce((s, i) => s + invoiceValueForLTV(i), 0), relN = r.invoices.length;
+      const t = tot.get(c.id) || { val: 0, n: 0 };
+      const shareVal = t.val > 0 ? relVal / t.val : (t.n > 0 ? relN / t.n : 1), shareN = t.n > 0 ? relN / t.n : 1;
       return { ...c, status: state === 'active' ? 'active' : 'churned', _state: state, _am: name,
-        _ltv: r.invoices.reduce((s, i) => s + invoiceValueForLTV(i), 0), _tenure: r.invoices.length };
+        _ltv: c.ltvOverride != null ? c.ltvOverride * shareVal : relVal,
+        _tenure: c.tenureOverride != null ? c.tenureOverride * shareN : relN };
     }));
   }
   // The AM responsible for a client in a given month: the owner of that month's invoice, or of
@@ -5285,7 +5314,7 @@ function renderAmDetail(body, name) {
     <div class="stats">
       <div class="stat"><div class="v">${fmtMoney(st.value)}</div><div class="l">${esc(monthLabel(cur))} value</div><div class="s">${st.pct != null ? `${st.pct.toFixed(1)}% of the company's ${fmtMoney(st.company)}` : 'no company revenue yet'}</div></div>
       <div class="stat"><div class="v">${st.perClient != null ? fmtMoney(st.perClient) : '—'}</div><div class="l">Revenue per client — ${esc(monthLabelShort(cur))}</div><div class="s">${st.invoiced} client${st.invoiced === 1 ? '' : 's'} invoiced this month</div></div>
-      <div class="stat ok"><div class="v">${fmtMoney(careerLtv)}</div><div class="l">Career lifetime value</div><div class="s">the invoices ${esc(name)} owned, across ${clients.length} client${clients.length === 1 ? '' : 's'}</div></div>
+      <div class="stat ok"><div class="v">${fmtMoney(careerLtv)}</div><div class="l">Career lifetime value</div><div class="s">${esc(name)}'s share, across ${clients.length} client${clients.length === 1 ? '' : 's'} (manual figures included)</div></div>
     </div>
 
     <div class="am-grid">
