@@ -5382,7 +5382,7 @@ function renderAmTeam(body) {
       <div class="am-ctl am-ctl-export">
         <div class="am-ctl-label">Export</div>
         <div class="am-ctl-btns">
-          <button type="button" class="btn btn-sm" id="am-export-pdf" title="Opens a print-ready report — choose “Save as PDF” as the destination">⬇ PDF</button>
+          <button type="button" class="btn btn-sm" id="am-export-pdf" title="Download the report as a PDF file">⬇ PDF</button>
           <button type="button" class="btn btn-sm" id="am-export-doc" title="Downloads a document you can open in Google Docs">⬇ Google Doc</button>
         </div>
       </div>
@@ -5421,7 +5421,7 @@ function renderAmTeam(body) {
   body.querySelector('#am-export-doc').onclick = amExportDoc;
 }
 
-/* ── Team export (PDF via the print dialog, Google Doc via a downloadable .doc) ── */
+/* ── Team export (PDF downloaded directly, Google Doc via a downloadable .doc) ── */
 function amReportSections() {
   // The exports have no theme variables, so the grey "Unassigned" swatch becomes a fixed grey.
   const printColor = c => String(c).startsWith('var(') ? '#9ca3af' : c;
@@ -5444,40 +5444,97 @@ function amReportMeta() {
 }
 function amExportPdf() {
   const meta = amReportMeta();
-  const barRow = (r, max) => `<tr><td class="nm"><span class="sw" style="background:${r.color}"></span>${esc(r.name)}</td>
-      <td class="bar"><div style="width:${r._w}%; background:${r.color}"></div></td><td class="num">${esc(r.value)}</td><td class="num dim">${esc(r.extra)}</td></tr>`;
-  const sectionHtml = s => {
-    const max = Math.max(1, ...s.rows.map(r => r.value));
-    const rows = s.tableRows.map((r, i) => ({ ...r, _w: Math.max(3, s.rows[i].value / max * 100) }));
-    const visual = s.chart === 'pie'
-      ? `<div class="pie">${amPieSvg(s.rows, s.fmt, { center: s.center, print: true })}</div>
-         <table class="legend"><thead><tr><th>Account manager</th><th class="num">${esc(s.valueLabel)}</th><th class="num">${esc(s.shareLabel)}</th></tr></thead><tbody>${rows.map(r => `<tr><td class="nm"><span class="sw" style="background:${r.color}"></span>${esc(r.name)}</td><td class="num">${esc(r.value)}</td><td class="num dim">${esc(r.extra)}</td></tr>`).join('')}</tbody></table>`
-      : `<table class="bars"><thead><tr><th>Account manager</th><th></th><th class="num">${esc(s.valueLabel)}</th><th class="num">${esc(s.shareLabel)}</th></tr></thead><tbody>${rows.map(r => barRow(r)).join('')}</tbody></table>`;
-    return `<section><h2>${esc(s.title)}</h2><p class="sub">${esc(s.sub)}</p>${s.rows.length ? visual : '<p class="sub">Nothing to show for this selection.</p>'}</section>`;
+  const W = 595.28, H = 841.89, M = 40, top = 46, bottom = 50, cw = W - M * 2;
+  const doc = rptPdf(W, H, meta.title);
+  doc.newPage();
+  let y = top;
+  const ensure = h => { if (y + h > H - bottom) { doc.newPage(); y = top; } };
+  const para = (s, f, size, lead, col) => {
+    for (const ln of rptWrap(rptPdfClean(s), f, size, cw)) { ensure(lead); doc.text(M, y + size, ln, f, size, col); y += lead; }
   };
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(meta.title)}</title>
-    <style>
-      @page { margin: 14mm; }
-      * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      body { font: 12px/1.45 Arial, Helvetica, sans-serif; color: #111; margin: 0; }
-      h1 { font-size: 22px; margin: 0 0 2px; } .meta { color: #666; margin-bottom: 18px; }
-      section { break-inside: avoid; margin-bottom: 22px; } h2 { font-size: 15px; margin: 0 0 2px; } .sub { color: #666; margin: 0 0 8px; }
-      table { width: 100%; border-collapse: collapse; } th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #666; border-bottom: 1px solid #ccc; padding: 4px 6px; }
-      td { padding: 4px 6px; border-bottom: 1px solid #eee; } .num { text-align: right; white-space: nowrap; } .dim { color: #666; }
-      .nm { white-space: nowrap; } .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
-      td.bar { width: 45%; } td.bar div { height: 11px; border-radius: 3px; } .pie { text-align: center; margin: 4px 0 8px; } .legend { max-width: 560px; margin: 0 auto; }
-    </style></head><body>
-    <h1>${esc(meta.title)}</h1><div class="meta">${esc(meta.summary)}<br>Generated ${esc(meta.generated)}</div>
-    ${amReportSections().map(sectionHtml).join('')}
-    </body></html>`;
-  const frame = document.createElement('iframe');
-  frame.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden';
-  document.body.appendChild(frame);
-  frame.contentDocument.open(); frame.contentDocument.write(html); frame.contentDocument.close();
-  setTimeout(() => {
-    frame.contentWindow.focus(); frame.contentWindow.print();
-    setTimeout(() => frame.remove(), 2000);
-  }, 300);
+  const fit = (s, f, size, maxW) => {   // one line, shortened with an ellipsis if it is too wide
+    let t = rptPdfClean(s);
+    if (rptTextW(t, f, size) <= maxW) return t;
+    while (t.length > 1 && rptTextW(t + '…', f, size) > maxW) t = t.slice(0, -1);
+    return t + '…';
+  };
+  const right = (xr, yy, s, f, size, col) => doc.text(xr - rptTextW(rptPdfClean(s), f, size), yy, s, f, size, col);
+  para(meta.title, 'b', 20, 25, '1B1840');
+  para(meta.summary, 'r', 9, 12.5, '666666');
+  para(`Generated ${meta.generated}`, 'r', 9, 12.5, '666666');
+  y += 6;
+  for (const s of amReportSections()) {
+    if (y > top + 1) y += 12;
+    const isPie = s.chart === 'pie' && s.rows.length;
+    const blockH = isPie ? Math.max(165, 16 + s.tableRows.length * 15) : 14 + 18 * 2;
+    ensure(28 + rptWrap(rptPdfClean(s.sub), 'r', 9, cw).length * 12 + 4 + blockH);   // keep a heading together with the start of its chart
+    doc.text(M, y + 13, s.title, 'b', 14, '2D2A55');
+    doc.line(M, y + 19, M + cw, y + 19, '5B4BD6', 1.2);
+    y += 28;
+    para(s.sub, 'r', 9, 12, '666666');
+    y += 4;
+    if (!s.rows.length) { para('Nothing to show for this selection.', 'i', 9, 12, '666666'); continue; }
+    const cols = s.tableRows.map(r => rptColorHex(r.color));
+    if (s.chart === 'pie') {
+      const data = s.rows.map((r, i) => ({ v: r.value, col: cols[i] })).filter(d => d.v > 0);
+      const total = data.reduce((a, d) => a + d.v, 0);
+      const R = 74, r0 = 46, cx = M + 82, cy = y + 82;
+      const arc = (rad, a) => [cx + rad * Math.sin(a), cy - rad * Math.cos(a)];
+      let a0 = 0;
+      for (const d of data) {
+        const a1 = Math.min(a0 + d.v / total * Math.PI * 2, Math.PI * 2), n = Math.max(2, Math.ceil((a1 - a0) / (Math.PI * 2) * 120));
+        const pts = [];
+        for (let k = 0; k <= n; k++) pts.push(arc(R, a0 + (a1 - a0) * k / n));
+        for (let k = n; k >= 0; k--) pts.push(arc(r0, a0 + (a1 - a0) * k / n));
+        doc.poly(pts, d.col, 'FFFFFF', 1);
+        a0 = a1;
+      }
+      if (s.center) {
+        const tv = s.fmt(total).replace(/\.00$/, '');
+        doc.text(cx - rptTextW('Total', 'r', 7.5) / 2, cy - 2, 'Total', 'r', 7.5, '666666');
+        doc.text(cx - rptTextW(rptPdfClean(tv), 'b', 11) / 2, cy + 11, tv, 'b', 11, '111111');
+      }
+      const lx = M + 182, lw = cw - 182, valR = lx + lw - 88, shareR = lx + lw;
+      doc.text(lx, y + 8, 'ACCOUNT MANAGER', 'b', 7, '666666');
+      right(valR, y + 8, s.valueLabel.toUpperCase(), 'b', 7, '666666');
+      right(shareR, y + 8, s.shareLabel.toUpperCase(), 'b', 7, '666666');
+      doc.line(lx, y + 12, lx + lw, y + 12, 'CCCCCC');
+      s.tableRows.forEach((r, i) => {
+        const yy = y + 16 + i * 15;
+        doc.rect(lx + 1, yy + 2.5, 7, 7, cols[i]);
+        doc.text(lx + 14, yy + 9, fit(r.name, 'r', 9, valR - lx - 14 - 70), 'r', 9, '111111');
+        right(valR, yy + 9, r.value, 'r', 9, '111111');
+        right(shareR, yy + 9, r.extra, 'r', 9, '666666');
+        doc.line(lx, yy + 14, lx + lw, yy + 14, 'EEEEEE');
+      });
+      y += blockH;
+    } else {
+      const nameW = 150, valW = 100, extraW = 88, barX = M + nameW, barW = cw - nameW - valW - extraW - 10;
+      const max = Math.max(1, ...s.rows.map(r => r.value));
+      const head = () => {
+        doc.text(M, y + 8, 'ACCOUNT MANAGER', 'b', 7, '666666');
+        right(M + cw - extraW, y + 8, s.valueLabel.toUpperCase(), 'b', 7, '666666');
+        right(M + cw, y + 8, s.shareLabel.toUpperCase(), 'b', 7, '666666');
+        doc.line(M, y + 12, M + cw, y + 12, 'CCCCCC');
+        y += 14;
+      };
+      ensure(14 + 18 * 2);
+      head();
+      s.tableRows.forEach((r, i) => {
+        if (y + 18 > H - bottom) { doc.newPage(); y = top; head(); }
+        doc.rect(M + 1, y + 4.5, 7, 7, cols[i]);
+        doc.text(M + 14, y + 11.5, fit(r.name, 'r', 9, nameW - 20), 'r', 9, '111111');
+        doc.rect(barX, y + 4, Math.max(3, s.rows[i].value / max * barW), 9, cols[i]);
+        right(M + cw - extraW - 6, y + 11.5, r.value, 'r', 9, '111111');
+        right(M + cw, y + 11.5, r.extra, 'r', 9, '666666');
+        doc.line(M, y + 18, M + cw, y + 18, 'EEEEEE');
+        y += 18;
+      });
+      y += 4;
+    }
+  }
+  rptPdfFooters(doc, W, H, M, meta.title, '888888');
+  rptDownloadPdf(doc.finish(), `AM-Performance-Team-${todayISO()}.pdf`);
 }
 function amExportDoc() {
   const meta = amReportMeta();
@@ -6126,6 +6183,15 @@ function rptPdfClean(s) {
   }
   return out;
 }
+// Any CSS colour ('#a78bfa', 'hsl(...)', 'rgb(...)') → 'RRGGBB' for the PDF writer.
+function rptColorHex(c) {
+  const ctx = document.createElement('canvas').getContext('2d');
+  ctx.fillStyle = '#9ca3af'; ctx.fillStyle = String(c);
+  const v = ctx.fillStyle;
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v.slice(1);
+  const m = v.match(/\d+(\.\d+)?/g);
+  return m ? m.slice(0, 3).map(n => Math.round(n).toString(16).padStart(2, '0')).join('') : '9CA3AF';
+}
 function rptPdfHex(clean) {
   let h = '';
   for (const ch of clean) { const c = ch.codePointAt(0); h += (RPT_WIN1252[c] ?? c).toString(16).padStart(2, '0'); }
@@ -6175,6 +6241,10 @@ function rptPdf(pageW, pageH, title) {
     },
     rect(x, y, w, h, col) { this.cur.ops.push(`${rgb(col)} rg ${num(x)} ${num(pageH - y - h)} ${num(w)} ${num(h)} re f`); },
     line(x1, y1, x2, y2, col, lw = 0.6) { this.cur.ops.push(`${rgb(col)} RG ${num(lw)} w ${num(x1)} ${num(pageH - y1)} m ${num(x2)} ${num(pageH - y2)} l S`); },
+    poly(pts, fill, stroke, lw = 1) {
+      const p = pts.map(([x, yy], i) => `${num(x)} ${num(pageH - yy)} ${i ? 'l' : 'm'}`).join(' ');
+      this.cur.ops.push(stroke ? `${rgb(fill)} rg ${rgb(stroke)} RG ${num(lw)} w ${p} h B` : `${rgb(fill)} rg ${p} h f`);
+    },
     text(x, y, s, f, size, col) {
       const clean = rptPdfClean(s);
       if (!clean) return;
