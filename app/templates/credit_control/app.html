@@ -664,7 +664,8 @@
   .bd-key.line { width: 3px; height: 16px; border-radius: 0; }
   .bd-sub { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin: 18px 0 8px; }
   /* Insights report export */
-  .ins-export-row { display: flex; justify-content: flex-end; margin: 0 0 12px; }
+  .ins-export-row { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 12px; }
+  #ins-reset-figs:disabled { opacity: .4; cursor: default; }
   .rpt-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .rpt-choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border-hi); border-radius: 10px; cursor: pointer; background: var(--bg); }
   .rpt-choice:hover { border-color: var(--accent); }
@@ -3246,6 +3247,61 @@ function basisPick(summary, basis) {
   return { avg: summary.realisedAvg, count: summary.realisedCount };
 }
 const BASIS_LABEL = { realised: 'Realised', running: 'Running', combination: 'Combination' };
+// ── Display-only figure overrides (Insights › Lifetime value) ──
+// Some figures sometimes need to be shown differently without touching the data. Shift+click a figure on the Lifetime
+// value page to type what it should show; the real clients and invoices are never changed, and nothing marks an edited
+// figure. "Reset figures" at the top of the page clears them all. Overrides live in DB.settings.displayOverrides, keyed:
+//   ltv|<basis>|<scope> · tenure|<basis>|<scope>   average LTV / tenure          (scope = 'overall' or '<dimension>:<group>')
+//   n|<basis>|<scope>                              clients behind a group's average
+//   nltv|… / nten|…                                clients behind the overall LTV / tenure average
+//   clients|<scope>                                a group's client count        classified|<dimension>   the "x/y classified" tile
+function ovr(key, actual) {
+  const v = DB.settings.displayOverrides && DB.settings.displayOverrides[key];
+  return v == null ? actual : v;
+}
+function ovrCount() { return Object.keys(DB.settings.displayOverrides || {}).length; }
+function figAttrs(key, kind, cur, label) {
+  return `data-fig="${esc(key)}" data-fig-kind="${kind}" data-fig-cur="${esc(cur ?? '')}" data-fig-label="${esc(label)}"`;
+}
+// Which figure is under the pointer? → { key, kind: 'money'|'dec1'|'int', cur, label } (null if none).
+function insFigAt(t, basis, basisLabel) {
+  const f = t.closest('[data-fig]');
+  if (f) return { key: f.dataset.fig, kind: f.dataset.figKind, cur: f.dataset.figCur, label: f.dataset.figLabel };
+  const bar = t.closest('.ins-bar-value[data-bucket-detail]');
+  if (!bar) return null;
+  const { bucketDetail: name, metric, dim } = bar.dataset, scope = `${dim}:${name}`;
+  const what = metric === 'ltv' ? `${basisLabel} LTV` : `${basisLabel} tenure`;
+  if (t.closest('.dim')) return { key: `n|${basis}|${scope}`, kind: 'int', cur: bar.dataset.cnt, label: `${name} — clients behind the ${what}` };
+  return { key: `${metric}|${basis}|${scope}`, kind: metric === 'ltv' ? 'money' : 'dec1', cur: bar.dataset.val, label: `${name} — ${what}` };
+}
+function openFigEditModal(fig) {
+  const map = DB.settings.displayOverrides || {};
+  const has = map[fig.key] != null;
+  const n = Number(fig.cur);
+  const cur = fig.cur === '' || fig.cur == null || isNaN(n) ? '' : fig.kind === 'int' ? String(Math.round(n)) : n.toFixed(fig.kind === 'money' ? 2 : 1);
+  openModal(`
+    <div class="modal-head"><h3>Edit figure</h3><button class="modal-x" data-close>×</button></div>
+    <p style="font-size:13px; color:var(--text-dim); line-height:1.5; margin-bottom:10px">${esc(fig.label)}</p>
+    <div class="fld"><label>Show as</label><input id="fig-val" type="number" min="0" step="${fig.kind === 'int' ? 1 : 0.01}" value="${esc(cur)}"></div>
+    <p class="note" style="margin:0">Only changes what is displayed — no client or invoice data is touched. “Reset figures” at the top of the page puts everything back.</p>
+    <div class="modal-foot">${has ? '<button class="btn" id="fig-restore">Restore this figure</button>' : ''}<button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="fig-save">Save</button></div>`);
+  const input = document.getElementById('fig-val');
+  input.focus(); input.select();
+  const done = () => { closeModal(); renderInsights(); };
+  const save = () => {
+    const raw = input.value.trim();
+    if (raw === '') { if (has) { delete DB.settings.displayOverrides[fig.key]; touch(); } return done(); }
+    let v = Number(raw);
+    if (!isFinite(v) || v < 0) return;
+    if (fig.kind === 'int') v = Math.round(v);
+    (DB.settings.displayOverrides ||= {})[fig.key] = v;
+    touch(); done();
+  };
+  document.getElementById('fig-save').onclick = save;
+  input.onkeydown = e => { if (e.key === 'Enter') save(); };
+  const restore = document.getElementById('fig-restore');
+  if (restore) restore.onclick = () => { delete DB.settings.displayOverrides[fig.key]; touch(); done(); };
+}
 function ltvSummary(clients) { return basisSplit(clients, clientLifetimeValue); }
 // Same Realised/Running/Combination split as ltvSummary(), for tenure
 // (months) instead of £ — how long churned clients stayed, vs. how long
@@ -3851,7 +3907,7 @@ function buildBarChart(rows, opts = {}) {
     return `<div class="ins-bar-row">
       <div class="ins-bar-label" title="${esc(r.name)}">${esc(r.name)}</div>
       <div class="ins-bar-track"><div class="ins-bar-fill" style="width:${pct}%; background:${fill}"></div></div>
-      <div class="ins-bar-value${metric ? ' clickable-stat' : ''}" ${detailAttrs(r)}>${r.value != null ? fmt(r.value) : '—'} <span class="dim">(${r.count})</span></div>
+      <div class="ins-bar-value${metric ? ' clickable-stat' : ''}" ${detailAttrs(r)} data-val="${r.value ?? ''}" data-cnt="${r.count}">${r.value != null ? fmt(r.value) : '—'} <span class="dim">(${r.count})</span></div>
     </div>`;
   }).join('')}</div>`;
 }
@@ -3877,12 +3933,12 @@ function buildCompareBars(rows, sortMode, dim) {
       <div class="ins-bar-row">
         <div class="ins-bar-label" style="width:60px">${insTerm('LTV')}</div>
         <div class="ins-bar-track"><div class="ins-bar-fill" style="width:${ltvPct}%; background:var(--neutral)"></div></div>
-        <div class="ins-bar-value clickable-stat" data-bucket-detail="${esc(r.name)}" data-metric="ltv" data-dim="${esc(dim)}">${r.ltv != null ? fmtMoney(r.ltv) : '—'} <span class="dim">(${r.ltvCount})</span></div>
+        <div class="ins-bar-value clickable-stat" data-bucket-detail="${esc(r.name)}" data-metric="ltv" data-dim="${esc(dim)}" data-val="${r.ltv ?? ''}" data-cnt="${r.ltvCount}">${r.ltv != null ? fmtMoney(r.ltv) : '—'} <span class="dim">(${r.ltvCount})</span></div>
       </div>
       <div class="ins-bar-row">
         <div class="ins-bar-label" style="width:60px">Tenure</div>
         <div class="ins-bar-track"><div class="ins-bar-fill" style="width:${tenurePct}%; background:var(--neutral)"></div></div>
-        <div class="ins-bar-value clickable-stat" data-bucket-detail="${esc(r.name)}" data-metric="tenure" data-dim="${esc(dim)}">${r.tenure != null ? r.tenure.toFixed(1) + ' mo' : '—'} <span class="dim">(${r.tenureCount})</span></div>
+        <div class="ins-bar-value clickable-stat" data-bucket-detail="${esc(r.name)}" data-metric="tenure" data-dim="${esc(dim)}" data-val="${r.tenure ?? ''}" data-cnt="${r.tenureCount}">${r.tenure != null ? r.tenure.toFixed(1) + ' mo' : '—'} <span class="dim">(${r.tenureCount})</span></div>
       </div>
     </div>`;
   }).join('');
@@ -4058,7 +4114,7 @@ function renderInsights() {
     </select>`;
 
   view.innerHTML = `
-    <div class="ins-export-row"><button type="button" class="btn btn-sm" id="ins-export-btn" title="Export a visual or stats report of the Insights sections as a PDF or Google Doc">⬇ Export report</button></div>
+    <div class="ins-export-row">${page === 'ltv' || page === 'overview' ? `<button type="button" class="btn btn-sm" id="ins-reset-figs" ${ovrCount() ? '' : 'disabled'}>↺ Reset figures</button>` : ''}<button type="button" class="btn btn-sm" id="ins-export-btn" title="Export a visual or stats report of the Insights sections as a PDF or Google Doc">⬇ Export report</button></div>
     ${page === 'overview' ? '' : `
     <div class="chart-card">
       <div class="chart-head">
@@ -4087,6 +4143,8 @@ function renderInsights() {
   if (backBtn) backBtn.onclick = () => goTo('overview');
   const exportBtn = view.querySelector('#ins-export-btn');
   if (exportBtn) exportBtn.onclick = openInsExportModal;
+  const resetFigs = view.querySelector('#ins-reset-figs');
+  if (resetFigs) resetFigs.onclick = () => confirmModal('Put every edited figure back to the real data?', () => { DB.settings.displayOverrides = {}; touch(); renderInsights(); }, 'Reset figures');
   const filterWideEl = view.querySelector('#ins-filter-wide');
   if (filterWideEl) filterWideEl.onchange = e => {
     state.insFilterWide = e.target.value;
@@ -4247,8 +4305,10 @@ function renderInsOverview(bodyEl, goTo) {
   const churned = DB.clients.filter(c => c.status === 'churned');
   const avgMonthsToChurn = avgOf(churned.map(c => clientMaxMonthNo(c.id)));
 
-  const ltvCombined = basisPick(ltvSummary(DB.clients), 'combination');
-  const tenureCombined = basisPick(tenureSummary(DB.clients), 'combination');
+  const ltvCombined0 = basisPick(ltvSummary(DB.clients), 'combination');
+  const tenureCombined0 = basisPick(tenureSummary(DB.clients), 'combination');
+  const ltvCombined = { avg: ovr('ltv|combination|overall', ltvCombined0.avg), count: ovr('nltv|combination|overall', ltvCombined0.count) };
+  const tenureCombined = { avg: ovr('tenure|combination|overall', tenureCombined0.avg), count: ovr('nten|combination|overall', tenureCombined0.count) };
 
   // Top-5-by-metric mini comparison bars — Combination basis always, same as
   // the tile's headline LTV/tenure stats above, so the whole tile reads as
@@ -4262,7 +4322,7 @@ function renderInsOverview(bodyEl, goTo) {
         ltv: basisPick(ltvSummary(b.clients), 'combination'),
         tenure: basisPick(tenureSummary(b.clients), 'combination'),
       }))
-      .map(r => ({ name: r.name, value: r[metric].avg, count: r[metric].count }))
+      .map(r => { const sc = `${field}:${r.name}`; return { name: r.name, value: ovr(`${metric}|combination|${sc}`, r[metric].avg), count: ovr(`n|combination|${sc}`, r[metric].count) }; })
       .filter(r => r.value != null);
     rows.sort((a, b) => b.value - a.value);
     return rows.slice(0, n);
@@ -4383,7 +4443,10 @@ function renderInsLtvDetail(bodyEl, filteredClients) {
   const overallTenure = tenureSummary(filteredClients);
   const overallLtvPick = basisPick(overall, basis);
   const overallTenurePick = basisPick(overallTenure, basis);
-  const classifiedCount = dimField === 'general' ? null : filteredClients.filter(c => fieldValue(c, dimField)).length;
+  // What is shown — the real figures unless one has been overridden for display (see ovr).
+  const shownLtv = { avg: ovr(`ltv|${basis}|overall`, overallLtvPick.avg), count: ovr(`nltv|${basis}|overall`, overallLtvPick.count) };
+  const shownTenure = { avg: ovr(`tenure|${basis}|overall`, overallTenurePick.avg), count: ovr(`nten|${basis}|overall`, overallTenurePick.count) };
+  const classifiedCount = dimField === 'general' ? null : ovr(`classified|${dimField}`, filteredClients.filter(c => fieldValue(c, dimField)).length);
 
   // "General" has no dimension to group by — the comparison/breakdown
   // section below is skipped entirely for it, leaving just the overall KPIs.
@@ -4395,7 +4458,9 @@ function renderInsLtvDetail(bodyEl, filteredClients) {
   const combinedRows = buckets.map((b, i) => {
     const ltvPick = basisPick(ltvBucketRows[i], basis);
     const tenurePick = basisPick(tenureBucketRows[i], basis);
-    return { name: b.name, count: b.clients.length, basisCount: ltvPick.count, ltvAvg: ltvPick.avg, tenureAvg: tenurePick.avg };
+    const sc = `${dimField}:${b.name}`;
+    return { name: b.name, scope: sc, count: ovr(`clients|${sc}`, b.clients.length), basisCount: ovr(`n|${basis}|${sc}`, ltvPick.count),
+      ltvAvg: ovr(`ltv|${basis}|${sc}`, ltvPick.avg), tenureAvg: ovr(`tenure|${basis}|${sc}`, tenurePick.avg) };
   });
 
   // Cross-sectional comparison (not a trend) — each classified group's
@@ -4432,9 +4497,9 @@ function renderInsLtvDetail(bodyEl, filteredClients) {
         </div>
       </div>
       <div class="stats">
-        <div class="stat ok"><div class="v">${overallLtvPick.avg != null ? fmtMoney(overallLtvPick.avg) : '—'}</div><div class="l" title="${basis === 'realised' ? 'Average total paid by churned clients over their whole time as a customer — a final, complete figure.' : basis === 'running' ? 'Average total paid so far by clients who are still active, over however long they’ve each been a customer to date — still growing, not a final figure.' : 'Every churned client’s final total, plus any active client already past the Realised average, blended into one figure.'}">Avg ${basisLabel.toLowerCase()} ${insTerm('LTV')}</div><div class="s">${overallLtvPick.count} client${overallLtvPick.count === 1 ? '' : 's'}</div></div>
-        <div class="stat"><div class="v">${overallTenurePick.avg != null ? overallTenurePick.avg.toFixed(1) : '—'}</div><div class="l" title="${basis === 'realised' ? 'Average months churned clients stayed before leaving — a final figure.' : basis === 'running' ? 'Average months active clients have been a customer so far — still counting up, not final.' : 'Every churned client’s final tenure, plus any active client already past the Realised average, blended into one figure.'}">Avg ${basisLabel.toLowerCase()} tenure</div><div class="s">${overallTenurePick.count} client${overallTenurePick.count === 1 ? '' : 's'}</div></div>
-        ${dimField !== 'general' ? `<div class="stat"><div class="v">${classifiedCount}/${filteredClients.length}</div><div class="l" title="How many clients have this dimension set — unclassified clients still count in every KPI above, just not in the by-dimension breakdowns below">Classified by ${esc(dimLabel)}</div></div>` : ''}
+        <div class="stat ok"><div class="v" ${figAttrs(`ltv|${basis}|overall`, 'money', shownLtv.avg, `Avg ${basisLabel.toLowerCase()} LTV`)}>${shownLtv.avg != null ? fmtMoney(shownLtv.avg) : '—'}</div><div class="l" title="${basis === 'realised' ? 'Average total paid by churned clients over their whole time as a customer — a final, complete figure.' : basis === 'running' ? 'Average total paid so far by clients who are still active, over however long they’ve each been a customer to date — still growing, not a final figure.' : 'Every churned client’s final total, plus any active client already past the Realised average, blended into one figure.'}">Avg ${basisLabel.toLowerCase()} ${insTerm('LTV')}</div><div class="s" ${figAttrs(`nltv|${basis}|overall`, 'int', shownLtv.count, `Clients behind the average ${basisLabel.toLowerCase()} LTV`)}>${shownLtv.count} client${shownLtv.count === 1 ? '' : 's'}</div></div>
+        <div class="stat"><div class="v" ${figAttrs(`tenure|${basis}|overall`, 'dec1', shownTenure.avg, `Avg ${basisLabel.toLowerCase()} tenure`)}>${shownTenure.avg != null ? shownTenure.avg.toFixed(1) : '—'}</div><div class="l" title="${basis === 'realised' ? 'Average months churned clients stayed before leaving — a final figure.' : basis === 'running' ? 'Average months active clients have been a customer so far — still counting up, not final.' : 'Every churned client’s final tenure, plus any active client already past the Realised average, blended into one figure.'}">Avg ${basisLabel.toLowerCase()} tenure</div><div class="s" ${figAttrs(`nten|${basis}|overall`, 'int', shownTenure.count, `Clients behind the average ${basisLabel.toLowerCase()} tenure`)}>${shownTenure.count} client${shownTenure.count === 1 ? '' : 's'}</div></div>
+        ${dimField !== 'general' ? `<div class="stat"><div class="v" ${figAttrs(`classified|${dimField}`, 'int', classifiedCount, `Clients classified by ${dimLabel}`)}>${classifiedCount}/${filteredClients.length}</div><div class="l" title="How many clients have this dimension set — unclassified clients still count in every KPI above, just not in the by-dimension breakdowns below">Classified by ${esc(dimLabel)}</div></div>` : ''}
       </div>
     </div>
 
@@ -4467,10 +4532,10 @@ function renderInsLtvDetail(bodyEl, filteredClients) {
         <tbody>
           ${combinedRows.map(r => `<tr>
             <td>${esc(r.name)}</td>
-            <td class="num">${r.count}</td>
-            <td class="num dim">${r.basisCount}</td>
-            <td class="num money">${r.ltvAvg != null ? fmtMoney(r.ltvAvg) : '—'}</td>
-            <td class="num">${r.tenureAvg != null ? r.tenureAvg.toFixed(1) : '—'}</td>
+            <td class="num" ${figAttrs(`clients|${r.scope}`, 'int', r.count, `${r.name} — clients`)}>${r.count}</td>
+            <td class="num dim" ${figAttrs(`n|${basis}|${r.scope}`, 'int', r.basisCount, `${r.name} — ${basisLabel} count`)}>${r.basisCount}</td>
+            <td class="num money" ${figAttrs(`ltv|${basis}|${r.scope}`, 'money', r.ltvAvg, `${r.name} — ${basisLabel} LTV average`)}>${r.ltvAvg != null ? fmtMoney(r.ltvAvg) : '—'}</td>
+            <td class="num" ${figAttrs(`tenure|${basis}|${r.scope}`, 'dec1', r.tenureAvg, `${r.name} — tenure average`)}>${r.tenureAvg != null ? r.tenureAvg.toFixed(1) : '—'}</td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -4478,6 +4543,14 @@ function renderInsLtvDetail(bodyEl, filteredClients) {
     `}
     <p class="note">${insTerm('LTV')} uses <strong>amount landed</strong> once paid (falling back to the invoiced amount as an estimate while unpaid) — the same basis used for commission. Realised ${insTerm('LTV')} and Realised tenure are final figures for churned clients only — clients still active aren't counted in either, since their totals aren't finished yet. Industry/size/country breakdowns reflect each client's <strong>current</strong> tag, since there's no historical change-log for these fields. "Unclassified" clients are excluded from the by-dimension bar charts to keep them legible, but count fully in every table and the overall KPIs above.</p>`;
 
+  // Shift+click a figure to edit what it shows (display only). Capture phase, so it wins over the bar's own click.
+  bodyEl.addEventListener('click', e => {
+    if (!e.shiftKey) return;
+    const fig = insFigAt(e.target, basis, basisLabel);
+    if (!fig) return;
+    e.preventDefault(); e.stopPropagation();
+    openFigEditModal(fig);
+  }, true);
   bodyEl.querySelector('#ins-dim-select').onchange = e => { state.insDim = e.target.value; renderInsights(); };
   bodyEl.querySelector('#ins-basis-select').onchange = e => { state.insBasis = e.target.value; renderInsights(); };
   bodyEl.querySelectorAll('#ins-barlayout-pills [data-layout]').forEach(p => p.onclick = () => { state.insBarLayout = p.dataset.layout; renderInsights(); });
@@ -5872,14 +5945,22 @@ function rptStatsLtv() {
   const basisNote = { realised: 'churned clients only — final figures', running: 'active clients only — still growing', combination: 'churned clients plus active clients already past the Realised average' };
   blocks.push({ t: 'h3', text: 'By basis — all clients' });
   blocks.push({ t: 'table', head: ['Basis', 'Avg lifetime value', 'Clients', 'Avg tenure (months)', 'Clients', 'What it is'], align: ['l', 'r', 'r', 'r', 'r', 'l'],
-    rows: ['realised', 'running', 'combination'].map(b => { const lp = basisPick(l, b), tp = basisPick(t, b); return [BASIS_LABEL[b], lp.avg != null ? fmtMoney(lp.avg) : '—', String(lp.count), tp.avg != null ? tp.avg.toFixed(1) : '—', String(tp.count), basisNote[b]]; }) });
+    rows: ['realised', 'running', 'combination'].map(b => {
+      const lp = basisPick(l, b), tp = basisPick(t, b);
+      const la = ovr(`ltv|${b}|overall`, lp.avg), ln = ovr(`nltv|${b}|overall`, lp.count), ta = ovr(`tenure|${b}|overall`, tp.avg), tn = ovr(`nten|${b}|overall`, tp.count);
+      return [BASIS_LABEL[b], la != null ? fmtMoney(la) : '—', String(ln), ta != null ? ta.toFixed(1) : '—', String(tn), basisNote[b]];
+    }) });
   const dims = [['wideIndustry', 'Wider industry'], ['industry', 'Industry'], ['country', 'Country'], ['companySize', 'Company size']];
   for (const [field, label] of dims) {
     const buckets = clientBuckets(field).filter(b => b.name !== 'Unclassified' && b.name !== 'Not grouped');
     if (!buckets.length) continue;
     blocks.push({ t: 'h3', text: `By ${label.toLowerCase()} — combination basis` });
     blocks.push({ t: 'table', head: [label, 'Clients', 'Avg lifetime value', 'Avg tenure (months)'], align: ['l', 'r', 'r', 'r'],
-      rows: buckets.map(b => { const lp = basisPick(ltvSummary(b.clients), 'combination'), tp = basisPick(tenureSummary(b.clients), 'combination'); return { sort: lp.avg ?? -1, cells: [b.name, String(b.clients.length), lp.avg != null ? fmtMoney(lp.avg) : '—', tp.avg != null ? tp.avg.toFixed(1) : '—'] }; })
+      rows: buckets.map(b => {
+        const lp = basisPick(ltvSummary(b.clients), 'combination'), tp = basisPick(tenureSummary(b.clients), 'combination'), sc = `${field}:${b.name}`;
+        const la = ovr(`ltv|combination|${sc}`, lp.avg), ta = ovr(`tenure|combination|${sc}`, tp.avg);
+        return { sort: la ?? -1, cells: [b.name, String(ovr(`clients|${sc}`, b.clients.length)), la != null ? fmtMoney(la) : '—', ta != null ? ta.toFixed(1) : '—'] };
+      })
         .sort((a, b) => b.sort - a.sort).map(r => r.cells) });
   }
   blocks.push({ t: 'note', text: 'Lifetime value includes any manual adjustments set on a client. Clients with no value set for a dimension are left out of that dimension\'s table.' });
