@@ -6065,18 +6065,21 @@ def test_a_snapshot_with_no_channels_at_all_renders(client, fake_sb):
 
 # ── Linking a client to their Performance Tracker sheet ──────────────────────
 
-TRACKER_HEADERS = ["Acme Date/Time", "Lead", "Channel", "Headcount", "Job role",
+# A real tracker opens with a banner naming the client and puts the column
+# names on row 2, so the fixture is a grid with that shape rather than rows
+# already keyed by a header we assumed.
+TRACKER_HEADERS = ["Date/Time", "Lead", "Channel", "Headcount", "Job role",
                    "Industry", "Location", "ICP rating", "Category"]
 
-TRACKER_ROWS = [
-    dict(zip(TRACKER_HEADERS, ["9/23/2025", "a.com", "Smartlead", "51-200",
-                               "Head of Growth", "Marketing", "United Kingdom",
-                               "8", "Lead"])),
-    dict(zip(TRACKER_HEADERS, ["2/18/2026", "b.com", "LinkedIn", "11-50",
-                               "Founder", "SaaS", "Ireland", "-", "Lead"])),
-    dict(zip(TRACKER_HEADERS, ["3/2/2026", "c.com", "Manual", "1-10",
-                               "Managing Director", "PR", "United Kingdom",
-                               "10", "Interested"])),
+TRACKER_GRID = [
+    ["Acme"] + [""] * (len(TRACKER_HEADERS) - 1),
+    list(TRACKER_HEADERS),
+    ["9/23/2025", "a.com", "Smartlead", "51-200", "Head of Growth",
+     "Marketing", "United Kingdom", "8", "Lead"],
+    ["2/18/2026", "b.com", "LinkedIn", "11-50", "Founder", "SaaS",
+     "Ireland", "-", "Lead"],
+    ["3/2/2026", "c.com", "Manual", "1-10", "Managing Director", "PR",
+     "United Kingdom", "10", "Interested"],
 ]
 
 SHEET_LINK = ("https://docs.google.com/spreadsheets/d/"
@@ -6094,7 +6097,7 @@ def _tracker_row(**over):
     return row
 
 
-def _tracker_routes(fake_sb, monkeypatch, linked=None, rows=None, headers=None,
+def _tracker_routes(fake_sb, monkeypatch, linked=None, grid=None, headers=None,
                     reader=None):
     from app.utils import google_sheets
 
@@ -6106,13 +6109,12 @@ def _tracker_routes(fake_sb, monkeypatch, linked=None, rows=None, headers=None,
     fake_sb.route("PATCH", "pulse_client_trackers", lambda call: FakeResponse(204))
     fake_sb.route("DELETE", "pulse_client_trackers", lambda call: FakeResponse(204))
 
+    if grid is None:
+        grid = (list(TRACKER_GRID) if headers is None
+                else [["Acme"] + [""] * (len(headers) - 1), list(headers)])
     monkeypatch.setattr(google_sheets, "is_configured", lambda: True)
-    monkeypatch.setattr(google_sheets, "read_tracker_headers",
-                        reader or (lambda sid, tab="All leads":
-                                   headers if headers is not None else TRACKER_HEADERS))
-    monkeypatch.setattr(google_sheets, "read_tracker_rows",
-                        reader or (lambda sid, tab="All leads":
-                                   TRACKER_ROWS if rows is None else rows))
+    monkeypatch.setattr(google_sheets, "read_tracker_values",
+                        reader or (lambda sid, tab="All leads": grid))
     return fake_sb
 
 
@@ -6132,8 +6134,7 @@ def test_the_client_page_does_not_touch_the_sheet(client, fake_sb, monkeypatch):
         raise AssertionError("the page must not read the sheet")
 
     _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
-    monkeypatch.setattr(google_sheets, "read_tracker_rows", explode)
-    monkeypatch.setattr(google_sheets, "read_tracker_headers", explode)
+    monkeypatch.setattr(google_sheets, "read_tracker_values", explode)
 
     assert client.get(f"/outbound-pulse/clients/{CLIENT}").status_code == 200
 
@@ -6181,7 +6182,7 @@ def test_a_sheet_is_read_before_it_is_stored(client, fake_sb, monkeypatch):
             f"That spreadsheet has no tab called “{tab}”.")
 
     _tracker_routes(fake_sb, monkeypatch)
-    monkeypatch.setattr(google_sheets, "read_tracker_headers", missing)
+    monkeypatch.setattr(google_sheets, "read_tracker_values", missing)
 
     r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/tracker",
                     data={"sheet_url": SHEET_LINK, "tab_title": "Leeds"})
@@ -6252,7 +6253,7 @@ def test_an_unreadable_sheet_degrades_the_panel_not_the_page(client, fake_sb, mo
             "We do not have access to that sheet. Share it with bot@x.com.")
 
     _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
-    monkeypatch.setattr(google_sheets, "read_tracker_rows", denied)
+    monkeypatch.setattr(google_sheets, "read_tracker_values", denied)
 
     r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads")
     assert r.status_code == 200
@@ -6269,7 +6270,7 @@ def test_a_failed_read_is_remembered_against_the_sheet(client, fake_sb, monkeypa
     fake_sb.route("PATCH", "pulse_client_trackers",
                   lambda call: (saved.update(call.get("json") or {}),
                                 FakeResponse(204))[1])
-    monkeypatch.setattr(google_sheets, "read_tracker_rows",
+    monkeypatch.setattr(google_sheets, "read_tracker_values",
                         lambda sid, tab="All leads": (_ for _ in ()).throw(
                             google_sheets.TrackerUnavailable("gone")))
 
@@ -6318,7 +6319,8 @@ def test_the_ordering_tables_travel_with_the_rows(client, fake_sb, monkeypatch):
 
 
 def test_a_tab_with_no_leads_says_so_rather_than_drawing_empty_charts(client, fake_sb, monkeypatch):
-    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row(), rows=[])
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row(),
+                    grid=[["Acme"] + [""] * 8, list(TRACKER_HEADERS)])
     body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads").text
     assert "no leads on it yet" in body
     assert "data-trk-bars" not in body
@@ -6359,7 +6361,7 @@ def test_the_migration_keeps_one_tracker_per_client():
 
 # ── Lead quality on the client's own report ──────────────────────────────────
 
-def _publish_routes(fake_sb, monkeypatch, linked=True, rows=None, reader=None):
+def _publish_routes(fake_sb, monkeypatch, linked=True, grid=None, reader=None):
     """A draft report ready to publish, with a tracker behind it."""
     from app.utils import google_sheets
     from app.utils.pulse import smartlead
@@ -6382,9 +6384,9 @@ def _publish_routes(fake_sb, monkeypatch, linked=True, rows=None, reader=None):
                   lambda call: (seen.update(call.get("json") or {}),
                                 FakeResponse(204))[1])
     monkeypatch.setattr(google_sheets, "is_configured", lambda: True)
-    monkeypatch.setattr(google_sheets, "read_tracker_rows",
+    monkeypatch.setattr(google_sheets, "read_tracker_values",
                         reader or (lambda sid, tab="All leads":
-                                   TRACKER_ROWS if rows is None else rows))
+                                   TRACKER_GRID if grid is None else grid))
     return seen
 
 
@@ -6449,10 +6451,10 @@ def test_a_client_with_no_tracker_publishes_without_the_block(client, fake_sb, m
 
 def test_a_period_with_no_leads_gets_no_block(client, fake_sb, monkeypatch):
     """Rather than a block of zeros, which reads as a campaign that failed."""
-    seen = _publish_routes(fake_sb, monkeypatch, rows=[
-        dict(zip(TRACKER_HEADERS, ["9/23/2025", "a.com", "Smartlead", "51-200",
-                                   "Head of Growth", "Marketing",
-                                   "United Kingdom", "8", "Lead"])),
+    seen = _publish_routes(fake_sb, monkeypatch, grid=[
+        ["Acme"] + [""] * 8, list(TRACKER_HEADERS),
+        ["9/23/2025", "a.com", "Smartlead", "51-200", "Head of Growth",
+         "Marketing", "United Kingdom", "8", "Lead"],
     ])
     client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
     assert seen["snapshot"]["icp"] == {}
@@ -6587,6 +6589,6 @@ def test_the_portal_still_reads_only_its_snapshot(client, fake_sb, monkeypatch):
     def explode(*a, **k):
         raise AssertionError("the portal must not read the sheet")
 
-    monkeypatch.setattr(google_sheets, "read_tracker_rows", explode)
+    monkeypatch.setattr(google_sheets, "read_tracker_values", explode)
     _icp_report(fake_sb, _ICP_BLOCK)
     assert client.get("/r/valid-token").status_code == 200

@@ -71,6 +71,75 @@ def _norm(header) -> str:
     return " ".join(str(header or "").strip().lower().split()).rstrip(":")
 
 
+# How far down to look for the header row before giving up.
+MAX_HEADER_SCAN = 10
+
+_KNOWN_HEADERS = frozenset(a for names in _ALIASES.values() for a in names)
+
+
+def header_score(row: list[str]) -> int:
+    """How much this row looks like a header: the column names it carries."""
+    score = 0
+    for cell in row:
+        name = _norm(cell)
+        if not name:
+            continue
+        if name in _KNOWN_HEADERS:
+            score += 1
+        elif _DATE_HEADER.search(name):
+            score += 1
+    return score
+
+
+def find_header(values: list[list[str]]) -> tuple[int, list[str]]:
+    """Which row holds the column names. Returns (index, headers).
+
+    ROW 1 IS NOT THE HEADER on a real tracker. The live sheets open with a
+    banner naming the client — "Dovetail" alone in A1, the rest of the row
+    blank — and put the column names on row 2. Taking row 1 regardless gave a
+    sheet with one usable column and no ICP rating at all, and said so in a
+    warning rather than failing, which is how it reached production looking
+    linked but empty.
+
+    Scored rather than hardcoded to "row 2", because the banner is a
+    convention and not a rule: the row that names the most columns we
+    recognise is the header, whichever row that is. On the live sheet row 2
+    scores 11 and nothing else scores above 1, so there is no close call to
+    get wrong.
+    """
+    best, best_score = 0, -1
+    for index, row in enumerate(values[:MAX_HEADER_SCAN]):
+        score = header_score(row)
+        if score > best_score:
+            best, best_score = index, score
+    # Nothing recognisable anywhere near the top: fall back to the first row
+    # so resolve_columns can report what it could not find, by name.
+    if best_score <= 0:
+        return 0, list(values[0]) if values else []
+    return best, list(values[best])
+
+
+def rows_to_dicts(values: list[list[str]]) -> tuple[list[dict], list[str]]:
+    """The grid below the header row, keyed by it. Blank and repeated column
+    names are dropped, keeping the first — two columns called the same thing
+    cannot both be read, and the first is the one a person means."""
+    if not values:
+        return [], []
+    index, headers = find_header(values)
+    seen: set[str] = set()
+    keys: list[str | None] = []
+    for cell in headers:
+        name = str(cell or "").strip()
+        if name and name not in seen:
+            seen.add(name)
+            keys.append(name)
+        else:
+            keys.append(None)
+    out = [{k: v for k, v in zip(keys, row) if k is not None}
+           for row in values[index + 1:]]
+    return out, [k for k in keys if k is not None]
+
+
 def resolve_columns(headers: list[str]) -> tuple[dict[str, str], list[str]]:
     """Map our field names onto this sheet's headers. Returns (columns, warnings).
 
@@ -373,18 +442,23 @@ def _text(row: dict, columns: dict, field: str) -> str:
     return " ".join(str(row.get(column, "") or "").strip().split())
 
 
-def parse_rows(raw: list[dict], headers: list[str] | None = None) -> tuple[list[dict], dict]:
-    """Sheet rows → lead rows + metadata about the sheet itself.
+def parse_rows(values: list[list[str]]) -> tuple[list[dict], dict]:
+    """A sheet's grid → lead rows + metadata about the sheet itself.
+
+    Takes the raw grid rather than pre-keyed dicts, because finding the header
+    row is itself one of this module's jobs — see find_header.
 
     Every value on a returned row is a JSON primitive, because the same list is
     both what `summarise` counts and what gets handed to the browser for
     filtering. The browser then needs no business rules at all: it filters and
     counts fields that are already decided here.
     """
-    headers = list(headers or (raw[0].keys() if raw else []))
+    header_index, header_row = find_header(values or [])
+    raw, headers = rows_to_dicts(values or [])
     columns, warnings = resolve_columns(headers)
     meta = {
-        "columns":   columns,
+        "columns":     columns,
+        "header_row":  header_index + 1,     # 1-based, as the sheet numbers them
         "warnings":  warnings,
         "has_dates": "date" in columns,
         "date_order": "mdy",

@@ -1175,33 +1175,46 @@ def service_account_email() -> str:
         return ""
 
 
-def read_tracker_rows(sheet_id: str, tab: str = "All leads") -> list[dict]:
-    """Raw rows of a Performance Tracker tab. Nothing is interpreted here.
+def read_tracker_values(sheet_id: str, tab: str = "All leads") -> list[list[str]]:
+    """The raw grid of a Performance Tracker tab. Nothing is interpreted here.
 
-    Parsing lives in app/utils/pulse/tracker.py, which takes a list of dicts and
-    so can be tested without Google in the picture at all.
+    DELIBERATELY NOT _get_all_records. That helper takes row 1 as the header,
+    and a real tracker does not put its headers there: row 1 is a banner naming
+    the client, row 2 holds the column names. Handing back the grid lets
+    app/utils/pulse/tracker.py find the header row for itself, and keeps every
+    rule about these sheets in one place that can be tested without Google.
 
-    The `tab` passed here is the same string handed to the cache, which is what
-    keeps one spreadsheet's two tabs in separate cache entries.
+    Cached per sheet AND tab, so a second look costs nothing and two tabs of
+    one spreadsheet cannot be confused for each other.
     """
     try:
         ws = _worksheet(sheet_id, tab)
     except Exception as exc:
         raise TrackerUnavailable(_tracker_reason(exc, sheet_id, tab)) from exc
     try:
-        return _get_all_records(ws, sheet_id, tab=tab)
+        return _get_grid(ws, sheet_id, tab=tab)
     except Exception as exc:
         raise TrackerUnavailable(_tracker_reason(exc, sheet_id, tab)) from exc
 
 
-def read_tracker_headers(sheet_id: str, tab: str = "All leads") -> list[str]:
-    """Just the header row — one read, for validating a freshly pasted link
-    without pulling a few thousand rows to find out it works."""
-    try:
-        ws = _worksheet(sheet_id, tab)
-        return [str(h) for h in _sheets_read(lambda: ws.row_values(1))]
-    except Exception as exc:
-        raise TrackerUnavailable(_tracker_reason(exc, sheet_id, tab)) from exc
+def _get_grid(ws, sheet_id: str, *, tab: str = "") -> list[list[str]]:
+    """get_all_values with the same cache, quota and backoff as the records read."""
+    cache_key = f"{sheet_id}:{tab}:grid"
+    now = time.time()
+    with _records_cache_lock:
+        entry = _records_cache.get(cache_key)
+        if entry and (now - entry[0]) < _RECORDS_CACHE_TTL:
+            return entry[1]
+
+    values = _sheets_read(lambda: ws.get_all_values())
+    rows = [[str(c) for c in row] for row in (values or [])]
+    with _records_cache_lock:
+        fresh = time.time()
+        for k in [k for k, (ts, _) in _records_cache.items()
+                  if (fresh - ts) >= _RECORDS_CACHE_TTL]:
+            del _records_cache[k]
+        _records_cache[cache_key] = (fresh, rows)
+    return rows
 
 
 def _tracker_reason(exc: Exception, sheet_id: str, tab: str) -> str:
