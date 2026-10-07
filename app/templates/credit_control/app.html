@@ -712,7 +712,7 @@
   .ins-bar-row.faded .ins-bar-label, .ins-bar-row.faded .ins-bar-value { font-style: italic; opacity: .55; }
   .ins-bar-row.faded .ins-bar-fill { opacity: .6; }
   .ins-bar-sub { font-size: 11px; font-style: italic; color: var(--text-muted); opacity: .8; margin: -5px 0 0 182px; }
-  /* Team controls: toggles, filters and export each sit in their own labelled box */
+  /* Team controls: toggles and filters each sit in their own labelled box */
   .am-ctl-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; margin-bottom: 12px; }
   .am-ctl { display: flex; flex-direction: column; gap: 7px; padding: 8px 12px 10px; border: 1px solid var(--border-hi); border-radius: 12px; background: var(--bg); }
   .am-ctl-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding-left: 2px; }
@@ -720,8 +720,6 @@
   .am-ctl.filters { flex: 1; min-width: 300px; border-style: dashed; border-color: var(--accent); }
   .am-ctl.filters .am-ctl-label { color: var(--accent); }
   .am-ctl-selects { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .am-ctl-export { margin-left: auto; }
-  .am-ctl-btns { display: flex; gap: 8px; flex-wrap: wrap; }
   .am-pie-wrap { display: flex; gap: 28px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
   .am-legend { display: flex; flex-direction: column; gap: 7px; flex: 1; min-width: 200px; }
   .am-legend-row { display: grid; grid-template-columns: 12px 1fr auto 56px; gap: 10px; align-items: center; font-size: 12px; }
@@ -5370,6 +5368,7 @@ function renderAmTeam(body) {
   const agree = keys => keys.every(k => state[k] === state[keys[0]]) ? state[keys[0]] : null;
   const masterCur = agree(scaleKeys), masterChart = agree(chartKeys);
   body.innerHTML = `
+    <div class="ins-export-row"><button type="button" class="btn btn-sm" id="am-export-btn" title="Export a visual or stats report of the AM Performance charts as a PDF or Google Doc">⬇ Export report</button></div>
     <div class="am-ctl-row">
       <div class="am-ctl" title="Sets the timeframe on every chart below at once">
         <div class="am-ctl-label">Timeframe · all charts ${masterCur ? '' : '<em>(mixed)</em>'}</div>
@@ -5378,13 +5377,6 @@ function renderAmTeam(body) {
       <div class="am-ctl" title="Switches every chart below between bars and pies at once">
         <div class="am-ctl-label">Chart type · all charts ${masterChart ? '' : '<em>(mixed)</em>'}</div>
         <div class="pills">${[['bar', 'Bar'], ['pie', 'Pie']].map(([k, l]) => `<button type="button" class="pill ${masterChart === k ? 'active' : ''}" data-am-master-chart="${k}">${l}</button>`).join('')}</div>
-      </div>
-      <div class="am-ctl am-ctl-export">
-        <div class="am-ctl-label">Export</div>
-        <div class="am-ctl-btns">
-          <button type="button" class="btn btn-sm" id="am-export-pdf" title="Download the report as a PDF file">⬇ PDF</button>
-          <button type="button" class="btn btn-sm" id="am-export-doc" title="Downloads a document you can open in Google Docs">⬇ Google Doc</button>
-        </div>
       </div>
     </div>
     <div class="am-ctl-row">
@@ -5417,11 +5409,10 @@ function renderAmTeam(body) {
   filterEl('am-f-industry', 'amFilterIndustry'); filterEl('am-f-country', 'amFilterCountry'); filterEl('am-f-size', 'amFilterSize');
   const clearBtn = body.querySelector('#am-f-clear');
   if (clearBtn) clearBtn.onclick = () => { state.amFilterWide = state.amFilterIndustry = state.amFilterCountry = state.amFilterSize = ''; renderAmPerf(); };
-  body.querySelector('#am-export-pdf').onclick = amExportPdf;
-  body.querySelector('#am-export-doc').onclick = amExportDoc;
+  body.querySelector('#am-export-btn').onclick = openAmExportModal;
 }
 
-/* ── Team export (PDF downloaded directly, Google Doc via a downloadable .doc) ── */
+/* ── Team report — the same export flow as Insights (Visual or Stats, PDF or Google Doc, choose what to include) ── */
 function amReportSections() {
   // The exports have no theme variables, so the grey "Unassigned" swatch becomes a fixed grey.
   const printColor = c => String(c).startsWith('var(') ? '#9ca3af' : c;
@@ -5442,127 +5433,33 @@ function amReportMeta() {
     summary: `Clients: ${amWindowLabel(state.amClientsScale)} · Revenue: ${amWindowLabel(state.amRevScale)} · Lifetime value clients: ${state.amLtvScale === 'all' ? 'all time' : amWindowLabel(state.amLtvScale)} · Tenure clients: ${state.amTenureScale === 'all' ? 'all time' : amWindowLabel(state.amTenureScale)} · Lifetime value and tenure basis: ${basisName}${amFilterSummary() ? ` · Filters — ${amFilterSummary()}` : ''}`,
   };
 }
-function amExportPdf() {
-  const meta = amReportMeta();
-  const W = 595.28, H = 841.89, M = 40, top = 46, bottom = 50, cw = W - M * 2;
-  const doc = rptPdf(W, H, meta.title);
-  doc.newPage();
-  let y = top;
-  const ensure = h => { if (y + h > H - bottom) { doc.newPage(); y = top; } };
-  const para = (s, f, size, lead, col) => {
-    for (const ln of rptWrap(rptPdfClean(s), f, size, cw)) { ensure(lead); doc.text(M, y + size, ln, f, size, col); y += lead; }
-  };
-  const fit = (s, f, size, maxW) => {   // one line, shortened with an ellipsis if it is too wide
-    let t = rptPdfClean(s);
-    if (rptTextW(t, f, size) <= maxW) return t;
-    while (t.length > 1 && rptTextW(t + '…', f, size) > maxW) t = t.slice(0, -1);
-    return t + '…';
-  };
-  const right = (xr, yy, s, f, size, col) => doc.text(xr - rptTextW(rptPdfClean(s), f, size), yy, s, f, size, col);
-  para(meta.title, 'b', 20, 25, '1B1840');
-  para(meta.summary, 'r', 9, 12.5, '666666');
-  para(`Generated ${meta.generated}`, 'r', 9, 12.5, '666666');
-  y += 6;
-  for (const s of amReportSections()) {
-    if (y > top + 1) y += 12;
-    const isPie = s.chart === 'pie' && s.rows.length;
-    const blockH = isPie ? Math.max(165, 16 + s.tableRows.length * 15) : 14 + 18 * 2;
-    ensure(28 + rptWrap(rptPdfClean(s.sub), 'r', 9, cw).length * 12 + 4 + blockH);   // keep a heading together with the start of its chart
-    doc.text(M, y + 13, s.title, 'b', 14, '2D2A55');
-    doc.line(M, y + 19, M + cw, y + 19, '5B4BD6', 1.2);
-    y += 28;
-    para(s.sub, 'r', 9, 12, '666666');
-    y += 4;
-    if (!s.rows.length) { para('Nothing to show for this selection.', 'i', 9, 12, '666666'); continue; }
-    const cols = s.tableRows.map(r => rptColorHex(r.color));
-    if (s.chart === 'pie') {
-      const data = s.rows.map((r, i) => ({ v: r.value, col: cols[i] })).filter(d => d.v > 0);
-      const total = data.reduce((a, d) => a + d.v, 0);
-      const R = 74, r0 = 46, cx = M + 82, cy = y + 82;
-      const arc = (rad, a) => [cx + rad * Math.sin(a), cy - rad * Math.cos(a)];
-      let a0 = 0;
-      for (const d of data) {
-        const a1 = Math.min(a0 + d.v / total * Math.PI * 2, Math.PI * 2), n = Math.max(2, Math.ceil((a1 - a0) / (Math.PI * 2) * 120));
-        const pts = [];
-        for (let k = 0; k <= n; k++) pts.push(arc(R, a0 + (a1 - a0) * k / n));
-        for (let k = n; k >= 0; k--) pts.push(arc(r0, a0 + (a1 - a0) * k / n));
-        doc.poly(pts, d.col, 'FFFFFF', 1);
-        a0 = a1;
-      }
-      if (s.center) {
-        const tv = s.fmt(total).replace(/\.00$/, '');
-        doc.text(cx - rptTextW('Total', 'r', 7.5) / 2, cy - 2, 'Total', 'r', 7.5, '666666');
-        doc.text(cx - rptTextW(rptPdfClean(tv), 'b', 11) / 2, cy + 11, tv, 'b', 11, '111111');
-      }
-      const lx = M + 182, lw = cw - 182, valR = lx + lw - 88, shareR = lx + lw;
-      doc.text(lx, y + 8, 'ACCOUNT MANAGER', 'b', 7, '666666');
-      right(valR, y + 8, s.valueLabel.toUpperCase(), 'b', 7, '666666');
-      right(shareR, y + 8, s.shareLabel.toUpperCase(), 'b', 7, '666666');
-      doc.line(lx, y + 12, lx + lw, y + 12, 'CCCCCC');
-      s.tableRows.forEach((r, i) => {
-        const yy = y + 16 + i * 15;
-        doc.rect(lx + 1, yy + 2.5, 7, 7, cols[i]);
-        doc.text(lx + 14, yy + 9, fit(r.name, 'r', 9, valR - lx - 14 - 70), 'r', 9, '111111');
-        right(valR, yy + 9, r.value, 'r', 9, '111111');
-        right(shareR, yy + 9, r.extra, 'r', 9, '666666');
-        doc.line(lx, yy + 14, lx + lw, yy + 14, 'EEEEEE');
-      });
-      y += blockH;
-    } else {
-      const nameW = 150, valW = 100, extraW = 88, barX = M + nameW, barW = cw - nameW - valW - extraW - 10;
-      const max = Math.max(1, ...s.rows.map(r => r.value));
-      const head = () => {
-        doc.text(M, y + 8, 'ACCOUNT MANAGER', 'b', 7, '666666');
-        right(M + cw - extraW, y + 8, s.valueLabel.toUpperCase(), 'b', 7, '666666');
-        right(M + cw, y + 8, s.shareLabel.toUpperCase(), 'b', 7, '666666');
-        doc.line(M, y + 12, M + cw, y + 12, 'CCCCCC');
-        y += 14;
-      };
-      ensure(14 + 18 * 2);
-      head();
-      s.tableRows.forEach((r, i) => {
-        if (y + 18 > H - bottom) { doc.newPage(); y = top; head(); }
-        doc.rect(M + 1, y + 4.5, 7, 7, cols[i]);
-        doc.text(M + 14, y + 11.5, fit(r.name, 'r', 9, nameW - 20), 'r', 9, '111111');
-        doc.rect(barX, y + 4, Math.max(3, s.rows[i].value / max * barW), 9, cols[i]);
-        right(M + cw - extraW - 6, y + 11.5, r.value, 'r', 9, '111111');
-        right(M + cw, y + 11.5, r.extra, 'r', 9, '666666');
-        doc.line(M, y + 18, M + cw, y + 18, 'EEEEEE');
-        y += 18;
-      });
-      y += 4;
-    }
+const RPT_AM_SECTIONS = [
+  ['Clients', 'Number of clients', 'How many clients each account manager had on the books, and each one’s share'],
+  ['Rev', 'Revenue share', 'Each account manager’s share of the revenue invoiced in the chosen period'],
+  ['Ltv', 'Average client lifetime value', 'Average lifetime value of each account manager’s clients, on the chosen basis'],
+  ['Tenure', 'Average client tenure', 'Average tenure of each account manager’s clients, on the chosen basis'],
+];
+function rptAmStatsBlocks(ids) {
+  const blocks = [];
+  for (const s of amReportSections().filter(s => ids.includes(s.key))) {
+    blocks.push({ t: 'h2', text: s.title }, { t: 'p', text: s.sub });
+    if (!s.rows.length) blocks.push({ t: 'note', text: 'Nothing to show for this selection.' });
+    else blocks.push({ t: 'table', head: ['Account manager', s.valueLabel, s.shareLabel], rows: s.tableRows.map(r => [r.name, r.value, r.extra]), align: ['l', 'r', 'r'] });
   }
-  rptPdfFooters(doc, W, H, M, meta.title, '888888');
-  rptDownloadPdf(doc.finish(), `AM-Performance-Team-${todayISO()}.pdf`);
+  return blocks;
 }
-function amExportDoc() {
-  const meta = amReportMeta();
-  const sectionHtml = s => `<h2>${esc(s.title)}</h2><p>${esc(s.sub)}</p>
-    ${s.rows.length ? `<table border="1" cellspacing="0" cellpadding="5" style="border-collapse:collapse; border-color:#bbb">
-      <tr style="background:#eee"><th align="left">Account manager</th><th align="right">${esc(s.valueLabel)}</th><th align="right">${esc(s.shareLabel)}</th></tr>
-      ${s.tableRows.map(r => `<tr><td><span style="color:${r.color}">&#9632;</span> ${esc(r.name)}</td><td align="right">${esc(r.value)}</td><td align="right">${esc(r.extra)}</td></tr>`).join('')}
-    </table>` : '<p><i>Nothing to show for this selection.</i></p>'}`;
-  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-    <head><meta charset="utf-8"><title>${esc(meta.title)}</title></head>
-    <body style="font-family:Arial,sans-serif; font-size:11pt">
-    <h1>${esc(meta.title)}</h1><p style="color:#666">${esc(meta.summary)}<br>Generated ${esc(meta.generated)}</p>
-    ${amReportSections().map(sectionHtml).join('')}
-    </body></html>`;
-  const name = `AM-Performance-Team-${todayISO()}.doc`;
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(['﻿', html], { type: 'application/msword' }));
-  a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  openModal(`
-    <div class="modal-head"><h3>Open it as a Google Doc</h3><button class="modal-x" data-close>×</button></div>
-    <p style="font-size:13px; color:var(--text-dim); line-height:1.6"><strong>${esc(name)}</strong> has been downloaded. To turn it into a Google Doc:</p>
-    <ol style="font-size:13px; color:var(--text-dim); line-height:1.8; margin:8px 0 0 18px">
-      <li>Open Google Drive and choose <strong>New → File upload</strong>, then pick the file.</li>
-      <li>Right-click the uploaded file → <strong>Open with → Google Docs</strong>.</li>
-    </ol>
-    <div class="modal-foot"><button class="btn" data-close>Close</button><a class="btn btn-primary" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noopener">Open Google Drive</a></div>`);
+// The tool's own chart cards (bars or pies as currently chosen), without the on-screen controls.
+function rptAmVisualSections(ids) {
+  return amTeamSections().filter(s => ids.includes(s.key)).map(s => {
+    const chart = state['amChart' + s.key];
+    const pieNote = chart === 'pie' && !s.center ? '<div class="note" style="margin:0 0 8px">Slices show each account manager’s share of the combined averages.</div>' : '';
+    return { title: s.title, items: [`<div class="chart-card">
+      <div class="chart-head"><h3>${esc(s.title)}</h3></div>
+      <div class="note" style="margin:-4px 0 12px">${esc(s.sub)}</div>
+      ${pieNote}
+      ${chart === 'pie' ? amPieHtml(s.rows, s.fmt, { center: s.center }) : amBarsHtml(s.rows, { fmt: s.fmt, valueWidth: s.valueWidth })}
+    </div>`] };
+  });
 }
 
 /* ── Account Managers: searchable list ── */
@@ -5759,16 +5656,41 @@ const RPT_SECTIONS = [
 ];
 const RPT_NAME = { visual: 'Visual report', stats: 'Stats report' };
 
-function rptState() {
-  state.insExport ||= { type: 'visual', format: 'pdf', sections: RPT_SECTIONS.map(s => s[0]) };
-  return state.insExport;
+// Each tool that can export a report registers a definition here. The modal, the options and the build
+// process (Visual or Stats, PDF or Google Doc, include/exclude sections) are shared, so every tool works identically.
+const RPT_DEFS = {
+  insights: {
+    stateKey: 'insExport', heading: 'Export insights report', short: 'Insights', file: 'Insights',
+    sections: RPT_SECTIONS, visualOnly: ['predict'],
+    notes: {
+      stats: 'The stats report leaves out the Client performance indicator — it is an interactive tool, not a set of stats.',
+      visual: 'The visual report uses the colours and charts you see in the tool, with the filters and timeframes currently selected.',
+    },
+    stats: ids => rptStatsBlocks(ids), visual: ids => rptVisualSections(ids),
+  },
+  am: {
+    stateKey: 'amExport', heading: 'Export AM performance report', short: 'AM Performance', file: 'AM-Performance',
+    sections: RPT_AM_SECTIONS, visualOnly: [],
+    notes: {
+      stats: 'The stats report lists each chart’s figures as tables, with the timeframes and filters currently selected.',
+      visual: 'The visual report uses the colours and charts you see in the tool, with the timeframes, chart types and filters currently selected.',
+    },
+    stats: ids => rptAmStatsBlocks(ids), visual: ids => rptAmVisualSections(ids), summary: () => amReportMeta().summary,
+  },
+};
+
+function rptState(def) {
+  state[def.stateKey] ||= { type: 'visual', format: 'pdf', sections: def.sections.map(s => s[0]) };
+  return state[def.stateKey];
 }
-function openInsExportModal() {
-  const cfg = rptState();
-  const defTitle = `Insights ${cfg.type === 'stats' ? 'stats' : 'visual'} report — ${monthLabel(currentMonthKey())}`;
+function openInsExportModal() { return openReportModal(RPT_DEFS.insights); }
+function openAmExportModal() { return openReportModal(RPT_DEFS.am); }
+function openReportModal(def) {
+  const cfg = rptState(def);
+  const defTitle = type => `${def.short} ${type === 'stats' ? 'stats' : 'visual'} report — ${monthLabel(currentMonthKey())}`;
   const choice = (name, value, title, desc) => `<label class="rpt-choice"><input type="radio" name="${name}" value="${value}" ${cfg[name === 'rpt-type' ? 'type' : 'format'] === value ? 'checked' : ''}><div><strong>${title}</strong><span>${desc}</span></div></label>`;
   openModal(`
-    <div class="modal-head"><h3>Export insights report</h3><button class="modal-x" data-close>×</button></div>
+    <div class="modal-head"><h3>${esc(def.heading)}</h3><button class="modal-x" data-close>×</button></div>
     <div class="fld"><label>Report type</label>
       <div class="rpt-choices">
         ${choice('rpt-type', 'visual', 'Visual report', 'The tool’s own tiles, bars and charts, in the same colours — for sharing what’s in the tool.')}
@@ -5780,21 +5702,20 @@ function openInsExportModal() {
         ${choice('rpt-format', 'docx', 'Google Doc', 'Downloads a .docx you can open in Google Docs (upload to Drive → Open with → Google Docs).')}
       </div></div>
     <div class="fld"><label>Include</label>
-      <div class="rpt-incl">${RPT_SECTIONS.map(([k, l, d]) => `<label class="chk" id="rpt-incl-${k}" title="${esc(d)}"><input type="checkbox" data-rpt-sec="${k}" ${cfg.sections.includes(k) ? 'checked' : ''}> <span><strong>${esc(l)}</strong> <span class="dim" style="font-size:11px">— ${esc(d)}</span></span></label>`).join('')}</div></div>
-    <div class="fld"><label>Report title</label><input id="rpt-title" value="${esc(defTitle)}"></div>
+      <div class="rpt-incl">${def.sections.map(([k, l, d]) => `<label class="chk" id="rpt-incl-${k}" title="${esc(d)}"><input type="checkbox" data-rpt-sec="${k}" ${cfg.sections.includes(k) ? 'checked' : ''}> <span><strong>${esc(l)}</strong> <span class="dim" style="font-size:11px">— ${esc(d)}</span></span></label>`).join('')}</div></div>
+    <div class="fld"><label>Report title</label><input id="rpt-title" value="${esc(defTitle(cfg.type))}"></div>
     <p class="note" id="rpt-note" style="margin:0"></p>
     <div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="rpt-go">Export report</button></div>`, true);
 
   const sync = () => {
     const type = document.querySelector('input[name="rpt-type"]:checked').value;
-    const pred = document.querySelector('[data-rpt-sec="predict"]');
-    pred.disabled = type === 'stats';
-    document.getElementById('rpt-incl-predict').style.opacity = type === 'stats' ? '.45' : '1';
-    document.getElementById('rpt-note').textContent = type === 'stats'
-      ? 'The stats report leaves out the Client performance indicator — it is an interactive tool, not a set of stats.'
-      : 'The visual report uses the colours and charts you see in the tool, with the filters and timeframes currently selected.';
+    def.visualOnly.forEach(k => {
+      document.querySelector(`[data-rpt-sec="${k}"]`).disabled = type === 'stats';
+      document.getElementById('rpt-incl-' + k).style.opacity = type === 'stats' ? '.45' : '1';
+    });
+    document.getElementById('rpt-note').textContent = def.notes[type];
     const t = document.getElementById('rpt-title');
-    if (/^Insights (stats|visual) report — /.test(t.value)) t.value = `Insights ${type === 'stats' ? 'stats' : 'visual'} report — ${monthLabel(currentMonthKey())}`;
+    if (t.value.startsWith(def.short + ' ') && /^.+ (stats|visual) report — /.test(t.value)) t.value = defTitle(type);
   };
   document.querySelectorAll('input[name="rpt-type"]').forEach(r => r.onchange = sync);
   sync();
@@ -5802,30 +5723,30 @@ function openInsExportModal() {
     cfg.type = document.querySelector('input[name="rpt-type"]:checked').value;
     cfg.format = document.querySelector('input[name="rpt-format"]:checked').value;
     cfg.sections = [...document.querySelectorAll('[data-rpt-sec]')].filter(c => c.checked && !c.disabled).map(c => c.dataset.rptSec);
-    const title = document.getElementById('rpt-title').value.trim() || defTitle;
+    const title = document.getElementById('rpt-title').value.trim() || defTitle(cfg.type);
     if (!cfg.sections.length) { document.getElementById('rpt-note').textContent = 'Tick at least one section to include.'; return; }
     closeModal();
-    try { await insRunReport(cfg.type, cfg.format, cfg.sections, title); }
+    try { await rptRun(def, cfg.type, cfg.format, cfg.sections, title); }
     catch (err) { console.error(err); openModal(`<div class="modal-head"><h3>Couldn’t build the report</h3><button class="modal-x" data-close>×</button></div><p style="font-size:13px; color:var(--text-dim); line-height:1.6">${esc(err && err.message ? err.message : String(err))}</p><p class="note">The visual report needs a Chromium-based browser (Chrome or Edge) to turn the charts into pictures — the stats report works in any browser.</p><div class="modal-foot"><button class="btn btn-primary" data-close>Close</button></div>`); }
   };
 }
 
-async function insRunReport(type, format, sectionIds, title) {
-  const meta = { title, generated: new Date().toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' }), kind: RPT_NAME[type] };
+async function rptRun(def, type, format, sectionIds, title) {
+  const meta = { title, generated: new Date().toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' }), kind: RPT_NAME[type], summary: def.summary ? def.summary() : '' };
   const stamp = todayISO();
   if (type === 'stats') {
-    const blocks = rptStatsBlocks(sectionIds);
-    if (format === 'pdf') return rptDownloadPdf(rptPdfStats(meta, blocks), `Insights-Stats-Report-${stamp}.pdf`);
-    return rptDownloadDocx(await rptDocxFromBlocks(meta, blocks, false), `Insights-Stats-Report-${stamp}.docx`);
+    const blocks = def.stats(sectionIds);
+    if (format === 'pdf') return rptDownloadPdf(rptPdfStats(meta, blocks), `${def.file}-Stats-Report-${stamp}.pdf`);
+    return rptDownloadDocx(await rptDocxFromBlocks(meta, blocks, false), `${def.file}-Stats-Report-${stamp}.docx`);
   }
-  const secs = rptVisualSections(sectionIds);
-  if (format === 'pdf') return rptDownloadPdf(await rptPdfVisual(meta, secs), `Insights-Visual-Report-${stamp}.pdf`);
+  const secs = def.visual(sectionIds);
+  if (format === 'pdf') return rptDownloadPdf(await rptPdfVisual(meta, secs), `${def.file}-Visual-Report-${stamp}.pdf`);
   const blocks = [];
   for (const sec of secs) {
     blocks.push({ t: 'h2', text: sec.title, pageBreak: blocks.length > 0 });
     for (const html of sec.items) blocks.push({ t: 'img', img: await rptRasterize(html, 1100) });
   }
-  return rptDownloadDocx(await rptDocxFromBlocks(meta, blocks, true), `Insights-Visual-Report-${stamp}.docx`);
+  return rptDownloadDocx(await rptDocxFromBlocks(meta, blocks, true), `${def.file}-Visual-Report-${stamp}.docx`);
 }
 
 // The app's own stylesheet (the biggest <style> on the page), so a visual report looks exactly like the tool.
@@ -6099,7 +6020,8 @@ async function rptDocxFromBlocks(meta, blocks, landscape) {
   const files = [];
   let rels = '', imgN = 0, body = '';
   body += dxPara(dxRun(meta.title, { b: true, sz: 44, color: '1B1840' }), { after: 40 });
-  body += dxPara(dxRun(`${meta.kind} · Generated ${meta.generated}`, { sz: 20, color: '777777' }), { after: 200 });
+  body += dxPara(dxRun(`${meta.kind} · Generated ${meta.generated}`, { sz: 20, color: '777777' }), { after: meta.summary ? 60 : 200 });
+  if (meta.summary) body += dxPara(dxRun(meta.summary, { sz: 18, color: '777777' }), { after: 200 });
   for (const b of blocks) {
     if (b.t === 'h2') body += dxPara(dxRun(b.text, { b: true, sz: 32, color: '2D2A55' }), { style: 'Heading1', keep: true, before: 240, after: 120, pageBreak: b.pageBreak });
     else if (b.t === 'h3') body += dxPara(dxRun(b.text, { b: true, sz: 24, color: '2D2A55' }), { style: 'Heading2', keep: true, before: 160, after: 80 });
@@ -6183,15 +6105,6 @@ function rptPdfClean(s) {
   }
   return out;
 }
-// Any CSS colour ('#a78bfa', 'hsl(...)', 'rgb(...)') → 'RRGGBB' for the PDF writer.
-function rptColorHex(c) {
-  const ctx = document.createElement('canvas').getContext('2d');
-  ctx.fillStyle = '#9ca3af'; ctx.fillStyle = String(c);
-  const v = ctx.fillStyle;
-  if (/^#[0-9a-f]{6}$/i.test(v)) return v.slice(1);
-  const m = v.match(/\d+(\.\d+)?/g);
-  return m ? m.slice(0, 3).map(n => Math.round(n).toString(16).padStart(2, '0')).join('') : '9CA3AF';
-}
 function rptPdfHex(clean) {
   let h = '';
   for (const ch of clean) { const c = ch.codePointAt(0); h += (RPT_WIN1252[c] ?? c).toString(16).padStart(2, '0'); }
@@ -6241,10 +6154,6 @@ function rptPdf(pageW, pageH, title) {
     },
     rect(x, y, w, h, col) { this.cur.ops.push(`${rgb(col)} rg ${num(x)} ${num(pageH - y - h)} ${num(w)} ${num(h)} re f`); },
     line(x1, y1, x2, y2, col, lw = 0.6) { this.cur.ops.push(`${rgb(col)} RG ${num(lw)} w ${num(x1)} ${num(pageH - y1)} m ${num(x2)} ${num(pageH - y2)} l S`); },
-    poly(pts, fill, stroke, lw = 1) {
-      const p = pts.map(([x, yy], i) => `${num(x)} ${num(pageH - yy)} ${i ? 'l' : 'm'}`).join(' ');
-      this.cur.ops.push(stroke ? `${rgb(fill)} rg ${rgb(stroke)} RG ${num(lw)} w ${p} h B` : `${rgb(fill)} rg ${p} h f`);
-    },
     text(x, y, s, f, size, col) {
       const clean = rptPdfClean(s);
       if (!clean) return;
@@ -6328,6 +6237,7 @@ function rptPdfStats(meta, blocks) {
   };
   para(meta.title, 'b', 20, 25, '1B1840');
   para(`${meta.kind} · Generated ${meta.generated}`, 'r', 9.5, 13, '777777');
+  if (meta.summary) para(meta.summary, 'r', 9, 12.5, '777777');
   y += 6;
   for (const b of blocks) {
     if (b.t === 'h2') {
@@ -6418,6 +6328,7 @@ async function rptPdfVisual(meta, secs) {
   doc.text(M, y + 22, meta.title, 'b', 22, 'E0E0F0');
   doc.text(M, y + 40, `${meta.kind} · Generated ${meta.generated}`, 'r', 10, '8080A8');
   y += 58;
+  if (meta.summary) for (const ln of rptWrap(rptPdfClean(meta.summary), 'r', 9, cw)) { doc.text(M, y - 4, ln, 'r', 9, '8080A8'); y += 12; }
   for (let si = 0; si < secs.length; si++) {
     const sec = secs[si];
     if (si > 0) { doc.newPage(BG); y = top; }
