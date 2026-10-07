@@ -140,40 +140,6 @@
       font-variant-numeric: tabular-nums; line-height: 1.1;
     }
     .outcome-label { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
-    .outcome-share { font-size: 11px; color: var(--text-3); margin-top: 2px; }
-
-    .trend-wrap { position: relative; }
-    .trend-strip { display: flex; align-items: flex-end; gap: 2px; height: 78px; }
-    .trend-col {
-      /* No minimum width: with a long range this row holds sixty columns and
-         a floor would overflow the card instead of shrinking. */
-      flex: 1 1 0; min-width: 0; border-radius: 2px 2px 0 0;
-      background: linear-gradient(180deg, #a78bfa 0%, #7c3aed 100%); opacity: .85;
-      box-shadow: inset 0 -2px 0 rgba(167,139,250,.55);
-      transition: opacity .15s var(--ease), height .6s var(--ease-out);
-    }
-    .trend-col:hover, .trend-col.is-hot { opacity: 1; }
-    .trend-col.is-hot { background: linear-gradient(180deg, #c4b5fd 0%, #8b5cf6 100%); }
-    .trend-axis {
-      display: flex; justify-content: space-between; gap: 10px;
-      font-size: 11px; color: var(--text-3); margin-top: 8px;
-    }
-    .trend-unit { text-transform: uppercase; letter-spacing: .06em; opacity: .8; }
-
-    .trend-tip {
-      position: absolute; z-index: 20; pointer-events: none;
-      min-width: 152px; padding: 9px 11px; border-radius: 10px;
-      background: rgba(17,15,28,.97); border: 1px solid var(--border);
-      box-shadow: 0 10px 26px rgba(0,0,0,.45);
-      font-size: 11.5px; color: var(--text-2);
-    }
-    .trend-tip-label {
-      font-size: 11px; font-weight: 600; color: var(--text);
-      margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
-    .trend-tip-row { display: flex; justify-content: space-between; gap: 16px; line-height: 1.75; }
-    .trend-tip-row b { color: #c4b5fd; font-variant-numeric: tabular-nums; font-weight: 600; }
 
     .report-nav { display: flex; align-items: center; gap: 12px; }
     .report-nav a, .report-nav .is-off {
@@ -204,6 +170,26 @@
       border-left: 2px solid rgba(139,92,246,.45); color: var(--text-2);
     }
 
+    .li-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+    }
+    .li-stat {
+      border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px;
+      background: rgba(255,255,255,.03);
+    }
+    .li-stat.is-lead { border-color: rgba(139,92,246,.38); background: rgba(139,92,246,.08); }
+    .li-value {
+      font-family: var(--font-display); font-size: 25px; font-weight: 600;
+      color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.1;
+    }
+    .li-label { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
+    .li-rates {
+      display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px;
+      font-size: 12.5px; color: var(--text-2);
+    }
+    .li-rates b { color: #c4b5fd; font-variant-numeric: tabular-nums; }
+
     .ab-wins { display: flex; flex-direction: column; gap: 14px; }
     .ab-win + .ab-win { border-top: 1px solid var(--border); padding-top: 14px; }
     .ab-win-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -213,6 +199,63 @@
       border-radius: 999px; padding: 2px 9px;
     }
     .ab-win-campaign { font-size: 12.5px; color: var(--text-3); }
+    .ab-win-head + .ab-win-part, .ab-win-part:first-child { margin-top: 10px; }
+    .icp-stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px; margin-bottom: 22px;
+    }
+    .icp-stat {
+      border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px;
+      background: rgba(255,255,255,.03);
+    }
+    .icp-stat.is-lead { border-color: rgba(139,92,246,.38); background: rgba(139,92,246,.08); }
+    .icp-value {
+      font-family: var(--font-display); font-size: 25px; font-weight: 600;
+      color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.1;
+    }
+    .icp-label { font-size: 12.5px; color: var(--text-2); margin-top: 4px; line-height: 1.45; }
+    .icp-sub { font-size: 11.5px; color: var(--text-3); }
+
+    .icp-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 18px 28px;
+    }
+    .icp-block + .icp-block, .icp-grid { margin-top: 4px; }
+    .icp-block-title {
+      font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
+      color: var(--text-3); margin-bottom: 9px;
+    }
+    .icp-bar {
+      display: grid; grid-template-columns: 1fr 80px auto;
+      align-items: center; gap: 10px; margin-bottom: 6px; font-size: 12.5px;
+    }
+    .icp-bar-label {
+      color: var(--text-2); overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .icp-bar-track {
+      height: 7px; border-radius: 999px; background: rgba(255,255,255,.07);
+      overflow: hidden;
+    }
+    .icp-bar-fill {
+      display: block; height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, #8b5cf6, #c4b5fd);
+    }
+    /* Ungraded is an absence, not a poor grade, and must not read as one. */
+    .icp-bar.is-muted .icp-bar-fill { background: rgba(255,255,255,.17); }
+    .icp-bar.is-muted .icp-bar-label { color: var(--text-3); }
+    .icp-bar-n {
+      color: var(--text-3); font-variant-numeric: tabular-nums;
+      white-space: nowrap; font-size: 11.5px;
+    }
+    .icp-single { font-size: 13px; color: var(--text-2); }
+    .icp-single b { color: var(--text); }
+
+    .ab-win-part + .ab-win-part { margin-top: 14px; }
+    .ab-win-part-label {
+      font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+      color: var(--text-3); margin-bottom: 4px;
+    }
     .ab-win-subject {
       margin-top: 8px; font-size: 14.5px; line-height: 1.6; color: var(--text);
     }
@@ -287,10 +330,14 @@
     </div>
     {% else %}
 
+    {# The email half of the page. Skipped entirely for a client run only on
+       LinkedIn: a funnel of zeros above a live LinkedIn card reads as a
+       campaign that failed rather than one that was never run here. #}
+    {% if email_sent %}
     <div class="headline-row">
       <div class="headline">
         <div class="headline-value" data-ticker>{{ "{:,}".format(counts.sent) }}</div>
-        <div class="headline-label">Messages sent</div>
+        <div class="headline-label">Emails sent</div>
       </div>
       <div class="headline">
         <div class="headline-value" data-ticker>{{ "{:,}".format(counts.replied) }}</div>
@@ -303,10 +350,11 @@
     </div>
 
     <div class="card">
-      <h2>Your funnel</h2>
+      <h2>Your email funnel</h2>
       <p class="hint">
         Every stage counts people, except sends — one person may receive several
-        messages in a sequence.
+        emails in a sequence.{% if has_linkedin %} LinkedIn is run on a separate
+        platform and is counted on its own, below.{% endif %}
       </p>
       {% set top = funnel[0].value if funnel and funnel[0].value else 0 %}
       {% for stage in funnel %}
@@ -335,22 +383,15 @@
     <div class="card">
       <h2>Reply outcomes</h2>
       <p class="hint">
-        How replies were categorised. Information and meeting requests count as
-        leads, and together make up the lead rate — {{ counts | pulse_lead_rate | pulse_pct }}
-        of all sends.
+        How replies to your email campaigns were categorised. Information and
+        meeting requests count as leads, and together make up the lead rate —
+        {{ counts | pulse_lead_rate | pulse_pct }} of emails sent.
       </p>
       <div class="outcomes">
         {% for o in counts | pulse_outcomes %}
         <div class="outcome{% if o.is_lead %} is-lead{% endif %}{% if o.is_negative %} is-negative{% endif %}">
           <div class="outcome-value" data-ticker>{{ "{:,}".format(o.value) }}</div>
           <div class="outcome-label">{{ o.label }}</div>
-          {# Unsubscribes carry a share of sends: they are not one of the
-             mutually exclusive reply categories, so a share of replies could
-             read over 100%. #}
-          <div class="outcome-share">
-            {% if o.of_sent is not none %}{{ o.of_sent | pulse_pct }} of sends
-            {% else %}{{ o.of_replies | pulse_pct }} of replies{% endif %}
-          </div>
         </div>
         {% endfor %}
       </div>
@@ -370,11 +411,21 @@
             <span class="ab-win-label">{{ win.label }}</span>
             {% if win.campaign %}<span class="ab-win-campaign">{{ win.campaign }}</span>{% endif %}
           </div>
+          {# Labelled, because a subject line and an opening paragraph look
+             alike once they are both just quoted text on a page. #}
           {% if win.subject %}
-          <div class="ab-win-subject">“{{ win.subject }}”</div>
+          <div class="ab-win-part">
+            <div class="ab-win-part-label">Subject line</div>
+            <div class="ab-win-subject">“{{ win.subject }}”</div>
+          </div>
           {% endif %}
-          {# Sanitised when it was written down, in richtext.py. #}
-          {% if win.body %}<div class="ab-win-body write-up">{{ win.body | safe }}</div>{% endif %}
+          {% if win.body %}
+          <div class="ab-win-part">
+            <div class="ab-win-part-label">Main email body</div>
+            {# Sanitised when it was written down, in richtext.py. #}
+            <div class="ab-win-body write-up">{{ win.body | safe }}</div>
+          </div>
+          {% endif %}
           <div class="ab-win-stats">
             <b>{{ win.reply_rate | pulse_pct }}</b> reply rate
             {%- if win.positive_rate is not none %} ·
@@ -387,23 +438,142 @@
     </div>
     {% endif %}
 
-    {% if by_channel and by_channel | length > 1 %}
+    {% endif %}{# email_sent #}
+
+    {% if has_linkedin %}
+    {# Its own card, not a row in the funnel above. LinkedIn outreach runs on
+       Meet Alfred, where the unit is a connection request rather than an
+       email and an "open" is a connection being accepted. Rates are quoted
+       against connection requests, so nothing here is averaged with email. #}
     <div class="card">
-      <h2>Email and LinkedIn</h2>
+      <h2>LinkedIn</h2>
       <p class="hint">
-        Both channels roll into the funnel above.{% if funnel | selectattr("key", "equalto", "opened") | list %} On LinkedIn, "opened" means a
-        connection request was accepted.{% endif %}
+        Run separately from email, on LinkedIn. A connection request is not an
+        email, so these are counted on their own rather than added to the
+        figures above.
       </p>
-      {% for channel_name, c in by_channel.items() %}
-      <div class="channel-row">
-        <span>{{ "LinkedIn" if channel_name == "linkedin" else "Email" }}</span>
-        <span class="n">
-          <b>{{ "{:,}".format(c.sent) }}</b> sent ·
-          <b>{{ "{:,}".format(c.replied) }}</b> replied ·
-          <b>{{ "{:,}".format(c | pulse_leads) }}</b> leads
-        </span>
+      <div class="li-grid">
+        <div class="li-stat">
+          <div class="li-value" data-ticker>{{ "{:,}".format(linkedin.get("sent", 0)) }}</div>
+          <div class="li-label">Connection requests sent</div>
+        </div>
+        {% if linkedin.get("opened") %}
+        <div class="li-stat">
+          <div class="li-value" data-ticker>{{ "{:,}".format(linkedin.get("opened", 0)) }}</div>
+          <div class="li-label">Requests accepted</div>
+        </div>
+        {% endif %}
+        <div class="li-stat">
+          <div class="li-value" data-ticker>{{ "{:,}".format(linkedin.get("replied", 0)) }}</div>
+          <div class="li-label">Replies</div>
+        </div>
+        <div class="li-stat is-lead">
+          <div class="li-value" data-ticker>{{ "{:,}".format(linkedin | pulse_leads) }}</div>
+          <div class="li-label">Leads</div>
+        </div>
       </div>
-      {% endfor %}
+      <div class="li-rates">
+        <span><b>{{ linkedin | pulse_reply_rate | pulse_pct }}</b> reply rate</span>
+        <span><b>{{ linkedin | pulse_lead_rate | pulse_pct }}</b> lead rate</span>
+        {% if linkedin.get("unsubscribed") %}
+        <span><b>{{ "{:,}".format(linkedin.get("unsubscribed", 0)) }}</b> opted out</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if has_icp %}
+    {# Lead quality, from the account manager's Performance Tracker sheet.
+       OUTSIDE the email block above, because a client run only on LinkedIn
+       still has leads and still wants to know how well they matched. #}
+    <div class="card">
+      <h2>Who we reached</h2>
+      <p class="hint">
+        Every lead graded against your ideal customer profile, for this period.
+        {% if icp.rated and icp.rated < icp.total %}
+        {{ icp.rated }} of {{ icp.total }} have been graded so far.
+        {% elif not icp.rated %}
+        None have been graded yet, so the breakdowns below are by volume only.
+        {% endif %}
+      </p>
+
+      <div class="icp-stats">
+        <div class="icp-stat">
+          <div class="icp-value" data-ticker>{{ "{:,}".format(icp.total) }}</div>
+          <div class="icp-label">Leads assessed</div>
+        </div>
+        {% if icp.average is not none %}
+        <div class="icp-stat is-lead">
+          <div class="icp-value">{{ "%.1f"|format(icp.average) }}</div>
+          {# The denominator lives with the number, never in a footnote. An
+             average over two thirds of the leads must not read as an average
+             over all of them. #}
+          <div class="icp-label">Average ICP rating<br>
+            <span class="icp-sub">across {{ icp.rated }} of {{ icp.total }} graded</span>
+          </div>
+        </div>
+        <div class="icp-stat">
+          <div class="icp-value" data-ticker>{{ "{:,}".format(icp.top_rated) }}</div>
+          <div class="icp-label">Rated {{ icp.top_rated_from }} or above</div>
+        </div>
+        {% endif %}
+        {% if icp.all_time and icp.all_time.average is not none %}
+        <div class="icp-stat">
+          <div class="icp-value">{{ "%.1f"|format(icp.all_time.average) }}</div>
+          {# A month is a handful of graded leads, so the period average alone
+             is noise. The all-time figure is what gives it a size. #}
+          <div class="icp-label">Average to date<br>
+            <span class="icp-sub">across all {{ icp.all_time.total }} leads</span>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if icp.rated %}
+      <div class="icp-block">
+        <p class="icp-block-title">ICP rating</p>
+        {% for b in icp.bands %}
+        {% if b.count %}
+        <div class="icp-bar{% if b.key == 'unrated' %} is-muted{% endif %}">
+          <span class="icp-bar-label">{{ b.label }}</span>
+          <span class="icp-bar-track">
+            <span class="icp-bar-fill" style="width: {{ b.pct }}%"></span>
+          </span>
+          <span class="icp-bar-n">{{ b.count }} · {{ b.pct }}%</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="icp-grid">
+        {% for block, title in [(icp.seniority, "Seniority reached"),
+                                (icp.headcount, "Company size"),
+                                (icp.industry, "Industry"),
+                                (icp.location, "Location")] %}
+        {# A single-value breakdown is one full-width bar saying nothing, so it
+           becomes a sentence instead. #}
+        {% if block | length > 1 %}
+        <div class="icp-block">
+          <p class="icp-block-title">{{ title }}</p>
+          {% for e in block %}
+          <div class="icp-bar">
+            <span class="icp-bar-label">{{ e.label }}</span>
+            <span class="icp-bar-track">
+              <span class="icp-bar-fill" style="width: {{ e.pct }}%"></span>
+            </span>
+            <span class="icp-bar-n">{{ e.count }} · {{ e.pct }}%</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% elif block | length == 1 %}
+        <div class="icp-block">
+          <p class="icp-block-title">{{ title }}</p>
+          <p class="icp-single">Every lead: <b>{{ block[0].label }}</b>.</p>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
     </div>
     {% endif %}
 
@@ -417,16 +587,11 @@
     </div>
     {% endif %}
 
-    {% if trend.buckets | length > 1 %}
-    <div class="card">
-      <h2>Activity over time</h2>
-      <p class="hint">
-        Messages sent per {{ trend.unit }} across every channel. Hover a bar for
-        that {{ trend.unit }}'s figures.
-      </p>
-      {% include "partials/pulse_trend.html" %}
-    </div>
-    {% endif %}
+    {# NO TREND STRIP HERE, DELIBERATELY. A send is dated when the campaign is
+       uploaded rather than when each message goes out, so the strip showed a
+       cliff on upload day and near-nothing after it — a shape that says
+       something about our tooling and nothing about the client's campaign.
+       The strip stays on the internal page, where that is understood. #}
 
     {% endif %}
 
@@ -438,7 +603,6 @@
       Questions about anything here? Reply to your account manager.
     </footer>
   </div>
-{% include "partials/pulse_trend_js.html" %}
 {% include "partials/pulse_animate.html" %}
 </body>
 </html>

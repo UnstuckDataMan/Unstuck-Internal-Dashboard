@@ -2881,7 +2881,9 @@ def test_the_arrows_appear_once_there_is_a_history(client, fake_sb):
     _portal_routes(fake_sb, reports=_three_reports())
     body = client.get("/r/valid-token").text
     assert "report-nav" in body
-    assert "1 of 3" in body
+    # The NEWEST is the highest number. "1 of 3" on the latest report read as
+    # though the client were at the start of their history, not the end.
+    assert "3 of 3" in body
 
 
 def test_a_single_report_gets_no_arrows(client, fake_sb):
@@ -2909,7 +2911,7 @@ def test_the_middle_report_can_go_both_ways(client, fake_sb):
 def test_the_oldest_report_has_nothing_older(client, fake_sb):
     _portal_routes(fake_sb, reports=_three_reports())
     body = client.get("/r/valid-token?report=jul").text
-    assert "3 of 3" in body
+    assert "1 of 3" in body
     assert "?report=aug" in body
     assert "is-off" in body                     # the back arrow is disabled
 
@@ -2917,7 +2919,7 @@ def test_the_oldest_report_has_nothing_older(client, fake_sb):
 def test_an_unknown_report_id_falls_back_to_the_newest(client, fake_sb):
     _portal_routes(fake_sb, reports=_three_reports())
     body = client.get("/r/valid-token?report=does-not-exist").text
-    assert "1 of 3" in body
+    assert "3 of 3" in body
     assert "September 2026" in body
 
 
@@ -3570,7 +3572,9 @@ def test_the_portal_asks_for_reports_newest_period_first(client, fake_sb):
     _portal_routes(fake_sb)
     client.get("/r/valid-token")
     call = fake_sb.calls_to("GET", "pulse_reports")[0]
-    assert param_values(call, "order") == ["period_end.desc"]
+    # Newest period first, and among reports covering the same period the one
+    # created last: that is a correction, not an older one being re-sent.
+    assert param_values(call, "order") == ["period_end.desc,created_at.desc"]
 
 
 # ── Publishing a draft from the row ──────────────────────────────────────────
@@ -5255,3 +5259,1334 @@ def test_a_posted_email_channel_is_ignored(client, fake_sb):
                 data={"channel": "email", "period_month": "2026-09",
                       "sent": "100", "confirm": "1"})
     assert seen["channel"] == "linkedin"
+
+
+# ── A manual variant label resolves against the Copy Bank ────────────────────
+
+def test_a_variant_label_is_an_index_into_the_copy_bank():
+    from app.utils import copy_bank
+
+    assert copy_bank.parse_variant("S2/B1") == (1, 0)
+    assert copy_bank.parse_variant(" S3 / B2 ") == (2, 1)
+    assert copy_bank.parse_variant("A") == (None, None)
+    assert copy_bank.parse_variant("") == (None, None)
+
+
+def test_blank_copy_cards_are_dropped_before_indexing():
+    """The index counts what a person can see in Copy Bank, and Copy Bank does
+    not render empty cards. Counting them here would offset every label."""
+    from app.utils import copy_bank
+
+    out = copy_bank.extract({"email": {
+        "subjects":   ["First", "   ", "Third"],
+        "variations": [{"body": "Body one"}, {"body": ""}, {"body": "Body three"}],
+    }})
+    assert out["subjects"] == ["First", "Third"]
+    assert out["bodies"] == ["Body one", "Body three"]
+
+
+def test_a_label_past_the_end_of_the_arrays_resolves_to_nothing():
+    """Copy edited after a campaign went out renumbers everything below it."""
+    from app.utils import copy_bank
+
+    copy = {"subjects": ["One"], "bodies": ["Body"]}
+    assert copy_bank.variant_in(copy, "S1/B1") == {"subject": "One", "body": "Body"}
+    assert copy_bank.variant_in(copy, "S4/B1") is None
+    assert copy_bank.variant_in(copy, "S1/B9") is None
+
+
+def _manual_ab(fake_sb, monkeypatch, variants=None, campaigns=None, templates=None):
+    """A client page with one manual campaign and no Smartlead."""
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: variants
+                        if variants is not None else [
+        {"variant": "S1/B1", "total": 300, "lead": 9, "interested": 3,
+         "reply": 14, "unsubscribe": 2, "positive": 12},
+        {"variant": "S1/B2", "total": 300, "lead": 1, "interested": 0,
+         "reply": 5, "unsubscribe": 6, "positive": 1},
+    ])
+    fake_sb.route("GET", "campaigns", lambda call: FakeResponse(200, campaigns
+                  if campaigns is not None else
+                  [{"id": "mc1", "sheet_id": "s1", "campaign_name": "Acme MSP",
+                    "completed_at": None, "copy_territory": "uk",
+                    "copy_industry": "msp"}]))
+    fake_sb.route("GET", "copy_bank_templates", lambda call: FakeResponse(200,
+                  templates if templates is not None else
+                  [{"content": {"email": {
+                      "subjects":   ["Quick one about your MSP", "Second subject"],
+                      "variations": [{"body": "Hi {{first_name}},\n\nSaw you run MSP."},
+                                     {"body": "Different body."}],
+                  }}}]))
+    fake_sb.route("GET", "pulse_copy_variants", lambda call: FakeResponse(200, []))
+
+
+def test_the_winning_variants_copy_is_read_out_of_the_copy_bank(client, fake_sb, monkeypatch):
+    """S1/B1 means subject 1 with body 1 of the entry the merge recorded, so
+    nobody should have to type copy that is already written down."""
+    _manual_ab(fake_sb, monkeypatch)
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "Quick one about your MSP" in body
+    assert "Saw you run MSP." in body
+    assert "From the Copy Bank" in body
+    assert "Add the copy for S1/B1" not in body
+
+
+def test_the_copy_bank_entry_is_looked_up_by_what_the_merge_recorded(client, fake_sb, monkeypatch):
+    from tests.conftest import param_values
+
+    _manual_ab(fake_sb, monkeypatch)
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
+    keys = [v for call in fake_sb.calls_to("GET", "copy_bank_templates")
+            for v in param_values(call, "key")]
+    assert f"eq.__c__{CLIENT}__uk_msp" in keys
+
+
+def test_copy_typed_by_hand_beats_the_copy_bank(client, fake_sb, monkeypatch):
+    """Writing it down is somebody correcting what the index resolves to."""
+    _manual_ab(fake_sb, monkeypatch)
+    fake_sb.route("GET", "pulse_copy_variants", lambda call: FakeResponse(200, [
+        {"source_tool": "manual", "campaign_ref": "", "variant_key": "S1/B1",
+         "subject": "What we actually sent", "body": "<p>Corrected.</p>",
+         "entered_by": "Sarah"},
+    ]))
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "What we actually sent" in body
+    assert "Recorded by Sarah" in body
+    assert "Quick one about your MSP" not in body
+
+
+def test_each_campaign_resolves_against_its_own_copy_bank_entry(client, fake_sb, monkeypatch):
+    """Per campaign there is no ambiguity: a campaign is one send of one Copy
+    Bank entry, so its labels resolve against that entry and nothing else."""
+    from tests.conftest import param_values
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [
+        {"variant": "S1/B1", "total": 300, "lead": 9, "interested": 3,
+         "reply": 14, "unsubscribe": 2, "positive": 12},
+        {"variant": "S1/B2", "total": 300, "lead": 1, "interested": 0,
+         "reply": 5, "unsubscribe": 6, "positive": 1},
+    ])
+    fake_sb.route("GET", "pulse_copy_variants", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "campaigns", lambda call: FakeResponse(200, [
+        {"id": "mc1", "sheet_id": "s1", "campaign_name": "MSP push",
+         "completed_at": None, "copy_territory": "uk", "copy_industry": "msp"},
+        {"id": "mc2", "sheet_id": "s2", "campaign_name": "Media push",
+         "completed_at": None, "copy_territory": "uk", "copy_industry": "media"},
+    ]))
+
+    def templates(call):
+        key = param_values(call, "key")[0]
+        subject = "MSP subject" if "msp" in key else "Media subject"
+        return FakeResponse(200, [{"content": {"email": {
+            "subjects": [subject], "variations": [{"body": subject + " body"}]}}}])
+
+    fake_sb.route("GET", "copy_bank_templates", templates)
+
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "MSP push" in body and "Media push" in body
+    assert "MSP subject" in body
+    assert "Media subject" in body
+
+
+def test_the_combined_block_refuses_copy_when_campaigns_differ(client, fake_sb, monkeypatch):
+    """Added up, "S1/B1" can be two different messages and the sheet cannot
+    say which one a prospect got."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=[
+        {"id": "mc1", "sheet_id": "s1", "campaign_name": "A", "completed_at": None,
+         "copy_territory": "uk", "copy_industry": "msp"},
+        {"id": "mc2", "sheet_id": "s2", "campaign_name": "B", "completed_at": None,
+         "copy_territory": "uk", "copy_industry": "media"},
+    ])
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "All 2 campaigns together" in body
+    assert "different copy per campaign" in body
+    assert "2 different Copy Bank entries" in body
+
+
+def test_the_combined_block_is_absent_for_a_single_campaign(client, fake_sb, monkeypatch):
+    """There is nothing to add up, and repeating the same table under a
+    different heading would read as a second result."""
+    _manual_ab(fake_sb, monkeypatch)
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "campaigns together" not in body
+
+
+def test_copy_is_saved_against_one_campaign(client, fake_sb, monkeypatch):
+    """The campaign's id, not its name — renaming a campaign must not lose the
+    copy somebody typed for it."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=[
+        {"id": "mc1", "sheet_id": "s1", "campaign_name": "MSP push",
+         "completed_at": None, "copy_territory": "uk", "copy_industry": "msp"},
+    ])
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert 'name="campaign_ref" value="mc1"' in body
+
+
+def test_copy_typed_for_one_campaign_does_not_leak_to_another(client, fake_sb, monkeypatch):
+    _manual_ab(fake_sb, monkeypatch, templates=[], campaigns=[
+        {"id": "mc1", "sheet_id": "s1", "campaign_name": "First",
+         "completed_at": None, "copy_territory": "", "copy_industry": ""},
+        {"id": "mc2", "sheet_id": "s2", "campaign_name": "Second",
+         "completed_at": None, "copy_territory": "", "copy_industry": ""},
+    ])
+    fake_sb.route("GET", "pulse_copy_variants", lambda call: FakeResponse(200, [
+        {"source_tool": "manual", "campaign_ref": "mc1", "variant_key": "S1/B1",
+         "subject": "Only for the first campaign", "body": "<p>x</p>",
+         "entered_by": "Sarah"},
+    ]))
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert body.count("Only for the first campaign") == 2   # shown once, prefilled once
+    assert "Add the copy for S1/B1" in body                  # the other campaign
+
+
+def test_copy_recorded_for_every_campaign_still_shows_under_each(client, fake_sb, monkeypatch):
+    """Copy saved before the breakdown existed carries no campaign, and must
+    not disappear now that one is asked for."""
+    _manual_ab(fake_sb, monkeypatch, templates=[], campaigns=[
+        {"id": "mc1", "sheet_id": "s1", "campaign_name": "First",
+         "completed_at": None, "copy_territory": "", "copy_industry": ""},
+        {"id": "mc2", "sheet_id": "s2", "campaign_name": "Second",
+         "completed_at": None, "copy_territory": "", "copy_industry": ""},
+    ])
+    fake_sb.route("GET", "pulse_copy_variants", lambda call: FakeResponse(200, [
+        {"source_tool": "manual", "campaign_ref": "", "variant_key": "S1/B1",
+         "subject": "Recorded once for all", "body": "<p>x</p>",
+         "entered_by": "Sarah"},
+    ]))
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "Add the copy for S1/B1" not in body
+
+
+def test_the_breakdown_reads_each_sheet_once(monkeypatch):
+    """Per-campaign and combined come out of the same reads. A second pass
+    would double every Google Sheets call for a figure already computed."""
+    from app.utils import google_sheets
+    from app.utils.pulse import abtest
+
+    reads = []
+
+    def reader(sid):
+        reads.append(sid)
+        return [{"variant": "S1/B1", "total": 300, "lead": 9, "interested": 3,
+                 "reply": 14, "unsubscribe": 2, "positive": 12},
+                {"variant": "S1/B2", "total": 300, "lead": 1, "interested": 0,
+                 "reply": 5, "unsubscribe": 6, "positive": 1}]
+
+    monkeypatch.setattr(google_sheets, "read_ab_stats", reader)
+    out = abtest.manual_breakdown([
+        {"ref": "mc1", "name": "A", "sheet_id": "s1"},
+        {"ref": "mc2", "name": "B", "sheet_id": "s2"},
+    ])
+    assert reads == ["s1", "s2"]
+    assert len(out["campaigns"]) == 2
+    assert out["combined"]["variants"][0]["sent"] == 600      # 300 + 300
+
+
+def test_campaigns_are_ordered_with_the_biggest_first(monkeypatch):
+    """The campaign with the most behind it is the one to weigh most, and the
+    one that most often has a verdict at all."""
+    from app.utils import google_sheets
+    from app.utils.pulse import abtest
+
+    sheets = {
+        "small": [{"variant": "S1/B1", "total": 50, "lead": 1, "interested": 0,
+                   "reply": 2, "unsubscribe": 0, "positive": 1},
+                  {"variant": "S1/B2", "total": 50, "lead": 0, "interested": 0,
+                   "reply": 1, "unsubscribe": 1, "positive": 0}],
+        "big":   [{"variant": "S1/B1", "total": 900, "lead": 20, "interested": 5,
+                   "reply": 40, "unsubscribe": 3, "positive": 25},
+                  {"variant": "S1/B2", "total": 880, "lead": 2, "interested": 1,
+                   "reply": 12, "unsubscribe": 9, "positive": 3}],
+    }
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: sheets[sid])
+    out = abtest.manual_breakdown([
+        {"ref": "a", "name": "Small", "sheet_id": "small"},
+        {"ref": "b", "name": "Big", "sheet_id": "big"},
+    ])
+    assert [b["name"] for b in out["campaigns"]] == ["Big", "Small"]
+
+
+def test_a_campaign_too_small_to_call_says_so_rather_than_naming_a_winner(monkeypatch):
+    """Splitting by campaign means less volume each. That is the truth the
+    combined figure was hiding, not a regression."""
+    from app.utils import google_sheets
+    from app.utils.pulse import abtest
+
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [
+        {"variant": "S1/B1", "total": 12, "lead": 1, "interested": 0,
+         "reply": 1, "unsubscribe": 0, "positive": 1},
+        {"variant": "S1/B2", "total": 11, "lead": 0, "interested": 0,
+         "reply": 0, "unsubscribe": 0, "positive": 0},
+    ])
+    out = abtest.manual_breakdown([{"ref": "a", "name": "Tiny", "sheet_id": "s"}])
+    assert out["campaigns"][0]["winner"] is None
+    assert "Too little volume" in out["campaigns"][0]["reason"]
+
+
+def test_a_report_names_the_campaign_each_winner_came_from(monkeypatch):
+    """"Manual campaigns" was accurate for one combined verdict and would be a
+    lie against a figure covering one campaign."""
+    from app.utils.pulse.abtest import winners_for_report
+
+    blocks = [
+        {"winner": "S1/B1", "name": "MSP push", "basis": "your Lead statuses",
+         "variants": [{"variant": "S1/B1", "sent": 700, "reply_rate": 3.0,
+                       "positive_rate": 1.9, "variant_copy": {"subject": "Won",
+                                                              "body": "<p>b</p>"}}]},
+        {"winner": "S2/B1", "name": "Media push", "basis": "your Lead statuses",
+         "variants": [{"variant": "S2/B1", "sent": 400, "reply_rate": 2.0,
+                       "positive_rate": 1.0, "variant_copy": None}]},
+    ]
+    out = winners_for_report([], blocks)
+    assert [w["campaign"] for w in out] == ["MSP push", "Media push"]
+    assert out[0]["subject"] == "Won"
+
+
+def test_a_report_published_before_the_breakdown_still_replays(monkeypatch):
+    """Re-publishing an old report runs its combined verdict through here."""
+    from app.utils.pulse.abtest import winners_for_report
+
+    combined = {
+        "winner": "S1/B1", "basis": "your Lead and Interested statuses",
+        "variants": [{"variant": "S1/B1", "sent": 700, "reply_rate": 3.0,
+                      "positive_rate": 1.9, "variant_copy": None}],
+    }
+    out = winners_for_report([], combined)
+    assert out[0]["campaign"] == "Manual campaigns"
+
+
+def test_a_campaign_with_no_copy_source_resolves_nothing(client, fake_sb, monkeypatch):
+    """Choosing a copy source is optional in the merge, so plenty of campaigns
+    have none — that is a missing lookup, not an error."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=[
+        {"sheet_id": "s1", "campaign_name": "A", "completed_at": None,
+         "copy_territory": None, "copy_industry": None},
+    ])
+    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
+    assert r.status_code == 200
+    assert "Add the copy for S1/B1" in r.text
+    assert "different Copy Bank entries" not in r.text
+
+
+def test_copy_bank_text_is_escaped_before_it_reaches_a_page(client, fake_sb, monkeypatch):
+    """Copy Bank stores plain text and renders it with textContent, so it has
+    never been escaped — and this body goes on to a client-facing report."""
+    _manual_ab(fake_sb, monkeypatch, templates=[{"content": {"email": {
+        "subjects":   ["Subject"],
+        "variations": [{"body": "<script>alert(1)</script> 5 > 3"}],
+    }}}])
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "<script>alert(1)</script>" not in body
+    assert "&lt;script&gt;" in body
+
+
+def test_line_breaks_in_copy_bank_text_survive_as_structure():
+    from app.utils.pulse import richtext
+
+    out = richtext.from_text("Line one\nLine two\n\nNew paragraph")
+    assert out == "<p>Line one<br>Line two</p><p>New paragraph</p>"
+    assert richtext.from_text("   ") == ""
+
+
+def test_the_copy_bank_entry_is_fetched_once_for_the_whole_table(client, fake_sb, monkeypatch):
+    """Once per variant row would be a request per row for text that does not
+    change between them."""
+    _manual_ab(fake_sb, monkeypatch)
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
+    assert len(fake_sb.calls_to("GET", "copy_bank_templates")) == 1
+
+
+def test_a_published_report_carries_the_resolved_copy(client, fake_sb, monkeypatch):
+    """The point of resolving it: the client reads the message, not a letter."""
+    saved = {}
+    _manual_ab(fake_sb, monkeypatch)
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        {"id": "r1", "client_id": CLIENT, "period_start": "2026-09-01",
+         "period_end": "2026-09-30", "title": "", "body": "<p>Hi</p>",
+         "snapshot": None, "status": "draft", "published_at": None,
+         "created_by": "", "created_at": None, "updated_at": None},
+    ]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (saved.update(call.get("json") or {}),
+                                FakeResponse(204, []))[1])
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    winners = (saved.get("snapshot") or {}).get("ab") or []
+    assert any("Quick one about your MSP" in (w.get("subject") or "")
+               for w in winners), winners
+
+
+def test_a_copy_bank_read_failure_does_not_take_the_panel_down(client, fake_sb, monkeypatch):
+    _manual_ab(fake_sb, monkeypatch)
+    fake_sb.route("GET", "copy_bank_templates",
+                  lambda call: FakeResponse(500, {"message": "nope"}))
+    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
+    assert r.status_code == 200
+    assert "Add the copy for S1/B1" in r.text
+
+
+def test_copy_banks_own_lookup_still_falls_back_to_the_bizdev_key(client, fake_sb):
+    """The key format and the fallback moved into a shared helper. Copy Bank's
+    own endpoint has to resolve exactly what it did before."""
+    from tests.conftest import param_values
+
+    seen = []
+
+    def handler(call):
+        key = param_values(call, "key")[0]
+        seen.append(key)
+        if key == "eq.uk_msp":
+            return FakeResponse(200, [{"content": {"email": {
+                "subjects": ["Migrated"], "variations": [{"body": "Body"}]}}}])
+        return FakeResponse(200, [])
+
+    fake_sb.route("GET", "copy_bank_templates", handler)
+    out = client.get("/api/copy-bank/templates/acme-id/uk/msp").json()
+    assert out["subjects"] == ["Migrated"]
+    assert seen == ["eq.__c__acme-id__uk_msp", "eq.uk_msp"]
+
+
+# ── Clearing a client's report history ───────────────────────────────────────
+
+def _report_rows(fake_sb, rows=None, on_delete=None):
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200,
+        rows if rows is not None else [
+            {"id": "r1", "client_id": CLIENT, "period_start": "2026-09-01",
+             "period_end": "2026-09-30", "title": "", "body": "<p>x</p>",
+             "snapshot": None, "status": "published",
+             "published_at": "2026-10-01T09:00:00+00:00", "created_by": "",
+             "created_at": None, "updated_at": None},
+            {"id": "r2", "client_id": CLIENT, "period_start": "2026-08-01",
+             "period_end": "2026-08-31", "title": "", "body": "",
+             "snapshot": None, "status": "draft", "published_at": None,
+             "created_by": "", "created_at": None, "updated_at": None},
+        ]))
+    if on_delete is not None:
+        fake_sb.route("DELETE", "pulse_reports", on_delete)
+
+
+def test_the_panel_offers_to_clear_the_history(client, fake_sb):
+    _report_rows(fake_sb)
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/reports").text
+    assert "Clear this client" in body
+    assert "Type DELETE to confirm" in body
+
+
+def test_there_is_nothing_to_clear_when_there_are_no_reports(client, fake_sb):
+    _report_rows(fake_sb, rows=[])
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/reports").text
+    assert "Clear this client" not in body
+
+
+def test_clearing_deletes_every_report_for_that_client(client, fake_sb):
+    _report_rows(fake_sb, on_delete=lambda call: FakeResponse(
+        200, [{"id": "r1"}, {"id": "r2"}]))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/clear",
+                    data={"confirm": "DELETE"})
+    assert r.status_code == 200
+    assert "Cleared 2 reports" in r.text
+    assert len(fake_sb.calls_to("DELETE", "pulse_reports")) == 1
+
+
+def test_the_wipe_is_scoped_to_one_client_and_one_agency(client, fake_sb):
+    """A DELETE missing a filter is the one typo this must not have."""
+    from tests.conftest import param_values
+
+    _report_rows(fake_sb, on_delete=lambda call: FakeResponse(200, []))
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/clear",
+                data={"confirm": "DELETE"})
+    call = fake_sb.calls_to("DELETE", "pulse_reports")[0]
+    assert param_values(call, "client_id") == [f"eq.{CLIENT}"]
+    assert param_values(call, "agency_id")
+
+
+def test_the_wrong_word_deletes_nothing(client, fake_sb):
+    _report_rows(fake_sb, on_delete=lambda call: FakeResponse(200, []))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/clear",
+                    data={"confirm": "delete all"})
+    assert "Type DELETE to confirm" in r.text
+    assert "Nothing has been deleted" in r.text
+    assert not fake_sb.calls_to("DELETE", "pulse_reports")
+
+
+def test_an_empty_confirmation_deletes_nothing(client, fake_sb):
+    _report_rows(fake_sb, on_delete=lambda call: FakeResponse(200, []))
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/clear",
+                data={"confirm": ""})
+    assert not fake_sb.calls_to("DELETE", "pulse_reports")
+
+
+def test_a_refused_confirmation_leaves_the_form_open(client, fake_sb):
+    """Collapsing it would make a typo feel like the button had stopped working."""
+    _report_rows(fake_sb)
+    body = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/clear",
+                       data={"confirm": "nope"}).text
+    assert "data-wipe-form hidden" not in body
+    assert "data-wipe-form " in body
+
+
+def test_a_wipe_that_removes_nothing_does_not_claim_the_link_is_cleared(client, fake_sb):
+    """Somebody else got there first. Claiming credit for a delete that did
+    nothing reads identically to the real thing otherwise."""
+    _report_rows(fake_sb, on_delete=lambda call: FakeResponse(200, []))
+    body = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/clear",
+                       data={"confirm": "DELETE"}).text
+    assert "nothing left to clear" in body
+    assert "no history on it" not in body
+
+
+def test_a_failed_wipe_says_so_rather_than_claiming_success(client, fake_sb):
+    _report_rows(fake_sb, on_delete=lambda call: FakeResponse(500, {"message": "no"}))
+    body = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/clear",
+                       data={"confirm": "DELETE"}).text
+    assert "Could not clear the reports" in body
+    assert "Cleared" not in body
+
+
+def test_clearing_nothing_is_not_reported_as_a_failure():
+    """Nothing was there and the delete did not happen must not read the same
+    to the caller."""
+    from app.utils.pulse import store
+
+    assert store.delete_all_reports("") is None
+
+
+def test_the_confirm_form_is_hidden_until_it_is_opened(client, fake_sb):
+    """An author-origin `display` beats the browser's [hidden], which is how
+    the date range controls were broken for a week."""
+    _detail_routes(fake_sb)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert ".report-wipe-form[hidden]" in body
+
+
+# ── Typed figures survive the round trip to the server ───────────────────────
+
+def _hand_save_routes(fake_sb, covered=None):
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_hand_entries", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_funnel_daily",
+                  lambda call: FakeResponse(200, covered or []))
+
+
+def test_the_overlap_warning_gives_the_typed_figures_back(client, fake_sb):
+    """The warning is a round trip. Coming back to an empty form meant "save
+    again to confirm" confirmed a month of zeros, and the figures were gone."""
+    _hand_save_routes(fake_sb, covered=[
+        {"client_id": CLIENT, "campaign_id": CAMPAIGN, "channel": "linkedin",
+         "event_type": "sent", "events": 500, "day": "2026-09-04"},
+    ])
+    body = client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                       data={"period_month": "2026-09", "sent": "820",
+                             "replied": "38", "meetings": "4",
+                             "source_note": "Meet Alfred, 2 Oct"}).text
+    assert "already reported sends" in body
+    assert 'value="820"' in body
+    assert 'value="38"' in body
+    assert 'value="4"' in body
+    assert 'value="Meet Alfred, 2 Oct"' in body
+
+
+def test_confirming_after_the_warning_saves_the_real_figures(client, fake_sb):
+    saved = {}
+    _hand_save_routes(fake_sb)
+    fake_sb.route("POST", "pulse_hand_entries",
+                  lambda call: (saved.update(call.get("json") or {}),
+                                FakeResponse(201, [{"id": "h1"}]))[1])
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                data={"period_month": "2026-09", "sent": "820", "replied": "38",
+                      "meetings": "4", "confirm": "1"})
+    assert saved["sent"] == 820
+    assert saved["replied"] == 38
+    assert saved["meetings"] == 4
+    assert saved["period_month"] == "2026-09-01"
+
+
+def test_a_bad_figure_does_not_wipe_the_good_ones(client, fake_sb):
+    _hand_save_routes(fake_sb)
+    body = client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                       data={"period_month": "2026-09", "sent": "820",
+                             "replied": "lots", "confirm": "1"}).text
+    assert "must be a number" in body
+    assert 'value="820"' in body
+
+
+def test_a_month_of_nothing_is_refused(client, fake_sb):
+    """The funnel view skips zero rows, so this would save a record that shows
+    up nowhere and looks exactly like the save having failed."""
+    _hand_save_routes(fake_sb)
+    fake_sb.route("POST", "pulse_hand_entries",
+                  lambda call: FakeResponse(201, [{"id": "h1"}]))
+    body = client.post(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries",
+                       data={"period_month": "2026-09", "confirm": "1"}).text
+    assert "Enter at least one figure" in body
+    assert not fake_sb.calls_to("POST", "pulse_hand_entries")
+
+
+def test_an_empty_form_renders_empty_boxes_not_zeros(client, fake_sb):
+    """A field pre-filled with 0 reads as a figure somebody entered."""
+    _hand_save_routes(fake_sb)
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/hand-entries").text
+    assert 'value="0"' not in body
+
+
+def test_hand_entered_figures_reach_a_published_report(client, fake_sb):
+    """The whole point of typing them in. They land on the first of the month,
+    so a report covering that month includes them."""
+    seen = {}
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_funnel_daily", lambda call: FakeResponse(200, [
+        {"client_id": CLIENT, "campaign_id": None, "channel": "linkedin",
+         "event_type": "sent", "events": 820, "day": "2026-09-01",
+         "source_tool": "hand_entry"},
+        {"client_id": CLIENT, "campaign_id": None, "channel": "linkedin",
+         "event_type": "replied", "events": 38, "day": "2026-09-01",
+         "source_tool": "hand_entry"},
+    ]))
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        {"id": "r1", "client_id": CLIENT, "period_start": "2026-09-01",
+         "period_end": "2026-09-30", "title": "", "body": "", "snapshot": None,
+         "status": "draft", "published_at": None, "created_by": "",
+         "created_at": None, "updated_at": None},
+    ]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(204, []))[1])
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert seen["snapshot"]["counts"]["sent"] == 820
+    assert seen["snapshot"]["counts"]["replied"] == 38
+
+
+# ── The client report ────────────────────────────────────────────────────────
+
+def _published(fake_sb, snapshot):
+    _portal_routes(fake_sb, reports=[{
+        "id": "sep", "client_id": CLIENT, "period_start": "2026-09-01",
+        "period_end": "2026-09-30", "title": "", "body": "<p>Note</p>",
+        "snapshot": snapshot, "status": "published",
+        "published_at": "2026-10-01T09:00:00+00:00", "created_by": "",
+        "created_at": "2026-10-01T09:00:00+00:00", "updated_at": None,
+    }])
+
+
+def test_the_winning_copy_names_its_parts(client, fake_sb):
+    """A subject line and an opening paragraph look alike once they are both
+    just quoted text on a page."""
+    _published(fake_sb, {
+        "version": 1, "counts": {"sent": 900, "replied": 30, "lead": 5},
+        "funnel": [], "by_channel": {}, "trend": {"unit": "day", "buckets": []},
+        "ab": [{"label": "Version A", "campaign": "UK PR", "sent": 900,
+                "subject": "Quick question", "body": "<p>Hi there,</p>",
+                "reply_rate": 3.3, "positive_rate": 1.1, "basis": ""}],
+    })
+    body = client.get("/r/valid-token").text
+    assert "Subject line" in body
+    assert "Main email body" in body
+    assert body.index("Subject line") < body.index("Main email body")
+
+
+def test_the_outcome_cards_drop_the_share_line(client, fake_sb):
+    _published(fake_sb, {
+        "version": 1,
+        "counts": {"sent": 1000, "replied": 100, "interested": 31,
+                   "info_request": 4, "meeting_booked": 9, "unsubscribed": 22},
+        "funnel": [], "by_channel": {}, "trend": {"unit": "day", "buckets": []},
+        "ab": [],
+    })
+    body = client.get("/r/valid-token").text
+    assert "Interested" in body                  # the cards are still there
+    assert "outcome-share" not in body
+    assert "of replies</div>" not in body
+
+
+def test_the_client_report_has_no_daily_trend(client, fake_sb):
+    """A send is dated when the campaign is uploaded, not when each message
+    goes out, so the strip showed a cliff on upload day and little after it."""
+    _published(fake_sb, {
+        "version": 1, "counts": {"sent": 900, "replied": 30},
+        "funnel": [], "by_channel": {}, "ab": [],
+        "trend": {"unit": "day", "buckets": [
+            {"start": "2026-09-01", "end": "2026-09-01", "label": "1 Sep", "sent": 800},
+            {"start": "2026-09-02", "end": "2026-09-02", "label": "2 Sep", "sent": 12},
+            {"start": "2026-09-03", "end": "2026-09-03", "label": "3 Sep", "sent": 9},
+        ]},
+    })
+    body = client.get("/r/valid-token").text
+    assert "Activity over time" not in body
+    assert "trend-strip" not in body
+
+
+def test_the_internal_page_keeps_its_trend(client, fake_sb):
+    """It is the same data; the difference is that the shape is understood
+    there, and account managers need it to spot a stalled send."""
+    _detail_routes(fake_sb)
+    assert "trend-strip" in client.get(f"/outbound-pulse/clients/{CLIENT}").text
+
+
+# ── LinkedIn is counted on its own, not folded into the email funnel ─────────
+
+def test_a_funnel_can_have_another_taken_out_of_it():
+    from app.utils.pulse.normalize import without
+
+    total = {"sent": 1000, "replied": 60, "meeting_booked": 5}
+    part = {"sent": 300, "replied": 20, "meeting_booked": 2}
+    assert without(total, part) == {"sent": 700, "replied": 40, "meeting_booked": 3}
+
+
+def test_subtracting_never_goes_below_zero():
+    """The two sides are counted independently. A late sync landing between
+    them must not put a negative send count on a client's report."""
+    from app.utils.pulse.normalize import without
+
+    assert without({"sent": 10}, {"sent": 40})["sent"] == 0
+
+
+def test_subtracting_nothing_leaves_the_figures_alone():
+    from app.utils.pulse.normalize import without
+
+    assert without({"sent": 10, "replied": 2}, {}) == {"sent": 10, "replied": 2}
+
+
+def _report_with(fake_sb, counts, by_channel):
+    _portal_routes(fake_sb, reports=[{
+        "id": "sep", "client_id": CLIENT, "period_start": "2026-09-01",
+        "period_end": "2026-09-30", "title": "", "body": "", "status": "published",
+        "published_at": "2026-10-01T09:00:00+00:00", "created_by": "",
+        "created_at": "2026-10-01T09:00:00+00:00", "updated_at": None,
+        "snapshot": {"version": 1, "counts": counts, "by_channel": by_channel,
+                     "trend": {"unit": "day", "buckets": []}, "ab": []},
+    }])
+
+
+_MIXED_TOTAL = {"sent": 2571, "replied": 98, "meeting_booked": 9,
+                "info_request": 4, "positive_reply": 25, "unsubscribed": 15}
+_MIXED_LINKEDIN = {"sent": 820, "replied": 38, "meeting_booked": 4,
+                   "info_request": 0, "positive_reply": 6, "unsubscribed": 2,
+                   "opened": 265}
+
+
+def test_linkedin_is_taken_out_of_the_headline_figures(client, fake_sb):
+    """A connection request is not an email. Added together they produced a
+    "sent" the client could not reconcile with anything."""
+    _report_with(fake_sb, _MIXED_TOTAL, {"linkedin": _MIXED_LINKEDIN})
+    body = client.get("/r/valid-token").text
+    assert "1,751" in body              # 2571 emails - 820 connection requests
+    assert "2,571" not in body
+    assert "Emails sent" in body
+
+
+def test_linkedin_gets_its_own_card(client, fake_sb):
+    _report_with(fake_sb, _MIXED_TOTAL, {"linkedin": _MIXED_LINKEDIN})
+    body = client.get("/r/valid-token").text
+    assert "Connection requests sent" in body
+    assert "820" in body
+    assert "Requests accepted" in body
+    assert "265" in body
+
+
+def test_the_old_combined_channel_card_is_gone(client, fake_sb):
+    """It said both channels roll into the funnel above, which is no longer
+    true and was the thing being corrected."""
+    _report_with(fake_sb, _MIXED_TOTAL, {"linkedin": _MIXED_LINKEDIN})
+    body = client.get("/r/valid-token").text
+    assert "Email and LinkedIn" not in body
+    assert "roll into the funnel above" not in body
+
+
+def test_the_email_rates_are_not_diluted_by_linkedin(client, fake_sb):
+    """60 email replies against 1,751 emails is 3.4%. The combined figure, 98
+    against 2,571, reads 3.8% — LinkedIn replies lifting an email rate, which
+    is the average of two unlike platforms rather than either one of them."""
+    _report_with(fake_sb, _MIXED_TOTAL, {"linkedin": _MIXED_LINKEDIN})
+    body = client.get("/r/valid-token").text
+    assert "3.4%" in body
+    # And LinkedIn's own rate is quoted against connection requests, not
+    # emails: (38 replies + 2 opt-outs) / 820 requests. Reply rate counts
+    # unsubscribes as responses everywhere in this tool.
+    assert "4.9%" in body
+
+
+def test_a_client_with_no_linkedin_gets_no_card(client, fake_sb):
+    """A card of zeros implies we tried and nothing happened."""
+    _report_with(fake_sb, {"sent": 900, "replied": 30, "meeting_booked": 3}, {})
+    body = client.get("/r/valid-token").text
+    assert "Connection requests sent" not in body
+    assert "900" in body
+
+
+def test_a_linkedin_only_client_is_not_told_there_was_no_activity(client, fake_sb):
+    """The "nothing happened" gate counts both platforms. Only the email half
+    of the page is skipped."""
+    _report_with(fake_sb, dict(_MIXED_LINKEDIN), {"linkedin": dict(_MIXED_LINKEDIN)})
+    body = client.get("/r/valid-token").text
+    assert "No campaign activity" not in body
+    assert "Connection requests sent" in body
+    assert "Your email funnel" not in body
+    assert "Emails sent" not in body
+
+
+def test_a_row_with_no_channel_still_reaches_the_client(client, fake_sb):
+    """Split by subtraction, not by reading the email channel directly, so a
+    channel we do not recognise cannot drop out of both halves of the page."""
+    _report_with(fake_sb,
+                 {"sent": 1000, "replied": 50, "meeting_booked": 4},
+                 {"linkedin": {"sent": 200, "replied": 10, "meeting_booked": 1}})
+    body = client.get("/r/valid-token").text
+    assert "800" in body               # 1000 - 200, including any unchannelled
+
+
+def test_a_report_published_before_the_split_still_separates_linkedin(client, fake_sb):
+    """by_channel has been in every snapshot from the start, so this applies
+    to reports already sent rather than only to new ones."""
+    _report_with(fake_sb, _MIXED_TOTAL, {"linkedin": _MIXED_LINKEDIN,
+                                         "email": {"sent": 1751}})
+    body = client.get("/r/valid-token").text
+    assert "1,751" in body
+    assert "Connection requests sent" in body
+
+
+def test_a_snapshot_with_no_channels_at_all_renders(client, fake_sb):
+    """Nothing to subtract: the totals stand as the email figures."""
+    _report_with(fake_sb, {"sent": 900, "replied": 30}, {})
+    r = client.get("/r/valid-token")
+    assert r.status_code == 200
+    assert "900" in r.text
+
+
+# ── Linking a client to their Performance Tracker sheet ──────────────────────
+
+TRACKER_HEADERS = ["Acme Date/Time", "Lead", "Channel", "Headcount", "Job role",
+                   "Industry", "Location", "ICP rating", "Category"]
+
+TRACKER_ROWS = [
+    dict(zip(TRACKER_HEADERS, ["9/23/2025", "a.com", "Smartlead", "51-200",
+                               "Head of Growth", "Marketing", "United Kingdom",
+                               "8", "Lead"])),
+    dict(zip(TRACKER_HEADERS, ["2/18/2026", "b.com", "LinkedIn", "11-50",
+                               "Founder", "SaaS", "Ireland", "-", "Lead"])),
+    dict(zip(TRACKER_HEADERS, ["3/2/2026", "c.com", "Manual", "1-10",
+                               "Managing Director", "PR", "United Kingdom",
+                               "10", "Interested"])),
+]
+
+SHEET_LINK = ("https://docs.google.com/spreadsheets/d/"
+              "1OUnow7VQXJSTgzuJk_WxgkDJDRWE_uuQiU3TXPv5I9E/edit?gid=7#gid=7")
+SHEET_KEY = "1OUnow7VQXJSTgzuJk_WxgkDJDRWE_uuQiU3TXPv5I9E"
+
+
+def _tracker_row(**over):
+    row = {"id": "t1", "client_id": CLIENT, "sheet_id": SHEET_KEY,
+           "sheet_url": SHEET_LINK, "tab_title": "All leads",
+           "linked_by": "Dylan", "last_error": "",
+           "last_checked_at": "2026-10-07T09:00:00+00:00",
+           "created_at": None, "updated_at": None}
+    row.update(over)
+    return row
+
+
+def _tracker_routes(fake_sb, monkeypatch, linked=None, rows=None, headers=None,
+                    reader=None):
+    from app.utils import google_sheets
+
+    _detail_routes(fake_sb)
+    fake_sb.route("GET", "pulse_client_trackers",
+                  lambda call: FakeResponse(200, [linked] if linked else []))
+    fake_sb.route("POST", "pulse_client_trackers",
+                  lambda call: FakeResponse(201, [_tracker_row()]))
+    fake_sb.route("PATCH", "pulse_client_trackers", lambda call: FakeResponse(204))
+    fake_sb.route("DELETE", "pulse_client_trackers", lambda call: FakeResponse(204))
+
+    monkeypatch.setattr(google_sheets, "is_configured", lambda: True)
+    monkeypatch.setattr(google_sheets, "read_tracker_headers",
+                        reader or (lambda sid, tab="All leads":
+                                   headers if headers is not None else TRACKER_HEADERS))
+    monkeypatch.setattr(google_sheets, "read_tracker_rows",
+                        reader or (lambda sid, tab="All leads":
+                                   TRACKER_ROWS if rows is None else rows))
+    return fake_sb
+
+
+def test_a_client_with_no_tracker_is_offered_the_form(client, fake_sb, monkeypatch):
+    _tracker_routes(fake_sb, monkeypatch)
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/tracker").text
+    assert 'name="sheet_url"' in body
+    assert "Show lead quality" not in body, "nothing to show until a sheet is linked"
+
+
+def test_the_client_page_does_not_touch_the_sheet(client, fake_sb, monkeypatch):
+    """Reading a few thousand rows out of Google on every page view is the
+    cost the A/B panel is already behind a button to avoid."""
+    from app.utils import google_sheets
+
+    def explode(*a, **k):
+        raise AssertionError("the page must not read the sheet")
+
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    monkeypatch.setattr(google_sheets, "read_tracker_rows", explode)
+    monkeypatch.setattr(google_sheets, "read_tracker_headers", explode)
+
+    assert client.get(f"/outbound-pulse/clients/{CLIENT}").status_code == 200
+
+
+def test_linking_stores_the_key_and_keeps_the_pasted_url(client, fake_sb, monkeypatch):
+    saved = {}
+    _tracker_routes(fake_sb, monkeypatch)
+    fake_sb.route("POST", "pulse_client_trackers",
+                  lambda call: (saved.update(call.get("json") or {}),
+                                FakeResponse(201, [_tracker_row()]))[1])
+
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/tracker",
+                data={"sheet_url": SHEET_LINK})
+    assert saved["sheet_id"] == SHEET_KEY, "the #gid must not be part of the key"
+    assert saved["sheet_url"] == SHEET_LINK
+    assert saved["tab_title"] == "All leads"
+
+
+def test_a_link_that_is_not_a_sheet_is_refused_before_it_is_stored(client, fake_sb, monkeypatch):
+    """extract_sheet_id hands back whatever it was given when the URL does not
+    match, so without this a Notion page becomes a sheet id that 404s on every
+    later read with no clue why."""
+    _tracker_routes(fake_sb, monkeypatch)
+    body = client.post(f"/api/outbound-pulse/clients/{CLIENT}/tracker",
+                       data={"sheet_url": "https://notion.so/a-page"}).text
+    assert "does not look like a Google Sheets link" in body
+    assert not fake_sb.calls_to("POST", "pulse_client_trackers")
+
+
+def test_the_locked_raw_leads_tab_is_refused_by_name(client, fake_sb, monkeypatch):
+    _tracker_routes(fake_sb, monkeypatch)
+    body = client.post(f"/api/outbound-pulse/clients/{CLIENT}/tracker",
+                       data={"sheet_url": SHEET_LINK, "tab_title": "Raw Leads"}).text
+    assert "locked" in body
+    assert not fake_sb.calls_to("POST", "pulse_client_trackers")
+
+
+def test_a_sheet_is_read_before_it_is_stored(client, fake_sb, monkeypatch):
+    """A wrong link should say so while somebody is looking at it, not fail
+    silently the first time a report is published."""
+    from app.utils import google_sheets
+
+    def missing(sid, tab="All leads"):
+        raise google_sheets.TrackerUnavailable(
+            f"That spreadsheet has no tab called “{tab}”.")
+
+    _tracker_routes(fake_sb, monkeypatch)
+    monkeypatch.setattr(google_sheets, "read_tracker_headers", missing)
+
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/tracker",
+                    data={"sheet_url": SHEET_LINK, "tab_title": "Leeds"})
+    assert r.status_code == 200, "a validation failure re-renders, it does not 4xx"
+    assert "no tab called" in r.text
+    assert not fake_sb.calls_to("POST", "pulse_client_trackers")
+
+
+def test_a_sheet_with_no_date_column_is_refused(client, fake_sb, monkeypatch):
+    """Without a date nothing can be tied to a report period, and a period
+    figure built from undated rows would be fiction."""
+    _tracker_routes(fake_sb, monkeypatch,
+                    headers=["Lead", "Industry", "ICP rating"])
+    body = client.post(f"/api/outbound-pulse/clients/{CLIENT}/tracker",
+                       data={"sheet_url": SHEET_LINK}).text
+    assert "no date column" in body
+    assert not fake_sb.calls_to("POST", "pulse_client_trackers")
+
+
+def test_unlinking_deletes_the_row_rather_than_blanking_it(client, fake_sb, monkeypatch):
+    """No row means never linked, which is a different state from a linked
+    sheet that cannot be read."""
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    client.delete(f"/api/outbound-pulse/clients/{CLIENT}/tracker")
+    assert fake_sb.calls_to("DELETE", "pulse_client_trackers")
+    assert not fake_sb.calls_to("POST", "pulse_client_trackers")
+
+
+def test_every_tracker_query_is_scoped_to_the_agency(client, fake_sb, monkeypatch):
+    from tests.conftest import param_values
+
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/tracker")
+    client.delete(f"/api/outbound-pulse/clients/{CLIENT}/tracker")
+    for method in ("GET", "DELETE"):
+        for call in fake_sb.calls_to(method, "pulse_client_trackers"):
+            assert param_values(call, "agency_id"), f"{method} is unscoped"
+
+
+# ── The breakdown panel ──────────────────────────────────────────────────────
+
+def test_the_panel_ships_its_rows_for_filtering_in_the_browser(client, fake_sb, monkeypatch):
+    """One sheet read gives us the whole table; a round trip per filter click
+    would be a Google request per click for information we already hold."""
+    import json
+    import re
+
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    body = client.get(
+        f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads?range=all").text
+    rows = json.loads(re.search(r"data-trk-rows>(.*?)</script>", body, re.S).group(1))
+    assert len(rows) == 3
+    assert {r["seniority"] for r in rows} == {"head", "founder", "director"}
+
+
+def test_the_panel_states_how_many_were_rated(client, fake_sb, monkeypatch):
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    body = client.get(
+        f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads?range=all").text
+    assert "data-trk-rated" in body
+
+
+def test_an_unreadable_sheet_degrades_the_panel_not_the_page(client, fake_sb, monkeypatch):
+    from app.utils import google_sheets
+
+    def denied(sid, tab="All leads"):
+        raise google_sheets.TrackerUnavailable(
+            "We do not have access to that sheet. Share it with bot@x.com.")
+
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    monkeypatch.setattr(google_sheets, "read_tracker_rows", denied)
+
+    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads")
+    assert r.status_code == 200
+    assert "Share it with bot@x.com" in r.text
+
+
+def test_a_failed_read_is_remembered_against_the_sheet(client, fake_sb, monkeypatch):
+    """So the panel can say when the sheet stopped being readable instead of
+    failing afresh every time somebody opens it."""
+    from app.utils import google_sheets
+
+    saved = {}
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    fake_sb.route("PATCH", "pulse_client_trackers",
+                  lambda call: (saved.update(call.get("json") or {}),
+                                FakeResponse(204))[1])
+    monkeypatch.setattr(google_sheets, "read_tracker_rows",
+                        lambda sid, tab="All leads": (_ for _ in ()).throw(
+                            google_sheets.TrackerUnavailable("gone")))
+
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads")
+    assert saved.get("last_error") == "gone"
+
+
+def test_a_good_read_clears_the_remembered_error(client, fake_sb, monkeypatch):
+    saved = {}
+    _tracker_routes(fake_sb, monkeypatch,
+                    linked=_tracker_row(last_error="it was broken"))
+    fake_sb.route("PATCH", "pulse_client_trackers",
+                  lambda call: (saved.update(call.get("json") or {}),
+                                FakeResponse(204))[1])
+
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads")
+    assert saved.get("last_error") == ""
+
+
+def test_the_panel_defaults_to_the_range_the_page_is_showing(client, fake_sb, monkeypatch):
+    """So the numbers agree with the funnel above them. Every row still ships,
+    so widening to all time is a click rather than another sheet read."""
+    import json
+    import re
+
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads"
+                      "?range=custom&date_from=2026-02-01&date_to=2026-02-28").text
+    rows = json.loads(re.search(r"data-trk-rows>(.*?)</script>", body, re.S).group(1))
+    assert len(rows) == 3, "all three rows still ship"
+    assert "2026-02-01" in body and "2026-02-28" in body
+
+
+def test_the_ordering_tables_travel_with_the_rows(client, fake_sb, monkeypatch):
+    """The browser recounts a filtered view, and must not hold its own copy of
+    a business rule that could drift from Python's."""
+    import json
+    import re
+
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    body = client.get(
+        f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads?range=all").text
+    config = json.loads(re.search(r"data-trk-config>(.*?)</script>", body, re.S).group(1))
+    assert [k for k, _ in config["seniority"]][0] == "founder"
+    assert [k for k, _ in config["bands"]][-1] == "unrated"
+
+
+def test_a_tab_with_no_leads_says_so_rather_than_drawing_empty_charts(client, fake_sb, monkeypatch):
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row(), rows=[])
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads").text
+    assert "no leads on it yet" in body
+    assert "data-trk-bars" not in body
+
+
+def test_the_panel_refuses_to_guess_when_the_tracker_is_gone(client, fake_sb, monkeypatch):
+    _tracker_routes(fake_sb, monkeypatch, linked=None)
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/tracker/leads").text
+    assert "No Performance Tracker sheet is linked" in body
+
+
+def test_the_client_page_carries_the_lead_quality_panel(client, fake_sb, monkeypatch):
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "Lead quality" in body
+    assert f"/api/outbound-pulse/clients/{CLIENT}/tracker" in body
+
+
+def test_filter_controls_that_hide_carry_their_own_hidden_rule(client, fake_sb, monkeypatch):
+    """An author-origin `display` beats the browser's [hidden]. This module has
+    shipped controls that could not be hidden twice already."""
+    _tracker_routes(fake_sb, monkeypatch, linked=_tracker_row())
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert ".trk-link-form[hidden]" in body
+    assert ".trk-linked-row[hidden]" in body
+
+
+def test_the_migration_keeps_one_tracker_per_client():
+    import pathlib
+
+    sql = (pathlib.Path(__file__).resolve().parents[1] / "migrations"
+           / "outbound_pulse_tracker.sql").read_text(encoding="utf-8")
+    assert "pulse_client_trackers_unique" in sql
+    assert "(agency_id, client_id)" in sql
+    assert "ON DELETE CASCADE" in sql
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+# ── Lead quality on the client's own report ──────────────────────────────────
+
+def _publish_routes(fake_sb, monkeypatch, linked=True, rows=None, reader=None):
+    """A draft report ready to publish, with a tracker behind it."""
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    seen = {}
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    fake_sb.route("GET", "pulse_copy_variants", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("GET", "pulse_client_trackers",
+                  lambda call: FakeResponse(200, [_tracker_row()] if linked else []))
+    fake_sb.route("PATCH", "pulse_client_trackers", lambda call: FakeResponse(204))
+    fake_sb.route("GET", "pulse_reports", lambda call: FakeResponse(200, [
+        {"id": "r1", "client_id": CLIENT, "period_start": "2026-02-01",
+         "period_end": "2026-03-31", "title": "", "body": "", "snapshot": None,
+         "status": "draft", "published_at": None, "created_by": "",
+         "created_at": None, "updated_at": None},
+    ]))
+    fake_sb.route("PATCH", "pulse_reports",
+                  lambda call: (seen.update(call.get("json") or {}),
+                                FakeResponse(204))[1])
+    monkeypatch.setattr(google_sheets, "is_configured", lambda: True)
+    monkeypatch.setattr(google_sheets, "read_tracker_rows",
+                        reader or (lambda sid, tab="All leads":
+                                   TRACKER_ROWS if rows is None else rows))
+    return seen
+
+
+def test_publishing_freezes_the_lead_quality_block(client, fake_sb, monkeypatch):
+    seen = _publish_routes(fake_sb, monkeypatch)
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    icp = seen["snapshot"]["icp"]
+    # Feb-Mar covers two of the three fixture leads: one ungraded, one at 10.
+    assert icp["total"] == 2
+    assert icp["rated"] == 1
+    assert icp["average"] == 10.0
+
+
+def test_the_frozen_block_carries_an_all_time_figure(client, fake_sb, monkeypatch):
+    """A month of outbound is a handful of graded leads, so the period average
+    on its own is noise."""
+    seen = _publish_routes(fake_sb, monkeypatch)
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    all_time = seen["snapshot"]["icp"]["all_time"]
+    assert all_time["total"] == 3
+    assert all_time["rated"] == 2
+    assert all_time["average"] == 9.0               # (8 + 10) / 2
+
+
+def test_the_frozen_block_is_json_serialisable(client, fake_sb, monkeypatch):
+    """A date object in a snapshot is what previously made Publish silently do
+    nothing at all."""
+    import json
+
+    seen = _publish_routes(fake_sb, monkeypatch)
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    json.dumps(seen["snapshot"])
+
+
+def test_a_report_keeps_job_titles_internal(client, fake_sb, monkeypatch):
+    """The client's report wants the shape of who we reached, not a list of
+    individual prospects."""
+    seen = _publish_routes(fake_sb, monkeypatch)
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert "roles" not in seen["snapshot"]["icp"]
+
+
+def test_publishing_survives_an_unreadable_tracker(client, fake_sb, monkeypatch):
+    """A revoked share must not cost an account manager their write-up."""
+    from app.utils import google_sheets
+
+    def gone(sid, tab="All leads"):
+        raise google_sheets.TrackerUnavailable("no access")
+
+    seen = _publish_routes(fake_sb, monkeypatch, reader=gone)
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert r.status_code == 200
+    assert seen["status"] == "published"
+    assert seen["snapshot"]["icp"] == {}
+
+
+def test_a_client_with_no_tracker_publishes_without_the_block(client, fake_sb, monkeypatch):
+    seen = _publish_routes(fake_sb, monkeypatch, linked=False)
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert seen["snapshot"]["icp"] == {}
+
+
+def test_a_period_with_no_leads_gets_no_block(client, fake_sb, monkeypatch):
+    """Rather than a block of zeros, which reads as a campaign that failed."""
+    seen = _publish_routes(fake_sb, monkeypatch, rows=[
+        dict(zip(TRACKER_HEADERS, ["9/23/2025", "a.com", "Smartlead", "51-200",
+                                   "Head of Growth", "Marketing",
+                                   "United Kingdom", "8", "Lead"])),
+    ])
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert seen["snapshot"]["icp"] == {}
+
+
+def _icp_report(fake_sb, icp):
+    _portal_routes(fake_sb, reports=[{
+        "id": "sep", "client_id": CLIENT, "period_start": "2026-09-01",
+        "period_end": "2026-09-30", "title": "", "body": "", "status": "published",
+        "published_at": "2026-10-01T09:00:00+00:00", "created_by": "",
+        "created_at": "2026-10-01T09:00:00+00:00", "updated_at": None,
+        "snapshot": {"version": 1, "counts": {"sent": 900, "replied": 30},
+                     "by_channel": {}, "trend": {"unit": "day", "buckets": []},
+                     "ab": [], "icp": icp},
+    }])
+
+
+_ICP_BLOCK = {
+    "version": 1, "total": 45, "rated": 30, "unrated": 15,
+    "average": 8.0, "median": 8.0, "top_rated": 21, "top_rated_from": 8,
+    "bands": [{"key": "9_10", "label": "ICP 9–10", "count": 12, "pct": 26.7},
+              {"key": "7_8", "label": "ICP 7–8", "count": 13, "pct": 28.9},
+              {"key": "5_6", "label": "ICP 5–6", "count": 3, "pct": 6.7},
+              {"key": "1_4", "label": "ICP 1–4", "count": 2, "pct": 4.4},
+              {"key": "unrated", "label": "Not yet rated", "count": 15, "pct": 33.3}],
+    "headcount": [{"key": "1-10", "label": "1-10", "count": 20, "pct": 44.4},
+                  {"key": "11-50", "label": "11-50", "count": 25, "pct": 55.6}],
+    "industry":  [{"key": "Marketing", "label": "Marketing", "count": 45, "pct": 100.0}],
+    "seniority": [{"key": "founder", "label": "Founder / Owner", "count": 18, "pct": 40.0},
+                  {"key": "director", "label": "Director", "count": 27, "pct": 60.0}],
+    "location":  [{"key": "United Kingdom", "label": "United Kingdom",
+                   "count": 45, "pct": 100.0}],
+    "all_time": {"total": 120, "rated": 95, "average": 7.4},
+}
+
+
+def test_the_report_shows_lead_quality(client, fake_sb):
+    _icp_report(fake_sb, _ICP_BLOCK)
+    body = client.get("/r/valid-token").text
+    assert "Who we reached" in body
+    assert "Leads assessed" in body
+    assert "Seniority reached" in body
+
+
+def test_the_report_always_states_the_grading_coverage(client, fake_sb):
+    """An average over two thirds of the leads must not read as an average
+    over all of them."""
+    _icp_report(fake_sb, _ICP_BLOCK)
+    body = client.get("/r/valid-token").text
+    assert "30 of 45 graded" in body
+    assert "30 of 45 have been graded so far" in body
+
+
+def test_ungraded_leads_are_shown_as_their_own_band(client, fake_sb):
+    _icp_report(fake_sb, _ICP_BLOCK)
+    body = client.get("/r/valid-token").text
+    assert "Not yet rated" in body
+    assert "is-muted" in body, "absence must not be styled as a poor grade"
+
+
+def test_the_all_time_average_sits_beside_the_period_one(client, fake_sb):
+    _icp_report(fake_sb, _ICP_BLOCK)
+    body = client.get("/r/valid-token").text
+    assert "Average to date" in body
+    assert "7.4" in body
+    assert "across all 120 leads" in body
+
+
+def test_a_single_value_breakdown_becomes_a_sentence(client, fake_sb):
+    """One full-width bar at 100% says nothing."""
+    _icp_report(fake_sb, _ICP_BLOCK)
+    body = client.get("/r/valid-token").text
+    assert "Every lead:" in body
+    assert "United Kingdom" in body
+
+
+def test_a_period_where_nothing_was_graded_shows_no_average(client, fake_sb):
+    """0.0 average ICP is the single worst thing this section could print."""
+    block = dict(_ICP_BLOCK, rated=0, average=None, top_rated=0,
+                 all_time={"total": 120, "rated": 0, "average": None})
+    _icp_report(fake_sb, block)
+    body = client.get("/r/valid-token").text
+    assert "Who we reached" in body           # the volume breakdowns still show
+    assert "Average ICP rating" not in body
+    assert "None have been graded yet" in body
+
+
+def test_a_report_published_before_lead_quality_existed_still_renders(client, fake_sb):
+    """The compatibility story for every report already sent."""
+    _portal_routes(fake_sb)
+    r = client.get("/r/valid-token")
+    assert r.status_code == 200
+    assert "Who we reached" not in r.text
+
+
+def test_an_empty_block_renders_no_card(client, fake_sb):
+    _icp_report(fake_sb, {})
+    assert "Who we reached" not in client.get("/r/valid-token").text
+
+
+def test_the_portal_with_no_report_at_all_still_renders(client, fake_sb):
+    """Exercises the no-report fallback dict, which has to carry every key the
+    template reads or it 500s."""
+    _portal_routes(fake_sb, reports=[])
+    assert client.get("/r/valid-token").status_code == 200
+
+
+def test_the_lead_quality_card_reaches_a_linkedin_only_client(client, fake_sb):
+    """It sits outside the email block: a client run only on LinkedIn still has
+    leads and still wants to know how well they matched."""
+    _portal_routes(fake_sb, reports=[{
+        "id": "sep", "client_id": CLIENT, "period_start": "2026-09-01",
+        "period_end": "2026-09-30", "title": "", "body": "", "status": "published",
+        "published_at": "2026-10-01T09:00:00+00:00", "created_by": "",
+        "created_at": "2026-10-01T09:00:00+00:00", "updated_at": None,
+        "snapshot": {"version": 1,
+                     "counts": {"sent": 500, "replied": 20},
+                     "by_channel": {"linkedin": {"sent": 500, "replied": 20}},
+                     "trend": {"unit": "day", "buckets": []},
+                     "ab": [], "icp": _ICP_BLOCK},
+    }])
+    body = client.get("/r/valid-token").text
+    assert "Your email funnel" not in body
+    assert "Who we reached" in body
+
+
+def test_the_portal_still_reads_only_its_snapshot(client, fake_sb, monkeypatch):
+    """A published report must never reach out to Google when a client opens
+    it — the figures were frozen at publish and must not move."""
+    from app.utils import google_sheets
+
+    def explode(*a, **k):
+        raise AssertionError("the portal must not read the sheet")
+
+    monkeypatch.setattr(google_sheets, "read_tracker_rows", explode)
+    _icp_report(fake_sb, _ICP_BLOCK)
+    assert client.get("/r/valid-token").status_code == 200

@@ -1,0 +1,399 @@
+{# Lead quality from the Performance Tracker sheet.
+   Context: client_id, tracker, rows, summary, meta, config, range, error,
+            in_range, from, to, read_at.
+
+   EVERY ROW SHIPS, EVERY FILTER IS LOCAL. One sheet read gives us the whole
+   table; a filter is then a projection of rows we already hold, so a round
+   trip per click would be a Google request per click for no new information.
+   The same argument the source tabs on this page are built on.
+
+   The browser knows no business rules. Seniority, ICP bands, headcount order
+   and channel names are all decided in tracker.py and stamped onto each row —
+   the script below only filters, counts and sorts by fields that are already
+   there, so there is no second copy of a rule to drift. #}
+
+{% if error %}
+<div class="err-box">{{ error }}</div>
+
+{% elif not rows %}
+<p class="pulse-meta">
+  {% if meta.skipped %}
+  No leads on that tab yet — {{ "{:,}".format(meta.skipped) }} rows, none with a
+  readable date.
+  {% else %}
+  That tab has no leads on it yet.
+  {% endif %}
+</p>
+
+{% else %}
+{% if meta.warnings %}
+<div class="pulse-warn" style="margin-bottom:14px">
+  {% for w in meta.warnings %}<div>{{ w }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<div class="trk" data-trk>
+  {# ── Filters ────────────────────────────────────────────────── #}
+  <div class="trk-filters">
+    <div class="trk-filter-row">
+      <label class="report-field">
+        <span>Period</span>
+        <select data-trk-period>
+          <option value="range">{{ range.label }}</option>
+          <option value="all">All time</option>
+        </select>
+      </label>
+      <label class="report-field">
+        <span>Industry</span>
+        <select data-trk-filter="industry"><option value="">All</option></select>
+      </label>
+      <label class="report-field">
+        <span>Location</span>
+        <select data-trk-filter="location"><option value="">All</option></select>
+      </label>
+      <label class="report-field report-field-wide">
+        <span>Search <em>company or role</em></span>
+        <input type="search" data-trk-search placeholder="e.g. founder, acme.com">
+      </label>
+      <span class="spacer"></span>
+      <button type="button" class="note-act" data-trk-clear>Clear filters</button>
+    </div>
+
+    <div class="trk-chip-rows">
+      <div class="trk-chip-row" data-trk-chips="icp_band"><span class="trk-chip-label">ICP</span></div>
+      <div class="trk-chip-row" data-trk-chips="headcount"><span class="trk-chip-label">Size</span></div>
+      <div class="trk-chip-row" data-trk-chips="seniority"><span class="trk-chip-label">Seniority</span></div>
+      <div class="trk-chip-row" data-trk-chips="channel"><span class="trk-chip-label">Channel</span></div>
+      <div class="trk-chip-row" data-trk-chips="category"><span class="trk-chip-label">Category</span></div>
+    </div>
+  </div>
+
+  {# ── Summary ────────────────────────────────────────────────── #}
+  <p class="trk-showing" data-trk-showing></p>
+
+  <div class="trk-stats">
+    <div class="trk-stat">
+      <div class="trk-stat-value" data-trk-total>0</div>
+      <div class="trk-stat-label">Leads</div>
+    </div>
+    <div class="trk-stat is-lead">
+      <div class="trk-stat-value" data-trk-average>—</div>
+      {# The denominator sits in the label, not a footnote: a third of a real
+         tracker is ungraded, and an average read as covering everything is
+         the one misreading this panel must not invite. #}
+      <div class="trk-stat-label" data-trk-rated>Average ICP</div>
+    </div>
+    <div class="trk-stat">
+      <div class="trk-stat-value" data-trk-top>0</div>
+      <div class="trk-stat-label">Rated {{ config.top_rated_from }}+</div>
+    </div>
+    <div class="trk-stat">
+      <div class="trk-stat-value" data-trk-median>—</div>
+      <div class="trk-stat-label">Median ICP</div>
+    </div>
+  </div>
+
+  {# ── Breakdowns ─────────────────────────────────────────────── #}
+  <div class="trk-grid">
+    <div class="trk-block">
+      <p class="trk-block-title">ICP rating</p>
+      <div data-trk-bars="icp_band"></div>
+    </div>
+    <div class="trk-block">
+      <p class="trk-block-title">Company size</p>
+      <div data-trk-bars="headcount"></div>
+    </div>
+    <div class="trk-block">
+      <p class="trk-block-title">Seniority reached</p>
+      <div data-trk-bars="seniority"></div>
+    </div>
+    <div class="trk-block">
+      <p class="trk-block-title">Industry</p>
+      <div data-trk-bars="industry"></div>
+    </div>
+    <div class="trk-block">
+      <p class="trk-block-title">Location</p>
+      <div data-trk-bars="location"></div>
+    </div>
+    <div class="trk-block">
+      <p class="trk-block-title">Channel</p>
+      <div data-trk-bars="channel"></div>
+    </div>
+  </div>
+
+  <details class="trk-roles">
+    <summary>Job titles as written</summary>
+    {# The seniority chart above is a keyword heuristic. Showing the titles it
+       was built from is what makes it checkable rather than something to take
+       on trust. #}
+    <div data-trk-roles></div>
+  </details>
+
+  <p class="pulse-meta trk-foot">
+    Read from the sheet at {{ read_at }}.
+    {% if meta.unrecognised_bands %}
+    {{ meta.unrecognised_bands }} row{{ "" if meta.unrecognised_bands == 1 else "s" }}
+    had a company size we could not read — Sheets sometimes turns “1-10” into a
+    date, and the fix is in the sheet.
+    {% endif %}
+    {% if meta.skipped %}
+    {{ "{:,}".format(meta.skipped) }} rows had no date and are not counted.
+    {% endif %}
+    <button type="button" class="note-act"
+            hx-get="/api/outbound-pulse/clients/{{ client_id }}/tracker/leads"
+            hx-target="#pulse-tracker"
+            hx-include="#range-select, #date-from, #date-to"
+            hx-swap="innerHTML">Refresh from sheet</button>
+  </p>
+</div>
+
+<script type="application/json" data-trk-rows>{{ rows | tojson }}</script>
+<script type="application/json" data-trk-config>{{ config | tojson }}</script>
+<script>
+(function () {
+  var root = document.querySelector('[data-trk]');
+  if (!root) return;
+  var ROWS = JSON.parse(document.querySelector('[data-trk-rows]').textContent);
+  var CFG = JSON.parse(document.querySelector('[data-trk-config]').textContent);
+  var FROM = {{ from | tojson }}, TO = {{ to | tojson }};
+
+  // Labels and orderings came with the rows. Nothing here decides them.
+  var LABELS = {};
+  var ORDER = {};
+  ORDER.seniority = CFG.seniority.map(function (p) { return p[0]; });
+  ORDER.icp_band = CFG.bands.map(function (p) { return p[0]; });
+  CFG.seniority.concat(CFG.bands).forEach(function (p) { LABELS[p[0]] = p[1]; });
+  ROWS.forEach(function (r) { LABELS[r.channel] = r.channel_label; });
+
+  var chosen = {};            // field -> Set of selected values
+  var period = 'range';
+  var search = '';
+  var dropdown = {};          // field -> single selected value
+
+  function labelFor(field, value) {
+    if (field === 'headcount' || field === 'industry' || field === 'location'
+        || field === 'category') return value;
+    return LABELS[value] || value;
+  }
+
+  function sortKey(field) {
+    if (field === 'headcount') {
+      var byBand = {};
+      ROWS.forEach(function (r) { byBand[r.headcount] = r.headcount_order; });
+      return function (v) { return byBand[v]; };
+    }
+    if (ORDER[field]) {
+      return function (v) {
+        var i = ORDER[field].indexOf(v);
+        return i < 0 ? ORDER[field].length : i;
+      };
+    }
+    return null;              // by count, descending
+  }
+
+  function visible(ignore) {
+    return ROWS.filter(function (r) {
+      if (period === 'range') {
+        if (FROM && r.day < FROM) return false;
+        if (TO && r.day > TO) return false;
+      }
+      if (search) {
+        var hay = ((r.lead || '') + ' ' + (r.role || '')).toLowerCase();
+        if (hay.indexOf(search) < 0) return false;
+      }
+      for (var f in dropdown) {
+        if (f !== ignore && dropdown[f] && r[f] !== dropdown[f]) return false;
+      }
+      for (var g in chosen) {
+        if (g === ignore) continue;
+        if (chosen[g].size && !chosen[g].has(r[g])) return false;
+      }
+      return true;
+    });
+  }
+
+  function tally(rows, field) {
+    var counts = {};
+    rows.forEach(function (r) {
+      var v = r[field] == null ? '' : r[field];
+      counts[v] = (counts[v] || 0) + 1;
+    });
+    var key = sortKey(field);
+    var out = Object.keys(counts).map(function (v) {
+      return { value: v, label: labelFor(field, v), count: counts[v] };
+    });
+    if (key) out.sort(function (a, b) { return key(a.value) - key(b.value); });
+    else out.sort(function (a, b) {
+      return b.count - a.count || a.label.localeCompare(b.label);
+    });
+    return out;
+  }
+
+  function collapse(entries, total) {
+    // Same rule as Python's: top N plus Other, but never an "Other" of one —
+    // that hides a name for no gain.
+    if (entries.length <= CFG.top_n + 1) return entries;
+    var head = entries.slice(0, CFG.top_n);
+    var tail = entries.slice(CFG.top_n);
+    var spare = tail.reduce(function (n, e) { return n + e.count; }, 0);
+    head.push({ value: '__other__', label: 'Other (' + tail.length + ')',
+                count: spare });
+    return head;
+  }
+
+  function bars(field, rows) {
+    var host = root.querySelector('[data-trk-bars="' + field + '"]');
+    if (!host) return;
+    var entries = tally(rows, field);
+    if (field === 'industry' || field === 'location') {
+      entries = collapse(entries, rows.length);
+    }
+    var top = entries.reduce(function (m, e) { return Math.max(m, e.count); }, 0);
+    host.innerHTML = '';
+    if (!entries.length) {
+      host.innerHTML = '<p class="pulse-meta">Nothing in this view.</p>';
+      return;
+    }
+    entries.forEach(function (e) {
+      var pct = rows.length ? (e.count * 100 / rows.length) : 0;
+      var row = document.createElement('div');
+      row.className = 'trk-bar' + (e.value === 'unrated' ? ' is-muted' : '');
+      row.innerHTML =
+        '<span class="trk-bar-label"></span>' +
+        '<span class="trk-bar-track"><span class="trk-bar-fill"></span></span>' +
+        '<span class="trk-bar-n"></span>';
+      row.querySelector('.trk-bar-label').textContent = e.label;
+      row.querySelector('.trk-bar-fill').style.width =
+        (top ? (e.count * 100 / top) : 0) + '%';
+      row.querySelector('.trk-bar-n').textContent =
+        e.count + ' · ' + pct.toFixed(pct < 10 ? 1 : 0) + '%';
+      host.appendChild(row);
+    });
+  }
+
+  function chips(field) {
+    var host = root.querySelector('[data-trk-chips="' + field + '"]');
+    if (!host) return;
+    var entries = tally(visible(field), field);
+    host.querySelectorAll('.trk-chip').forEach(function (n) { n.remove(); });
+    entries.forEach(function (e) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'trk-chip' +
+        (chosen[field] && chosen[field].has(e.value) ? ' is-on' : '');
+      btn.textContent = e.label + ' ' + e.count;
+      btn.addEventListener('click', function () {
+        chosen[field] = chosen[field] || new Set();
+        if (chosen[field].has(e.value)) chosen[field].delete(e.value);
+        else chosen[field].add(e.value);
+        render();
+      });
+      host.appendChild(btn);
+    });
+  }
+
+  function options(field) {
+    var sel = root.querySelector('[data-trk-filter="' + field + '"]');
+    if (!sel) return;
+    var current = dropdown[field] || '';
+    var entries = tally(visible(field), field);
+    sel.innerHTML = '<option value="">All</option>';
+    entries.forEach(function (e) {
+      var o = document.createElement('option');
+      o.value = e.value;
+      o.textContent = e.label + ' (' + e.count + ')';
+      if (e.value === current) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+
+  function render() {
+    var rows = visible(null);
+    var graded = rows.filter(function (r) { return r.icp !== null; })
+                     .map(function (r) { return r.icp; })
+                     .sort(function (a, b) { return a - b; });
+
+    root.querySelector('[data-trk-total]').textContent = rows.length;
+    root.querySelector('[data-trk-top]').textContent =
+      graded.filter(function (s) { return s >= CFG.top_rated_from; }).length;
+
+    var avgEl = root.querySelector('[data-trk-average]');
+    var medEl = root.querySelector('[data-trk-median]');
+    if (graded.length) {
+      var sum = graded.reduce(function (a, b) { return a + b; }, 0);
+      avgEl.textContent = (sum / graded.length).toFixed(1);
+      var mid = Math.floor(graded.length / 2);
+      medEl.textContent = (graded.length % 2
+        ? graded[mid] : (graded[mid - 1] + graded[mid]) / 2).toFixed(1);
+    } else {
+      // Never 0.0 — an average of nothing is not zero, and printing it as
+      // zero is the worst thing this panel could say.
+      avgEl.textContent = '—';
+      medEl.textContent = '—';
+    }
+    root.querySelector('[data-trk-rated]').textContent =
+      graded.length === rows.length && rows.length
+        ? 'Average ICP · all rated'
+        : 'Average ICP · ' + graded.length + ' of ' + rows.length + ' rated';
+
+    root.querySelector('[data-trk-showing]').textContent =
+      rows.length === ROWS.length
+        ? 'All ' + ROWS.length + ' leads on the sheet.'
+        : 'Showing ' + rows.length + ' of ' + ROWS.length + ' leads.';
+
+    ['icp_band', 'headcount', 'seniority', 'industry', 'location', 'channel']
+      .forEach(function (f) { bars(f, rows); });
+    ['icp_band', 'headcount', 'seniority', 'channel', 'category']
+      .forEach(chips);
+    ['industry', 'location'].forEach(options);
+
+    var roles = {};
+    rows.forEach(function (r) {
+      if (r.role) roles[r.role] = (roles[r.role] || 0) + 1;
+    });
+    var ordered = Object.keys(roles).sort(function (a, b) {
+      return roles[b] - roles[a] || a.localeCompare(b);
+    });
+    var host = root.querySelector('[data-trk-roles]');
+    host.innerHTML = '';
+    ordered.forEach(function (title) {
+      var line = document.createElement('div');
+      line.className = 'trk-role';
+      line.innerHTML = '<span></span><b></b>';
+      line.firstChild.textContent = title;
+      line.lastChild.textContent = roles[title];
+      host.appendChild(line);
+    });
+    if (!ordered.length) host.innerHTML = '<p class="pulse-meta">No job titles recorded.</p>';
+  }
+
+  root.querySelector('[data-trk-period]').addEventListener('change', function (e) {
+    period = e.target.value;
+    render();
+  });
+  root.querySelectorAll('[data-trk-filter]').forEach(function (sel) {
+    sel.addEventListener('change', function () {
+      dropdown[sel.getAttribute('data-trk-filter')] = sel.value;
+      render();
+    });
+  });
+  var box = root.querySelector('[data-trk-search]');
+  var timer = null;
+  box.addEventListener('input', function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      search = box.value.trim().toLowerCase();
+      render();
+    }, 150);
+  });
+  root.querySelector('[data-trk-clear]').addEventListener('click', function () {
+    chosen = {}; dropdown = {}; search = ''; period = 'range';
+    box.value = '';
+    root.querySelector('[data-trk-period]').value = 'range';
+    render();
+  });
+
+  render();
+})();
+</script>
+{% endif %}

@@ -1228,6 +1228,120 @@ def clear_user_filter(user_email: str) -> bool:
         return False
 
 
+# ── The per-client ICP Performance Tracker sheet ─────────────────────
+
+_TRACKER_COLS = ("id,client_id,sheet_id,sheet_url,tab_title,linked_by,"
+                 "last_error,last_checked_at,created_at,updated_at")
+
+
+def get_tracker(client_id: str) -> dict | None:
+    """This client's linked tracker sheet, or None if one was never linked.
+
+    None means "never linked" and is a different state from a linked sheet that
+    cannot be read: the first wants a form, the second wants an error. See
+    migrations/outbound_pulse_tracker.sql.
+
+    Never raises. The client page renders this panel among several others, and
+    a slow or missing table must not cost someone the whole page — an
+    unreadable row reads as "not linked", and the panel's own request surfaces
+    the real error where it is actionable.
+    """
+    if not client_id:
+        return None
+    try:
+        rows = _get("pulse_client_trackers", _scoped({
+            "select":    _TRACKER_COLS,
+            "client_id": f"eq.{client_id}",
+            "limit":     "1",
+        }))
+    except Exception as exc:
+        logger.warning("Pulse: could not read the tracker for %s: %s", client_id, exc)
+        return None
+    return rows[0] if rows else None
+
+
+def set_tracker(*, client_id: str, sheet_id: str, sheet_url: str = "",
+                tab_title: str = "All leads", linked_by: str = "") -> dict | None:
+    """Link a sheet, or correct the one already linked.
+
+    Upserts on (agency_id, client_id), so re-linking replaces rather than
+    leaving two sheets for the app to choose between. Clears last_error: a
+    fresh link has not failed yet, and carrying the old failure forward would
+    show an error against a sheet nobody has tried.
+    """
+    if not client_id or not str(sheet_id or "").strip():
+        return None
+    try:
+        r = http_req.post(
+            f"{SUPABASE_URL}/rest/v1/pulse_client_trackers",
+            headers=_sb_headers("resolution=merge-duplicates,return=representation"),
+            params={"on_conflict": "agency_id,client_id"},
+            json={
+                "agency_id":  current_agency_id(),
+                "client_id":  client_id,
+                "sheet_id":   str(sheet_id).strip()[:200],
+                "sheet_url":  str(sheet_url or "").strip()[:500],
+                "tab_title":  (str(tab_title or "").strip() or "All leads")[:120],
+                "linked_by":  str(linked_by or "")[:200],
+                "last_error": "",
+                "last_checked_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at":      datetime.now(timezone.utc).isoformat(),
+            },
+            timeout=15,
+        )
+        if r.status_code >= 400:
+            raise _describe_postgrest_error("pulse_client_trackers", r)
+        rows = r.json()
+        return rows[0] if rows else None
+    except PulseNotReady:
+        raise
+    except Exception as exc:
+        logger.warning("Pulse: could not link a tracker for %s: %s", client_id, exc)
+        return None
+
+
+def set_tracker_status(client_id: str, error: str = "") -> None:
+    """Record how the last read of this sheet went. Entirely best-effort.
+
+    So the panel can say the sheet stopped being readable rather than failing
+    afresh every time somebody opens it. Never raises and never reports: this
+    is bookkeeping about a failure, and failing at it must not replace the
+    failure the caller is already handling.
+    """
+    if not client_id:
+        return
+    try:
+        http_req.patch(
+            f"{SUPABASE_URL}/rest/v1/pulse_client_trackers",
+            headers=_sb_headers("return=minimal"),
+            params=_scoped({"client_id": f"eq.{client_id}"}),
+            json={"last_error": str(error or "")[:500],
+                  "last_checked_at": datetime.now(timezone.utc).isoformat()},
+            timeout=10,
+        )
+    except Exception as exc:
+        logger.warning("Pulse: could not record tracker status for %s: %s",
+                       client_id, exc)
+
+
+def clear_tracker(client_id: str) -> bool:
+    """Unlink. A DELETE, not a blanked sheet_id — see get_tracker."""
+    if not client_id:
+        return False
+    try:
+        r = http_req.delete(
+            f"{SUPABASE_URL}/rest/v1/pulse_client_trackers",
+            headers=_sb_headers("return=minimal"),
+            params=_scoped({"client_id": f"eq.{client_id}"}),
+            timeout=10,
+        )
+        r.raise_for_status()
+        return True
+    except Exception as exc:
+        logger.warning("Pulse: could not unlink the tracker for %s: %s", client_id, exc)
+        return False
+
+
 # ── Published client reports ────────────────────────────────────
 
 _REPORT_COLS = ("id,client_id,period_start,period_end,title,body,snapshot,"
@@ -1239,7 +1353,7 @@ def list_reports(client_id: str, *, published_only: bool = False) -> list[dict]:
     params = _scoped({
         "select":    _REPORT_COLS,
         "client_id": f"eq.{client_id}",
-        "order":     "period_end.desc",
+        "order":     "period_end.desc,created_at.desc",
     })
     if published_only:
         params["status"] = "eq.published"
@@ -1329,6 +1443,35 @@ def delete_report(report_id: str) -> bool:
     except Exception as exc:
         logger.warning("Pulse: could not delete report %s: %s", report_id, exc)
         return False
+
+
+def delete_all_reports(client_id: str) -> int | None:
+    """Wipe one client's whole report history. Returns how many went.
+
+    Scoped by agency AND client, so the worst a wrong id can do is match
+    nothing. Deliberately not a "delete every report" helper with the client
+    optional — a missing filter on a DELETE is the one typo this must not have.
+
+    Returns None on failure rather than 0, because "nothing was there" and
+    "the delete did not happen" must not read the same to the caller.
+    """
+    if not client_id:
+        return None
+    try:
+        r = http_req.delete(
+            f"{SUPABASE_URL}/rest/v1/pulse_reports",
+            headers=_sb_headers("return=representation"),
+            params=_scoped({"client_id": f"eq.{client_id}"}),
+            timeout=30,
+        )
+        r.raise_for_status()
+        # return=representation so the count is what the database actually
+        # removed, not what we counted a moment earlier and hoped still held.
+        rows = r.json() if r.content else []
+        return len(rows) if isinstance(rows, list) else 0
+    except Exception as exc:
+        logger.warning("Pulse: could not clear reports for %s: %s", client_id, exc)
+        return None
 
 
 # ── Paged GET ─────────────────────────────────────────────────────────────────

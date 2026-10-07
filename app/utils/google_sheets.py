@@ -209,13 +209,20 @@ def _invalidate_worksheet_cache(sheet_id: str) -> None:
             del _ws_cache[k]
 
 
-def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
+def _get_all_records(ws, sheet_id: str, *, tab: str = "", **kwargs) -> list:
     """
     Fetch records from a worksheet with caching + 429-backoff.
 
-    • Cache: returns the stored result if a read for this sheet + render option
-      happened within _RECORDS_CACHE_TTL seconds.  Cuts API calls from 2–3 per
-      campaign (sync + A/B) to 1 per campaign per 45-second window.
+    • Cache: returns the stored result if a read for this sheet + TAB + render
+      option happened within _RECORDS_CACHE_TTL seconds.  Cuts API calls from
+      2–3 per campaign (sync + A/B) to 1 per campaign per 45-second window.
+
+      `tab` must be the same title passed to _worksheet(), because that is the
+      only thing tying a cache entry to the rows it holds.  It was missing from
+      the key until the Performance Tracker became the first reader of a named
+      tab: two tabs of one spreadsheet shared an entry, so reading the second
+      within the TTL returned the first one's rows.  Nothing caught it because
+      every caller before that read tab 1.
 
     • Quota + retry: the fetch goes through _sheets_read, so it waits for a slot
       in the per-minute read budget and, on HTTP 429/5xx, backs off 10 s, 20 s,
@@ -229,7 +236,7 @@ def _get_all_records(ws, sheet_id: str, **kwargs) -> list:
     about unique columns (Recipient Email, Lead Status, etc.) are unaffected.
     """
     render = kwargs.get("value_render_option", "FORMATTED_VALUE")
-    cache_key = f"{sheet_id}:{render}"
+    cache_key = f"{sheet_id}:{tab}:{render}"
     now = time.time()
 
     with _records_cache_lock:
@@ -288,8 +295,13 @@ def _patch_cached_records(sheet_id: str, col_name: str,
     spent re-fetching rows we had just written and already hold in memory.  The
     written values are known exactly, so patch them in instead: the cache stays
     warm for the rest of the sync AND reflects the new dates.
+
+    Scoped to the DEFAULT tab (the empty title in the cache key). Every write
+    this patches is a default-tab write, and the row numbers it carries index
+    that tab alone — applied to another tab's cached rows they would write the
+    right value into the wrong lead.
     """
-    prefix = f"{sheet_id}:"
+    prefix = f"{sheet_id}::"
     with _records_cache_lock:
         for key, (_ts, records) in _records_cache.items():
             if not key.startswith(prefix):
@@ -1138,6 +1150,76 @@ def write_chaser_dates(sheet_id: str, row_date_pairs: list[tuple[int, str]]) -> 
     the Today/Week/Month stats.
     """
     _write_date_column(sheet_id, row_date_pairs, "Chaser Date")
+
+
+class TrackerUnavailable(RuntimeError):
+    """A Performance Tracker sheet could not be read, with a reason worth showing.
+
+    Separate from the bare exceptions the other readers raise because this one's
+    message goes straight onto the account manager's screen, and the two likely
+    causes have completely different fixes: the tab was renamed, or the sheet
+    was never shared with the service account.
+    """
+
+
+def service_account_email() -> str:
+    """The address a tracker sheet has to be shared with. '' if unconfigured.
+
+    A 403 on someone else's spreadsheet is almost always this, and "could not
+    read the sheet" sends people hunting. Naming the address turns it into one
+    copy and paste.
+    """
+    try:
+        return str(_decode_sa_json().get("client_email") or "")
+    except Exception:
+        return ""
+
+
+def read_tracker_rows(sheet_id: str, tab: str = "All leads") -> list[dict]:
+    """Raw rows of a Performance Tracker tab. Nothing is interpreted here.
+
+    Parsing lives in app/utils/pulse/tracker.py, which takes a list of dicts and
+    so can be tested without Google in the picture at all.
+
+    The `tab` passed here is the same string handed to the cache, which is what
+    keeps one spreadsheet's two tabs in separate cache entries.
+    """
+    try:
+        ws = _worksheet(sheet_id, tab)
+    except Exception as exc:
+        raise TrackerUnavailable(_tracker_reason(exc, sheet_id, tab)) from exc
+    try:
+        return _get_all_records(ws, sheet_id, tab=tab)
+    except Exception as exc:
+        raise TrackerUnavailable(_tracker_reason(exc, sheet_id, tab)) from exc
+
+
+def read_tracker_headers(sheet_id: str, tab: str = "All leads") -> list[str]:
+    """Just the header row — one read, for validating a freshly pasted link
+    without pulling a few thousand rows to find out it works."""
+    try:
+        ws = _worksheet(sheet_id, tab)
+        return [str(h) for h in _sheets_read(lambda: ws.row_values(1))]
+    except Exception as exc:
+        raise TrackerUnavailable(_tracker_reason(exc, sheet_id, tab)) from exc
+
+
+def _tracker_reason(exc: Exception, sheet_id: str, tab: str) -> str:
+    """Turn a Sheets failure into something an account manager can act on."""
+    text = str(exc)
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status == 403 or "PERMISSION_DENIED" in text:
+        who = service_account_email()
+        return ("We do not have access to that sheet."
+                + (f" Share it with {who} (Viewer is enough)." if who else
+                   " Share it with the dashboard's service account."))
+    if status == 404 or "not found" in text.lower():
+        return "No spreadsheet with that link exists, or it has been deleted."
+    if isinstance(exc, KeyError) or "worksheet" in text.lower():
+        return (f"That spreadsheet has no tab called “{tab}”. "
+                "Check the tab name at the bottom of the sheet.")
+    logger.warning("Tracker: %s (%s) unreadable: %s", sheet_id, tab, exc)
+    return "That sheet could not be read. The details are in the server log."
 
 
 def read_ab_stats(sheet_id: str) -> list[dict]:

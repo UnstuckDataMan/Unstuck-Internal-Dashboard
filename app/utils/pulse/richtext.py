@@ -157,6 +157,34 @@ def sanitize(html: str) -> str:
     return _EMPTY_P.sub("", out)
 
 
+# A blank line, however much whitespace is sitting on it.
+_BLANK_LINE = re.compile(r"\n\s*\n")
+
+
+def from_text(text: str) -> str:
+    """Plain text → markup safe to render, for copy that was never authored here.
+
+    Copy Bank stores a body as plain text and renders it with textContent, so
+    it has never been escaped and may legitimately contain `<`, `&` or a merge
+    token like {{first_name}}. Dropped into a page unescaped it would be an
+    injection on a client-facing report; dropped in escaped but unconverted it
+    would be one long paragraph, because the line breaks are the only
+    structure that copy has.
+
+    Blank lines separate paragraphs, single newlines break a line — the
+    convention the copy was written under.
+    """
+    if not text or not str(text).strip():
+        return ""
+    text = str(text)[:MAX_BODY_CHARS].replace("\r\n", "\n")
+    out = []
+    for block in _BLANK_LINE.split(text):
+        lines = [escape(line.strip()) for line in block.split("\n") if line.strip()]
+        if lines:
+            out.append("<p>" + "<br>".join(lines) + "</p>")
+    return "".join(out)
+
+
 def to_text(html: str) -> str:
     """Plain text of a write-up, for previews and for "is this empty?".
 

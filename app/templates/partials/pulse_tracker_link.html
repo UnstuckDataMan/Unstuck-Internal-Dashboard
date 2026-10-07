@@ -1,0 +1,126 @@
+{# Linking a client to their Performance Tracker sheet.
+   Context: client_id, tracker, error, notice.
+
+   Cheap by design — one Postgres read, never a sheet read. The breakdown is a
+   separate request behind a button, because reading a few thousand rows out of
+   Google is not something to do on every page view. #}
+
+{% if error %}<div class="err-box" style="margin-bottom:12px">{{ error }}</div>{% endif %}
+{% if notice %}<div class="pulse-warn" style="margin-bottom:12px">{{ notice }}</div>{% endif %}
+
+{% if not tracker %}
+<form class="trk-link-form"
+      hx-post="/api/outbound-pulse/clients/{{ client_id }}/tracker"
+      hx-target="#pulse-tracker-link"
+      hx-swap="innerHTML"
+      hx-indicator="#trk-link-spinner">
+  <div class="trk-link-row">
+    <label class="report-field report-field-wide">
+      <span>Performance Tracker sheet</span>
+      <input type="url" name="sheet_url" required
+             placeholder="https://docs.google.com/spreadsheets/d/…">
+    </label>
+    <label class="report-field">
+      <span>Tab <em>optional</em></span>
+      <input type="text" name="tab_title" placeholder="All leads" maxlength="120">
+    </label>
+    <button type="submit" class="btn btn-primary">Link sheet</button>
+  </div>
+  <div id="trk-link-spinner" class="spinner htmx-indicator">
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    Checking the sheet…
+  </div>
+  <p class="pulse-meta" style="margin-top:10px;line-height:1.55">
+    The sheet is read once now to check the link works and the columns are
+    there, so a wrong link says so here rather than failing silently later.
+    It has to be shared with the dashboard's service account.
+  </p>
+</form>
+
+{% else %}
+<div class="trk-linked">
+  <div class="trk-linked-row">
+    <span class="trk-dot{% if tracker.last_error %} is-bad{% endif %}"></span>
+    <div class="trk-linked-main">
+      <div class="trk-linked-name">
+        {% if tracker.sheet_url %}
+        <a href="{{ tracker.sheet_url }}" target="_blank" rel="noopener noreferrer">
+          Open the tracker sheet</a>
+        {% else %}
+        Tracker sheet linked
+        {% endif %}
+        <span class="trk-tab">{{ tracker.tab_title }}</span>
+      </div>
+      <div class="pulse-meta">
+        {% if tracker.linked_by %}Linked by {{ tracker.linked_by }}{% else %}Linked{% endif %}
+        {%- if tracker.last_checked_at %} · last read
+        {{ tracker.last_checked_at[:16] | replace("T", " ") }}{% endif %}
+      </div>
+    </div>
+    <span class="spacer"></span>
+    <button type="button" class="note-act" onclick="pulseTrackerRelink(true)">Change</button>
+    <button type="button" class="note-act is-danger"
+            hx-delete="/api/outbound-pulse/clients/{{ client_id }}/tracker"
+            hx-target="#pulse-tracker-link" hx-swap="innerHTML"
+            hx-confirm="Unlink this sheet? The lead quality section disappears from this client's reports.">
+      Unlink
+    </button>
+  </div>
+
+  {% if tracker.last_error %}
+  <div class="err-box" style="margin-top:10px">{{ tracker.last_error }}</div>
+  {% endif %}
+
+  {# Re-linking is the same form, hidden until asked for. #}
+  <form class="trk-link-form" data-trk-relink hidden
+        hx-post="/api/outbound-pulse/clients/{{ client_id }}/tracker"
+        hx-target="#pulse-tracker-link"
+        hx-swap="innerHTML">
+    <div class="trk-link-row">
+      <label class="report-field report-field-wide">
+        <span>Replace with</span>
+        <input type="url" name="sheet_url" required value="{{ tracker.sheet_url }}"
+               placeholder="https://docs.google.com/spreadsheets/d/…">
+      </label>
+      <label class="report-field">
+        <span>Tab</span>
+        <input type="text" name="tab_title" value="{{ tracker.tab_title }}" maxlength="120">
+      </label>
+      <button type="button" class="btn btn-download"
+              onclick="pulseTrackerRelink(false)">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</div>
+
+{# The breakdown. A button and one request, like the A/B panel: this reads a
+   few thousand rows out of Google and shares a 55-per-minute budget with the
+   hourly campaign sync. #}
+<button type="button" class="btn btn-download" id="trk-load"
+        style="margin-top:14px"
+        hx-get="/api/outbound-pulse/clients/{{ client_id }}/tracker/leads"
+        hx-target="#pulse-tracker"
+        hx-include="#range-select, #date-from, #date-to"
+        hx-indicator="#trk-spinner"
+        hx-swap="innerHTML"
+        hx-on::after-request="this.remove()">
+  Show lead quality
+</button>
+<div id="trk-spinner" class="spinner htmx-indicator">
+  <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+  Reading the tracker…
+</div>
+<div id="pulse-tracker" style="margin-top:14px"></div>
+{% endif %}
+
+<script>
+  // On window because HTMX re-parses this partial on every save.
+  window.pulseTrackerRelink = function (open) {
+    var form = document.querySelector('[data-trk-relink]');
+    var row = document.querySelector('.trk-linked-row');
+    if (!form || !row) return;
+    form.hidden = !open;
+    row.hidden = open;
+    if (open) form.querySelector('input[name="sheet_url"]').focus();
+  };
+</script>

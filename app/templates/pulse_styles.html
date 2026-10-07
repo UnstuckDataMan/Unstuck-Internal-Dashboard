@@ -550,6 +550,149 @@
     display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 12px;
   }
 
+  .ab-copy-shown + .ab-copy-part, .ab-copy-part:first-child { margin-top: 10px; }
+  .ab-copy-part + .ab-copy-part { margin-top: 13px; }
+  .ab-copy-part-label {
+    font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--text-3); margin-bottom: 4px;
+  }
+
+  /* ── Performance Tracker: lead quality ─────────────── */
+  /* Every class below that sets `display` ships its own [hidden] rule. An
+     author-origin display beats the browser's own, and this module has twice
+     shipped controls that could not be hidden. */
+  .trk-link-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+  .trk-link-form[hidden] { display: none; }
+  .trk-link-row .report-field-wide { flex: 1; min-width: 260px; }
+
+  .trk-linked-row { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; }
+  .trk-linked-row[hidden] { display: none; }
+  .trk-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: #34d399; box-shadow: 0 0 0 3px rgba(52,211,153,.15);
+  }
+  .trk-dot.is-bad { background: var(--red); box-shadow: 0 0 0 3px rgba(248,113,113,.15); }
+  .trk-linked-name { font-size: 13.5px; color: var(--text); }
+  .trk-linked-name a { color: #c4b5fd; }
+  .trk-tab {
+    margin-left: 8px; font-size: 11px; color: var(--text-3);
+    border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px;
+  }
+
+  .trk-filters {
+    border: 1px solid var(--border); border-radius: 13px;
+    padding: 13px 15px; margin-bottom: 16px; background: rgba(0,0,0,.18);
+  }
+  .trk-filter-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+  .trk-chip-rows { margin-top: 11px; display: flex; flex-direction: column; gap: 6px; }
+  .trk-chip-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .trk-chip-label {
+    font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--text-3); width: 68px; flex-shrink: 0;
+  }
+  .trk-chip {
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 11px; font: inherit; font-size: 12px; cursor: pointer;
+    background: transparent; color: var(--text-2);
+    transition: all .15s var(--ease);
+  }
+  .trk-chip:hover { border-color: rgba(139,92,246,.45); color: var(--text); }
+  .trk-chip.is-on {
+    background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.55);
+    color: #ddd6fe;
+  }
+
+  .trk-showing { font-size: 12.5px; color: var(--text-3); margin-bottom: 11px; }
+
+  .trk-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 11px; margin-bottom: 18px;
+  }
+  .trk-stat {
+    border: 1px solid var(--border); border-radius: 13px; padding: 13px 15px;
+    background: rgba(255,255,255,.03);
+  }
+  .trk-stat.is-lead {
+    border-color: rgba(139,92,246,.38); background: rgba(139,92,246,.08);
+  }
+  .trk-stat-value {
+    font-family: var(--font-display); font-size: 24px; font-weight: 600;
+    color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.1;
+  }
+  .trk-stat-label { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+
+  .trk-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    gap: 18px 26px;
+  }
+  .trk-block-title {
+    font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--text-3); margin-bottom: 9px;
+  }
+  .trk-bar {
+    display: grid; grid-template-columns: 1fr 86px auto;
+    align-items: center; gap: 10px; margin-bottom: 6px; font-size: 12.5px;
+  }
+  .trk-bar-label {
+    color: var(--text-2); overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .trk-bar-track {
+    height: 7px; border-radius: 999px; background: rgba(255,255,255,.07);
+    overflow: hidden;
+  }
+  .trk-bar-fill {
+    display: block; height: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, #8b5cf6, #c4b5fd);
+    transition: width .3s var(--ease-out);
+  }
+  /* Ungraded is an absence, not a low grade, and must not read as one. */
+  .trk-bar.is-muted .trk-bar-fill { background: rgba(255,255,255,.17); }
+  .trk-bar.is-muted .trk-bar-label { color: var(--text-3); }
+  .trk-bar-n {
+    color: var(--text-3); font-variant-numeric: tabular-nums;
+    white-space: nowrap; font-size: 11.5px;
+  }
+
+  .trk-roles { margin-top: 18px; }
+  .trk-roles summary {
+    cursor: pointer; font-size: 12.5px; color: #c4b5fd; margin-bottom: 9px;
+  }
+  .trk-role {
+    display: flex; justify-content: space-between; gap: 14px;
+    font-size: 12.5px; color: var(--text-2); padding: 3px 0;
+    border-bottom: 1px solid rgba(255,255,255,.05);
+  }
+  .trk-role b { color: #c4b5fd; font-variant-numeric: tabular-nums; }
+  .trk-foot { margin-top: 16px; line-height: 1.6; }
+
+  /* Clearing a client's whole history. Set apart from the report list and
+     styled to be read before it is clicked, not to invite a click. */
+  .report-wipe {
+    margin-top: 22px; padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  /* The [hidden] rule has to come with the display rule — an author-origin
+     `display` beats the browser's own `[hidden] { display: none }`. Without
+     it the confirm form is visible from the moment the panel loads. */
+  .report-wipe-form { display: block; }
+  .report-wipe-form[hidden], .report-wipe [data-wipe-open][hidden] { display: none; }
+  .report-wipe-warn {
+    font-size: 12.5px; line-height: 1.6; color: var(--red);
+    background: var(--red-bg); border: 1px solid var(--red-bdr);
+    border-radius: 11px; padding: 11px 14px; margin: 0 0 12px;
+  }
+  .report-wipe-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+  .report-wipe-row .report-field { flex: 1; min-width: 200px; }
+  .report-wipe-row .btn { margin-left: 0; }
+  /* The base .btn sets no padding — each variant brings its own, matching
+     .btn-download here so Cancel and this sit at the same height. */
+  .btn-wipe {
+    background: var(--red-bg); border: 1px solid var(--red-bdr); color: var(--red);
+    padding: 10px 20px;
+  }
+  .btn-wipe:hover { background: var(--red); color: #fff; }
+
   /* ── Rich text editor ─────────────────────────────── */
   .rt { border: 1px solid var(--border); border-radius: 11px; overflow: hidden; }
   .rt-bar {

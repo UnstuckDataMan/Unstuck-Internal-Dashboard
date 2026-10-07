@@ -7,6 +7,9 @@
 {% if error %}
 <div class="err-box" style="margin-bottom:12px">{{ error }}</div>
 {% endif %}
+{% if notice %}
+<div class="pulse-warn" style="margin-bottom:12px">{{ notice }}</div>
+{% endif %}
 
 <form class="report-new"
       hx-post="/api/outbound-pulse/clients/{{ client_id }}/reports"
@@ -157,10 +160,52 @@
   </div>
   {% endfor %}
 </div>
+
+{# Clearing the lot. Separate from the per-report Delete and deliberately
+   duller to reach: this is the one action here that a client would notice
+   from their own link, and there is nothing to restore from afterwards. #}
+<div class="report-wipe" id="report-wipe">
+  <button type="button" class="note-act is-danger" data-wipe-open
+          {% if clearing %}hidden{% endif %}
+          onclick="pulseWipeReports(true)">
+    Clear this client’s report history
+  </button>
+
+  <form class="report-wipe-form" data-wipe-form {% if not clearing %}hidden{% endif %}
+        hx-post="/api/outbound-pulse/clients/{{ client_id }}/reports/clear"
+        hx-target="#pulse-reports" hx-swap="innerHTML">
+    <p class="report-wipe-warn">
+      This deletes all {{ reports | length }} report{{ "" if reports | length == 1 else "s" }}
+      for this client, drafts and published alike. Their link stays valid but
+      will have nothing on it, and the write-ups and frozen figures are gone
+      for good.
+    </p>
+    <div class="report-wipe-row">
+      <label class="report-field">
+        <span>Type {{ clear_word }} to confirm</span>
+        <input type="text" name="confirm" autocomplete="off" spellcheck="false"
+               placeholder="{{ clear_word }}" aria-label="Type {{ clear_word }} to confirm">
+      </label>
+      <button type="button" class="btn btn-download"
+              onclick="pulseWipeReports(false)">Cancel</button>
+      <button type="submit" class="btn btn-wipe">Delete everything</button>
+    </div>
+  </form>
+</div>
 {% endif %}
 
 <script>
   // On window because HTMX re-parses this partial on every save.
+  window.pulseWipeReports = function (open) {
+    var host = document.getElementById('report-wipe');
+    if (!host) return;
+    host.querySelector('[data-wipe-open]').hidden = open;
+    var form = host.querySelector('[data-wipe-form]');
+    form.hidden = !open;
+    if (open) form.querySelector('input[name="confirm"]').focus();
+    else form.reset();
+  };
+
   window.pulseEditReport = function (id, open) {
     var host = document.getElementById('report-' + id);
     if (!host) return;

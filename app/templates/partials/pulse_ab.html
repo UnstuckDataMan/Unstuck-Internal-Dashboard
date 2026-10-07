@@ -14,12 +14,32 @@
 <div class="ab-copy">
   {% if v.variant_copy %}
   <div class="ab-copy-shown">
-    {% if v.variant_copy.subject %}<div class="ab-copy-subject">“{{ v.variant_copy.subject }}”</div>{% endif %}
-    {% if v.variant_copy.body %}<div class="ab-copy-body write-up">{{ v.variant_copy.body | safe }}</div>{% endif %}
+    {# Labelled, because a subject line and an opening paragraph look alike
+       once they are both just quoted text on a page. #}
+    {% if v.variant_copy.subject %}
+    <div class="ab-copy-part">
+      <div class="ab-copy-part-label">Subject line</div>
+      <div class="ab-copy-subject">“{{ v.variant_copy.subject }}”</div>
+    </div>
+    {% endif %}
+    {% if v.variant_copy.body %}
+    <div class="ab-copy-part">
+      <div class="ab-copy-part-label">Main email body</div>
+      <div class="ab-copy-body write-up">{{ v.variant_copy.body | safe }}</div>
+    </div>
+    {% endif %}
     <div class="ab-copy-meta">
+      {% if v.variant_copy.from_copy_bank %}
+      {# Resolved, not typed: the label IS the Copy Bank index, so the text was
+         already written down. Say where it came from, because editing here
+         overrides it rather than changing the Copy Bank. #}
+      From the Copy Bank{% if v.variant_copy.source_label %} · {{ v.variant_copy.source_label }}{% endif %}
+      {% else %}
       Recorded by {{ v.variant_copy.entered_by or "someone" }}
+      {% endif %}
       · <button type="button" class="note-act"
-                onclick="pulseEditCopy('{{ source }}-{{ campaign | replace(' ', '_') }}-{{ v.variant | replace('/', '_') }}')">Edit</button>
+                onclick="pulseEditCopy('{{ source }}-{{ campaign | replace(' ', '_') }}-{{ v.variant | replace('/', '_') }}')">
+        {{ "Override" if v.variant_copy.from_copy_bank else "Edit" }}</button>
     </div>
   </div>
   {% else %}
@@ -152,7 +172,7 @@
     there is no way to bound it by a period.
   </p>
 
-  {% if not manual.variants %}
+  {% if not manual.campaigns %}
   <p class="pulse-meta">
     {% if manual.sheets_read %}
     No copy variations recorded on this client's campaign sheets.
@@ -161,15 +181,55 @@
     {% endif %}
   </p>
   {% else %}
-  {{ variant_table(manual, "campaign") }}
-  {% for v in manual.variants %}
-    {% if manual.winner == v.variant %}
-    {{ copy_row(manual, v, "manual", "") }}
-    {% endif %}
+
+  {# Per campaign first, because that is the real test: one campaign is one
+     send of one Copy Bank entry, so a label there means one specific message
+     and its copy is unambiguous. Biggest campaign first. #}
+  {% for block in manual.campaigns %}
+  <div class="ab-step">
+    <div class="ab-step-head">
+      <span class="ab-step-name">{{ block.name }}</span>
+      {% if block.territory and block.industry %}
+      <span class="ab-subject">{{ block.territory }} · {{ block.industry }}</span>
+      {% else %}
+      <span class="ab-subject">no copy source recorded</span>
+      {% endif %}
+    </div>
+    {{ variant_table(block, "campaign") }}
+    {% for v in block.variants %}
+      {% if block.winner == v.variant %}
+      {{ copy_row(block, v, "manual", block.ref) }}
+      {% endif %}
+    {% endfor %}
+  </div>
   {% endfor %}
+
+  {# Combined underneath, where a single campaign is too small to call on its
+     own. Shown only when there is more than one campaign to add up. #}
+  {% if manual.campaigns | length > 1 and manual.combined.variants %}
+  <div class="ab-step is-combined">
+    <div class="ab-step-head">
+      <span class="ab-step-name">All {{ manual.campaigns | length }} campaigns together</span>
+      {% if not manual.combined.shared_copy %}
+      <span class="ab-subject">different copy per campaign</span>
+      {% endif %}
+    </div>
+    {{ variant_table(manual.combined, "campaign") }}
+    {% if manual.combined.shared_copy %}
+    {% for v in manual.combined.variants %}
+      {% if manual.combined.winner == v.variant %}
+      {{ copy_row(manual.combined, v, "manual", "") }}
+      {% endif %}
+    {% endfor %}
+    {% endif %}
+  </div>
+  {% endif %}
+
   <p class="pulse-meta ab-note">
-    Combined across {{ manual.sheets_read }} campaign{{ "" if manual.sheets_read == 1 else "s" }}.
-    Variations are Copy Bank combinations — <b>S2/B1</b> is subject 2 with body 1.
+    Variations are Copy Bank combinations — <b>S2/B1</b> is subject 2 with body 1,
+    looked up against the entry the merge recorded.
+    Copy saved against a campaign applies to that campaign only.
+    {% if manual.copy_note %}{{ manual.copy_note }}{% endif %}
     {% if manual.sheets_skipped %}
     {{ manual.sheets_skipped }} sheet{{ "" if manual.sheets_skipped == 1 else "s" }}
     could not be read and {{ "is" if manual.sheets_skipped == 1 else "are" }} not included.

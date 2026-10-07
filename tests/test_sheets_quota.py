@@ -235,3 +235,79 @@ def test_missing_stats_tab_is_silent(monkeypatch):
                         lambda: FakeGC({"sheet-1": FakeSpreadsheet(ws)}))  # no tabs
 
     assert gs.read_stats_cells("sheet-1") == {}
+
+
+# ── One cache entry per TAB, not per spreadsheet ─────────────────────────────
+#
+# The records cache keyed on sheet id + render option and ignored the worksheet
+# title, while the worksheet-handle cache beside it keyed on the title. Nothing
+# noticed for as long as every caller read the first tab. The Performance
+# Tracker reads a named tab, so it would have been the first thing to ask a
+# spreadsheet for two different tabs inside the 45-second window — and been
+# handed the wrong one's rows, silently, as real data.
+
+def _two_tab_sheet(monkeypatch):
+    first = FakeWorksheet(["Recipient Email"], [["first@tab.com"]])
+    other = FakeWorksheet(["Lead"], [["other-tab.com"]])
+    sh = FakeSpreadsheet(first, tabs={"All leads": other})
+    monkeypatch.setattr(gs, "_client", lambda: FakeGC({"sheet-1": sh}))
+    return first, other
+
+
+def test_two_tabs_of_one_spreadsheet_do_not_share_a_cache_entry(monkeypatch):
+    first, other = _two_tab_sheet(monkeypatch)
+
+    a = gs._get_all_records(first, "sheet-1")
+    b = gs._get_all_records(other, "sheet-1", tab="All leads")
+
+    assert a == [{"Recipient Email": "first@tab.com"}]
+    assert b == [{"Lead": "other-tab.com"}], "second tab must not get the first's rows"
+
+
+def test_the_same_tab_twice_is_still_served_from_the_cache(monkeypatch):
+    _, other = _two_tab_sheet(monkeypatch)
+
+    gs._get_all_records(other, "sheet-1", tab="All leads")
+    before = gs.sheet_reads_count()
+    gs._get_all_records(other, "sheet-1", tab="All leads")
+
+    assert gs.sheet_reads_count() == before, "a repeat read of one tab must be free"
+
+
+def test_the_default_tab_is_cached_exactly_as_before(monkeypatch):
+    """Existing callers pass no tab. Their budget must not move — the quota
+    pins in this file depend on it."""
+    first, _ = _two_tab_sheet(monkeypatch)
+
+    gs._get_all_records(first, "sheet-1")
+    before = gs.sheet_reads_count()
+    gs._get_all_records(first, "sheet-1")
+
+    assert gs.sheet_reads_count() == before
+
+
+def test_invalidating_a_sheet_clears_every_tab(monkeypatch):
+    first, other = _two_tab_sheet(monkeypatch)
+    gs._get_all_records(first, "sheet-1")
+    gs._get_all_records(other, "sheet-1", tab="All leads")
+
+    gs._invalidate_sheet_cache("sheet-1")
+
+    before = gs.sheet_reads_count()
+    gs._get_all_records(other, "sheet-1", tab="All leads")
+    assert gs.sheet_reads_count() == before + 1, "the named tab must be re-read too"
+
+
+def test_a_written_date_is_patched_into_the_default_tab_only(monkeypatch):
+    """`_patch_cached_records` addresses rows by index. Those indices belong to
+    the tab that was written, so applying them to another tab's cached rows
+    would write a real value against the wrong lead."""
+    first, other = _two_tab_sheet(monkeypatch)
+    gs._get_all_records(first, "sheet-1")
+    gs._get_all_records(other, "sheet-1", tab="All leads")
+
+    gs._patch_cached_records("sheet-1", "Lead", [(2, "2026-10-07")])
+
+    assert gs._records_cache["sheet-1::FORMATTED_VALUE"][1][0]["Lead"] == "2026-10-07"
+    assert gs._records_cache["sheet-1:All leads:FORMATTED_VALUE"][1][0]["Lead"] \
+        == "other-tab.com", "the named tab must be untouched"

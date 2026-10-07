@@ -1,43 +1,48 @@
-"""
-Client-facing portal — read-only funnel for one client, reached by magic link.
-
-This is the only part of the dashboard a non-staff user ever sees, so it is the
-only part with its own access rules. Three properties matter:
-
-  1. **Read-only by construction.** The router exposes GET routes only. There is
-     no mutation a client could reach even with a valid token.
-
-  2. **Token-scoped, not user-scoped.** A token resolves to exactly one
-     client_id, and every query is filtered by that id (and the agency id) taken
-     from the token record — never from the URL or a form field. A client cannot
-     widen their own scope by editing a parameter, because no parameter feeds
-     the scope.
-
-  3. **Not indexable, not cacheable.** A report link that ends up in a browser's
-     shared cache or a search index is a data leak, so responses carry
-     `noindex` and `no-store`.
-
-Tokens are compared by SHA-256 hash — the plaintext never touches the database.
-"""
-from __future__ import annotations
-
-import hashlib
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse, Response
-
-from app.deps import templates
-from app.utils.dates import today_utc
-from app.utils.pulse import store
-from app.utils.pulse import template_filters
+"""
+Client-facing portal — read-only funnel for one client, reached by magic link.
+
+This is the only part of the dashboard a non-staff user ever sees, so it is the
+only part with its own access rules. Three properties matter:
+
+  1. **Read-only by construction.** The router exposes GET routes only. There is
+     no mutation a client could reach even with a valid token.
+
+  2. **Token-scoped, not user-scoped.** A token resolves to exactly one
+     client_id, and every query is filtered by that id (and the agency id) taken
+     from the token record — never from the URL or a form field. A client cannot
+     widen their own scope by editing a parameter, because no parameter feeds
+     the scope.
+
+  3. **Not indexable, not cacheable.** A report link that ends up in a browser's
+     shared cache or a search index is a data leak, so responses carry
+     `noindex` and `no-store`.
+
+Tokens are compared by SHA-256 hash — the plaintext never touches the database.
+"""
+from __future__ import annotations
+
+import hashlib
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import HTMLResponse, Response
+
+from app.deps import templates
+from app.utils.dates import today_utc
+from app.utils.pulse import store
+from app.utils.pulse import template_filters
 from app.utils.pulse.reports import report_heading
-from app.utils.pulse.normalize import EVENT_SENT, funnel_with_rates
-from app.utils.pulse.store import PulseNotReady
-
-router = APIRouter()
-template_filters.register(templates.env)
-
+from app.utils.pulse.normalize import (
+    CHANNEL_LINKEDIN,
+    EVENT_SENT,
+    funnel_with_rates,
+    without,
+)
+from app.utils.pulse.store import PulseNotReady
+
+router = APIRouter()
+template_filters.register(templates.env)
+
 # Ranges a client could pick are gone. A report covers the period its account
 # manager chose, and nothing else: letting a client re-slice the data was how
 # they ended up reading numbers nobody had looked at before sending.
@@ -102,15 +107,41 @@ def _snapshot_view(report: dict) -> dict:
     """
     snapshot = report.get("snapshot") or {}
     counts = snapshot.get("counts") or {}
+
+    # LINKEDIN IS NOT PART OF THE EMAIL FUNNEL. A connection request is not an
+    # email, and an acceptance is not an open, so adding them produced a "sent"
+    # a client could not reconcile with anything and a reply rate that was the
+    # average of two unlike platforms. LinkedIn gets its own card instead.
+    #
+    # By subtraction, so a row carrying no channel still reaches the client.
+    # Every snapshot has carried by_channel from the start, so reports
+    # published before this split render correctly too.
+    linkedin = (snapshot.get("by_channel") or {}).get(CHANNEL_LINKEDIN) or {}
+    email = without(counts, linkedin)
     return {
-        "counts":     counts,
-        "funnel":     funnel_with_rates(counts),
-        "by_channel": snapshot.get("by_channel") or {},
+        "counts":     email,
+        "funnel":     funnel_with_rates(email),
+        "linkedin":   linkedin,
+        # A client who has never been run on LinkedIn gets no card at all,
+        # rather than a card of zeros implying we tried and nothing happened.
+        "has_linkedin": any((linkedin.get(k) or 0) > 0 for k in linkedin),
         "trend":      snapshot.get("trend") or {"unit": "day", "buckets": []},
         # Absent from any report published before A/B was captured, which is
         # why every field here is read defensively rather than indexed.
         "ab":         snapshot.get("ab") or [],
+        # Absent from every report published before lead quality existed, so
+        # read for what it is rather than indexed.
+        "icp":        snapshot.get("icp") or {},
+        # Gate on leads rather than on the key: a period the sheet covers but
+        # has nothing in gets no card, instead of a card of zeros that reads
+        # as a campaign that failed.
+        "has_icp":    bool((snapshot.get("icp") or {}).get("total")),
+        # Both platforms: this is the "did anything happen at all" gate, and a
+        # client run only on LinkedIn must not be told there was no activity.
         "total_sent": counts.get(EVENT_SENT, 0) or 0,
+        # Email alone, for whether the email half of the page has anything to
+        # say. A funnel of zeros above a live LinkedIn card reads as a failure.
+        "email_sent": email.get(EVENT_SENT, 0) or 0,
     }
 
 
@@ -176,11 +207,16 @@ async def portal(request: Request, token: str, report: str = Query("")):
         "newer":       reports[index - 1] if index > 0 else None,
         "older":       reports[index + 1] if index + 1 < len(reports) else None,
         "count":       len(reports),
-        "position":    index + 1 if reports else 0,
+        # Counted so the NEWEST is the highest number: a client landing on
+        # their latest report should read "4 of 4", not "1 of 4", which looked
+        # like they were at the beginning of their history rather than the end.
+        # The arrows agree with it — back is a lower number, forward a higher.
+        "position":    len(reports) - index if reports else 0,
         "generated":   datetime.now(timezone.utc),
     }
     context.update(_snapshot_view(current) if current else {
-        "counts": {}, "funnel": [], "by_channel": {},
-        "trend": {"unit": "day", "buckets": []}, "ab": [], "total_sent": 0,
+        "counts": {}, "funnel": [], "linkedin": {}, "has_linkedin": False,
+        "trend": {"unit": "day", "buckets": []}, "ab": [], "icp": {},
+        "has_icp": False, "total_sent": 0, "email_sent": 0,
     })
     return _private(templates.TemplateResponse("portal.html", context))
