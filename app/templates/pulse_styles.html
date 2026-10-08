@@ -621,38 +621,106 @@
   }
   .trk-stat-label { font-size: 12px; color: var(--text-2); margin-top: 4px; }
 
+  /* Two columns, not three. At three the bar track was narrower than the
+     label beside it, so the thing carrying the data was the smallest thing
+     in the row. */
   .trk-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
-    gap: 18px 26px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr));
+    gap: 14px;
+  }
+  .trk-card {
+    border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px 16px 12px; background: rgba(255,255,255,.022);
+  }
+  .trk-headline {
+    border: 1px solid rgba(139,92,246,.26); border-radius: 14px;
+    padding: 15px 17px 13px; margin-bottom: 14px;
+    background: rgba(139,92,246,.055);
+  }
+  .trk-block-head {
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 11px;
   }
   .trk-block-title {
     font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
-    color: var(--text-3); margin-bottom: 9px;
+    color: var(--text-3); margin: 0;
   }
+  .trk-block-note {
+    margin-left: auto; font-size: 11px; color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The ICP distribution as one run. */
+  .trk-stack {
+    display: flex; height: 10px; border-radius: 999px; overflow: hidden;
+    background: rgba(255,255,255,.06); gap: 2px;
+  }
+  .trk-seg { display: block; height: 100%; transition: width .35s var(--ease-out); }
+  .trk-seg:first-child { border-radius: 999px 0 0 999px; }
+  .trk-seg:last-child  { border-radius: 0 999px 999px 0; }
+  /* A scale, so a glance reads direction before it reads labels. */
+  .trk-seg-9_10 { background: #a78bfa; }
+  .trk-seg-7_8  { background: #8b5cf6; }
+  .trk-seg-5_6  { background: #6d4fc4; }
+  .trk-seg-1_4  { background: #4a3a7a; }
+  .trk-seg-unrated { background: rgba(255,255,255,.13); }
+
+  .trk-legend {
+    display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 13px;
+    font-size: 12.5px; color: var(--text-2);
+  }
+  .trk-legend-item { display: inline-flex; align-items: center; gap: 7px; }
+  .trk-legend-item.is-muted { color: var(--text-3); }
+  .trk-legend-item i {
+    width: 8px; height: 8px; border-radius: 3px; display: inline-block;
+  }
+  .trk-legend-item b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .trk-legend-pct { color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .trk-dot-9_10 { background: #a78bfa; }
+  .trk-dot-7_8  { background: #8b5cf6; }
+  .trk-dot-5_6  { background: #6d4fc4; }
+  .trk-dot-1_4  { background: #4a3a7a; }
+  .trk-dot-unrated { background: rgba(255,255,255,.13); }
+
+  /* Label, then the track taking whatever is left, then the figures in
+     fixed columns so they form a straight edge down the card. */
   .trk-bar {
-    display: grid; grid-template-columns: 1fr 86px auto;
-    align-items: center; gap: 10px; margin-bottom: 6px; font-size: 12.5px;
+    display: grid; grid-template-columns: minmax(0, 150px) 1fr 32px 40px;
+    align-items: center; gap: 11px; font-size: 12.5px;
+    padding: 3.5px 0; border-radius: 6px;
   }
+  .trk-bar:hover { background: rgba(255,255,255,.03); }
   .trk-bar-label {
     color: var(--text-2); overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap;
   }
   .trk-bar-track {
-    height: 7px; border-radius: 999px; background: rgba(255,255,255,.07);
+    height: 6px; border-radius: 999px; background: rgba(255,255,255,.06);
     overflow: hidden;
   }
   .trk-bar-fill {
     display: block; height: 100%; border-radius: 999px;
-    background: linear-gradient(90deg, #8b5cf6, #c4b5fd);
-    transition: width .3s var(--ease-out);
+    background: linear-gradient(90deg, #7c5cf0, #c4b5fd);
+    transition: width .35s var(--ease-out);
   }
-  /* Ungraded is an absence, not a low grade, and must not read as one. */
-  .trk-bar.is-muted .trk-bar-fill { background: rgba(255,255,255,.17); }
-  .trk-bar.is-muted .trk-bar-label { color: var(--text-3); }
+  .trk-bar.is-muted .trk-bar-fill { background: rgba(255,255,255,.15); }
+  .trk-bar.is-muted .trk-bar-label,
+  .trk-bar.is-muted .trk-bar-n { color: var(--text-3); }
   .trk-bar-n {
-    color: var(--text-3); font-variant-numeric: tabular-nums;
-    white-space: nowrap; font-size: 11.5px;
+    color: var(--text); font-variant-numeric: tabular-nums; text-align: right;
   }
+  .trk-bar-pct {
+    color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right;
+    font-size: 11.5px;
+  }
+
+  .trk-more {
+    margin-top: 7px; padding: 0; background: none; border: none;
+    color: #c4b5fd; font: inherit; font-size: 11.5px; cursor: pointer;
+  }
+  .trk-more:hover { color: #ddd6fe; }
+  .trk-single { font-size: 12.5px; color: var(--text-2); margin: 2px 0 0; }
+  .trk-single b { color: var(--text); }
+  .trk-none { font-size: 12.5px; color: var(--text-3); margin: 2px 0 0; }
 
   .trk-roles { margin-top: 18px; }
   .trk-roles summary {
