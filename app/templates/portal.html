@@ -248,6 +248,13 @@
       color: var(--text-3); font-variant-numeric: tabular-nums;
       white-space: nowrap; font-size: 11.5px;
     }
+    .icp-sheet {
+      font-size: 12.5px; color: var(--text-3); line-height: 1.55;
+      margin: 0 0 18px; padding: 11px 14px;
+      border: 1px solid rgba(139,92,246,.26); border-radius: 12px;
+      background: rgba(139,92,246,.06);
+    }
+    .icp-sheet a { color: #c4b5fd; font-weight: 500; }
     .icp-single { font-size: 13px; color: var(--text-2); }
     .icp-single b { color: var(--text); }
 
@@ -544,6 +551,23 @@
         {% endif %}
         {% endfor %}
       </div>
+      {% endif %}
+
+      {% if icp.sheet_url %}
+      {# The tracker itself. A grade is the client's own judgement of their
+         own ICP, so the ones we have not graded are ones only they can
+         settle. #}
+      <p class="icp-sheet">
+        <a href="{{ icp.sheet_url }}" target="_blank" rel="noopener noreferrer">
+          Open the lead tracker</a>
+        {% if icp.unrated %}
+        <span>— {{ icp.unrated }} lead{{ "" if icp.unrated == 1 else "s" }}
+          {{- " is" if icp.unrated == 1 else " are" }} still to grade. Add a
+          rating and it appears on your next report.</span>
+        {% else %}
+        <span>— every lead in this period is graded.</span>
+        {% endif %}
+      </p>
       {% endif %}
 
       <div class="icp-grid">

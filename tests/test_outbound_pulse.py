@@ -2213,11 +2213,18 @@ def test_manual_panel_states_its_caveats(client, fake_sb):
     assert "manual replies are" in manual
 
 
-def test_combined_notes_that_manual_has_no_replies(client, fake_sb):
+def test_combined_says_where_a_manual_reply_comes_from(client, fake_sb):
+    """A manual reply is inferred from the classification — nobody is marked
+    Lead, Interested or Unsubscribe without answering. The sheet's plain
+    "Reply" status is the one that still cannot be counted, because it records
+    no date, and the panel has to say so rather than let the figure read low
+    unexplained."""
     _source_routes(fake_sb, _MIXED)
     r = client.get(f"/outbound-pulse/clients/{CLIENT}")
     combined = r.text.split('data-source-panel="all"', 1)[1].split('data-source-panel=', 1)[0]
-    assert "Smartlead and Meet Alfred only" in combined
+    assert "counted from its classification" in combined
+    assert "records no date" in combined
+    assert "Smartlead and Meet Alfred only" not in combined
 
 
 def test_combined_totals_include_manual_leads(client, fake_sb):
@@ -6592,3 +6599,130 @@ def test_the_portal_still_reads_only_its_snapshot(client, fake_sb, monkeypatch):
     monkeypatch.setattr(google_sheets, "read_tracker_values", explode)
     _icp_report(fake_sb, _ICP_BLOCK)
     assert client.get("/r/valid-token").status_code == 200
+
+
+# ── Longer date ranges ───────────────────────────────────────────────────────
+
+def test_six_and_twelve_month_ranges_exist():
+    """A month of outbound is a handful of graded leads; lead quality only
+    shows a shape over half a year."""
+    from app.routers.outbound_pulse import RANGE_PRESETS
+
+    assert RANGE_PRESETS["6m"] == "Last 6 months"
+    assert RANGE_PRESETS["12m"] == "Last 12 months"
+    assert RANGE_PRESETS["all"] == "All time"
+
+
+def test_the_long_ranges_count_calendar_months(monkeypatch):
+    """Not a fixed number of days: "last 6 months" on the 31st has to span the
+    same months as on the 1st, and 182 days does not."""
+    from datetime import date
+
+    from app.routers import outbound_pulse as mod
+
+    monkeypatch.setattr(mod, "today_utc", lambda: date(2026, 3, 31))
+    assert mod._resolve_range("6m", "", "")["from"] == date(2025, 9, 1)
+    assert mod._resolve_range("12m", "", "")["from"] == date(2025, 3, 1)
+
+    monkeypatch.setattr(mod, "today_utc", lambda: date(2026, 3, 1))
+    assert mod._resolve_range("6m", "", "")["from"] == date(2025, 9, 1)
+
+
+def test_a_long_range_crossing_the_year_boundary(monkeypatch):
+    from datetime import date
+
+    from app.routers import outbound_pulse as mod
+
+    monkeypatch.setattr(mod, "today_utc", lambda: date(2026, 2, 14))
+    assert mod._resolve_range("6m", "", "")["from"] == date(2025, 8, 1)
+    assert mod._resolve_range("12m", "", "")["from"] == date(2025, 2, 1)
+
+
+def test_the_range_picker_offers_the_long_ranges(client, fake_sb):
+    _detail_routes(fake_sb)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "Last 6 months" in body
+    assert "Last 12 months" in body
+
+
+def test_a_long_range_scopes_the_funnel_query(client, fake_sb, monkeypatch):
+    from datetime import date
+
+    from tests.conftest import param_values
+    from app.routers import outbound_pulse as mod
+
+    monkeypatch.setattr(mod, "today_utc", lambda: date(2026, 3, 15))
+    _detail_routes(fake_sb)
+    client.get(f"/outbound-pulse/clients/{CLIENT}?range=6m")
+    days = []
+    for call in fake_sb.calls_to("GET", "pulse_funnel_daily"):
+        days.extend(param_values(call, "day"))
+    assert "gte.2025-09-01" in days
+
+
+# ── The tracker link on the client's report ──────────────────────────────────
+
+def test_the_report_links_to_the_tracker_sheet(client, fake_sb):
+    """A grade is the client's own judgement of their own ICP, so the leads we
+    have not graded are ones only they can settle."""
+    _icp_report(fake_sb, dict(_ICP_BLOCK, sheet_url="https://docs.google.com/x"))
+    body = client.get("/r/valid-token").text
+    assert "https://docs.google.com/x" in body
+    assert "Open the lead tracker" in body
+
+
+def test_the_link_says_how_many_are_left_to_grade(client, fake_sb):
+    _icp_report(fake_sb, dict(_ICP_BLOCK, sheet_url="https://docs.google.com/x"))
+    body = client.get("/r/valid-token").text
+    assert "15 leads are still to grade" in body
+
+
+def test_the_link_says_so_when_everything_is_graded(client, fake_sb):
+    _icp_report(fake_sb, dict(_ICP_BLOCK, rated=45, unrated=0,
+                              sheet_url="https://docs.google.com/x"))
+    body = client.get("/r/valid-token").text
+    assert "every lead in this period is graded" in body
+
+
+def test_a_report_with_no_tracker_link_shows_no_link(client, fake_sb):
+    """Reports published before the link was frozen in carry no sheet_url."""
+    _icp_report(fake_sb, _ICP_BLOCK)
+    body = client.get("/r/valid-token").text
+    assert "Open the lead tracker" not in body
+    assert "Who we reached" in body
+
+
+def test_publishing_freezes_the_sheet_link(client, fake_sb, monkeypatch):
+    """Frozen with the figures, so the report points at the sheet those
+    figures came from rather than wherever the client is pointed later."""
+    seen = _publish_routes(fake_sb, monkeypatch)
+    client.post(f"/api/outbound-pulse/clients/{CLIENT}/reports/r1/publish")
+    assert seen["snapshot"]["icp"]["sheet_url"] == SHEET_LINK
+
+
+# ── A classified manual lead has replied ─────────────────────────────────────
+
+def test_the_manual_replies_migration_counts_every_classification():
+    import pathlib
+
+    sql = (pathlib.Path(__file__).resolve().parents[1] / "migrations"
+           / "outbound_pulse_manual_replies.sql").read_text(encoding="utf-8")
+    # The new branch, and the three reasons that carry a date.
+    assert "'replied'" in sql
+    assert "COUNT(DISTINCT d.email)" in sql
+    assert sql.count("d.reason IN ('lead', 'interested', 'opt_out')") == 2
+    # The funnel is rebuilt on all five branches, hand entry included.
+    assert "pulse_hand_entry_daily" in sql
+    assert sql.rstrip().endswith("COMMIT;")
+
+
+def test_the_migration_does_not_write_plain_replies_to_the_dnc_list():
+    """dnc_entries is the suppression list and the scrub matches on email with
+    no filter on reason, so a plain reply written there would quietly stop
+    that prospect ever being contacted again."""
+    import pathlib
+
+    sql = (pathlib.Path(__file__).resolve().parents[1] / "migrations"
+           / "outbound_pulse_manual_replies.sql").read_text(encoding="utf-8")
+    assert "INSERT INTO dnc_entries" not in sql
+    assert "'reply'" not in sql, "the sheet's plain Reply status stays uncounted"
