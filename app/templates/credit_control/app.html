@@ -836,7 +836,7 @@ const state = {
   insBarLayout: 'separate', // 'separate' | 'stacked'
   insBarSort: 'ltv',        // 'ltv' | 'tenure' | 'list' — only used in 'stacked' layout
   insRevMonthlyChart: 'line', // 'bar' | 'line' — Target vs Landed, monthly
-  insRevMetric: 'mrr',        // 'mrr' | 'avg' | 'vol' — what the monthly revenue chart plots: Target vs MRR, average client value, client volume
+  insRevMetric: 'mrr',        // 'mrr' | 'avg' | 'vol' | 'sales' — what the monthly revenue chart plots: Target vs MRR, average client value, client volume, new clients (sales)
 };
 
 /* ════════════════ Persistence ════════════════ */
@@ -926,6 +926,7 @@ function normalise() {
   DB.settings.revenueTargets ||= {};
   DB.settings.clientTargets ||= {};      // client-count target per month
   DB.settings.avgValueTargets ||= {};    // average-client-value (£) target per month
+  DB.settings.salesTargets ||= {};       // new-clients (sales) target per month
   DB.clients ||= [];
   DB.invoices ||= [];
   // Wider industries: broader clusters that the specific industry tags roll up
@@ -3152,11 +3153,35 @@ function fiscalYearStart(key) {
 // to the same DB.settings.revenueTargets map, so they can never disagree.
 function targetForMonth(m) { return DB.settings.revenueTargets[m] ?? null; }
 // Client-count and average-client-value targets work exactly like the revenue targets: one independent
-// figure per 'YYYY-MM', set in Operational Settings (clientTargets / avgValueTargets). metric: 'mrr' | 'vol' | 'avg'.
+// figure per 'YYYY-MM', set in Operational Settings (clientTargets / avgValueTargets / salesTargets). metric: 'mrr' | 'vol' | 'avg' | 'sales'.
 function targetMapFor(metric) {
-  return metric === 'vol' ? (DB.settings.clientTargets ||= {}) : metric === 'avg' ? (DB.settings.avgValueTargets ||= {}) : DB.settings.revenueTargets;
+  return metric === 'sales' ? (DB.settings.salesTargets ||= {}) : metric === 'vol' ? (DB.settings.clientTargets ||= {}) : metric === 'avg' ? (DB.settings.avgValueTargets ||= {}) : DB.settings.revenueTargets;
 }
 function targetForMetric(metric, m) { return targetMapFor(metric)[m] ?? null; }
+
+// Sales has two targets. The MANUAL one is typed in Operational Settings (salesTargets). The CALCULATED one is the number of
+// new clients a month needs to reach that month's client-volume target: the target volume, less the clients expected to
+// carry over from the month before (last month's actual count — or its volume target, for months still to come — reduced by
+// the long-term churn goal). Whole clients, never below 0; blank when there is no client target or nothing to start from.
+function calcSalesTarget(m, byM) {
+  const vol = targetForMetric('vol', m);
+  if (vol == null) return null;
+  const prev = addMonths(m, -1);
+  let prevCount;
+  if (prev <= currentMonthKey()) { const r = byM.get(prev); prevCount = r ? r.count : null; }
+  else prevCount = targetForMetric('vol', prev);
+  if (prevCount == null) return null;
+  const churn = ((DB.settings.retention && DB.settings.retention.longTermGoalPct) || 0) / 100;
+  return Math.max(0, Math.ceil(vol - prevCount * (1 - churn) - 1e-9));
+}
+function salesTargetSeries(monthRows, byM) {
+  return [
+    { name: 'Manual target', color: 'var(--accent)', opacity: 0.45, points: monthRows.map(r => ({ m: r.m, v: targetForMetric('sales', r.m) })) },
+    { name: 'Calculated target', color: 'var(--warn)', opacity: 0.45, points: monthRows.map(r => ({ m: r.m, v: calcSalesTarget(r.m, byM) })) },
+  ];
+}
+// Months that count as "having a target" for the Sales view: those with a manual sales target or a client target to calculate from.
+function salesTargetMonths() { return { ...(DB.settings.clientTargets || {}), ...(DB.settings.salesTargets || {}) }; }
 function setTargetOnMap(map, m, value) {
   if (value === '' || value == null || isNaN(Number(value))) delete map[m];
   else map[m] = Number(value);
@@ -3707,10 +3732,10 @@ function buildLineChart(seriesList, opts = {}) {
   let seriesSvg = '';
   usable.forEach(s => {
     const linePoints = s.points.map((p, i) => p.v == null ? null : `${x(i)},${y(p.v)}`).filter(Boolean).join(' ');
-    seriesSvg += `<polyline points="${linePoints}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    seriesSvg += `<polyline points="${linePoints}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2}" stroke-linejoin="round" stroke-linecap="round" opacity="${s.opacity ?? 1}"/>`;
     s.points.forEach((p, i) => {
       if (p.v == null) return;
-      seriesSvg += `<circle class="chart-pt" cx="${x(i)}" cy="${y(p.v)}" r="3.5" fill="${p.color || s.color}" stroke="var(--bg-card)" stroke-width="2"><title>${esc(p.tooltipLabel || s.name)} — ${esc(tooltipLabelFn(p.m))}: ${esc(fmtV(p.v))}</title></circle>`;
+      seriesSvg += `<circle class="chart-pt" cx="${x(i)}" cy="${y(p.v)}" r="${s.width ? 4.5 : 3.5}" fill="${p.color || s.color}" stroke="var(--bg-card)" stroke-width="2" opacity="${s.opacity ?? 1}"><title>${esc(p.tooltipLabel || s.name)} — ${esc(tooltipLabelFn(p.m))}: ${esc(fmtV(p.v))}</title></circle>`;
     });
   });
 
@@ -3849,7 +3874,7 @@ function buildGroupedBarChart(seriesList, opts = {}) {
       if (v == null) return;
       const yy = y(v);
       const mx1 = x(i) + barGap, mx2 = x(i) + groupW - barGap;
-      markersSvg += `<line x1="${mx1}" y1="${yy}" x2="${mx2}" y2="${yy}" stroke="${s.color}" stroke-width="3" stroke-linecap="round"><title>${esc(s.name)} — ${esc(tooltipLabelFn(m))}: ${esc(fmtV(v))}</title></line>`;
+      markersSvg += `<line x1="${mx1}" y1="${yy}" x2="${mx2}" y2="${yy}" stroke="${s.color}" stroke-width="3" stroke-linecap="round" opacity="${s.opacity ?? 1}"><title>${esc(s.name)} — ${esc(tooltipLabelFn(m))}: ${esc(fmtV(v))}</title></line>`;
     });
   });
 
@@ -4049,7 +4074,7 @@ function insProjectionMonths(metric = 'mrr') {
   const n = insProjectionSpan();
   if (!n) return [];
   const cur = currentMonthKey();
-  const targets = targetMapFor(metric) || {};
+  const targets = metric === 'sales' ? salesTargetMonths() : (targetMapFor(metric) || {});
   const lastTarget = Object.keys(targets).filter(m => m > cur && targets[m] != null).sort().pop();
   if (!lastTarget) return [];
   const out = [];
@@ -4588,10 +4613,12 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   // Average client value and client volume come straight from each month's invoicing: how many
   // clients were invoiced, and what was billed to them (MRR ÷ clients = average client value).
   const byMonthRow = new Map(snapRows.map(r => [r.m, r]));
-  const otherValue = (m) => { const row = byMonthRow.get(m); if (!row || !row.count) return null; return metric === 'avg' ? row.mrr / row.count : row.count; };
+  // Sales = new clients that month (clients invoiced who weren’t invoiced the month before) — the same figure as the “New clients” tile.
+  const otherValue = (m) => { const row = byMonthRow.get(m); if (metric === 'sales') return row ? (row.newClients || 0) : null; if (!row || !row.count) return null; return metric === 'avg' ? row.mrr / row.count : row.count; };
+  const otherInfo = { avg: ['Average client value', '#22d3ee'], vol: ['Clients invoiced', '#f472b6'], sales: ['New clients', '#60a5fa'] }[metric];
   const revMonthlySeries = metric !== 'mrr' ? [
-    { name: 'Target', color: 'var(--accent)', points: revMonthRows.map(r => ({ m: r.m, v: targetForMetric(metric, r.m) })) },
-    { name: metric === 'avg' ? 'Average client value' : 'Clients invoiced', color: metric === 'avg' ? '#22d3ee' : '#f472b6', points: revMonthRows.map(r => ({ m: r.m, v: r.projected ? null : otherValue(r.m) })) },
+    ...(metric === 'sales' ? salesTargetSeries(revMonthRows, byMonthRow) : [{ name: 'Target', color: 'var(--accent)', points: revMonthRows.map(r => ({ m: r.m, v: targetForMetric(metric, r.m) })) }]),
+    { name: otherInfo[0], color: otherInfo[1], ...(metric === 'sales' ? { width: 3 } : {}), points: revMonthRows.map(r => ({ m: r.m, v: r.projected ? null : otherValue(r.m) })) },
   ] : [
     { name: 'Target', color: 'var(--accent)', points: revMonthRows.map(r => ({ m: r.m, v: targetForMonth(r.m) })) },
     // MRR here is cash landed for a completed month; for the current
@@ -4607,9 +4634,9 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   ];
   const projectedFrom = projMonths[0] || null;
   const revMonthlyChart = state.insRevMonthlyChart === 'bar'
-    ? buildGroupedBarChart(revMonthlySeries, { yUnit: metric === 'vol' ? '' : '£', id: 'ins-rev-m', lineSeries: ['Target'], projectedFrom })
-    : buildLineChart(revMonthlySeries, { yUnit: metric === 'vol' ? '' : '£', id: 'ins-rev-m', projectedFrom });
-  const tmap = targetMapFor(metric) || {};
+    ? buildGroupedBarChart(revMonthlySeries, { yUnit: metric === 'vol' || metric === 'sales' ? '' : '£', id: 'ins-rev-m', lineSeries: metric === 'sales' ? ['Manual target', 'Calculated target'] : ['Target'], projectedFrom })
+    : buildLineChart(revMonthlySeries, { yUnit: metric === 'vol' || metric === 'sales' ? '' : '£', id: 'ins-rev-m', projectedFrom });
+  const tmap = metric === 'sales' ? salesTargetMonths() : (targetMapFor(metric) || {});
   const lastTargetMonth = Object.keys(tmap).filter(m => tmap[m] != null).sort().pop();
   const projAsked = insProjectionSpan();
   const projNote = !projAsked ? ''
@@ -4621,12 +4648,17 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   const metricInfo = {
     avg: { label: 'Average client value', color: '#22d3ee', note: 'Revenue billed in the month ÷ clients invoiced that month — the average monthly value of a client.' },
     vol: { label: 'Clients invoiced', color: '#f472b6', note: 'How many clients were invoiced in the month — client volume.' },
+    sales: { label: 'New clients', color: '#60a5fa', note: `New clients = clients invoiced this month who weren’t invoiced the month before. Calculated target = new clients needed to reach that month’s client-volume target: last month’s clients (or its target, for future months) less the ${(DB.settings.retention && DB.settings.retention.longTermGoalPct) || 0}% long-term churn goal.` },
   }[metric];
   const legendHtml = metric !== 'mrr'
     ? `<div class="chart-legend">
-        ${state.insRevMonthlyChart === 'bar'
-          ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
-          : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
+        ${metric === 'sales'
+          ? [['Manual target', 'var(--accent)'], ['Calculated target', 'var(--warn)']].map(([l, c]) => state.insRevMonthlyChart === 'bar'
+              ? `<span class="key"><span class="swatch" style="border-top-color:${c}; opacity:.55"></span>${l}</span>`
+              : `<span class="key"><span class="dot" style="background:${c}; opacity:.55"></span>${l}</span>`).join('')
+          : state.insRevMonthlyChart === 'bar'
+            ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
+            : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
         <span class="key"><span class="dot" style="background:${metricInfo.color}"></span>${esc(metricInfo.label)}</span>
         ${projMonths.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
         <span class="key" style="opacity:.85">${esc(metricInfo.note)}</span>
@@ -4657,6 +4689,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
       ${metricBox('mrr', `Monthly revenue (${insTerm('MRR')})`, fmtMoney(monthExpected), changeHtml(pctChange(monthExpected, landedForMonth(prevKey)), `This month's MRR (expected to land) against ${monthLabel(prevKey)}'s MRR as plotted on the chart (cash that landed)`))}
       ${metricBox('avg', 'Average value per client', curAvg != null ? fmtMoney(curAvg) : '—', changeHtml(pctChange(curAvg, prevAvg), 'Against last month'))}
       ${metricBox('vol', 'Clients invoiced', curRow ? String(curRow.count) : '—', changeHtml(pctChange(curRow ? curRow.count : null, prevRow ? prevRow.count : null), 'Against last month'))}
+      ${metricBox('sales', 'New clients', curRow ? String(curRow.newClients || 0) : '—', changeHtml(pctChange(curRow ? (curRow.newClients || 0) : null, prevRow ? (prevRow.newClients || 0) : null), 'Against last month'))}
     </div>`;
 
   // Compare builder (Past vs. projections, points, custom ranges) — mounted
@@ -4674,13 +4707,13 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
       ${revBarLegendHtml({ fy: true })}
     </div>
 
-    ${insSectionHead('Revenue targets', 'Targets vs. actuals by month — MRR (cash landed for completed months, expected-to-land for the current one), average client value and client volume. Past data sets how far back to look; Projections extends the target line ahead and compares it with the past. Set all three kinds of target in Operational Settings; revenue targets can also be set directly on a month\'s Invoices tab.')}
+    ${insSectionHead('Revenue targets', 'Targets vs. actuals by month — MRR (cash landed for completed months, expected-to-land for the current one), average client value, client volume and sales (new clients taken on). Past data sets how far back to look; Projections extends the target line ahead and compares it with the past. Set all four kinds of target in Operational Settings; revenue targets can also be set directly on a month\'s Invoices tab.')}
     ${metricBoxesHtml}
     <div class="chart-card">
       <div class="chart-head">
         <h3>Monthly</h3>
-        <div class="pills" id="ins-rev-metric-pills" title="What the chart plots: the monthly targets against MRR, the average value of a client each month, or how many clients were invoiced each month">
-          ${[['mrr', 'MRR'], ['avg', 'Average client value'], ['vol', 'Client volume']].map(([k, l]) => `<button class="pill ${metric === k ? 'active' : ''}" data-revmetric="${k}">${l}</button>`).join('')}
+        <div class="pills" id="ins-rev-metric-pills" title="What the chart plots: the monthly targets against MRR, the average value of a client each month, how many clients were invoiced each month, or how many new clients were taken on">
+          ${[['mrr', 'MRR'], ['avg', 'Average client value'], ['vol', 'Client volume'], ['sales', 'Sales']].map(([k, l]) => `<button class="pill ${metric === k ? 'active' : ''}" data-revmetric="${k}">${l}</button>`).join('')}
         </div>
         <div class="pills" id="ins-rev-m-pills" title="Chart type for the monthly Target vs MRR chart">
           <button class="pill ${state.insRevMonthlyChart === 'line' ? 'active' : ''}" data-revchart="m:line">Line</button>
@@ -5849,7 +5882,8 @@ function rptStatsRevenue(rows, cur) {
   const expected = latest ? (latest.expected ?? latest.mrr) : 0, landed = landedForMonth(cur);
   const curRow = rows.find(r => r.m === cur), prevKey = addMonths(cur, -1), prevRow = rows.find(r => r.m === prevKey);
   const avg = curRow && curRow.count ? curRow.mrr / curRow.count : null, prevAvg = prevRow && prevRow.count ? prevRow.mrr / prevRow.count : null;
-  const goal = targetForMonth(cur), cGoal = targetForMetric('vol', cur), aGoal = targetForMetric('avg', cur);
+  const goal = targetForMonth(cur), cGoal = targetForMetric('vol', cur), aGoal = targetForMetric('avg', cur), sGoal = targetForMetric('sales', cur);
+  const calcGoal = calcSalesTarget(cur, new Map(rows.map(r => [r.m, r])));
   const vs = (v, g, f) => g != null ? `${f(g)} target${g ? ` — ${Math.round(v / g * 100)}% of it` : ''}` : 'no target set';
   blocks.push({ t: 'h3', text: `This month — ${monthLabel(cur)}` });
   blocks.push({ t: 'kv', rows: [
@@ -5860,7 +5894,8 @@ function rptStatsRevenue(rows, cur) {
     ['Average value change on last month', rptSigned(rptChange(avg, prevAvg)), ''],
     ['Clients invoiced', curRow ? String(curRow.count) : '—', vs(curRow ? curRow.count : 0, cGoal, v => String(v))],
     ['Client change on last month', rptSigned(rptChange(curRow ? curRow.count : null, prevRow ? prevRow.count : null)), ''],
-    ['New clients this month', latest ? String(latest.newClients || 0) : '—', ''],
+    ['New clients this month (sales)', latest ? String(latest.newClients || 0) : '—', vs(latest ? (latest.newClients || 0) : 0, sGoal, v => String(v)).replace('target', 'manual target')],
+    ['New clients needed (calculated target)', calcGoal != null ? String(calcGoal) : '—', calcGoal != null ? `to reach the client target of ${cGoal}, allowing for the long-term churn goal` : 'needs a client target for the month'],
   ] });
 
   // by period (the same windows as the bars)
@@ -5888,14 +5923,15 @@ function rptStatsRevenue(rows, cur) {
 
   // month by month
   const months12 = upTo.slice(-12);
+  const byMonthAll = new Map(rows.map(r => [r.m, r]));
   blocks.push({ t: 'h3', text: 'Month by month — last 12 months' });
-  blocks.push({ t: 'table', head: ['Month', 'MRR', 'Target', 'Avg client value', 'Target', 'Clients', 'Target'], align: ['l', 'r', 'r', 'r', 'r', 'r', 'r'],
+  blocks.push({ t: 'table', head: ['Month', 'MRR', 'Target', 'Avg client value', 'Target', 'Clients', 'Target', 'New clients', 'Manual target', 'Calculated target'], align: ['l', 'r', 'r', 'r', 'r', 'r', 'r', 'r', 'r', 'r'],
     rows: months12.map(r => {
       const mrr = r.m === cur ? expected : landedForMonth(r.m);
-      const t1 = targetForMetric('mrr', r.m), t2 = targetForMetric('avg', r.m), t3 = targetForMetric('vol', r.m);
-      return [monthLabel(r.m) + (r.m === cur ? ' *' : ''), fmtMoney(mrr), t1 != null ? fmtMoney(t1) : '—', r.count ? fmtMoney(r.mrr / r.count) : '—', t2 != null ? fmtMoney(t2) : '—', String(r.count), t3 != null ? String(t3) : '—'];
+      const t1 = targetForMetric('mrr', r.m), t2 = targetForMetric('avg', r.m), t3 = targetForMetric('vol', r.m), t4 = targetForMetric('sales', r.m), t5 = calcSalesTarget(r.m, byMonthAll);
+      return [monthLabel(r.m) + (r.m === cur ? ' *' : ''), fmtMoney(mrr), t1 != null ? fmtMoney(t1) : '—', r.count ? fmtMoney(r.mrr / r.count) : '—', t2 != null ? fmtMoney(t2) : '—', String(r.count), t3 != null ? String(t3) : '—', String(r.newClients || 0), t4 != null ? String(t4) : '—', t5 != null ? String(t5) : '—'];
     }) });
-  blocks.push({ t: 'note', text: '* The current month shows what is expected to land rather than cash received so far. Average client value = billed in the month ÷ clients invoiced.' });
+  blocks.push({ t: 'note', text: '* The current month shows what is expected to land rather than cash received so far. Average client value = billed in the month ÷ clients invoiced. New clients = clients invoiced who were not invoiced the month before. Calculated target = new clients needed to reach that month’s client target, allowing for the long-term churn goal.' });
   return blocks;
 }
 
@@ -5986,16 +6022,16 @@ function rptRevenueChart(metric, rows) {
   const projMonths = insProjectionMonths(metric);
   const monthRows = [...pastRows, ...projMonths.map(m => ({ m, projected: true }))];
   const byM = new Map(rows.map(r => [r.m, r]));
-  const other = m => { const r = byM.get(m); if (!r || !r.count) return null; return metric === 'avg' ? r.mrr / r.count : r.count; };
-  const info = { mrr: ['MRR against target', 'MRR', 'var(--success)'], avg: ['Average client value against target', 'Average client value', '#22d3ee'], vol: ['Client volume against target', 'Clients invoiced', '#f472b6'] }[metric];
+  const other = m => { const r = byM.get(m); if (metric === 'sales') return r ? (r.newClients || 0) : null; if (!r || !r.count) return null; return metric === 'avg' ? r.mrr / r.count : r.count; };
+  const info = { mrr: ['MRR against target', 'MRR', 'var(--success)'], avg: ['Average client value against target', 'Average client value', '#22d3ee'], vol: ['Client volume against target', 'Clients invoiced', '#f472b6'], sales: ['Sales (new clients) against target', 'New clients', '#60a5fa'] }[metric];
   const series = metric === 'mrr'
     ? [{ name: 'Target', color: 'var(--accent)', points: monthRows.map(r => ({ m: r.m, v: targetForMetric('mrr', r.m) })) },
        { name: 'MRR', color: 'var(--success)', points: monthRows.map(r => r.projected ? { m: r.m, v: null } : r.m === cur ? { m: r.m, v: monthExpected, color: 'var(--warn)', tooltipLabel: 'MRR — expected to land' } : { m: r.m, v: landedForMonth(r.m) }) }]
-    : [{ name: 'Target', color: 'var(--accent)', points: monthRows.map(r => ({ m: r.m, v: targetForMetric(metric, r.m) })) },
-       { name: info[1], color: info[2], points: monthRows.map(r => ({ m: r.m, v: r.projected ? null : other(r.m) })) }];
-  const opts = { yUnit: metric === 'vol' ? '' : '£', id: 'rpt-' + metric, projectedFrom: projMonths[0] || null };
-  const chart = state.insRevMonthlyChart === 'bar' ? buildGroupedBarChart(series, { ...opts, lineSeries: ['Target'] }) : buildLineChart(series, opts);
-  const keys = `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span><span class="key"><span class="dot" style="background:${info[2]}"></span>${esc(info[1])}</span>${metric === 'mrr' ? '<span class="key"><span class="dot" style="background:var(--warn)"></span>MRR — expected to land (current month)</span>' : ''}${projMonths.length ? '<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>' : ''}`;
+    : [...(metric === 'sales' ? salesTargetSeries(monthRows, byM) : [{ name: 'Target', color: 'var(--accent)', points: monthRows.map(r => ({ m: r.m, v: targetForMetric(metric, r.m) })) }]),
+       { name: info[1], color: info[2], ...(metric === 'sales' ? { width: 3 } : {}), points: monthRows.map(r => ({ m: r.m, v: r.projected ? null : other(r.m) })) }];
+  const opts = { yUnit: metric === 'vol' || metric === 'sales' ? '' : '£', id: 'rpt-' + metric, projectedFrom: projMonths[0] || null };
+  const chart = state.insRevMonthlyChart === 'bar' ? buildGroupedBarChart(series, { ...opts, lineSeries: metric === 'sales' ? ['Manual target', 'Calculated target'] : ['Target'] }) : buildLineChart(series, opts);
+  const keys = `${metric === 'sales' ? '<span class="key"><span class="dot" style="background:var(--accent); opacity:.55"></span>Manual target</span><span class="key"><span class="dot" style="background:var(--warn); opacity:.55"></span>Calculated target</span>' : '<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>'}<span class="key"><span class="dot" style="background:${info[2]}"></span>${esc(info[1])}</span>${metric === 'mrr' ? '<span class="key"><span class="dot" style="background:var(--warn)"></span>MRR — expected to land (current month)</span>' : ''}${projMonths.length ? '<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>' : ''}`;
   return `<div class="chart-card"><div class="chart-head"><h3>${esc(info[0])}</h3><span class="dim" style="font-size:12px">${esc(monthRangeLabel([...pastRows.map(r => r.m), ...projMonths]))}</span></div><div class="chart-legend" style="margin:0 0 10px">${keys}</div><div class="chart-wrap">${chart.html}</div></div>`;
 }
 function rptRevenueVisual(rows) {
@@ -6007,10 +6043,11 @@ function rptRevenueVisual(rows) {
   const prevShort = MON3[Number(prevKey.slice(5)) - 1], curShort = MON3[Number(cur.slice(5)) - 1] + ' ' + cur.slice(2, 4);
   const chg = (now, before) => { const p = rptChange(now, before); return p == null ? '<span class="muted">no change to show</span>' : `<span class="${p >= 0 ? 'cmp-up' : 'cmp-down'}">${p >= 0 ? '▲' : '▼'} ${Math.abs(p).toFixed(1)}%</span> <span class="muted">vs ${prevShort}</span>`; };
   const box = (label, val, change) => `<div class="stat"><div class="l" style="margin:0 0 4px">${label} <span style="text-transform:none; letter-spacing:0; font-weight:500">· ${curShort}</span></div><div class="v">${val}</div><div class="s" style="margin-top:4px">${change}</div></div>`;
-  const boxes = `<div class="stats" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:0">
+  const boxes = `<div class="stats" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:0">
       ${box('Monthly revenue (MRR)', fmtMoney(expected), chg(expected, landedForMonth(prevKey)))}
       ${box('Average value per client', avg != null ? fmtMoney(avg) : '—', chg(avg, prevAvg))}
       ${box('Clients invoiced', curRow ? String(curRow.count) : '—', chg(curRow ? curRow.count : null, prevRow ? prevRow.count : null))}
+      ${box('New clients', curRow ? String(curRow.newClients || 0) : '—', chg(curRow ? (curRow.newClients || 0) : null, prevRow ? (prevRow.newClients || 0) : null))}
     </div>`;
   const wrap = document.createElement('div');
   insBarsReveal = false;
@@ -6019,7 +6056,7 @@ function rptRevenueVisual(rows) {
   return [
     `<div class="chart-card"><div class="chart-head"><h3>Revenue — ${esc(monthLabel(cur))}</h3></div>${boxes}</div>`,
     `<div class="chart-card"><div class="chart-head"><h3>This period</h3></div>${wrap.innerHTML}${revBarLegendHtml({ fy: true })}</div>`,
-    rptRevenueChart('mrr', rows), rptRevenueChart('avg', rows), rptRevenueChart('vol', rows),
+    rptRevenueChart('mrr', rows), rptRevenueChart('avg', rows), rptRevenueChart('vol', rows), rptRevenueChart('sales', rows),
   ];
 }
 function rptBillingVisual() {
@@ -6943,7 +6980,7 @@ function renderSettings() {
   // coming year can be filled in without first adding each month. A slot with no
   // target is just an empty input (nothing is stored until a value is typed).
   const targetSlotStart = currentMonthKey(), targetSlotEnd = addMonths(targetSlotStart, 12);
-  const targetMonths = [...new Set([...Object.keys(s.revenueTargets), ...Object.keys(s.clientTargets || {}), ...Object.keys(s.avgValueTargets || {}), ...Array.from({ length: 13 }, (_, i) => addMonths(targetSlotStart, i))])].sort();
+  const targetMonths = [...new Set([...Object.keys(s.revenueTargets), ...Object.keys(s.clientTargets || {}), ...Object.keys(s.avgValueTargets || {}), ...Object.keys(s.salesTargets || {}), ...Array.from({ length: 13 }, (_, i) => addMonths(targetSlotStart, i))])].sort();
 
   view.innerHTML = `
     ${chipList('salesTeam', 'Sales team', 'People who can earn commission — selectable as Lead generated by / Converted by on each client.')}
@@ -6957,19 +6994,20 @@ function renderSettings() {
 
     <div class="card">
       <h3>Monthly targets</h3>
-      <div class="desc">Three targets for each month — revenue (£), number of clients, and average client value (£). Each month is independent (e.g. September 2026 and September 2027 don't share a target), and any box can be left empty for no target. The current month and the next 12 always have a slot below — just type a figure; use "Add month" only to go further ahead (or back). Revenue targets can also be edited from that month's Invoices tab; both places write the same value. Yearly figures in Insights are just the sum of whichever months in that year have a target.</div>
+      <div class="desc">Four targets for each month — revenue (£), number of clients invoiced, average client value (£), and sales (the number of new clients taken on — the box you set here is the manual sales target; the Sales chart also draws a calculated one: the new clients needed to reach that month's client target, given last month's clients less the long-term churn goal). Each month is independent (e.g. September 2026 and September 2027 don't share a target), and any box can be left empty for no target. The current month and the next 12 always have a slot below — just type a figure; use "Add month" only to go further ahead (or back). Revenue targets can also be edited from that month's Invoices tab; both places write the same value. Yearly figures in Insights are just the sum of whichever months in that year have a target.</div>
       <div class="tbl-wrap" id="rt-targets-wrap" style="max-height:280px; overflow-y:auto; margin-bottom:12px">
         <table>
-          <thead><tr><th>Month</th><th class="num">Revenue £</th><th class="num">Clients</th><th class="num">Avg client value £</th><th></th></tr></thead>
+          <thead><tr><th>Month</th><th class="num">Revenue £</th><th class="num">Clients</th><th class="num">Avg client value £</th><th class="num" title="Typed here. The Sales chart also draws a calculated target from the client targets.">New clients (manual target)</th><th></th></tr></thead>
           <tbody>
             ${targetMonths.map(m => {
-              const rv = s.revenueTargets[m], cv = (s.clientTargets || {})[m], av = (s.avgValueTargets || {})[m];
-              const has = rv != null || cv != null || av != null;
+              const rv = s.revenueTargets[m], cv = (s.clientTargets || {})[m], av = (s.avgValueTargets || {})[m], sv = (s.salesTargets || {})[m];
+              const has = rv != null || cv != null || av != null || sv != null;
               return `<tr>
               <td>${esc(monthLabel(m))}${m === targetSlotStart ? ' <span class="muted" style="font-size:11px">· this month</span>' : ''}</td>
               <td class="num"><input type="number" step="0.01" class="no-spin" style="width:110px; text-align:right" data-target-input="${m}" value="${rv != null ? rv : ''}" placeholder="Not set"></td>
               <td class="num"><input type="number" step="1" min="0" class="no-spin" style="width:80px; text-align:right" data-ctarget-input="${m}" value="${cv != null ? cv : ''}" placeholder="Not set"></td>
               <td class="num"><input type="number" step="0.01" min="0" class="no-spin" style="width:110px; text-align:right" data-atarget-input="${m}" value="${av != null ? av : ''}" placeholder="Not set"></td>
+              <td class="num"><input type="number" step="1" min="0" class="no-spin" style="width:80px; text-align:right" data-starget-input="${m}" value="${sv != null ? sv : ''}" placeholder="Not set"></td>
               <td>${has ? `<button class="btn btn-sm btn-danger" data-target-rm="${m}" title="${m >= targetSlotStart && m <= targetSlotEnd ? 'Clear this month\'s targets' : 'Remove this month'}">×</button>` : ''}</td>
             </tr>`; }).join('')}
           </tbody>
@@ -7092,9 +7130,12 @@ function renderSettings() {
   view.querySelectorAll('[data-atarget-input]').forEach(inp => {
     inp.onchange = () => keepTargetsScroll(() => { setTargetOnMap(s.avgValueTargets ||= {}, inp.dataset.atargetInput, inp.value); renderSettings(); });
   });
+  view.querySelectorAll('[data-starget-input]').forEach(inp => {
+    inp.onchange = () => keepTargetsScroll(() => { setTargetOnMap(s.salesTargets ||= {}, inp.dataset.stargetInput, inp.value); renderSettings(); });
+  });
   view.querySelectorAll('[data-target-rm]').forEach(b => b.onclick = () => keepTargetsScroll(() => {
     const m = b.dataset.targetRm;
-    delete s.revenueTargets[m]; delete (s.clientTargets || {})[m]; delete (s.avgValueTargets || {})[m];
+    delete s.revenueTargets[m]; delete (s.clientTargets || {})[m]; delete (s.avgValueTargets || {})[m]; delete (s.salesTargets || {})[m];
     touch(); renderSettings();
   }));
   view.querySelector('#target-add-btn').onclick = () => {
