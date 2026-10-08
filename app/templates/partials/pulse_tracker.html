@@ -93,32 +93,35 @@
     </div>
   </div>
 
-  {# ── Breakdowns ─────────────────────────────────────────────── #}
-  <div class="trk-grid">
-    <div class="trk-block">
+  {# ── Breakdowns ─────────────────────────────────────────────────────────
+     ICP leads, as one stacked bar: it is the question the panel exists to
+     answer, and a distribution reads faster as a single run than as five
+     rows competing with five other blocks for attention. The rest sit in two
+     columns, because three left the bars narrower than their own labels. #}
+  <div class="trk-headline">
+    <div class="trk-block-head">
       <p class="trk-block-title">ICP rating</p>
-      <div data-trk-bars="icp_band"></div>
+      <span class="trk-block-note" data-trk-icp-note></span>
     </div>
-    <div class="trk-block">
-      <p class="trk-block-title">Company size</p>
-      <div data-trk-bars="headcount"></div>
+    <div class="trk-stack" data-trk-stack></div>
+    <div class="trk-legend" data-trk-legend></div>
+  </div>
+
+  <div class="trk-grid">
+    {% for field, title in [("seniority", "Seniority reached"),
+                            ("headcount", "Company size"),
+                            ("industry",  "Industry"),
+                            ("channel",   "Channel"),
+                            ("location",  "Location"),
+                            ("category",  "Category")] %}
+    <div class="trk-card">
+      <div class="trk-block-head">
+        <p class="trk-block-title">{{ title }}</p>
+        <span class="trk-block-note" data-trk-note="{{ field }}"></span>
+      </div>
+      <div data-trk-bars="{{ field }}"></div>
     </div>
-    <div class="trk-block">
-      <p class="trk-block-title">Seniority reached</p>
-      <div data-trk-bars="seniority"></div>
-    </div>
-    <div class="trk-block">
-      <p class="trk-block-title">Industry</p>
-      <div data-trk-bars="industry"></div>
-    </div>
-    <div class="trk-block">
-      <p class="trk-block-title">Location</p>
-      <div data-trk-bars="location"></div>
-    </div>
-    <div class="trk-block">
-      <p class="trk-block-title">Channel</p>
-      <div data-trk-bars="channel"></div>
-    </div>
+    {% endfor %}
   </div>
 
   <details class="trk-roles">
@@ -229,45 +232,141 @@
     return out;
   }
 
-  function collapse(entries, total) {
+  function collapse(entries) {
     // Same rule as Python's: top N plus Other, but never an "Other" of one —
     // that hides a name for no gain.
     if (entries.length <= CFG.top_n + 1) return entries;
     var head = entries.slice(0, CFG.top_n);
     var tail = entries.slice(CFG.top_n);
     var spare = tail.reduce(function (n, e) { return n + e.count; }, 0);
-    head.push({ value: '__other__', label: 'Other (' + tail.length + ')',
+    // 'other' so isMuted catches it: a residue of small categories is not a
+    // finding, and at full strength it was drawing the longest bar on the card.
+    head.push({ value: 'other', label: 'Other · ' + tail.length + ' more',
                 count: spare });
     return head;
   }
 
+  // Rows past this are folded away, so one long list cannot stretch its whole
+  // row of cards and leave the short ones sitting in white space.
+  var SHOW = 6;
+  var expanded = {};
+
+  // Muted: an absence, a residue or a bucket we could not name. None of them
+  // is a finding, and at full strength they out-shout the ones that are.
+  var MUTED = {unrated: 1, other: 1, unclassified: 1, unspecified: 1,
+               Unspecified: 1, Unrecognised: 1, unrecorded: 1};
+
+  function isMuted(value) {
+    return !!MUTED[value];
+  }
+
+  function pctText(count, total) {
+    var pct = total ? (count * 100 / total) : 0;
+    return pct >= 10 ? Math.round(pct) + '%' : pct.toFixed(1) + '%';
+  }
+
+  function barRow(entry, total, widest) {
+    var row = document.createElement('div');
+    row.className = 'trk-bar' + (isMuted(entry.value) ? ' is-muted' : '');
+    row.innerHTML =
+      '<span class="trk-bar-label"></span>' +
+      '<span class="trk-bar-track"><span class="trk-bar-fill"></span></span>' +
+      '<span class="trk-bar-n"></span>' +
+      '<span class="trk-bar-pct"></span>';
+    var label = row.querySelector('.trk-bar-label');
+    label.textContent = entry.label;
+    label.title = entry.label;
+    // A floor, so one lead is a mark you can see rather than nothing at all.
+    row.querySelector('.trk-bar-fill').style.width =
+      widest ? Math.max(2, entry.count * 100 / widest) + '%' : '0%';
+    row.querySelector('.trk-bar-n').textContent = entry.count;
+    row.querySelector('.trk-bar-pct').textContent = pctText(entry.count, total);
+    return row;
+  }
+
   function bars(field, rows) {
     var host = root.querySelector('[data-trk-bars="' + field + '"]');
+    var note = root.querySelector('[data-trk-note="' + field + '"]');
     if (!host) return;
     var entries = tally(rows, field);
-    if (field === 'industry' || field === 'location') {
-      entries = collapse(entries, rows.length);
-    }
-    var top = entries.reduce(function (m, e) { return Math.max(m, e.count); }, 0);
+    if (field === 'industry' || field === 'location') entries = collapse(entries);
     host.innerHTML = '';
+    if (note) note.textContent = entries.length ? entries.length + ' values' : '';
+
     if (!entries.length) {
-      host.innerHTML = '<p class="pulse-meta">Nothing in this view.</p>';
+      host.innerHTML = '<p class="trk-none">Nothing in this view.</p>';
+      if (note) note.textContent = '';
       return;
     }
-    entries.forEach(function (e) {
-      var pct = rows.length ? (e.count * 100 / rows.length) : 0;
-      var row = document.createElement('div');
-      row.className = 'trk-bar' + (e.value === 'unrated' ? ' is-muted' : '');
-      row.innerHTML =
-        '<span class="trk-bar-label"></span>' +
-        '<span class="trk-bar-track"><span class="trk-bar-fill"></span></span>' +
-        '<span class="trk-bar-n"></span>';
-      row.querySelector('.trk-bar-label').textContent = e.label;
-      row.querySelector('.trk-bar-fill').style.width =
-        (top ? (e.count * 100 / top) : 0) + '%';
-      row.querySelector('.trk-bar-n').textContent =
-        e.count + ' · ' + pct.toFixed(pct < 10 ? 1 : 0) + '%';
-      host.appendChild(row);
+    // One value is one full-width bar saying nothing. Say it in words.
+    if (entries.length === 1) {
+      var only = document.createElement('p');
+      only.className = 'trk-single';
+      only.innerHTML = 'Every lead · <b></b>';
+      only.querySelector('b').textContent = entries[0].label;
+      host.appendChild(only);
+      if (note) note.textContent = '';
+      return;
+    }
+
+    var widest = entries.reduce(function (m, e) { return Math.max(m, e.count); }, 0);
+    var open = expanded[field];
+    var shown = open ? entries : entries.slice(0, SHOW);
+    shown.forEach(function (e) { host.appendChild(barRow(e, rows.length, widest)); });
+
+    if (entries.length > SHOW) {
+      var more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'trk-more';
+      more.textContent = open ? 'Show fewer'
+                              : 'Show ' + (entries.length - SHOW) + ' more';
+      more.addEventListener('click', function () {
+        expanded[field] = !open;
+        render();
+      });
+      host.appendChild(more);
+    }
+  }
+
+  // The ICP distribution as one run, in band order, strongest first.
+  function stack(rows) {
+    var host = root.querySelector('[data-trk-stack]');
+    var legend = root.querySelector('[data-trk-legend]');
+    var note = root.querySelector('[data-trk-icp-note]');
+    var entries = tally(rows, 'icp_band');
+    var byKey = {};
+    entries.forEach(function (e) { byKey[e.value] = e; });
+
+    host.innerHTML = '';
+    legend.innerHTML = '';
+    var graded = rows.filter(function (r) { return r.icp !== null; }).length;
+    note.textContent = rows.length
+      ? graded + ' of ' + rows.length + ' graded' : '';
+
+    if (!rows.length) {
+      host.innerHTML = '';
+      legend.innerHTML = '<p class="trk-none">Nothing in this view.</p>';
+      return;
+    }
+    ORDER.icp_band.forEach(function (key) {
+      var e = byKey[key];
+      if (!e || !e.count) return;
+      var seg = document.createElement('span');
+      seg.className = 'trk-seg trk-seg-' + key;
+      seg.style.width = (e.count * 100 / rows.length) + '%';
+      seg.title = e.label + ' · ' + e.count;
+      host.appendChild(seg);
+
+      var item = document.createElement('span');
+      item.className = 'trk-legend-item' + (key === 'unrated' ? ' is-muted' : '');
+      item.innerHTML = '<i class="trk-dot-' + key + '"></i>' +
+                       '<span class="trk-legend-label"></span>' +
+                       '<b></b><span class="trk-legend-pct"></span>';
+      item.querySelector('.trk-legend-label').textContent = e.label;
+      item.querySelector('b').textContent = e.count;
+      item.querySelector('.trk-legend-pct').textContent =
+        pctText(e.count, rows.length);
+      legend.appendChild(item);
     });
   }
 
@@ -341,7 +440,8 @@
         ? 'All ' + ROWS.length + ' leads on the sheet.'
         : 'Showing ' + rows.length + ' of ' + ROWS.length + ' leads.';
 
-    ['icp_band', 'headcount', 'seniority', 'industry', 'location', 'channel']
+    stack(rows);
+    ['seniority', 'headcount', 'industry', 'channel', 'location', 'category']
       .forEach(function (f) { bars(f, rows); });
     ['icp_band', 'headcount', 'seniority', 'channel', 'category']
       .forEach(chips);
@@ -387,7 +487,7 @@
     }, 150);
   });
   root.querySelector('[data-trk-clear]').addEventListener('click', function () {
-    chosen = {}; dropdown = {}; search = ''; period = 'range';
+    chosen = {}; dropdown = {}; search = ''; period = 'range'; expanded = {};
     box.value = '';
     root.querySelector('[data-trk-period]').value = 'range';
     render();
