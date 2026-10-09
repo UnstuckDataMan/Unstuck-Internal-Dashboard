@@ -278,6 +278,13 @@
   .progress-gap.fy { border-left-color: rgba(245, 158, 11, .55); background: repeating-linear-gradient(135deg, transparent 0 5px, rgba(245, 158, 11, .30) 5px 6px); }
   .progress-gap.fy span { color: var(--warn); }
   .progress-goal.fy { background: var(--warn); }
+  /* Year-to-date bar: labelled target flags above it, and fatter goal lines with a wider hover zone */
+  .progress-flags { position: relative; margin-bottom: 4px; }
+  .progress-flag { position: absolute; font-size: 10px; font-weight: 700; line-height: 14px; white-space: nowrap; padding: 2px 8px; border-radius: 6px; cursor: default; background: rgba(255,255,255,.09); color: var(--text); border-bottom: 2px solid #fff; transition: filter .12s; }
+  .progress-flag.fy { background: rgba(245,158,11,.17); color: var(--warn); border-bottom-color: var(--warn); }
+  .progress-flag:hover { filter: brightness(1.3); }
+  .progress-goal::before { content: ''; position: absolute; top: 0; bottom: 0; left: -7px; right: -7px; }
+  .progress-goal.fy { width: 4px; box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 0 10px rgba(245,158,11,.6); }
   /* Year-to-date bar split into months: each section is that month's target (cumulative), labelled underneath */
   .progress-bar-wrap { flex: 1; min-width: 0; }
   .progress-bar-wrap > .progress-bar { width: 100%; }
@@ -1676,11 +1683,11 @@ const barTip = document.createElement('div');
 barTip.id = 'bar-tip';
 document.body.appendChild(barTip);
 document.addEventListener('mousemove', e => {
-  const el = e.target.closest ? e.target.closest('.progress-bar > [data-tip]') : null;
+  const el = e.target.closest ? e.target.closest('.progress-bar > [data-tip], .progress-flag[data-tip]') : null;
   if (!el) { barTip.classList.remove('on'); return; }
   const [what, ...rest] = el.dataset.tip.split(' — ');
   const val = rest.join(' — ');
-  barTip.innerHTML = `<div class="bt-what">${esc(what)}</div>${val ? `<div class="bt-val">${esc(val)}</div>` : ''}${el.dataset.desc ? `<div class="bt-desc">${esc(el.dataset.desc)}</div>` : ''}${el.closest('.progress-bar').dataset.bar ? '<div class="bt-hint">Click the bar for the full breakdown</div>' : ''}`;
+  barTip.innerHTML = `<div class="bt-what">${esc(what)}</div>${val ? `<div class="bt-val">${esc(val)}</div>` : ''}${el.dataset.desc ? `<div class="bt-desc">${esc(el.dataset.desc)}</div>` : ''}${(el.closest('.progress-bar') || el.closest('.progress-bar-wrap')?.querySelector('.progress-bar'))?.dataset.bar ? '<div class="bt-hint">Click the bar for the full breakdown</div>' : ''}`;
   barTip.classList.add('on');
   const w = barTip.offsetWidth, h = barTip.offsetHeight;
   barTip.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, e.clientX - w / 2)) + 'px';
@@ -4326,12 +4333,23 @@ function revBarRowHtml(label, bar, subLabel, idx = 0, cls = '', noDetail = false
   // sub-label) so every bar track starts and ends at the same x position —
   // otherwise a date range on Year/the scale bar but not Month shifts that
   // row's track and the bars stop lining up.
+  // Year-to-date bar: the two targets get always-visible labelled flags above the bar (easy to see, and easy to
+  // hover — the thin lines themselves are hard to hit). If the two would crowd each other the full-year flag moves up a row.
+  let flagsHtml = '';
+  if (bar.sections && bar.goal2Pct != null) {
+    const stacked = bar.goalPct != null && bar.goal2Pct - bar.goalPct < 30;
+    const flag = (cls, text, tip, desc, pct, side, row) => `<div class="progress-flag ${cls}" data-tip="${esc(tip)}" data-desc="${esc(desc)}" style="${side === 'right' ? `right:calc(${100 - pct}% - 2px)` : `left:calc(${pct}% - 2px)`}; top:${row * 19}px">${esc(text)}</div>`;
+    flagsHtml = `<div class="progress-flags" style="height:${stacked ? 38 : 19}px">`
+      + (bar.goalPct != null ? flag('', `Target to date ${fmtMoney(bar.goalAmt)}`, `Target to date — ${fmtMoney(bar.goalAmt)}`, 'The cumulative target for the months gone so far', bar.goalPct, bar.goalPct > 80 ? 'right' : 'left', 0) : '')
+      + flag('fy', `Full-year target ${fmtMoney(bar.goal2Amt)}`, `Full-year target — ${fmtMoney(bar.goal2Amt)}`, 'The cumulative target for the whole financial year (August to July)', bar.goal2Pct, 'right', stacked ? 1 : 0)
+      + '</div>';
+  }
   return `<div class="progress-bar-row ${cls}" style="--i:${idx}">
     <div class="progress-bar-label" style="width:120px; white-space:normal; line-height:1.3; text-transform:none; letter-spacing:0; font-size:12px">
       ${esc(label)}
       ${subLabel ? `<div style="font-size:9px; font-weight:600; letter-spacing:0; text-transform:none; color:var(--text-muted); margin-top:2px">${esc(subLabel)}</div>` : ''}
     </div>
-    ${bar.sections ? '<div class="progress-bar-wrap">' : ''}
+    ${bar.sections ? '<div class="progress-bar-wrap">' : ''}${flagsHtml}
     <div class="progress-bar"${detailId ? ` data-bar="${detailId}"` : ''} title="Landed (green) vs. expected if every due invoice lands (orange) vs. goal (hashed)${subLabel ? ` — ${esc(subLabel)}` : ''}">
       <div class="progress-seg" data-desc="Cash received — invoices already paid" style="width:${bar.landedPct}%; background:var(--success)" title="Landed — ${esc(fmtMoney(bar.landedAmt))}">${bar.landedPct >= 14 ? `<span>${esc(fmtMoney(bar.landedAmt))}</span>` : ''}</div>
       <div class="progress-seg" data-desc="Invoices due in this period that haven't been paid yet (uncertain ones excluded)" style="width:${bar.expectedPct}%; background:var(--warn)" title="Expected, not yet landed — ${esc(fmtMoney(bar.expectedAmt))}">${bar.expectedPct >= 14 ? `<span>${esc(fmtMoney(bar.expectedAmt))}</span>` : ''}</div>
@@ -4339,7 +4357,7 @@ function revBarRowHtml(label, bar, subLabel, idx = 0, cls = '', noDetail = false
       ${(bar.sections || []).slice(0, -1).map(sc => `<div class="progress-split" style="left:${sc.to / bar.scale * 100}%"></div>`).join('')}
       ${bar.goal2GapPct > 0 ? `<div class="progress-gap fy" data-desc="Still needed, beyond the target to date, to reach the full-year target" style="width:${bar.goal2GapPct}%" title="Gap to the full-year target — ${esc(fmtMoney(bar.goal2GapAmt))}">${bar.goal2GapPct >= 14 ? `<span>${esc(fmtMoney(bar.goal2GapAmt))}</span>` : ''}</div>` : ''}
       ${bar.goalPct != null ? `<div class="progress-goal" data-desc="${bar.goal2Amt != null ? 'The cumulative target for the months gone so far' : 'The target for this period'}" style="left:min(calc(${bar.goalPct}% - 1px), calc(100% - 2px))" title="${bar.goal2Amt != null ? 'Target to date' : 'Goal'} — ${esc(fmtMoney(bar.goalAmt))}${bar.goalGapPct > 0 ? '' : ' (exceeded)'}"></div>` : ''}
-      ${bar.goal2Pct != null ? `<div class="progress-goal fy" data-desc="The cumulative target for the whole financial year (August to July)" style="left:min(calc(${bar.goal2Pct}% - 1px), calc(100% - 2px))" title="Full-year target — ${esc(fmtMoney(bar.goal2Amt))}"></div>` : ''}
+      ${bar.goal2Pct != null ? `<div class="progress-goal fy" data-desc="The cumulative target for the whole financial year (August to July)" style="left:min(calc(${bar.goal2Pct}% - 2px), calc(100% - 4px))" title="Full-year target — ${esc(fmtMoney(bar.goal2Amt))}"></div>` : ''}
     </div>
     ${bar.sections ? `<div class="progress-months">${bar.sections.map(sc => { const cur = currentMonthKey(); return `<span class="pm ${sc.m < cur ? 'done' : sc.m === cur ? 'cur' : 'future'}" style="left:${(sc.from + sc.to) / 2 / bar.scale * 100}%" title="${esc(monthLabel(sc.m))} — target ${esc(fmtMoney(sc.target))} · cumulative ${esc(fmtMoney(sc.to))}">${MON3[Number(sc.m.slice(5)) - 1]}</span>`; }).join('')}</div></div>` : ''}
   </div>`;
@@ -4436,7 +4454,7 @@ function renderInsOverview(bodyEl, goTo) {
   // Year to date (1 Aug to now) sits between the current month and the 12-month bar —
   // left out when it's just the current month (August), and merged into the 12-month
   // bar's label when it covers exactly the same months (July).
-  const ytdMonths = rows.filter(r => r.m < monthKey && r.m >= fiscalYearStart(monthKey)).map(r => r.m);   // complete months only — the current month has its own bar
+  const ytdMonths = rows.filter(r => r.m <= monthKey && r.m >= fiscalYearStart(monthKey)).map(r => r.m);   // year to date includes the current month
   const sameMonthList = (a, b) => a.length === b.length && a.every((m, i) => m === b[i]);
   const ytdIsYear = false;   // Year to date is the whole financial year now, so it never merges into the 12-month bar
   const ytdSums = sumRevenueOverMonths(rows, ytdMonths);
@@ -4768,7 +4786,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   const salesRows = salesAttributionStats();
 
   bodyEl.innerHTML = `
-    ${insSectionHead('This period', 'The current month first, then each past window from shortest to longest — landed vs. expected if every invoice due lands vs. goal. Past windows are complete months, ending last month.')}
+    ${insSectionHead('This period', 'The current month first, then each past window from shortest to longest — landed vs. expected if every invoice due lands vs. goal. Past windows are complete months, ending last month (Year to date includes the current month).')}
     <div class="chart-card">
       ${insPeriodBarsHtml(snapRows, { custom: true })}
       ${revBarLegendHtml({ fy: true })}
@@ -4883,7 +4901,7 @@ function insPeriodBarsHtml(rows, { custom = false } = {}) {
   const fyStart = fiscalYearStart(cur);
   const fyMonthList = Array.from({ length: 12 }, (_, k) => addMonths(fyStart, k));
   const fyGoal = fyMonthList.reduce((g, m) => { const t = targetForMonth(m); return t == null ? g : (g || 0) + t; }, null);
-  const ytdMonths = done.filter(r => r.m >= fyStart).map(r => r.m);
+  const ytdMonths = upTo.filter(r => r.m >= fyStart).map(r => r.m);   // the current month counts towards year to date
   if (ytdMonths.length) bars.push({ label: 'Year to date', months: ytdMonths, fy: true });
   bars.sort((a, b) => a.months.length - b.months.length);
 
@@ -6166,7 +6184,7 @@ function rptStatsRevenue(rows, cur) {
   const fyList = Array.from({ length: 12 }, (_, k) => addMonths(fyStart, k));
   const fyGoal = fyList.reduce((g, m) => { const t = targetForMetric('mrr', m); return t == null ? g : (g || 0) + t; }, null);
   const periods = [['This month', [cur], false], ['Last 3 months', trailingMonths(rows, 3), false], ['Last 6 months', trailingMonths(rows, 6), false],
-    ['Year to date', upTo.filter(r => r.m < cur && r.m >= fyStart).map(r => r.m), false], ['Last 12 months', trailingMonths(rows, 12), false], ['All time', upTo.filter(r => r.m < cur).map(r => r.m), true]];
+    ['Year to date', upTo.filter(r => r.m >= fyStart).map(r => r.m), false], ['Last 12 months', trailingMonths(rows, 12), false], ['All time', upTo.filter(r => r.m < cur).map(r => r.m), true]];
   const prow = ([label, months, noGoal]) => {
     const s = sumRevenueOverMonths(rows, months);
     const goalV = noGoal ? null : s.goal;
@@ -6181,7 +6199,7 @@ function rptStatsRevenue(rows, cur) {
     const ytd = sumRevenueOverMonths(rows, periods[3][1]);
     blocks.push({ t: 'p', text: `Financial year ${monthRangeLabel(fyList)}: full-year target ${fmtMoney(fyGoal)}. Expected so far is ${fmtMoney(ytd.expected)} (${Math.round(ytd.expected / fyGoal * 100)}% of the year's target); the target for the months gone is ${ytd.goal != null ? fmtMoney(ytd.goal) : '—'}.` });
   }
-  blocks.push({ t: 'note', text: 'Every period except This month covers complete months only, ending last month. Landed is counted in the month the money was paid; expected in the month an invoice falls due. Expected total = landed + still to land. The target for a period is the sum of the targets set for its months (a month with no target adds nothing), and % of target compares expected revenue in just the months that have a target with those targets.' });
+  blocks.push({ t: 'note', text: 'Every period except This month and Year to date covers complete months only, ending last month; Year to date includes the current month. Landed is counted in the month the money was paid; expected in the month an invoice falls due. Expected total = landed + still to land. The target for a period is the sum of the targets set for its months (a month with no target adds nothing), and % of target compares expected revenue in just the months that have a target with those targets.' });
 
   // month by month
   const months12 = upTo.slice(-12);
