@@ -379,6 +379,7 @@
     font-size: 11px; font-weight: 800; line-height: 1; vertical-align: middle; cursor: help;
     background: rgba(245,158,11,.14); color: var(--warn); border: 1px dashed rgba(245,158,11,.65);
   }
+  .due-warn { margin-left: 6px; color: var(--warn); font-size: 13px; line-height: 1; vertical-align: middle; cursor: help; }
   td.num, th.num { text-align: right; }
   .dim { color: var(--text-dim); font-size: 12px; }
   .muted { color: var(--text-muted); }
@@ -2269,6 +2270,11 @@ function renderInvoicesTable() {
   wireInvoiceRowActions(view);
 }
 
+// An invoice that falls due before it is issued is almost always a typo in one of the two dates — flag it.
+const dueBeforeIssue = inv => !!(inv.issueDate && inv.dueDate && inv.dueDate < inv.issueDate);
+const dueWarnHtml = (inv, style = '') => dueBeforeIssue(inv)
+  ? `<span class="due-warn"${style ? ` style="${style}"` : ''} title="Check the dates — this invoice is due (${esc(fmtDate(inv.dueDate))}) before it is issued (${esc(fmtDate(inv.issueDate))})">⚠</span>` : '';
+
 function invoiceRow(inv) {
   const c = clientById(inv.clientId);
   const od = isOverdue(inv);
@@ -2297,7 +2303,7 @@ function invoiceRow(inv) {
         <div class="sub">${esc(c?.qbName || '')}</div></td>
     <td class="dim small">${emailCell}</td>
     <td>${issueOd ? `<span style="color:var(--danger);font-weight:600">${fmtDate(inv.issueDate)}</span>` : fmtDate(inv.issueDate)}</td>
-    <td>${od ? `<span style="color:var(--danger);font-weight:600">${fmtDate(inv.dueDate)}</span>` : fmtDate(inv.dueDate)}</td>
+    <td style="white-space:nowrap">${od ? `<span style="color:var(--danger);font-weight:600">${fmtDate(inv.dueDate)}</span>` : fmtDate(inv.dueDate)}${dueWarnHtml(inv)}</td>
     <td class="num">${amountCell}</td>
     <td class="num">${inv.monthNumber ?? '—'}</td>
     <td style="text-align:center"><input type="checkbox" data-inv-issued="${inv.id}" ${inv.issued ? 'checked' : ''}></td>
@@ -2335,7 +2341,7 @@ function calChip(inv, kind) {
   const overdue = kind === 'due' && isOverdue(inv);
   return `<button type="button" class="cal-chip" data-inv="${inv.id}">
     <span class="cal-chip-dot ${kind}${overdue ? ' overdue' : ''}"></span>
-    <span class="cal-chip-name">${esc(c?.companyName || '?')}</span>
+    <span class="cal-chip-name">${esc(c?.companyName || '?')}</span>${dueWarnHtml(inv, 'margin:0 4px 0 0')}
     ${isUncertainUnpaid(inv) ? '<span class="unc-badge" style="margin:0 4px 0 0" title="Uncertain — not counted in forecasts until paid">?</span>' : ''}<span class="cal-chip-amt">${fmtMoney(inv.amountGBP)}</span>
   </button>`;
 }
