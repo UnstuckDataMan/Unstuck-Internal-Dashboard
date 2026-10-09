@@ -1501,6 +1501,16 @@ def _ab_panel(request: Request, client_id: str, rng: dict, error: str = ""):
     manual = abtest.manual_breakdown(_manual_ab_campaigns(client_id))
     manual["copy_note"] = _attach_manual_copy(client_id, manual, copy_index)
 
+    # Offered so a campaign whose copy source was never recorded can have one
+    # set here instead of staying unresolvable forever. Only worth a read when
+    # there is actually a campaign missing one.
+    copy_options = (
+        shared_copy_bank.profile_options(client_id)
+        if any(not (b.get("territory") and b.get("industry"))
+               for b in manual["campaigns"])
+        else {"territories": [], "industries": []}
+    )
+
     return templates.TemplateResponse("partials/pulse_ab.html", {
         "request":          request,
         "client_id":        client_id,
@@ -1508,6 +1518,7 @@ def _ab_panel(request: Request, client_id: str, rng: dict, error: str = ""):
         "smartlead_error":  smartlead_error,
         "smartlead_more":   max(0, len(campaigns) - _AB_MAX_CAMPAIGNS),
         "manual":           manual,
+        "copy_options":     copy_options,
         "range":            rng,
         "range_key":        rng["preset"],
         "error":            error,
@@ -1527,6 +1538,84 @@ async def client_ab_tests(
                          _resolve_range(range, date_from, date_to))
     except PulseNotReady as exc:
         return _not_ready_box(exc)
+
+
+@router.post("/api/outbound-pulse/clients/{client_id}/copy-source")
+async def set_campaign_copy_source(
+    request:      Request,
+    client_id:    str,
+    campaign_ref: str = Form(""),
+    territory:    str = Form(""),
+    industry:     str = Form(""),
+    range:        str = Form("30d"),
+    user:         dict = Depends(auth.require_login),
+):
+    """Record which Copy Bank entry a manual campaign was built from.
+
+    The merge is supposed to store this when the sheet is created, and only
+    does so when somebody used the Copy Bank loader in that same session — so
+    every campaign that predates the capture, and plenty that do not, resolve
+    to nothing and the panel can only say "no copy source recorded". The text
+    is already written down; what is missing is the pointer to it. This is
+    that pointer, set by hand, once per campaign.
+
+    Writes to the mail-merge `campaigns` row rather than anywhere in Pulse,
+    because that is where the merge writes it and a second home would drift.
+    """
+    rng = _resolve_range(range, "", "")
+    try:
+        if not campaign_ref:
+            return _ab_panel(request, client_id, rng,
+                             error="That campaign could not be identified.")
+        if not territory or not industry:
+            return _ab_panel(request, client_id, rng,
+                             error="Choose both a territory and an industry — "
+                                   "a Copy Bank entry is the pair.")
+        if not _save_copy_source(client_id, campaign_ref, territory, industry):
+            return _ab_panel(request, client_id, rng,
+                             error="Could not record that copy source. The "
+                                   "details are in the server log.")
+        return _ab_panel(request, client_id, rng)
+    except PulseNotReady as exc:
+        return _not_ready_box(exc)
+
+
+def _save_copy_source(client_id: str, campaign_ref: str,
+                      territory: str, industry: str) -> bool:
+    """PATCH the campaigns row, scoped to this client.
+
+    Scoped on client_id as well as id: the campaign ref arrives from the
+    browser, and a copy source belongs to the client whose Copy Bank it names.
+    """
+    from app.utils.supabase import SUPABASE_URL, sb_headers
+
+    import requests as http
+
+    if not SUPABASE_URL:
+        return False
+    try:
+        r = http.patch(
+            f"{SUPABASE_URL}/rest/v1/campaigns",
+            params={"id": f"eq.{campaign_ref}", "client_id": f"eq.{client_id}"},
+            headers={**sb_headers(), "Prefer": "return=representation"},
+            json={"copy_territory": territory, "copy_industry": industry},
+            timeout=15,
+        )
+    except Exception as exc:
+        logger.warning("Pulse A/B: could not set copy source on %s: %s",
+                       campaign_ref, exc)
+        return False
+    if r.status_code >= 400:
+        logger.warning("Pulse A/B: copy source rejected for %s: %s %s",
+                       campaign_ref, r.status_code, r.text[:200])
+        return False
+    # An empty body means the filter matched nothing — a campaign id that is
+    # not this client's, or no longer exists. Reporting that as success would
+    # leave the panel unchanged with no explanation.
+    try:
+        return bool(r.json())
+    except Exception:
+        return False
 
 
 @router.post("/api/outbound-pulse/clients/{client_id}/copy")

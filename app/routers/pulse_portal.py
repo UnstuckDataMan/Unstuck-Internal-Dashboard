@@ -94,7 +94,39 @@ def _denied(request: Request, message: str) -> HTMLResponse:
     return _private(response)
 
 
-def _snapshot_view(report: dict) -> dict:
+def _tracker_url(client_id: str) -> str:
+    """The sheet currently linked for this client, or "".
+
+    Never raises: the portal is client-facing and a missing row must cost at
+    most the link, never the report.
+    """
+    try:
+        linked = store.get_tracker(client_id) or {}
+    except Exception:
+        return ""
+    return str(linked.get("sheet_url") or "")
+
+
+def _with_tracker_link(icp: dict, tracker_url: str) -> dict:
+    """The lead-quality section, with the currently-linked sheet as a fallback.
+
+    The URL is frozen into the snapshot at publish so a report points at the
+    sheet its own figures came from. But every report published before that
+    was captured carries none, and those are most of them — so a client whose
+    tracker has been linked all along still saw no link. The live one fills
+    that gap.
+
+    Only ever fills a gap. get_tracker is deliberately soft and returns None
+    for a read that failed as well as for a client with no tracker, so letting
+    an empty result clear the frozen URL would make a transient database blip
+    quietly strip the link off every report that had one.
+    """
+    if not icp or icp.get("sheet_url") or not tracker_url:
+        return icp
+    return dict(icp, sheet_url=tracker_url)
+
+
+def _snapshot_view(report: dict, tracker_url: str = "") -> dict:
     """Unpack a published report's frozen figures for the template.
 
     A published report renders from this and never re-queries. The numbers a
@@ -131,7 +163,7 @@ def _snapshot_view(report: dict) -> dict:
         "ab":         snapshot.get("ab") or [],
         # Absent from every report published before lead quality existed, so
         # read for what it is rather than indexed.
-        "icp":        snapshot.get("icp") or {},
+        "icp":        _with_tracker_link(snapshot.get("icp") or {}, tracker_url),
         # Gate on leads rather than on the key: a period the sheet covers but
         # has nothing in gets no card, instead of a card of zeros that reads
         # as a campaign that failed.
@@ -214,7 +246,7 @@ async def portal(request: Request, token: str, report: str = Query("")):
         "position":    len(reports) - index if reports else 0,
         "generated":   datetime.now(timezone.utc),
     }
-    context.update(_snapshot_view(current) if current else {
+    context.update(_snapshot_view(current, _tracker_url(client_id)) if current else {
         "counts": {}, "funnel": [], "linkedin": {}, "has_linkedin": False,
         "trend": {"unit": "day", "buckets": []}, "ab": [], "icp": {},
         "has_icp": False, "total_sent": 0, "email_sent": 0,
