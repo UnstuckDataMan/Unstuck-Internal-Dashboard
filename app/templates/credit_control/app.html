@@ -202,6 +202,29 @@
   .cmpx-stat .v.sm { font-size: 18px; }
   .cmpx-stat .s { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
   .cmpx-note { font-size: 11px; color: var(--text-dim); margin-top: auto; padding-top: 4px; }
+  .cmpx-tag { gap: 8px; }
+  .cmpx-tl, .cmpx-tr { display: flex; align-items: center; gap: 3px; min-width: 0; }
+  .cmpx-name { background: transparent; border: 1px dashed transparent; border-radius: 6px; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; padding: 2px 5px; margin-left: -2px; min-width: 5ch; max-width: 16ch; cursor: text; }
+  .cmpx-name:hover { border-color: var(--border-hi); }
+  .cmpx-name:focus { outline: none; border-color: var(--c); background: rgba(255,255,255,.05); }
+  .cmpx-mv { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 3px; }
+  .cmpx-mv:hover:not(:disabled) { color: var(--c); }
+  .cmpx-mv:disabled { opacity: .25; cursor: default; }
+  .cmpx-col.dragging { opacity: .45; }
+  .cmpx-col { cursor: grab; }
+  .cmpx-col:active { cursor: grabbing; }
+  .cmpx-col select, .cmpx-col button, .cmpx-col .date-field { cursor: pointer; }
+  .cmpx-cols { position: relative; }
+  .cmpx-gap { position: absolute; top: 0; width: 4px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 10px var(--accent); opacity: 0; pointer-events: none; transition: left .08s ease, opacity .1s; z-index: 2; }
+  .cmpx-gap.on { opacity: 1; }
+  .cmpx-col { transition: opacity .22s ease; }
+  .cmpx-col.focus { flex: 1.5 1 340px; max-width: 480px; box-shadow: 0 0 0 1px var(--c), 0 10px 30px rgba(0,0,0,.35); }
+  .cmpx-col.focus .cmpx-stat .v { font-size: 30px; }
+  .cmpx-col.focus .cmpx-stat .v.sm { font-size: 24px; }
+  .cmpx-col.focus .cmp-badge { font-size: 17px; }
+  .cmpx-col.faded { opacity: .28; filter: saturate(.5); }
+  .cmpx-col.armed { box-shadow: 0 0 0 2px var(--c), 0 0 18px rgba(255,255,255,.14); }
+  .cmpx-hint { flex-basis: 100%; font-size: 12px; font-weight: 600; color: var(--accent); }
   .cmpx-add { flex: 0 0 auto; min-width: 96px; border: 1px dashed var(--border-hi); background: transparent; color: var(--text-dim); border-radius: 12px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
   .cmpx-add .plus { font-size: 26px; line-height: 1; }
   .cmpx-add:hover { color: var(--accent); border-color: var(--accent); }
@@ -4612,7 +4635,19 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   const metric = state.insRevMetric;
   // Every view has its own targets now, so projections (target only) work on all three.
   const projMonths = insProjectionMonths(metric);
-  const revMonthRows = [...pastRows, ...projMonths.map(m => ({ m, projected: true }))];
+  // The graph also stretches to cover every compare timeframe (custom ranges / picked months), however long or
+  // however long ago, so what is being compared is always visible on it.
+  const cmpExt = insCmpExtent();
+  const firstRevMonth = revenueMonths[0] || null;
+  let chartPast = pastRows, chartProj = projMonths;
+  if (cmpExt) {
+    const pastFirst = pastRows.length ? pastRows[0].m : null, pastLast = pastRows.length ? pastRows[pastRows.length - 1].m : monthKey;
+    if (cmpExt.lo <= monthKey && (!pastFirst || cmpExt.lo < pastFirst)) chartPast = insMonthSpan(cmpExt.lo, pastLast);
+    const projLast = projMonths.length ? projMonths[projMonths.length - 1] : null;
+    if (cmpExt.hi > monthKey && (!projLast || cmpExt.hi > projLast)) chartProj = insMonthSpan(addMonths(monthKey, 1), cmpExt.hi).map(r => r.m);
+  }
+  const chartExtended = chartPast !== pastRows || chartProj !== projMonths;
+  const revMonthRows = [...chartPast, ...chartProj.map(m => ({ m, projected: true }))];
   // Average client value and client volume come straight from each month's invoicing: how many
   // clients were invoiced, and what was billed to them (MRR ÷ clients = average client value).
   const byMonthRow = new Map(snapRows.map(r => [r.m, r]));
@@ -4633,9 +4668,9 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
       ? { m: r.m, v: null }
       : r.m === monthKey
         ? { m: r.m, v: monthExpected, color: 'var(--warn)', tooltipLabel: 'MRR — expected to land' }
-        : { m: r.m, v: landedForMonth(r.m) }) },
+        : { m: r.m, v: firstRevMonth && r.m < firstRevMonth ? null : landedForMonth(r.m) }) },
   ];
-  const projectedFrom = projMonths[0] || null;
+  const projectedFrom = chartProj[0] || null;
   const revMonthlyChart = state.insRevMonthlyChart === 'bar'
     ? buildGroupedBarChart(revMonthlySeries, { yUnit: metric === 'vol' || metric === 'sales' ? '' : '£', id: 'ins-rev-m', lineSeries: metric === 'sales' ? ['Manual target', 'Calculated target'] : ['Target'], projectedFrom })
     : buildLineChart(revMonthlySeries, { yUnit: metric === 'vol' || metric === 'sales' ? '' : '£', id: 'ins-rev-m', projectedFrom });
@@ -4663,7 +4698,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
             ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
             : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
         <span class="key"><span class="dot" style="background:${metricInfo.color}"></span>${esc(metricInfo.label)}</span>
-        ${projMonths.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
+        ${chartProj.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
         <span class="key" style="opacity:.85">${esc(metricInfo.note)}</span>
       </div>`
     : `<div class="chart-legend">
@@ -4672,7 +4707,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
           : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
         <span class="key"><span class="dot" style="background:var(--success)"></span>${insTerm('MRR')}</span>
         <span class="key"><span class="dot" style="background:var(--warn)"></span>${insTerm('MRR')} — expected to land (current month)</span>
-        ${projMonths.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
+        ${chartProj.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
       </div>`;
 
   // Three simple boxes above the chart: what it is, this month's value, and the % change on last month.
@@ -4727,6 +4762,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
       ${legendHtml}
       <div class="chart-wrap" id="ins-rev-m-wrap">${revMonthlyChart.html}</div>
       ${projNote ? `<p class="note" style="margin:10px 0 0">${esc(projNote)}</p>` : ''}
+      ${chartExtended ? `<p class="note" style="margin:10px 0 0">The graph is stretched to show your compare timeframes (${esc(monthRangeLabel(revMonthRows.map(r => r.m)))}). Past data and Projections above still set the normal window.</p>` : ''}
       ${comparisonHtml}
     </div>
 
@@ -4770,7 +4806,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   });
 
   if (state.insRevMonthlyChart === 'line' && revMonthlyChart?.months?.length) wireLineChartHover(bodyEl.querySelector('#ins-rev-m-wrap'), revMonthlyChart);
-  insCmpMount({ monthKey, monthExpected, pastMonths: pastRows.map(r => r.m), projMonths: insProjectionMonths('mrr'), chart: revMonthlyChart, wrap: bodyEl.querySelector('#ins-rev-m-wrap') });
+  insCmpMount({ monthKey, monthExpected, extended: chartExtended, pastMonths: pastRows.map(r => r.m), projMonths: insProjectionMonths('mrr'), chart: revMonthlyChart, wrap: bodyEl.querySelector('#ins-rev-m-wrap') });
 }
 
 /* ── Revenue "This period" bars ── */
@@ -4912,8 +4948,51 @@ let insCmpSeq = 0;
 let insCmpHover = null;   // month under the cursor while a "Single month" slot is waiting for a pick
 const INS_CMP_COLORS = ['#22d3ee', '#f472b6', '#facc15', '#fb923c', '#a3e635'];
 const INS_CMP_MAX_OTHERS = 4;
-const newCmpSel = type => ({ id: ++insCmpSeq, type });
+const newCmpSel = (type, taken) => {
+  const inUse = taken || (state.insCmp ? [state.insCmp.base, ...state.insCmp.others].map(s => s.color) : []);
+  const id = ++insCmpSeq;
+  return { id, type, color: INS_CMP_COLORS.find(c => !inUse.includes(c)) || INS_CMP_COLORS[id % INS_CMP_COLORS.length] };   // each box keeps its colour wherever it is moved
+};
 const insCmpFind = id => state.insCmp && [state.insCmp.base, ...state.insCmp.others].find(s => s.id === id);
+// Move a box to a position in the row; position 0 is the base, so moving one there makes it the base (the old base
+// slides along to the first comparison spot).
+function insCmpMove(id, toIndex) {
+  const c = state.insCmp;
+  const list = [c.base, ...c.others];
+  const from = list.findIndex(s => s.id === id);
+  const to = Math.max(0, Math.min(list.length - 1, toIndex));
+  if (from < 0 || from === to) return;
+  const [it] = list.splice(from, 1);
+  list.splice(to, 0, it);
+  c.base = list[0]; c.others = list.slice(1);
+}
+// The earliest and latest months that custom ranges / picked months ask for (null if none) — the graph stretches to cover them.
+function insCmpExtent() {
+  const c = state.insCmp;
+  if (!c) return null;
+  let lo = null, hi = null;
+  for (const s of [c.base, ...c.others]) {
+    let a = null, b = null;
+    if (s.type === 'range' && s.from && s.to) { a = s.from <= s.to ? s.from : s.to; b = s.from <= s.to ? s.to : s.from; }
+    else if (s.type === 'month' && s.m) a = b = s.m;
+    if (a) { if (!lo || a < lo) lo = a; if (!hi || b > hi) hi = b; }
+  }
+  const cur = currentMonthKey(), floor = addMonths(cur, -180), ceil = addMonths(cur, 60);
+  return lo ? { lo: lo < floor ? floor : lo, hi: hi > ceil ? ceil : hi } : null;
+}
+function insMonthSpan(a, b) {
+  const out = [];
+  for (let m = a, i = 0; m <= b && i < 400; m = addMonths(m, 1), i++) out.push({ m });
+  return out;
+}
+function insCmpSortByDate(ctx) {
+  const key = sel => { const ms = insCmpMonths(sel, ctx, false); return [ms.length ? ms[0] : '9999-99', ms.length || 9999]; };
+  state.insCmp.others.sort((a, b) => { const ka = key(a), kb = key(b); return ka[0].localeCompare(kb[0]) || ka[1] - kb[1] || a.id - b.id; });
+}
+function insCmpNeedsExtend(ctx) {
+  const ext = insCmpExtent(), ms = ctx.chart && ctx.chart.months;
+  return !!(ext && ms && ms.length && (ext.lo < ms[0] || ext.hi > ms[ms.length - 1]));
+}
 
 function insCmpMonths(sel, ctx, preview = true) {
   if (sel.type === 'this') return [ctx.monthKey];
@@ -4940,23 +5019,33 @@ function insCmpStats(months, ctx) {
   const kind = t && (a || e) ? 'Actual + target' : t ? 'Target (projected)' : e && a ? 'Actual + expected to land' : e ? 'Expected to land' : 'Actual (landed)';
   return { avg: pts.reduce((s, p) => s + p.v, 0) / pts.length, n: pts.length, kind };
 }
-// Columns in display order: base first, then the rest chronologically (by start
-// month) and then by timespan length. Picks still waiting for a month go last.
+// Columns in display order: exactly the order the boxes were arranged in (drag a box, or use its arrows, to
+// move it). The first box is the base — move another box there and it becomes the base.
 function insCmpColumns(ctx) {
   const cmp = state.insCmp;
-  const key = sel => { const ms = insCmpMonths(sel, ctx, false); return [ms.length ? ms[0] : '9999-99', ms.length || 9999]; };
-  const others = [...cmp.others].sort((a, b) => { const ka = key(a), kb = key(b); return ka[0].localeCompare(kb[0]) || ka[1] - kb[1] || a.id - b.id; });
-  return [cmp.base, ...others].map((sel, i) => ({ sel, isBase: i === 0, color: INS_CMP_COLORS[i % INS_CMP_COLORS.length], idx: i }));
+  return [cmp.base, ...cmp.others].map((sel, i) => ({ sel, isBase: i === 0, color: sel.color, idx: i }));
 }
 
 function renderInsCompare(ctx) {
   const panel = document.getElementById('ins-cmp');
   if (!panel) return;
+  // Remember where each box was (and how visible), so the redraw can glide it to its new place.
+  const prevBoxes = new Map();
+  panel.querySelectorAll('.cmpx-col[data-cmp-col]').forEach(c => prevBoxes.set(c.dataset.cmpCol, { r: c.getBoundingClientRect(), o: parseFloat(getComputedStyle(c).opacity) }));
   const cols = insCmpColumns(ctx);
   const m0 = v => v == null ? '—' : '£' + Math.round(Math.abs(v)).toLocaleString('en-GB');
   const signed0 = v => v == null ? '—' : (v < 0 ? '−' : '+') + m0(v);
   const pct1 = v => `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(1)}%`;
   const baseStats = insCmpStats(insCmpMonths(cols[0].sel, ctx), ctx);
+  const nameOf = (sel, isBase) => (sel.name || '').trim() || (isBase ? 'Base' : 'Compare');
+  // Two-box mode: Ctrl+click two boxes and only those are compared — the first clicked is the reference.
+  const foc = state.insCmpFocus && insCmpFind(state.insCmpFocus.a) ? state.insCmpFocus : null;
+  if (!foc) state.insCmpFocus = null;
+  const pair = foc && foc.b != null && insCmpFind(foc.b) ? foc : null;
+  if (foc && foc.b != null && !pair) state.insCmpFocus = null;
+  const refSel = pair ? insCmpFind(pair.a) : cols[0].sel;
+  const refStats = pair ? insCmpStats(insCmpMonths(refSel, ctx), ctx) : baseStats;
+  const refName = sel => (sel.name || '').trim() || (sel.id === cols[0].sel.id ? 'base' : 'first selected');
   const rangeText = ms => ms.length === 1 ? monthLabel(ms[0]) : `${monthRangeLabel(ms)} · ${ms.length} months`;
   const typeOptions = [
     ['this', `This month (${monthLabelShort(ctx.monthKey)})`],
@@ -4966,7 +5055,7 @@ function renderInsCompare(ctx) {
     ['range', 'Custom timeframe'],
   ];
 
-  const colHtml = ({ sel, isBase, color }) => {
+  const colHtml = ({ sel, isBase, color, idx }) => {
     const months = insCmpMonths(sel, ctx);
     const st = insCmpStats(months, ctx);
     const picking = state.insCmpPick === sel.id;
@@ -4984,54 +5073,93 @@ function renderInsCompare(ctx) {
     else if (months.length && !st) range = `${rangeText(months)} — no data`;
     const single = months.length === 1;
     let diffHtml = '';
-    if (!isBase) {
-      const diff = st && baseStats ? st.avg - baseStats.avg : null;
-      const pct = diff != null && baseStats.avg > 0 ? diff / baseStats.avg * 100 : null;
+    if (pair ? sel.id === pair.b : !isBase) {
+      const diff = st && refStats ? st.avg - refStats.avg : null;
+      const pct = diff != null && refStats.avg > 0 ? diff / refStats.avg * 100 : null;
       const cls = diff == null ? '' : diff >= 0 ? 'cmp-up' : 'cmp-down';
       diffHtml = `
-        <div class="cmpx-stat"><div class="l">Difference vs. base</div><div class="v sm ${cls}">${signed0(diff)}</div></div>
+        <div class="cmpx-stat"><div class="l">Difference vs. <span data-cmp-vs="${refSel.id}">${esc(refName(refSel))}</span></div><div class="v sm ${cls}">${signed0(diff)}</div></div>
         ${pct == null ? '<div class="cmp-badge none">% change unavailable</div>'
-          : `<div class="cmp-badge ${pct >= 0 ? 'up' : 'down'}">${pct >= 0 ? '▲' : '▼'} ${pct1(pct)} <span>vs. base</span></div>`}`;
+          : `<div class="cmp-badge ${pct >= 0 ? 'up' : 'down'}">${pct >= 0 ? '▲' : '▼'} ${pct1(pct)} <span>vs. <span data-cmp-vs="${refSel.id}">${esc(refName(refSel))}</span></span></div>`}`;
     }
-    return `<div class="cmpx-col ${isBase ? 'base' : ''}" style="--c:${color}">
-      <div class="cmpx-tag"><span>${isBase ? 'Base' : 'Compare'}</span>${isBase ? '' : `<button type="button" class="cmpx-x" data-cmp-rm="${sel.id}" title="Remove this comparison">×</button>`}</div>
+    const mode = pair ? (sel.id === pair.a || sel.id === pair.b ? 'focus' : 'faded') : (foc && foc.a === sel.id ? 'armed' : '');
+    return `<div class="cmpx-col ${isBase ? 'base' : ''} ${mode}" data-cmp-col="${sel.id}" style="--c:${color}">
+      <div class="cmpx-tag">
+        <span class="cmpx-tl"><input class="cmpx-name" data-cmp-name="${sel.id}" value="${esc(nameOf(sel, isBase))}" maxlength="24" size="${Math.max(5, nameOf(sel, isBase).length + 1)}" title="Click to rename this box" spellcheck="false"></span>
+        <span class="cmpx-tr"><button type="button" class="cmpx-mv" data-cmp-mv="${sel.id}:-1" title="${idx === 1 ? 'Move to the base position' : 'Move left'}" ${idx === 0 ? 'disabled' : ''}>‹</button><button type="button" class="cmpx-mv" data-cmp-mv="${sel.id}:1" title="Move right" ${idx === cols.length - 1 ? 'disabled' : ''}>›</button>${isBase ? '' : `<button type="button" class="cmpx-x" data-cmp-rm="${sel.id}" title="Remove this comparison">×</button>`}</span>
+      </div>
       <select data-cmp-type="${sel.id}">${typeOptions.map(([k, l]) => `<option value="${k}" ${sel.type === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
       ${mid}
       <div class="cmpx-range">${esc(range)}</div>
       <div class="cmpx-stat"><div class="l">${single ? 'MRR' : 'Avg MRR'}</div><div class="v">${st ? m0(st.avg) : '—'}</div><div class="s">${st ? esc(st.kind) : ''}</div></div>
       ${diffHtml}
-      ${isBase ? '<div class="cmpx-note">Everything to the right is compared to this.</div>' : ''}
+      ${pair ? (sel.id === pair.a ? '<div class="cmpx-note">Just these two are being compared.</div>' : '') : isBase ? '<div class="cmpx-note">Everything to the right is compared to this.</div>' : ''}
     </div>`;
   };
 
   panel.innerHTML = `
     <div class="cmp-head">
       <h4>Compare</h4>
-      <div class="sub">Pick a base on the left and what to compare it with on the right. Choose “Single month”, then hover the graph and click to lock a month.</div>
+      <button type="button" class="btn btn-sm" id="cmp-sort" title="Put the boxes after the base in order of their start date (a custom range counts from its From date). The base stays first. Boxes are never re-ordered unless you press this.">↕ Sort by date</button>
+      ${pair ? '<div class="cmpx-hint">Comparing just these two — click anywhere else to go back.</div>' : foc ? `<div class="cmpx-hint">Now Ctrl+click a second box to compare it with ${esc(refName(refSel))}.</div>` : ''}
+      <div class="sub">Pick a base on the left and what to compare it with on the right. Click a box’s name to rename it, and drag any box to rearrange — the first spot is always the base. Ctrl+click two boxes to compare just those two. Choose “Single month”, then hover the graph and click to lock a month.</div>
     </div>
     <div class="cmpx-cols">
       ${cols.map(colHtml).join('')}
       ${state.insCmp.others.length < INS_CMP_MAX_OTHERS ? `<button type="button" class="cmpx-add" id="cmp-add" title="Add another selection to compare"><span class="plus">＋</span>Add</button>` : ''}
     </div>`;
   ctx.wrap.classList.toggle('cmp-picking', !!state.insCmpPick);
+  // Glide each box from where it was to where it is now (moves, sorting, enlarging) so it can be followed by eye
+  // rather than snapping — quick, not slow.
+  if (prevBoxes.size) {
+    const moving = [];
+    panel.querySelectorAll('.cmpx-col[data-cmp-col]').forEach(c => {
+      const p = prevBoxes.get(c.dataset.cmpCol);
+      if (!p) return;
+      const n = c.getBoundingClientRect(), o = parseFloat(getComputedStyle(c).opacity);
+      const dx = p.r.left - n.left, dy = p.r.top - n.top, sx = p.r.width / n.width, sy = p.r.height / n.height;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01 && Math.abs(p.o - o) < 0.02) return;
+      c.style.transition = 'none'; c.style.transformOrigin = '0 0'; c.style.opacity = p.o;
+      c.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`; c.style.zIndex = 3;
+      moving.push(c);
+    });
+    if (moving.length) {
+      panel.getBoundingClientRect();   // commit the starting positions before animating
+      requestAnimationFrame(() => moving.forEach(c => {
+        c.style.transition = 'transform .3s cubic-bezier(.22,.8,.24,1), opacity .3s ease';
+        c.style.transform = ''; c.style.opacity = '';
+        setTimeout(() => { c.style.transition = ''; c.style.transformOrigin = ''; c.style.zIndex = ''; }, 340);
+      }));
+    }
+  }
 
+  // Anything that changes which months are compared may need the graph above to stretch (or shrink back) to match,
+  // which means rebuilding the page (keeping the scroll position). Otherwise just redraw this panel.
+  const apply = fn => {
+    fn();
+    if (ctx.extended || insCmpNeedsExtend(ctx)) { const y = window.scrollY; renderInsights(); window.scrollTo(0, y); }
+    else renderInsCompare(ctx);
+  };
   panel.querySelectorAll('[data-cmp-type]').forEach(s => s.onchange = () => {
     const sel = insCmpFind(Number(s.dataset.cmpType));
     if (!sel) return;
-    sel.type = s.value;
-    if (sel.type === 'range' && !(sel.from && sel.to)) {
-      sel.from = ctx.pastMonths[0] || ctx.monthKey;
-      sel.to = ctx.projMonths[ctx.projMonths.length - 1] || ctx.monthKey;
-    }
-    state.insCmpPick = sel.type === 'month' && !sel.m ? sel.id : null;
-    insCmpHover = null;
-    renderInsCompare(ctx);
+    apply(() => {
+      sel.type = s.value;
+      if (sel.type === 'range' && !(sel.from && sel.to)) {
+        sel.from = ctx.pastMonths[0] || ctx.monthKey;
+        sel.to = ctx.projMonths[ctx.projMonths.length - 1] || ctx.monthKey;
+      }
+      state.insCmpPick = sel.type === 'month' && !sel.m ? sel.id : null;
+      insCmpHover = null;
+    });
   });
   panel.querySelectorAll('[data-cmp-rm]').forEach(b => b.onclick = () => {
     const id = Number(b.dataset.cmpRm);
-    state.insCmp.others = state.insCmp.others.filter(s => s.id !== id);
-    if (state.insCmpPick === id) state.insCmpPick = null;
-    renderInsCompare(ctx);
+    apply(() => {
+      state.insCmp.others = state.insCmp.others.filter(s => s.id !== id);
+      if (state.insCmpPick === id) state.insCmpPick = null;
+      if (state.insCmpFocus && (state.insCmpFocus.a === id || state.insCmpFocus.b === id)) state.insCmpFocus = null;
+    });
   });
   panel.querySelectorAll('[data-cmp-repick]').forEach(b => b.onclick = () => { state.insCmpPick = Number(b.dataset.cmpRepick); insCmpHover = null; renderInsCompare(ctx); });
   panel.querySelectorAll('[data-cmp-cancel]').forEach(b => b.onclick = () => { state.insCmpPick = null; insCmpHover = null; renderInsCompare(ctx); });
@@ -5041,18 +5169,100 @@ function renderInsCompare(ctx) {
     const type = ['proj', 'this', 'past', 'range'].find(t => !used.has(t)) || 'month';
     const sel = newCmpSel(type);
     if (type === 'range') { sel.from = ctx.pastMonths[0] || ctx.monthKey; sel.to = ctx.projMonths[ctx.projMonths.length - 1] || ctx.monthKey; }
-    state.insCmp.others.push(sel);
-    if (type === 'month') state.insCmpPick = sel.id;
-    renderInsCompare(ctx);
+    apply(() => {
+      state.insCmp.others.push(sel);
+      if (type === 'month') state.insCmpPick = sel.id;
+    });
   };
+  // Each custom timeframe belongs to its own box — changing one never touches another.
   panel.querySelectorAll('[data-cmp-from]').forEach(b => b.onclick = () => {
     const sel = insCmpFind(Number(b.dataset.cmpFrom));
-    openMonthPicker(b, { value: sel.from, onSelect: key => { sel.from = key; if (sel.to < key) sel.to = key; renderInsCompare(ctx); } });
+    openMonthPicker(b, { value: sel.from, onSelect: key => apply(() => { sel.from = key; if (sel.to < key) sel.to = key; }) });
   });
   panel.querySelectorAll('[data-cmp-to]').forEach(b => b.onclick = () => {
     const sel = insCmpFind(Number(b.dataset.cmpTo));
-    openMonthPicker(b, { value: sel.to, onSelect: key => { sel.to = key; if (sel.from > key) sel.from = key; renderInsCompare(ctx); } });
+    openMonthPicker(b, { value: sel.to, onSelect: key => apply(() => { sel.to = key; if (sel.from > key) sel.from = key; }) });
   });
+  // Rename a box (this session only). No redraw, so a click that follows isn't lost; the labels that quote the base's name are updated in place.
+  panel.querySelectorAll('[data-cmp-name]').forEach(inp => {
+    const sel = insCmpFind(Number(inp.dataset.cmpName));
+    const isBase = () => state.insCmp.base.id === sel.id;
+    inp.oninput = () => { inp.size = Math.max(5, inp.value.length + 1); };
+    inp.onchange = () => {
+      const v = inp.value.trim().slice(0, 24);
+      sel.name = v && v !== (isBase() ? 'Base' : 'Compare') ? v : '';
+      inp.value = nameOf(sel, isBase()); inp.size = Math.max(5, inp.value.length + 1);
+      panel.querySelectorAll(`[data-cmp-vs="${sel.id}"]`).forEach(e => { e.textContent = refName(sel); });
+    };
+    inp.onkeydown = e => {
+      if (e.key === 'Enter') inp.blur();
+      if (e.key === 'Escape') { inp.value = nameOf(sel, isBase()); inp.blur(); }
+    };
+  });
+  // Rearrange: drag a box by its ⠿ handle onto another box's spot, or nudge it with ‹ ›.
+  panel.querySelectorAll('[data-cmp-mv]').forEach(b => b.onclick = () => {
+    const [id, dir] = b.dataset.cmpMv.split(':').map(Number);
+    const i = [state.insCmp.base, ...state.insCmp.others].findIndex(s => s.id === id);
+    insCmpMove(id, i + dir);
+    renderInsCompare(ctx);
+  });
+  // Rearrange: grab ANY part of a box (not its fields or buttons) and drag it. A bar shows the gap it will drop into;
+  // dropping into the very first gap makes it the base.
+  const strip = panel.querySelector('.cmpx-cols');
+  let dragId = null;
+  const gapEl = document.createElement('div');
+  gapEl.className = 'cmpx-gap';
+  strip.appendChild(gapEl);
+  const colEls = () => [...strip.querySelectorAll('.cmpx-col')];
+  const slotAt = clientX => { let s = 0; colEls().forEach((c, i) => { const r = c.getBoundingClientRect(); if (clientX > r.left + r.width / 2) s = i + 1; }); return s; };
+  const showGap = slot => {
+    const cs = colEls(), sr = strip.getBoundingClientRect();
+    const edge = slot === 0 ? cs[0].getBoundingClientRect().left - 6
+      : slot === cs.length ? cs[cs.length - 1].getBoundingClientRect().right + 6
+      : (cs[slot - 1].getBoundingClientRect().right + cs[slot].getBoundingClientRect().left) / 2;
+    gapEl.style.left = (edge - sr.left + strip.scrollLeft - 2) + 'px';
+    gapEl.style.height = cs[0].offsetHeight + 'px';
+    gapEl.classList.add('on');
+  };
+  const hideGap = () => gapEl.classList.remove('on');
+  colEls().forEach(col => {
+    // Typing, picking from a list and pressing buttons must keep working, so those spots don't start a drag.
+    col.onmousedown = e => { col.draggable = !e.target.closest('input, select, button, a, textarea, .date-field'); };
+    col.ondragstart = e => {
+      if (e.target !== col) return;
+      dragId = Number(col.dataset.cmpCol);
+      e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(dragId));
+      const r = col.getBoundingClientRect();
+      try { e.dataTransfer.setDragImage(col, e.clientX - r.left, e.clientY - r.top); } catch (err) { /* older browsers use their default image */ }
+      setTimeout(() => col.classList.add('dragging'), 0);
+    };
+    col.ondragend = () => { dragId = null; col.classList.remove('dragging'); hideGap(); };
+  });
+  strip.ondragover = e => { if (dragId == null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; showGap(slotAt(e.clientX)); };
+  strip.ondragleave = e => { if (!strip.contains(e.relatedTarget)) hideGap(); };
+  strip.ondrop = e => {
+    if (dragId == null) return;
+    e.preventDefault();
+    const id = dragId, slot = slotAt(e.clientX);
+    dragId = null; hideGap();
+    const from = [state.insCmp.base, ...state.insCmp.others].findIndex(s => s.id === id);
+    insCmpMove(id, slot > from ? slot - 1 : slot);
+    renderInsCompare(ctx);
+  };
+  // Order the comparison boxes by start date — only when asked. A custom range counts from its From date; the base stays first.
+  const sortBtn = panel.querySelector('#cmp-sort');
+  if (sortBtn) sortBtn.onclick = () => { insCmpSortByDate(ctx); renderInsCompare(ctx); };
+  // Ctrl+click two boxes to compare just those two: they grow, the rest fade, and the first one clicked becomes the
+  // reference the second is measured against. Clicking anywhere else puts everything back (see insCmpMount).
+  colEls().forEach(col => col.addEventListener('click', e => {
+    if (!(e.ctrlKey || e.metaKey) || e.target.closest('input, select, button, a, textarea, .date-field')) return;
+    e.preventDefault(); e.stopPropagation();
+    const id = Number(col.dataset.cmpCol), f = state.insCmpFocus;
+    if (f && f.b == null && f.a !== id) state.insCmpFocus = { a: f.a, b: id };
+    else if (f && f.b == null && f.a === id) state.insCmpFocus = null;
+    else state.insCmpFocus = { a: id, b: null };
+    renderInsCompare(ctx);
+  }));
   insCmpPaint(ctx, cols);
 }
 
@@ -5074,8 +5284,9 @@ function insCmpPaint(ctx, cols) {
     const x0 = Math.max(chart.padL, chart.xc(i0) - chart.halfW), w = Math.min(chart.W - chart.padR, chart.xc(i1) + chart.halfW) - x0;
     const h = chart.H - chart.padT - chart.padB;
     const previewing = state.insCmpPick === sel.id && insCmpHover;
-    out += `<rect x="${x0}" y="${chart.padT}" width="${w}" height="${h}" fill="${color}" opacity="${previewing ? 0.22 : 0.14}"${previewing ? ` stroke="${color}" stroke-dasharray="4 3"` : ''}/>
-      <rect x="${x0}" y="${chart.padT + idx * 4}" width="${w}" height="3" fill="${color}"/>`;
+    const fc = state.insCmpFocus, dim = !!(fc && fc.b != null && sel.id !== fc.a && sel.id !== fc.b);   // in two-box mode the others fade on the graph too
+    out += `<rect x="${x0}" y="${chart.padT}" width="${w}" height="${h}" fill="${color}" opacity="${dim ? 0.04 : previewing ? 0.22 : 0.14}"${previewing ? ` stroke="${color}" stroke-dasharray="4 3"` : ''}/>
+      <rect x="${x0}" y="${chart.padT + idx * 4}" width="${w}" height="3" fill="${color}" opacity="${dim ? 0.25 : 1}"/>`;
   });
   const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   g.setAttribute('id', 'cmp-marks');
@@ -5114,8 +5325,19 @@ function insCmpWire(ctx) {
   });
 }
 
+let insCmpCtx = null, insCmpFocusWired = false;
 function insCmpMount(ctx) {
   insCmpHover = null;
+  insCmpCtx = ctx;
+  if (!insCmpFocusWired) {
+    insCmpFocusWired = true;
+    // Any click outside the two highlighted boxes (or the month picker they open) ends the two-box comparison.
+    document.addEventListener('click', e => {
+      if (!state.insCmpFocus || e.target.closest('.cmpx-col.focus, .cmpx-col.armed, .month-popover')) return;
+      state.insCmpFocus = null;
+      if (document.getElementById('ins-cmp') && insCmpCtx) renderInsCompare(insCmpCtx);
+    });
+  }
   const cur = currentMonthKey();
   const firstMonth = insRevenueMonthList()[0] || null;
   ctx.value = m => {
@@ -5123,7 +5345,7 @@ function insCmpMount(ctx) {
     if (firstMonth && m < firstMonth) return null;
     return m === cur ? { v: ctx.monthExpected, kind: 'expected' } : { v: landedForMonth(m), kind: 'actual' };
   };
-  if (!state.insCmp) state.insCmp = { base: newCmpSel('past'), others: [newCmpSel(ctx.projMonths.length ? 'proj' : 'this')] };
+  if (!state.insCmp) { const base = newCmpSel('past', []); state.insCmp = { base, others: [newCmpSel(ctx.projMonths.length ? 'proj' : 'this', [base.color])] }; }
   renderInsCompare(ctx);
   insCmpWire(ctx);
 }
