@@ -103,8 +103,10 @@
         {% endif %}
         {% if sources | selectattr("key", "equalto", "manual") | selectattr("active") | list %}
         <p class="pulse-meta" style="margin-top:12px;line-height:1.55">
-          Combined includes manual campaigns, which record no reply count — so
-          Replied here covers Smartlead and Meet Alfred only.
+          On a manual campaign a reply is counted from its classification —
+          nobody is marked Lead, Interested or Unsubscribe without answering.
+          A prospect marked only “Reply” on the sheet is not counted, because
+          that status records no date for the funnel to place it on.
         </p>
         {% endif %}
         {% else %}

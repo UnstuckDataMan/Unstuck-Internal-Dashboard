@@ -74,11 +74,16 @@ _TOKEN_BYTES = 16
 # panel exists to catch.
 _SYNC_STALE_AFTER_MIN = 75
 
+# Shortest first, so the control reads as a scale. The long ones matter for
+# lead quality: a month of outbound is a handful of graded leads, and a shape
+# only appears over half a year.
 RANGE_PRESETS: dict[str, str] = {
     "7d":   "Last 7 days",
     "30d":  "Last 30 days",
     "mtd":  "This month",
     "90d":  "Last 90 days",
+    "6m":   "Last 6 months",
+    "12m":  "Last 12 months",
     "all":  "All time",
 }
 
@@ -117,6 +122,16 @@ def _resolve_range(preset: str, date_from: str, date_to: str) -> dict:
         start = today - timedelta(days=6)
     elif key == "90d":
         start = today - timedelta(days=89)
+    elif key in ("6m", "12m"):
+        # Calendar months back, not a fixed number of days: "last 6 months" on
+        # the 31st has to mean the same span as on the 1st, and 182 days does
+        # not. Clamped to the 1st so a short month cannot overshoot.
+        months = 6 if key == "6m" else 12
+        year, month = today.year, today.month - months
+        while month <= 0:
+            month += 12
+            year -= 1
+        start = date(year, month, 1)
     else:
         key = "30d"
         start = today - timedelta(days=29)
@@ -1822,6 +1837,10 @@ def _report_icp(client_id: str, start: date, end: date) -> dict:
         summary.update({
             "version": 1,
             "top_rated_from": tracker.TOP_RATED_FROM,
+            # Frozen with the figures, so the report links to the sheet those
+            # figures came from rather than to wherever the client is pointed
+            # later. The client opens it to grade leads we have not graded.
+            "sheet_url": str(linked.get("sheet_url") or ""),
             "all_time": {
                 "total":   everything["total"],
                 "rated":   everything["rated"],
