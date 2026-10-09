@@ -224,6 +224,9 @@
   .cmpx-col.focus .cmp-badge { font-size: 17px; }
   .cmpx-col.faded { opacity: .28; filter: saturate(.5); }
   .cmpx-col.armed { box-shadow: 0 0 0 2px var(--c), 0 0 18px rgba(255,255,255,.14); }
+  .chart-legend .key-toggle { cursor: pointer; user-select: none; border-radius: 6px; padding: 2px 6px; margin: -2px -6px; transition: opacity .15s, background .15s; }
+  .chart-legend .key-toggle:hover { background: rgba(255,255,255,.07); }
+  .chart-legend .key-toggle.off { opacity: .4; text-decoration: line-through; }
   .cmpx-hint { flex-basis: 100%; font-size: 12px; font-weight: 600; color: var(--accent); }
   .cmpx-add { flex: 0 0 auto; min-width: 96px; border: 1px dashed var(--border-hi); background: transparent; color: var(--text-dim); border-radius: 12px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
   .cmpx-add .plus { font-size: 26px; line-height: 1; }
@@ -3186,20 +3189,33 @@ function targetMapFor(metric) {
 }
 function targetForMetric(metric, m) { return targetMapFor(metric)[m] ?? null; }
 
-// Sales has two targets. The MANUAL one is typed in Operational Settings (salesTargets). The CALCULATED one is the number of
-// new clients a month needs to reach that month's client-volume target: the target volume, less the clients expected to
-// carry over from the month before (last month's actual count — or its volume target, for months still to come — reduced by
-// the long-term churn goal). Whole clients, never below 0; blank when there is no client target or nothing to start from.
+// Sales has two targets. The MANUAL one is typed in Operational Settings (salesTargets). The CALCULATED one is the number
+// of new clients a month needs so that NEXT month reaches its client-volume target:
+//     next month's client target − this month's clients + clients leaving this month   (never below 0)
+// e.g. 18 clients invoiced in October and a November target of 20 → 2; if 2 of October's clients leave, 4.
+//   · this month's clients  — the clients invoiced that month (for months still to come: that month's client target)
+//   · clients leaving       — those invoiced that month who are gone from the next one (the churn the retention figures
+//                             already count). For the current month, until next month is generated, that means clients
+//                             already marked as leaving; for months still to come it is estimated at the long-term churn goal.
+// Blank when next month has no client target, or there is nothing to start from.
 function calcSalesTarget(m, byM) {
-  const vol = targetForMetric('vol', m);
-  if (vol == null) return null;
-  const prev = addMonths(m, -1);
-  let prevCount;
-  if (prev <= currentMonthKey()) { const r = byM.get(prev); prevCount = r ? r.count : null; }
-  else prevCount = targetForMetric('vol', prev);
-  if (prevCount == null) return null;
-  const churn = ((DB.settings.retention && DB.settings.retention.longTermGoalPct) || 0) / 100;
-  return Math.max(0, Math.ceil(vol - prevCount * (1 - churn) - 1e-9));
+  const next = addMonths(m, 1), cur = currentMonthKey();
+  const nextTarget = targetForMetric('vol', next);
+  if (nextTarget == null) return null;
+  let clients, leaving;
+  if (m <= cur) {
+    const row = byM.get(m);
+    if (!row) return null;
+    clients = row.count;
+    const nextRow = byM.get(next), gen = DB.settings.invoicingGeneratedThrough;
+    if (next <= cur || (gen && next <= gen && nextRow)) leaving = nextRow && nextRow.lost != null ? nextRow.lost : 0;
+    else leaving = DB.clients.filter(c => c.status === 'churned' && c.churnMonth === next).length;
+  } else {
+    clients = targetForMetric('vol', m);
+    if (clients == null) return null;
+    leaving = Math.round(clients * (((DB.settings.retention && DB.settings.retention.longTermGoalPct) || 0) / 100));
+  }
+  return Math.max(0, nextTarget - clients + leaving);
 }
 function salesTargetSeries(monthRows, byM) {
   return [
@@ -4151,6 +4167,14 @@ function dashboardFilteredClients() {
 // the three detail pages — on Overview it has nothing to narrow that the
 // tiles themselves don't already make obvious at a glance, so it's omitted
 // there entirely rather than sitting above the tiles doing nothing.
+// Redraw Insights in place — same scroll position, and without replaying the page's slide-in — for small toggles
+// (hiding a line, changing a compare timeframe) where the whole page should simply stay put.
+function insRerenderQuiet() {
+  const y = window.scrollY;
+  state.insQuiet = true;
+  renderInsights();
+  window.scrollTo(0, y);
+}
 function renderInsights() {
   const view = document.getElementById('view-insights');
   if (!DB) return;
@@ -4219,8 +4243,11 @@ function renderInsights() {
   else if (page === 'revenue') renderInsRevenueDetail(bodyEl, filteredClients);
   else renderInsOverview(bodyEl, goTo);
 
-  bodyEl.classList.add(state.insNavDir === 'back' ? 'ins-enter-back' : 'ins-enter-fwd');
-  requestAnimationFrame(() => requestAnimationFrame(() => bodyEl.classList.add('ins-enter-active')));
+  if (!state.insQuiet) {
+    bodyEl.classList.add(state.insNavDir === 'back' ? 'ins-enter-back' : 'ins-enter-fwd');
+    requestAnimationFrame(() => requestAnimationFrame(() => bodyEl.classList.add('ins-enter-active')));
+  }
+  state.insQuiet = false;
   if (insBarsReveal) revealCharts(view);
 }
 
@@ -4671,9 +4698,13 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
         : { m: r.m, v: firstRevMonth && r.m < firstRevMonth ? null : landedForMonth(r.m) }) },
   ];
   const projectedFrom = chartProj[0] || null;
+  // Click a name in the key above the graph to hide or show that line (kept for this session, per view).
+  const hiddenSeries = (state.insRevHidden ||= {});
+  const isOff = name => !!hiddenSeries[metric + ':' + name];
+  const seriesToPlot = revMonthlySeries.filter(s => !isOff(s.name)).length ? revMonthlySeries.filter(s => !isOff(s.name)) : revMonthlySeries;
   const revMonthlyChart = state.insRevMonthlyChart === 'bar'
-    ? buildGroupedBarChart(revMonthlySeries, { yUnit: metric === 'vol' || metric === 'sales' ? '' : '£', id: 'ins-rev-m', lineSeries: metric === 'sales' ? ['Manual target', 'Calculated target'] : ['Target'], projectedFrom })
-    : buildLineChart(revMonthlySeries, { yUnit: metric === 'vol' || metric === 'sales' ? '' : '£', id: 'ins-rev-m', projectedFrom });
+    ? buildGroupedBarChart(seriesToPlot, { yUnit: metric === 'vol' || metric === 'sales' ? '' : '£', id: 'ins-rev-m', lineSeries: metric === 'sales' ? ['Manual target', 'Calculated target'] : ['Target'], projectedFrom })
+    : buildLineChart(seriesToPlot, { yUnit: metric === 'vol' || metric === 'sales' ? '' : '£', id: 'ins-rev-m', projectedFrom });
   const tmap = metric === 'sales' ? salesTargetMonths() : (targetMapFor(metric) || {});
   const lastTargetMonth = Object.keys(tmap).filter(m => tmap[m] != null).sort().pop();
   const projAsked = insProjectionSpan();
@@ -4686,28 +4717,26 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   const metricInfo = {
     avg: { label: 'Average client value', color: '#22d3ee', note: 'Revenue billed in the month ÷ clients invoiced that month — the average monthly value of a client.' },
     vol: { label: 'Clients invoiced', color: '#f472b6', note: 'How many clients were invoiced in the month — client volume.' },
-    sales: { label: 'New clients', color: '#60a5fa', note: `New clients = clients invoiced this month who weren’t invoiced the month before. Calculated target = new clients needed to reach that month’s client-volume target: last month’s clients (or its target, for future months) less the ${(DB.settings.retention && DB.settings.retention.longTermGoalPct) || 0}% long-term churn goal.` },
+    sales: { label: 'New clients', color: '#60a5fa', note: `New clients = clients invoiced this month who weren’t invoiced the month before. Calculated target = new clients needed in the month so next month reaches its client target: next month’s target − this month’s clients + clients leaving this month (estimated at the ${(DB.settings.retention && DB.settings.retention.longTermGoalPct) || 0}% long-term churn goal for months still to come).` },
   }[metric];
+  const keyAttrs = name => `class="key key-toggle${isOff(name) ? ' off' : ''}" data-revseries="${esc(name)}" title="${isOff(name) ? 'Click to show' : 'Click to hide'} this line"`;
+  const mark = (c, faded) => state.insRevMonthlyChart === 'bar'
+    ? `<span class="swatch" style="border-top-color:${c}${faded ? '; opacity:.55' : ''}"></span>`
+    : `<span class="dot" style="background:${c}${faded ? '; opacity:.55' : ''}"></span>`;
+  const projKey = chartProj.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : '';
   const legendHtml = metric !== 'mrr'
     ? `<div class="chart-legend">
-        ${metric === 'sales'
-          ? [['Manual target', 'var(--accent)'], ['Calculated target', 'var(--warn)']].map(([l, c]) => state.insRevMonthlyChart === 'bar'
-              ? `<span class="key"><span class="swatch" style="border-top-color:${c}; opacity:.55"></span>${l}</span>`
-              : `<span class="key"><span class="dot" style="background:${c}; opacity:.55"></span>${l}</span>`).join('')
-          : state.insRevMonthlyChart === 'bar'
-            ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
-            : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
-        <span class="key"><span class="dot" style="background:${metricInfo.color}"></span>${esc(metricInfo.label)}</span>
-        ${chartProj.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
+        ${(metric === 'sales' ? [['Manual target', 'var(--accent)', true], ['Calculated target', 'var(--warn)', true]] : [['Target', 'var(--accent)', false]])
+          .map(([l, c, f]) => `<span ${keyAttrs(l)}>${mark(c, f)}${l}</span>`).join('')}
+        <span ${keyAttrs(metricInfo.label)}><span class="dot" style="background:${metricInfo.color}"></span>${esc(metricInfo.label)}</span>
+        ${projKey}
         <span class="key" style="opacity:.85">${esc(metricInfo.note)}</span>
       </div>`
     : `<div class="chart-legend">
-        ${state.insRevMonthlyChart === 'bar'
-          ? `<span class="key"><span class="swatch" style="border-top-color:var(--accent)"></span>Target</span>`
-          : `<span class="key"><span class="dot" style="background:var(--accent)"></span>Target</span>`}
-        <span class="key"><span class="dot" style="background:var(--success)"></span>${insTerm('MRR')}</span>
+        <span ${keyAttrs('Target')}>${mark('var(--accent)', false)}Target</span>
+        <span ${keyAttrs('MRR')}><span class="dot" style="background:var(--success)"></span>${insTerm('MRR')}</span>
         <span class="key"><span class="dot" style="background:var(--warn)"></span>${insTerm('MRR')} — expected to land (current month)</span>
-        ${chartProj.length ? `<span class="key"><span style="display:inline-block; width:14px; height:10px; border-radius:2px; background:var(--accent); opacity:.18"></span>Projected — target only</span>` : ''}
+        ${projKey}
       </div>`;
 
   // Three simple boxes above the chart: what it is, this month's value, and the % change on last month.
@@ -4799,6 +4828,13 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   insWireRevTimeframes(bodyEl);
   insWirePeriodBars(bodyEl);
   bodyEl.querySelectorAll('[data-revmetric]').forEach(p => p.onclick = () => { state.insRevMetric = p.dataset.revmetric; renderInsights(); });
+  bodyEl.querySelectorAll('[data-revseries]').forEach(k => k.onclick = () => {
+    const key = metric + ':' + k.dataset.revseries;
+    const hid = (state.insRevHidden ||= {});
+    if (!hid[key] && revMonthlySeries.filter(s => !hid[metric + ':' + s.name]).length <= 1) return;   // always keep one line showing
+    hid[key] = !hid[key];
+    insRerenderQuiet();
+  });
   bodyEl.querySelectorAll('[data-revchart]').forEach(p => p.onclick = () => {
     const [, type] = p.dataset.revchart.split(':');
     state.insRevMonthlyChart = type;
@@ -5137,7 +5173,7 @@ function renderInsCompare(ctx) {
   // which means rebuilding the page (keeping the scroll position). Otherwise just redraw this panel.
   const apply = fn => {
     fn();
-    if (ctx.extended || insCmpNeedsExtend(ctx)) { const y = window.scrollY; renderInsights(); window.scrollTo(0, y); }
+    if (ctx.extended || insCmpNeedsExtend(ctx)) insRerenderQuiet();
     else renderInsCompare(ctx);
   };
   panel.querySelectorAll('[data-cmp-type]').forEach(s => s.onchange = () => {
@@ -6121,7 +6157,7 @@ function rptStatsRevenue(rows, cur) {
     ['Clients invoiced', curRow ? String(curRow.count) : '—', vs(curRow ? curRow.count : 0, cGoal, v => String(v))],
     ['Client change on last month', rptSigned(rptChange(curRow ? curRow.count : null, prevRow ? prevRow.count : null)), ''],
     ['New clients this month (sales)', latest ? String(latest.newClients || 0) : '—', vs(latest ? (latest.newClients || 0) : 0, sGoal, v => String(v)).replace('target', 'manual target')],
-    ['New clients needed (calculated target)', calcGoal != null ? String(calcGoal) : '—', calcGoal != null ? `to reach the client target of ${cGoal}, allowing for the long-term churn goal` : 'needs a client target for the month'],
+    ['New clients needed (calculated target)', calcGoal != null ? String(calcGoal) : '—', calcGoal != null ? `to reach next month’s client target of ${targetForMetric('vol', addMonths(cur, 1))}, allowing for clients leaving this month` : 'needs a client target for next month'],
   ] });
 
   // by period (the same windows as the bars)
@@ -6157,7 +6193,7 @@ function rptStatsRevenue(rows, cur) {
       const t1 = targetForMetric('mrr', r.m), t2 = targetForMetric('avg', r.m), t3 = targetForMetric('vol', r.m), t4 = targetForMetric('sales', r.m), t5 = calcSalesTarget(r.m, byMonthAll);
       return [monthLabel(r.m) + (r.m === cur ? ' *' : ''), fmtMoney(mrr), t1 != null ? fmtMoney(t1) : '—', r.count ? fmtMoney(r.mrr / r.count) : '—', t2 != null ? fmtMoney(t2) : '—', String(r.count), t3 != null ? String(t3) : '—', String(r.newClients || 0), t4 != null ? String(t4) : '—', t5 != null ? String(t5) : '—'];
     }) });
-  blocks.push({ t: 'note', text: '* The current month shows what is expected to land rather than cash received so far. Average client value = billed in the month ÷ clients invoiced. New clients = clients invoiced who were not invoiced the month before. Calculated target = new clients needed to reach that month’s client target, allowing for the long-term churn goal.' });
+  blocks.push({ t: 'note', text: '* The current month shows what is expected to land rather than cash received so far. Average client value = billed in the month ÷ clients invoiced. New clients = clients invoiced who were not invoiced the month before. Calculated target = new clients needed in the month to reach next month’s client target, allowing for clients leaving that month.' });
   return blocks;
 }
 
@@ -7220,7 +7256,7 @@ function renderSettings() {
 
     <div class="card">
       <h3>Monthly targets</h3>
-      <div class="desc">Four targets for each month — revenue (£), number of clients invoiced, average client value (£), and sales (the number of new clients taken on — the box you set here is the manual sales target; the Sales chart also draws a calculated one: the new clients needed to reach that month's client target, given last month's clients less the long-term churn goal). Each month is independent (e.g. September 2026 and September 2027 don't share a target), and any box can be left empty for no target. The current month and the next 12 always have a slot below — just type a figure; use "Add month" only to go further ahead (or back). Revenue targets can also be edited from that month's Invoices tab; both places write the same value. Yearly figures in Insights are just the sum of whichever months in that year have a target.</div>
+      <div class="desc">Four targets for each month — revenue (£), number of clients invoiced, average client value (£), and sales (the number of new clients taken on — the box you set here is the manual sales target; the Sales chart also draws a calculated one: the new clients needed in a month to reach the next month's client target, allowing for the clients leaving that month). Each month is independent (e.g. September 2026 and September 2027 don't share a target), and any box can be left empty for no target. The current month and the next 12 always have a slot below — just type a figure; use "Add month" only to go further ahead (or back). Revenue targets can also be edited from that month's Invoices tab; both places write the same value. Yearly figures in Insights are just the sum of whichever months in that year have a target.</div>
       <div class="tbl-wrap" id="rt-targets-wrap" style="max-height:280px; overflow-y:auto; margin-bottom:12px">
         <table>
           <thead><tr><th>Month</th><th class="num">Revenue £</th><th class="num">Clients</th><th class="num">Avg client value £</th><th class="num" title="Typed here. The Sales chart also draws a calculated target from the client targets.">New clients (manual target)</th><th></th></tr></thead>
