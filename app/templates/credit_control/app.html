@@ -2084,7 +2084,12 @@ function renderInvoicesTable() {
     </div>` : ''}
 
     <div class="stats" id="inv-stats">
-      <div class="stat clickable-stat ${state.invFilter === 'all' ? 'filter-active' : ''}" data-stat="invoices" data-filter="all"><div class="v">${invs.length}</div><div class="l">Invoices</div><div class="s">${fmtMoney(billed)}</div></div>
+      <div class="stat clickable-stat ${state.invFilter === 'all' ? 'filter-active' : ''}" data-stat="invoices" data-filter="all">${uncertainInvs.length
+        ? `<div style="display:flex; gap:18px; align-items:flex-start">
+            <div><div class="v">${invs.length}</div><div class="l">Invoices</div><div class="s">${fmtMoney(billed)}</div></div>
+            <div style="opacity:.5; padding-left:18px; border-left:1px solid var(--border-hi)" title="What this month comes to if every uncertain invoice that hasn’t been paid doesn’t land — uncertain invoices that have already landed stay in"><div class="v">${invs.length - uncertainInvs.length}</div><div class="l">If uncertain don’t land</div><div class="s">${fmtMoney(billed - uncertainAmt)}</div></div>
+          </div>`
+        : `<div class="v">${invs.length}</div><div class="l">Invoices</div><div class="s">${fmtMoney(billed)}</div>`}</div>
       <div class="stat clickable-stat ${state.invFilter === 'issued' ? 'filter-active' : ''}" data-stat="issued" data-filter="issued"><div class="v">${issuedInvs.length}</div><div class="l">Issued</div><div class="s">${fmtMoney(issuedAmt)}</div></div>
       <div class="stat clickable-stat ${notIssuedInvs.length ? 'warn' : ''} ${state.invFilter === 'toissue' ? 'filter-active' : ''}" data-stat="toissue" data-filter="toissue"><div class="v">${notIssuedInvs.length}</div><div class="l">To be issued</div><div class="s">${fmtMoney(notIssuedAmt)}</div></div>
       <div class="stat clickable-stat ok ${state.invFilter === 'paid' ? 'filter-active' : ''}" data-stat="landed" data-filter="paid">
@@ -2095,7 +2100,6 @@ function renderInvoicesTable() {
           : `<div class="s" title="Targets are set per due-month, so they only show up in the Due month view">${landedCount} payment${landedCount === 1 ? '' : 's'} in</div>`}
       </div>
       <div class="stat clickable-stat ${overdue.length ? 'bad' : ''} ${state.invFilter === 'overdue' ? 'filter-active' : ''}" data-stat="overdue" data-filter="overdue"><div class="v">${overdue.length}</div><div class="l">Overdue</div><div class="s">${fmtMoney(overdueAmt)}</div></div>
-      ${uncertainInvs.length || state.invFilter === 'uncertain' ? `<div class="stat clickable-stat ${state.invFilter === 'uncertain' ? 'filter-active' : ''}" data-stat="uncertain" data-filter="uncertain" title="Issued as normal, but we're not sure the client will pay — left out of forecasts until paid"><div class="v">${uncertainInvs.length}</div><div class="l">Uncertain <span class="unc-badge">?</span></div><div class="s">${fmtMoney(uncertainAmt)} · not in forecasts</div></div>` : ''}
     </div>
 
     <div class="progress-bars">
@@ -4197,12 +4201,11 @@ function renderInsights() {
   if (insBarsReveal) revealCharts(view);
 }
 
-// Trailing N months ending at the real current month — e.g. the "Year" bar
-// means the last 12 months of activity, not however much of Jan–Dec has
-// happened so far.
+// The last N COMPLETE months — they end at last month, never including the current one (which has its own
+// bar), so in October "last 12 months" is Oct of last year to September.
 function trailingMonths(rows, n) {
-  const upToNow = rows.filter(r => r.m <= currentMonthKey());
-  return upToNow.slice(-n).map(r => r.m);
+  const done = rows.filter(r => r.m < currentMonthKey());
+  return done.slice(-n).map(r => r.m);
 }
 // Landed/Expected/Goal summed across an arbitrary set of months — shared by
 // the Year bar and the time-frame-toggle bar, since both are just "sum
@@ -4383,7 +4386,7 @@ function renderInsOverview(bodyEl, goTo) {
   // Year to date (1 Aug to now) sits between the current month and the 12-month bar —
   // left out when it's just the current month (August), and merged into the 12-month
   // bar's label when it covers exactly the same months (July).
-  const ytdMonths = rows.filter(r => r.m <= monthKey && r.m >= fiscalYearStart(monthKey)).map(r => r.m);
+  const ytdMonths = rows.filter(r => r.m < monthKey && r.m >= fiscalYearStart(monthKey)).map(r => r.m);   // complete months only — the current month has its own bar
   const sameMonthList = (a, b) => a.length === b.length && a.every((m, i) => m === b[i]);
   const ytdIsYear = false;   // Year to date is the whole financial year now, so it never merges into the 12-month bar
   const ytdSums = sumRevenueOverMonths(rows, ytdMonths);
@@ -4701,7 +4704,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
   const salesRows = salesAttributionStats();
 
   bodyEl.innerHTML = `
-    ${insSectionHead('This period', 'The current month first, then each past window from shortest to longest — landed vs. expected if every invoice due lands vs. goal.')}
+    ${insSectionHead('This period', 'The current month first, then each past window from shortest to longest — landed vs. expected if every invoice due lands vs. goal. Past windows are complete months, ending last month.')}
     <div class="chart-card">
       ${insPeriodBarsHtml(snapRows, { custom: true })}
       ${revBarLegendHtml({ fy: true })}
@@ -4780,6 +4783,7 @@ let insBarsReveal = false;   // true for the render that follows opening the pag
 function insPeriodBarsHtml(rows, { custom = false } = {}) {
   const cur = currentMonthKey();
   const upTo = rows.filter(r => r.m <= cur);
+  const done = rows.filter(r => r.m < cur);   // complete months — every bar except the current month's leaves the current month out
   const latest = currentSnapshotRow(rows);
   const same = (a, b) => a.length === b.length && a.every((m, i) => m === b[i]);
   // noGoal: the All time bar carries no goal (line or gap) — targets only cover a
@@ -4791,7 +4795,7 @@ function insPeriodBarsHtml(rows, { custom = false } = {}) {
     ['Last 3 months', trailingMonths(rows, 3)],
     ['Last 6 months', trailingMonths(rows, 6)],
     ['Last 12 months', trailingMonths(rows, 12)],
-    ['All time', upTo.map(r => r.m)],
+    ['All time', done.map(r => r.m)],
   ];
   const bars = [];
   cats.forEach(([label, months]) => {
@@ -4807,7 +4811,7 @@ function insPeriodBarsHtml(rows, { custom = false } = {}) {
   const fyStart = fiscalYearStart(cur);
   const fyMonthList = Array.from({ length: 12 }, (_, k) => addMonths(fyStart, k));
   const fyGoal = fyMonthList.reduce((g, m) => { const t = targetForMonth(m); return t == null ? g : (g || 0) + t; }, null);
-  const ytdMonths = upTo.filter(r => r.m >= fyStart).map(r => r.m);
+  const ytdMonths = done.filter(r => r.m >= fyStart).map(r => r.m);
   if (ytdMonths.length) bars.push({ label: 'Year to date', months: ytdMonths, fy: true });
   bars.sort((a, b) => a.months.length - b.months.length);
 
@@ -5904,7 +5908,7 @@ function rptStatsRevenue(rows, cur) {
   const fyList = Array.from({ length: 12 }, (_, k) => addMonths(fyStart, k));
   const fyGoal = fyList.reduce((g, m) => { const t = targetForMetric('mrr', m); return t == null ? g : (g || 0) + t; }, null);
   const periods = [['This month', [cur], false], ['Last 3 months', trailingMonths(rows, 3), false], ['Last 6 months', trailingMonths(rows, 6), false],
-    ['Year to date', upTo.filter(r => r.m >= fyStart).map(r => r.m), false], ['Last 12 months', trailingMonths(rows, 12), false], ['All time', upTo.map(r => r.m), true]];
+    ['Year to date', upTo.filter(r => r.m < cur && r.m >= fyStart).map(r => r.m), false], ['Last 12 months', trailingMonths(rows, 12), false], ['All time', upTo.filter(r => r.m < cur).map(r => r.m), true]];
   const prow = ([label, months, noGoal]) => {
     const s = sumRevenueOverMonths(rows, months);
     const goalV = noGoal ? null : s.goal;
@@ -5919,7 +5923,7 @@ function rptStatsRevenue(rows, cur) {
     const ytd = sumRevenueOverMonths(rows, periods[3][1]);
     blocks.push({ t: 'p', text: `Financial year ${monthRangeLabel(fyList)}: full-year target ${fmtMoney(fyGoal)}. Expected so far is ${fmtMoney(ytd.expected)} (${Math.round(ytd.expected / fyGoal * 100)}% of the year's target); the target for the months gone is ${ytd.goal != null ? fmtMoney(ytd.goal) : '—'}.` });
   }
-  blocks.push({ t: 'note', text: 'Landed is counted in the month the money was paid; expected in the month an invoice falls due. Expected total = landed + still to land. The target for a period is the sum of the targets set for its months (a month with no target adds nothing), and % of target compares expected revenue in just the months that have a target with those targets.' });
+  blocks.push({ t: 'note', text: 'Every period except This month covers complete months only, ending last month. Landed is counted in the month the money was paid; expected in the month an invoice falls due. Expected total = landed + still to land. The target for a period is the sum of the targets set for its months (a month with no target adds nothing), and % of target compares expected revenue in just the months that have a target with those targets.' });
 
   // month by month
   const months12 = upTo.slice(-12);
