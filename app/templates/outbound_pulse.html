@@ -255,7 +255,7 @@
     });
     if (!matched) return showTab('reporting', pushHash);
     if (name === 'mapping' && !mappingLoaded) loadMapping();
-    if (pushHash) history.replaceState(null, '', '#' + name);
+    if (pushHash && location.hash !== '#' + name) history.pushState(null, '', '#' + name);   // a step of its own, so back returns to the last tab
   }
 
   tabs.forEach(function (btn) {

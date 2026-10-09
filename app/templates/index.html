@@ -1058,12 +1058,13 @@
   }
 
   // ── Open a section: its card splits into the tools inside it ───────
-  function navigateTo(targetId) {
+  function navigateTo(targetId, fromHistory) {
     if (_busy) return;
     const from = document.getElementById(_current);
     const to   = document.getElementById(targetId);
     const btn  = _sectionCard(targetId);
     if (!from || !to || from === to) return;
+    if (!fromHistory) history.pushState({ screen: targetId }, '', '#' + targetId.replace('screen-', ''));   // one step, so back returns here
     if (_reduced() || !btn || !to.animate) { _switchNow(from, to, targetId); return; }
     _busy = true;
 
@@ -1112,11 +1113,14 @@
   }
 
   // ── Back to the home screen: the tools fold back into their card ───
-  function navigateBack() {
+  function navigateBack(fromHistory) {
     if (_busy) return;
     const from = document.getElementById(_current);
     const to   = document.getElementById('screen-home');
     if (!from || !to || from === to) return;
+    // A section opened from the home screen is a history step: step back through history (the popstate handler below
+    // then plays this same animation), so Back, the browser's back button and the arrow all agree.
+    if (!fromHistory && history.state && history.state.screen && history.state.screen !== 'screen-home') { history.back(); return; }
     const btn = _sectionCard(_current);
     if (_reduced() || !btn || !from.animate) { _switchNow(from, to, 'screen-home'); return; }
     _busy = true;
@@ -1181,6 +1185,33 @@
       const n = screen.querySelectorAll('.tool-grid .card-link').length;
       el.textContent = n + (n === 1 ? ' tool' : ' tools');
     }
+  })();
+  // ── History: each section screen is a step, so the back arrow in a tool lands on the section you came from ──
+  (function () {
+    const SECTIONS = ['screen-data', 'screen-campaign', 'screen-reporting', 'screen-operations'];
+    const fromHash = () => { const id = 'screen-' + location.hash.replace('#', ''); return SECTIONS.includes(id) ? id : null; };
+    const show = target => {
+      if (_busy) { setTimeout(() => show(target), 120); return; }
+      if (target === _current) return;
+      if (target === 'screen-home') navigateBack(true);
+      else if (_current === 'screen-home') navigateTo(target, true);
+      else _switchNow(document.getElementById(_current), document.getElementById(target), target);
+    };
+    // Arriving by going back (state already set) just shows that screen; a fresh load straight onto #section gets a
+    // home step behind it, so the arrow still has somewhere to go.
+    const st = history.state && history.state.screen;
+    const hashed = fromHash();
+    if (st && st !== 'screen-home' && document.getElementById(st)) {
+      _switchNow(document.getElementById('screen-home'), document.getElementById(st), st);
+    } else if (!st && hashed) {
+      history.replaceState({ screen: 'screen-home' }, '', location.pathname + location.search);
+      history.pushState({ screen: hashed }, '', '#' + hashed.replace('screen-', ''));
+      _switchNow(document.getElementById('screen-home'), document.getElementById(hashed), hashed);
+    } else if (!st) {
+      history.replaceState({ screen: 'screen-home' }, '');
+    }
+    window.addEventListener('popstate', e => show((e.state && e.state.screen) || fromHash() || 'screen-home'));
+    // Coming back from a tool the browser may restore this page as it was left, which is already the right screen.
   })();
 </script>
 

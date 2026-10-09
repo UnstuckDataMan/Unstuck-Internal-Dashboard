@@ -1502,5 +1502,19 @@ renderHome();
 loadClients();
 </script>
 {% include "partials/_sop_widget.html" %}
+<script src="/static/nav-history.js"></script>
+<script>
+// Back arrow: each screen you open is one history step.
+(function () {
+  if (!window.NavHist || typeof showScreen !== 'function') return;
+  const cur = () => { const s = document.querySelector('.screen.active'); return s ? s.id.replace('screen-', '') : 'home'; };
+  const show = showScreen;
+  window.showScreen = function (id) { show(id); NavHist.record(); };
+  NavHist.init({
+    snapshot: () => ({ screen: cur() }),
+    restore: s => { if (s.screen === 'home') goHome(); else if (document.getElementById('screen-' + s.screen)) show(s.screen); },
+  });
+})();
+</script>
 </body>
 </html>

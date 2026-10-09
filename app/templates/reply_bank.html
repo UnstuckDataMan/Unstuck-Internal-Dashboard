@@ -2979,5 +2979,19 @@ document.getElementById('adm-export').addEventListener('click', () => {
 });
 </script>
 {% include "partials/_sop_widget.html" %}
+<script src="/static/nav-history.js"></script>
+<script>
+// Back arrow: opening the admin area is one history step, and back closes it again.
+(function () {
+  if (!window.NavHist) return;
+  const panel = document.getElementById('admin-panel');
+  if (!panel) return;
+  NavHist.init({
+    snapshot: () => ({ admin: panel.classList.contains('visible') }),
+    restore: s => { if (!s.admin && panel.classList.contains('visible')) adminHide(); },
+  });
+  new MutationObserver(() => setTimeout(NavHist.record, 60)).observe(panel, { attributes: true, attributeFilter: ['class'] });
+})();
+</script>
 </body>
 </html>

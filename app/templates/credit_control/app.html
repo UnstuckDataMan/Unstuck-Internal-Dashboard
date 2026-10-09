@@ -1797,6 +1797,43 @@ function revealCharts(view) {
   view._revealTimer = setTimeout(() => view.classList.remove('reveal-on'), 2400);
 }
 
+/* ════════════════ Back-arrow history ════════════════ */
+// The dashboard's top-bar back arrow is history.back(). Switching tabs or drilling into a page used to leave no
+// history step, so the arrow jumped straight past this tool to wherever you were before. Now each view (tab,
+// Insights page, AM Performance page) is one step: the arrow — and the browser's back button — walk back through them,
+// and only leave the tool once there is nothing left to step back to.
+const ccNav = (() => {
+  let last = '', restoring = false;
+  const snap = () => ({ tab: state.tab, ins: state.insPage, amTab: state.amTab, amSel: state.amSel, amInd: state.amIndustry });
+  return {
+    init() {
+      const saved = history.state && history.state.ccNav;   // coming back to this page: reopen the view it was on
+      if (saved) ccNav.restore(saved);
+      last = JSON.stringify(snap()); history.replaceState(Object.assign({}, history.state, { ccNav: snap() }), ''); },
+    record() {
+      if (restoring) return;
+      const s = snap(), k = JSON.stringify(s);
+      if (k === last) return;
+      last = k;
+      history.pushState(Object.assign({}, history.state, { ccNav: s }), '');
+    },
+    restore(s) {
+      const btn = document.querySelector(`.tab[data-tab="${s.tab}"]`);
+      if (!btn || btn.style.display === 'none') return;   // not a tab this page offers
+      restoring = true;
+      try {
+        state.tab = s.tab; state.insPage = s.ins; state.amTab = s.amTab; state.amSel = s.amSel; state.amIndustry = s.amInd;
+        state.insNavDir = s.ins === 'overview' ? 'back' : 'fwd'; state.insBarsAnim = true;
+        document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === btn));
+        document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + state.tab));
+        renderAll();
+        revealCharts(document.getElementById('view-' + state.tab));
+      } finally { restoring = false; last = JSON.stringify(snap()); }
+    },
+  };
+})();
+window.addEventListener('popstate', e => { const s = e.state && e.state.ccNav; if (s) ccNav.restore(s); });
+
 /* ════════════════ Tabs ════════════════ */
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   state.tab = t.dataset.tab;
@@ -1807,6 +1844,7 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + state.tab));
   renderAll();
   revealCharts(document.getElementById('view-' + state.tab));
+  ccNav.record();
 });
 
 function renderAll() {
@@ -4256,6 +4294,7 @@ function renderInsights() {
   }
   state.insQuiet = false;
   if (insBarsReveal) revealCharts(view);
+  ccNav.record();
 }
 
 // The last N COMPLETE months — they end at last month, never including the current one (which has its own
@@ -5625,6 +5664,7 @@ function renderAmPerf() {
   else if (state.amSel && state.amIndustry) renderAmIndustryClients(body, state.amSel, state.amIndustry);
   else if (state.amSel) renderAmDetail(body, state.amSel);
   else renderAmList(body);
+  ccNav.record();
 }
 
 const amPills = (key, list, current, title) => `<div class="pills" ${title ? `title="${esc(title)}"` : ''}>${list.map(([k, l, t]) => `<button type="button" class="pill ${current === k ? 'active' : ''}" data-am-set="${key}:${k}" ${t ? `title="${esc(t)}"` : ''}>${esc(l)}</button>`).join('')}</div>`;
@@ -7518,6 +7558,7 @@ window.CC_CONFIG = Object.assign({
   if (_ccRouteCfg) applyDashboardChrome(cfg);
   document.documentElement.classList.remove('cc-pending');   // configured — safe to show the page
 })();
+ccNav.init();   // the view the page opens on is the first history step
 
 // When served inside the Unstuck dashboard, swap the standalone app's own
 // header for the same topbar every other dashboard tool has (back chevron,

@@ -2980,7 +2980,8 @@ function showProfileScreen() {
   document.getElementById('main-header').style.display   = 'none';
   document.getElementById('tab-bar').style.display       = 'none';
   document.getElementById('main-view').style.display     = 'none';
-  document.getElementById('admin-panel').classList.remove('visible');
+  var ap = document.getElementById('admin-panel');   // not on this page — without the check this threw and skipped the redraw below
+  if (ap) ap.classList.remove('visible');
   document.getElementById('ps-add-form').style.display   = 'none';
   renderProfileScreen();
 }
@@ -5759,5 +5760,36 @@ loadFromSupabase();
 </div>
 
 {% include "partials/_sop_widget.html" %}
+<script src="/static/nav-history.js"></script>
+<script>
+// Back arrow: the client list, a client's copy and the approval logs are each one history step.
+(function () {
+  if (!window.NavHist) return;
+  const $ = id => document.getElementById(id);
+  const view = () => {
+    if ($('approval-logs-panel') && $('approval-logs-panel').classList.contains('visible')) return { v: 'logs' };
+    if ($('profile-screen') && $('profile-screen').classList.contains('visible')) return { v: 'profiles' };
+    return { v: 'profile', p: (typeof activeProfile !== 'undefined' && activeProfile) ? activeProfile.name : null };
+  };
+  NavHist.init({
+    snapshot: view,
+    restore: s => {
+      const logsOpen = $('approval-logs-panel').classList.contains('visible');
+      if (s.v === 'logs') {
+        if (!logsOpen) { if (!$('profile-screen').classList.contains('visible')) showProfileScreen(); openApprovalLogs(); }
+        return;
+      }
+      if (s.v === 'profiles') { if (logsOpen) $('approval-logs-back').click(); else showProfileScreen(); return; }
+      const p = s.p && (profiles.find(x => x.name === s.p) || (s.p === BIZDEV_PROFILE.name ? BIZDEV_PROFILE : null));
+      if (p) { if (logsOpen) $('approval-logs-panel').classList.remove('visible'); enterProfile(p); }
+    },
+  });
+  const poke = () => setTimeout(NavHist.record, 80);
+  ['profile-screen', 'approval-logs-panel', 'main-view'].forEach(id => {
+    const el = $(id);
+    if (el) new MutationObserver(poke).observe(el, { attributes: true, attributeFilter: ['class', 'style'] });
+  });
+})();
+</script>
 </body>
 </html>

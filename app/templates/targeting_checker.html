@@ -2232,5 +2232,25 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 {% include "partials/_sop_widget.html" %}
+<script src="/static/nav-history.js"></script>
+<script>
+// Back arrow: each wizard step you reach is one history step.
+(function () {
+  if (!window.NavHist || typeof goToStep !== 'function') return;
+  const go = goToStep;
+  window.goToStep = function (step) { go(step); NavHist.record(); };
+  NavHist.init({
+    snapshot: () => ({ step: (state && state.currentStep) || 1 }),
+    restore: s => {
+      // Land on the nearest step that still has its data (a new scan clears the later ones).
+      let st = Math.max(1, Math.min(4, s.step || 1));
+      while (st > 1 && !canNavigateTo(st)) st--;
+      if (st === 3) renderSummary('qa-summary');
+      if (st === 4) renderSummary('export-summary');
+      go(st);
+    },
+  });
+})();
+</script>
 </body>
 </html>

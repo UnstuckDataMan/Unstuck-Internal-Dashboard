@@ -364,4 +364,17 @@ document.body.addEventListener('htmx:afterSettle', function(evt) {
 });
 </script>
 
+<script src="/static/nav-history.js"></script>
+<script>
+// Back arrow: each tab you open is one history step.
+(function () {
+  if (!window.NavHist) return;
+  const tabs = () => [...document.querySelectorAll('#bdt-data .bdt-tab-btn')];
+  NavHist.init({
+    snapshot: () => { const b = document.querySelector('#bdt-data .bdt-tab-btn.active'); return { tab: b ? b.dataset.tab : null }; },
+    restore: s => { const b = tabs().find(x => x.dataset.tab === s.tab) || tabs()[0]; if (b) b.click(); },
+  });
+  document.addEventListener('click', e => { if (e.target.closest && e.target.closest('#bdt-data .bdt-tab-btn')) setTimeout(NavHist.record, 0); });
+})();
+</script>
 {% endblock %}

@@ -5104,4 +5104,18 @@ window._sopKeyMap = {
 </script>
 {% endblock %}
 
+<script src="/static/nav-history.js"></script>
+<script>
+// Back arrow: each tab you open is one history step.
+(function () {
+  if (!window.NavHist) return;
+  const btns = () => [...document.querySelectorAll('.dnc-tab-btn')];
+  NavHist.init({
+    snapshot: () => { const b = document.querySelector('.dnc-tab-btn.active'); return { tab: b ? b.dataset.tab : null }; },
+    restore: s => { const b = btns().find(x => x.dataset.tab === s.tab) || btns()[0]; if (b) b.click(); },
+    restoreOnLoad: true,
+  });
+  btns().forEach(b => b.addEventListener('click', () => setTimeout(NavHist.record, 0)));
+})();
+</script>
 {% endblock %}
