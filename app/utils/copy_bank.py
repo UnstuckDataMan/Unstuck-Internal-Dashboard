@@ -85,6 +85,42 @@ def fetch_content(client_id: str, territory: str, industry: str) -> tuple[dict, 
     return {}, False
 
 
+def profile_options(client_id: str) -> dict:
+    """The territories and industries this client's Copy Bank profile offers.
+
+    Copy Bank keeps every profile in a single row under the key
+    `__cb_profiles__` rather than a table of its own, so this is one read for
+    the whole agency and then a lookup. Returns empty lists for a client with
+    no profile, and never raises — it decorates a panel that works without it.
+    """
+    blank = {"territories": [], "industries": []}
+    if not SUPABASE_URL or not client_id:
+        return blank
+    try:
+        r = http_req.get(
+            f"{SUPABASE_URL}/rest/v1/copy_bank_templates",
+            params={"key": "eq.__cb_profiles__", "select": "content"},
+            headers=sb_headers(),
+            timeout=10,
+        )
+        if r.status_code >= 400:
+            return blank
+        rows = r.json()
+    except Exception as exc:
+        logger.warning("Copy Bank: could not read profiles: %s", exc)
+        return blank
+    content = rows[0].get("content") if rows else None
+    if not isinstance(content, list):
+        return blank
+    for profile in content:
+        if str(profile.get("client_id") or "") == str(client_id):
+            return {
+                "territories": [t for t in (profile.get("territories") or []) if t],
+                "industries":  [i for i in (profile.get("industries") or []) if i],
+            }
+    return blank
+
+
 def _candidate_keys(client_id: str, territory: str, industry: str) -> list[str]:
     key = template_key(client_id, territory, industry)
     if client_id == "bizdev":

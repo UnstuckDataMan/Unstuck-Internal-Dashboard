@@ -191,6 +191,34 @@
       <span class="ab-step-name">{{ block.name }}</span>
       {% if block.territory and block.industry %}
       <span class="ab-subject">{{ block.territory }} · {{ block.industry }}</span>
+      {% elif copy_options.territories and copy_options.industries %}
+      {# The variant labels on this sheet are Copy Bank indexes, so the copy is
+         already written down — what is missing is which entry they index
+         into. The merge records that only when somebody used its Copy Bank
+         loader in the same session, so most campaigns arrive without it. One
+         choice here resolves every label on the campaign, permanently. #}
+      <form class="ab-source-pick"
+            hx-post="/api/outbound-pulse/clients/{{ client_id }}/copy-source"
+            hx-target="#pulse-ab"
+            hx-swap="innerHTML"
+            hx-indicator="#ab-spinner">
+        <input type="hidden" name="campaign_ref" value="{{ block.ref }}">
+        <input type="hidden" name="range" value="{{ range_key }}">
+        <span class="ab-source-hint">Copy source</span>
+        <select name="territory" required aria-label="Territory">
+          <option value="">Territory…</option>
+          {%- for t in copy_options.territories %}
+          <option value="{{ t }}">{{ t }}</option>
+          {%- endfor %}
+        </select>
+        <select name="industry" required aria-label="Industry">
+          <option value="">Industry…</option>
+          {%- for i in copy_options.industries %}
+          <option value="{{ i }}">{{ i }}</option>
+          {%- endfor %}
+        </select>
+        <button type="submit" class="btn btn-download">Link copy</button>
+      </form>
       {% else %}
       <span class="ab-subject">no copy source recorded</span>
       {% endif %}

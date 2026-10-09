@@ -4048,6 +4048,35 @@
     $('mm-preview-section').classList.remove('mm-hidden');
   }
 
+  // Which Copy Bank entry this campaign was built from, or blanks.
+  //
+  // Client Performance & Reports resolves a sheet's "S2/B1" labels against
+  // this pair, so a campaign that records nothing can never show the copy
+  // that won — the label is an index, and the entry is what it indexes into.
+  //
+  // Two ways it used to go missing. mm.copySource is set only while Load
+  // Templates runs, so copy loaded before a page refresh was lost even though
+  // the selectors still showed it; the selectors are now read as a fallback.
+  // And the flag records which client it was loaded for while nothing checked
+  // it, so loading one client's copy and then uploading a different client's
+  // sheet recorded the wrong entry against it — which the reporting tool
+  // would then show that client as their own winning copy. Both paths now
+  // require the client to match.
+  function mmCopySourceFor(clientId) {
+    const blank = { territory: '', industry: '' };
+    if (!clientId) return blank;
+    if (mm.copySource && mm.copySource.client_id === clientId) {
+      return { territory: mm.copySource.territory, industry: mm.copySource.industry };
+    }
+    const cbClient = $('mm-cb-client');
+    const ter      = $('mm-cb-territory');
+    const ind      = $('mm-cb-industry');
+    if (cbClient && cbClient.value === clientId && ter && ind && ter.value && ind.value) {
+      return { territory: ter.value, industry: ind.value };
+    }
+    return blank;
+  }
+
   // ── Upload to Google Sheets ──────────────────────────────────
   async function uploadToSheets() {
     const btn      = $('mm-upload-sheets-btn');
@@ -4069,6 +4098,8 @@
     const campaignEl = $('mm-campaign-name');
     const campaign   = campaignEl ? campaignEl.value.trim() : '';
 
+    const copySource = mmCopySourceFor(clientId);
+
     try {
       const res = await fetch('/api/merge/upload-to-sheets', {
         method:  'POST',
@@ -4080,8 +4111,8 @@
           campaign_name:       campaign,
           sender_profile_name: mm.senderProfileName,
           total_prospects:     mm.scheduledCount,
-          copy_territory:      mm.copySource ? mm.copySource.territory : '',
-          copy_industry:       mm.copySource ? mm.copySource.industry  : '',
+          copy_territory:      copySource.territory,
+          copy_industry:       copySource.industry,
         }),
       }).then(r => r.json());
 

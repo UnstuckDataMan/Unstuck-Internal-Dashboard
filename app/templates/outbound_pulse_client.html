@@ -51,6 +51,164 @@
   </select>
 </div>
 
+{# One section at a time. The toolbar stays above the strip because the range
+   and the channel apply to three of these tabs rather than one — and because
+   the A/B panel's hx-include points at those two controls by id. #}
+<div class="pulse-tabs" role="tablist" aria-label="Client sections">
+  {%- for key, label in [
+       ("overview",    "Overview"),
+       ("performance", "Performance"),
+       ("campaigns",   "Campaigns"),
+       ("copy",        "Winning copy"),
+       ("quality",     "Lead quality"),
+       ("reports",     "Reports"),
+     ] %}
+  <button type="button" class="pulse-tab{% if loop.first %} is-active{% endif %}"
+          role="tab" id="ctab-btn-{{ key }}" aria-controls="ctab-{{ key }}"
+          aria-selected="{{ "true" if loop.first else "false" }}" data-tab="{{ key }}">
+    {{ label }}
+  </button>
+  {%- endfor %}
+</div>
+
+<!-- ── Overview ───────────────────────────────────────────────────────── -->
+{# The landing tab: the figures somebody opens this page to read, and nothing
+   that needs a scroll to find. Every number here is produced by the same
+   filters the Performance tab uses, so the two cannot disagree. #}
+<section id="ctab-overview" class="pulse-tab-panel" role="tabpanel"
+         aria-labelledby="ctab-btn-overview">
+  {% set sent = counts.sent or 0 %}
+  {% set leads = counts | pulse_leads %}
+  {% set live_sources = sources | selectattr("active") | list %}
+
+  <div class="pulse-section-head">
+    <p class="section-label" style="margin:0">At a glance — {{ range.label | lower }}</p>
+    <span class="pulse-meta">
+      {{ campaign_rows | length }} campaign{{ "" if campaign_rows | length == 1 else "s" }} with activity
+    </span>
+  </div>
+
+  {% if not sent and not (counts.replied or 0) and not leads %}
+  {# A wall of zeros reads as a broken page. An empty range is not a failure,
+     so this names the range it looked at and where to look next. #}
+  <div class="pulse-empty">
+    <h3>Nothing in this range</h3>
+    <p>
+      No activity for {{ client.name }} in {{ range.label | lower }}{% if channel %} from this source{% endif %}.
+      Widen the range above, or check the connectors on the
+      <a href="/outbound-pulse">main page</a>.
+    </p>
+  </div>
+  {% else %}
+
+  <div class="kpi-row">
+    <div class="kpi" style="--i: 0">
+      <div class="kpi-label">Sent</div>
+      <div class="kpi-value" data-ticker>{{ "{:,}".format(sent) }}</div>
+      <div class="kpi-sub">
+        from {{ live_sources | length }} source{{ "" if live_sources | length == 1 else "s" }}
+      </div>
+    </div>
+    {# The same three rates the funnel shows, from the same filter, so the
+       landing tab and the Performance tab cannot drift apart. #}
+    {%- for r in counts | pulse_rates %}
+    <div class="kpi{% if r.key == "lead" %} is-lead{% endif %}" style="--i: {{ loop.index }}">
+      <div class="kpi-label">{{ r.many | capitalize }}</div>
+      <div class="kpi-value" data-ticker>{{ "{:,}".format(r.value) }}</div>
+      <div class="kpi-sub" title="{{ r.hint }}">
+        <b>{{ r.rate | pulse_pct }}</b> {{ r.label | lower }}
+      </div>
+    </div>
+    {%- endfor %}
+    <div class="kpi is-negative" style="--i: 4">
+      <div class="kpi-label">Unsubscribed</div>
+      <div class="kpi-value" data-ticker>{{ "{:,}".format(counts | pulse_unsubs) }}</div>
+      <div class="kpi-sub">of {{ "{:,}".format(sent) }} sent</div>
+    </div>
+  </div>
+
+  <div class="ov-cols">
+    <div class="pulse-panel">
+      <h3>By platform</h3>
+      <p class="panel-hint">
+        LinkedIn is a different medium from email, so the two are never added
+        together into a single rate.
+      </p>
+      {% if by_channel %}
+      <div class="channel-rows">
+        {%- for channel_name, c in by_channel.items() %}
+        <div class="channel-row">
+          <span class="channel-name">{{ "LinkedIn" if channel_name == "linkedin" else "Email" }}</span>
+          <span class="channel-stats">
+            <b>{{ "{:,}".format(c.sent) }}</b> sent
+            · <b>{{ "{:,}".format(c.replied) }}</b> replied
+            · <b>{{ "{:,}".format(c | pulse_leads) }}</b> lead{{ "" if (c | pulse_leads) == 1 else "s" }}
+            · <b>{{ c | pulse_lead_rate | pulse_pct }}</b> lead rate
+          </span>
+        </div>
+        {%- endfor %}
+      </div>
+      {% else %}
+      <p class="pulse-meta">No activity in this range.</p>
+      {% endif %}
+    </div>
+
+    <div class="pulse-panel">
+      <h3>Where it came from</h3>
+      <p class="panel-hint">
+        Each of these is one tool, so they do not overlap and together they make
+        up the totals above. <b>Performance</b> has the funnel per source.
+      </p>
+      <div class="src-strip">
+        {%- for s in sources %}
+        <div class="src-item{% if not s.active %} is-off{% endif %}">
+          <span class="src-name">{{ s.label }}</span>
+          <span class="src-figs">
+            {%- if s.active %}
+            <b>{{ "{:,}".format(s.counts.sent or 0) }}</b> sent
+            · <b>{{ "{:,}".format(s.counts | pulse_leads) }}</b> lead{{ "" if (s.counts | pulse_leads) == 1 else "s" }}
+            {%- else %}nothing in this range{% endif %}
+          </span>
+        </div>
+        {%- endfor %}
+      </div>
+    </div>
+  </div>
+
+  {% if campaign_rows %}
+  <div class="pulse-panel">
+    <h3>Busiest campaigns</h3>
+    <p class="panel-hint">
+      By sends. Campaigns run through the DNC &amp; Merger tool cannot be
+      ranked here — their outcomes are recorded against the client rather than
+      the campaign, so there is no per-campaign funnel to sort them by.
+    </p>
+    <div class="top-camps">
+      {%- for row in campaign_rows[:3] %}
+      <div class="top-camp">
+        <span class="top-camp-name" title="{{ row.campaign.name }}">{{ row.campaign.name or "(unnamed)" }}</span>
+        <span class="top-camp-figs">
+          <b>{{ "{:,}".format(row.counts.sent) }}</b> sent
+          · <b>{{ row.counts | pulse_lead_rate | pulse_pct }}</b> lead rate
+        </span>
+      </div>
+      {%- endfor %}
+    </div>
+    {% if campaign_rows | length > 3 %}
+    <button type="button" class="btn btn-download" data-goto-tab="campaigns"
+            style="margin-top:12px;font-size:12px;padding:7px 15px">
+      All {{ campaign_rows | length }} campaigns &rarr;
+    </button>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% endif %}
+</section>
+
+<!-- ── Performance ────────────────────────────────────────────────────── -->
+<section id="ctab-performance" class="pulse-tab-panel" role="tabpanel"
+         aria-labelledby="ctab-btn-performance" hidden>
+
 <!-- ── Funnel + channel split ───────────────────────────────────── -->
 <div class="pulse-section">
   <div class="pulse-section-head">
@@ -179,6 +337,32 @@
 </div>
 {% endif %}
 
+{# Typed-in figures sit beside the funnel they feed rather than in a tab of
+   their own: the whole point of the panel is that the number lands in the
+   funnel above it. #}
+<div class="pulse-panel">
+  <h3>Enter figures by hand</h3>
+  <p class="panel-hint">
+    For a tool this dashboard cannot reach — Meet Alfred, principally. Figures
+    land in the funnel alongside the synced sources and appear under their own
+    tab, so a typed number is never mistaken for a measured one.
+  </p>
+  <div id="pulse-hand-entry"
+       hx-get="/api/outbound-pulse/clients/{{ client.id }}/hand-entries"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="skel-stack" role="status" aria-label="Loading entered figures">
+      <div class="skel-card"><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ── Campaigns ──────────────────────────────────────────────────────── -->
+<section id="ctab-campaigns" class="pulse-tab-panel" role="tabpanel"
+         aria-labelledby="ctab-btn-campaigns" hidden>
+
 <!-- ── Campaign breakdown ───────────────────────────────────────── -->
 <div class="pulse-section">
   <p class="section-label">Campaigns</p>
@@ -219,8 +403,8 @@
   {% endif %}
 </div>
 
-<!-- ── Client portal access ─────────────────────────────────────── -->
 {% if manual_campaigns %}
+<!-- ── Manual campaigns ───────────────────────────────────────────────── -->
 <div class="pulse-section">
   <p class="section-label">Manual campaigns</p>
   {# From the DNC &amp; Merger tool. These cannot appear in the table above:
@@ -252,12 +436,17 @@
   </div>
   <p class="pulse-meta" style="margin-top:10px;line-height:1.55">
     Outcomes for these are counted against the client, not the campaign, so
-    their leads and replies appear in the funnel above under
-    <b>DNC &amp; Merger</b> rather than row by row here.
+    their leads and replies appear under <b>DNC &amp; Merger</b> on the
+    <b>Performance</b> tab rather than row by row here.
   </p>
 </div>
 {% endif %}
 
+</section>
+
+<!-- ── Winning copy ───────────────────────────────────────────────────── -->
+<section id="ctab-copy" class="pulse-tab-panel" role="tabpanel"
+         aria-labelledby="ctab-btn-copy" hidden>
 <div class="pulse-panel">
   <h3>Winning copy</h3>
   <p class="panel-hint">
@@ -284,6 +473,11 @@
   <div id="pulse-ab" style="margin-top:14px"></div>
 </div>
 
+</section>
+
+<!-- ── Lead quality ───────────────────────────────────────────────────── -->
+<section id="ctab-quality" class="pulse-tab-panel" role="tabpanel"
+         aria-labelledby="ctab-btn-quality" hidden>
 <div class="pulse-panel">
   <h3>Lead quality</h3>
   <p class="panel-hint">
@@ -302,23 +496,11 @@
   </div>
 </div>
 
-<div class="pulse-panel">
-  <h3>Enter figures by hand</h3>
-  <p class="panel-hint">
-    For a tool this dashboard cannot reach — Meet Alfred, principally. Figures
-    land in the funnel alongside the synced sources and appear under their own
-    tab, so a typed number is never mistaken for a measured one.
-  </p>
-  <div id="pulse-hand-entry"
-       hx-get="/api/outbound-pulse/clients/{{ client.id }}/hand-entries"
-       hx-trigger="load"
-       hx-swap="innerHTML">
-    <div class="skel-stack" role="status" aria-label="Loading entered figures">
-      <div class="skel-card"><span class="skel skel-line md"></span><span class="skel skel-line sm"></span></div>
-    </div>
-  </div>
-</div>
+</section>
 
+<!-- ── Reports ────────────────────────────────────────────────────────── -->
+<section id="ctab-reports" class="pulse-tab-panel" role="tabpanel"
+         aria-labelledby="ctab-btn-reports" hidden>
 <div class="pulse-panel">
   <h3>Reports</h3>
   <p class="panel-hint">
@@ -360,6 +542,7 @@
        hx-swap="innerHTML"
        style="margin-top:14px"></div>
 </div>
+</section>
 
 <script>
 (function () {
@@ -405,7 +588,11 @@
       params.set('range', rangeSel.value === 'custom' ? '30d' : rangeSel.value);
     }
     if (channel) params.set('channel', channel);
-    window.location.search = params.toString();
+    // Carrying the fragment, not just the query. Assigning to location.search
+    // drops it, so changing the range used to throw you back to Overview from
+    // whichever tab you were reading.
+    window.location.href =
+      window.location.pathname + '?' + params.toString() + (window.location.hash || '');
   };
 
   setCustomMode(rangeSel.value === 'custom');
@@ -425,6 +612,45 @@
       });
     });
   });
+
+  // ── Section tabs ──────────────────────────────────────────────────
+  // Every panel is already in the page: the figures came from one query, and
+  // the four lazy panels fetch on load whether or not their tab is open. So
+  // switching is a hidden attribute and nothing else.
+  //
+  // The open tab lives in the fragment, which keeps it across a reload, lets
+  // a link point straight at one, and survives the filter reload above.
+  var sectionTabs = document.querySelectorAll('.pulse-tab');
+
+  function showSection(name, push) {
+    var matched = false;
+    sectionTabs.forEach(function (btn) {
+      var on = btn.dataset.tab === name;
+      matched = matched || on;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      var panel = document.getElementById('ctab-' + btn.dataset.tab);
+      if (panel) panel.hidden = !on;
+    });
+    // An unknown fragment falls back rather than hiding every panel, which is
+    // what a stale bookmark to a renamed tab would otherwise do.
+    if (!matched) return showSection('overview', push);
+    if (push) history.replaceState(null, '', '#' + name);
+  }
+
+  sectionTabs.forEach(function (btn) {
+    btn.addEventListener('click', function () { showSection(btn.dataset.tab, true); });
+  });
+  document.querySelectorAll('[data-goto-tab]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      showSection(btn.dataset.gotoTab, true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+  window.addEventListener('hashchange', function () {
+    showSection((location.hash || '#overview').slice(1), false);
+  });
+  showSection((location.hash || '#overview').slice(1), false);
 })();
 </script>
 {% include "partials/pulse_trend_js.html" %}

@@ -6726,3 +6726,215 @@ def test_the_migration_does_not_write_plain_replies_to_the_dnc_list():
            / "outbound_pulse_manual_replies.sql").read_text(encoding="utf-8")
     assert "INSERT INTO dnc_entries" not in sql
     assert "'reply'" not in sql, "the sheet's plain Reply status stays uncounted"
+
+
+# ── The client page is one section at a time ─────────────────────────────────
+
+def _overview(body):
+    """Just the Overview tab, so a figure found here is really on the landing
+    page rather than in the Performance tab further down."""
+    return body.split('id="ctab-overview"', 1)[1].split('id="ctab-performance"', 1)[0]
+
+
+def test_the_client_page_opens_on_an_overview(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    for key in ("overview", "performance", "campaigns", "copy", "quality", "reports"):
+        assert f'data-tab="{key}"' in body
+        assert f'id="ctab-{key}"' in body
+    # Overview is the one that renders; the rest arrive hidden and are shown by
+    # the tab strip. A panel that sets its own `display` would defeat [hidden],
+    # which is why .pulse-tab-panel ships a [hidden] rule of its own.
+    assert '<section id="ctab-overview" class="pulse-tab-panel" role="tabpanel"' in body
+    assert body.split('id="ctab-performance"', 1)[1].split(">", 1)[0].count("hidden") == 1
+
+
+def test_the_overview_leads_with_the_same_figures_as_the_funnel(client, fake_sb):
+    """The landing tab and the Performance tab are built from one query, so a
+    number on one that disagreed with the other would be a straight bug."""
+    _source_routes(fake_sb, _MIXED)
+    head = _overview(client.get(f"/outbound-pulse/clients/{CLIENT}").text)
+    tiles = [t.split("</div>", 1)[0].strip()
+             for t in head.split('class="kpi-value" data-ticker>')[1:]]
+    # Sent, then the three headline rates in funnel order, then unsubscribes.
+    assert tiles == ["1,500", "40", "0", "12", "0"]
+    assert "0.8% </b> lead rate" in head.replace("</b>", " </b>")
+
+
+def test_the_overview_counts_the_sources_with_something_in_them(client, fake_sb):
+    _source_routes(fake_sb, _MIXED)
+    head = _overview(client.get(f"/outbound-pulse/clients/{CLIENT}").text)
+    assert "from 2 sources" in head        # Smartlead and the DNC & Merger tool
+    assert "nothing in this range" in head  # Meet Alfred and hand entry
+
+
+def test_an_empty_range_says_so_rather_than_showing_zeros(client, fake_sb):
+    """A wall of zeros reads as a broken page, not as a quiet month."""
+    _source_routes(fake_sb, [])
+    head = _overview(client.get(f"/outbound-pulse/clients/{CLIENT}").text)
+    assert "Nothing in this range" in head
+    assert "kpi-value" not in head
+
+
+def test_changing_the_range_keeps_the_open_tab(client, fake_sb):
+    """applyFilters reloads the page. Assigning to location.search drops the
+    fragment, which threw you back to Overview from whatever you were reading."""
+    _source_routes(fake_sb, _MIXED)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "window.location.search = params.toString()" not in body
+    assert "(window.location.hash || '')" in body
+
+
+# ── The report funnel quotes one base, not two ───────────────────────────────
+
+def test_the_report_funnel_does_not_quote_a_share_of_all_sends(client, fake_sb):
+    """Two percentages on one line against two different bases read as a
+    contradiction. The step rate says what happened at the stage; the share of
+    sends is already on the Reply outcomes card."""
+    _portal_routes(fake_sb)
+    body = client.get("/r/valid-token").text
+    assert "of all sends" not in body
+    assert "of sent" in body            # the step rate itself stays
+
+
+# ── The tracker link reaches reports published before it existed ─────────────
+
+def _linked_tracker(fake_sb, url="https://docs.google.com/live"):
+    fake_sb.route("GET", "pulse_client_trackers", lambda call: FakeResponse(200, [{
+        "client_id": CLIENT, "sheet_url": url, "sheet_id": "live-sheet",
+        "tab_title": "All leads", "status": "ok", "status_detail": "",
+        "linked_by": "", "updated_at": None,
+    }]))
+
+
+def test_a_report_published_before_the_url_was_frozen_still_links_the_tracker(
+        client, fake_sb):
+    """Most published reports predate the URL being captured. Their client has
+    had a tracker linked all along, so the link is there to be shown."""
+    _icp_report(fake_sb, dict(_ICP_BLOCK))      # no sheet_url in the snapshot
+    _linked_tracker(fake_sb)
+    body = client.get("/r/valid-token").text
+    assert "https://docs.google.com/live" in body
+
+
+def test_the_frozen_url_wins_over_the_live_one(client, fake_sb):
+    """A report should point at the sheet its own figures came from, not at
+    whatever the tracker was later re-pointed to."""
+    _icp_report(fake_sb, dict(_ICP_BLOCK, sheet_url="https://docs.google.com/frozen"))
+    _linked_tracker(fake_sb)
+    body = client.get("/r/valid-token").text
+    assert "https://docs.google.com/frozen" in body
+    assert "https://docs.google.com/live" not in body
+
+
+def test_an_unreadable_tracker_row_leaves_the_frozen_link_alone(client, fake_sb):
+    """get_tracker is deliberately soft and returns None for a failed read as
+    well as for no tracker, so an empty result must never clear a frozen URL —
+    a database blip would otherwise strip the link off every report."""
+    _icp_report(fake_sb, dict(_ICP_BLOCK, sheet_url="https://docs.google.com/frozen"))
+    fake_sb.route("GET", "pulse_client_trackers",
+                  lambda call: FakeResponse(500, []))
+    body = client.get("/r/valid-token").text
+    assert "https://docs.google.com/frozen" in body
+
+
+# ── Recording a campaign's copy source after the fact ────────────────────────
+
+_NO_SOURCE = [{"id": "mc1", "sheet_id": "s1", "campaign_name": "Acme MSP",
+               "completed_at": None, "copy_territory": "", "copy_industry": ""}]
+
+_PROFILES = [{"client_id": CLIENT, "name": "Acme", "type": "client",
+              "territories": ["uk", "us"], "industries": ["msp", "media"],
+              "senders": []}]
+
+
+def _bank(fake_sb, profiles=_PROFILES):
+    """copy_bank_templates holds every profile in one row keyed __cb_profiles__,
+    and each copy entry under a key of its own — so the route has to answer on
+    the key rather than return the same thing to both readers."""
+    def handler(call):
+        from tests.conftest import param_values
+        key = (param_values(call, "key") or [""])[0]
+        if key == "eq.__cb_profiles__":
+            return FakeResponse(200, [{"content": profiles}])
+        return FakeResponse(200, [{"content": {"email": {
+            "subjects":   ["Quick one about your MSP"],
+            "variations": [{"body": "Hi there."}],
+        }}}])
+    fake_sb.route("GET", "copy_bank_templates", handler)
+
+
+def test_a_campaign_with_no_copy_source_is_offered_one(client, fake_sb, monkeypatch):
+    """The labels on the sheet are Copy Bank indexes, so the copy is already
+    written down — what is missing is which entry they index into. The merge
+    only records that when its Copy Bank loader was used in the same session,
+    so most campaigns arrive without it."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "ab-source-pick" in body
+    assert 'value="mc1"' in body
+    for option in ("uk", "us", "msp", "media"):
+        assert f'<option value="{option}">' in body
+    assert "no copy source recorded" not in body
+
+
+def test_a_campaign_that_already_has_one_is_not_offered_the_picker(
+        client, fake_sb, monkeypatch):
+    _manual_ab(fake_sb, monkeypatch)
+    _bank(fake_sb)
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "ab-source-pick" not in body
+
+
+def test_the_picker_is_not_offered_when_the_bank_has_no_profile(
+        client, fake_sb, monkeypatch):
+    """Two empty dropdowns would be worse than the sentence they replaced."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb, profiles=[])
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "ab-source-pick" not in body
+    assert "no copy source recorded" in body
+
+
+def test_setting_a_copy_source_writes_it_to_the_campaign(client, fake_sb, monkeypatch):
+    from tests.conftest import param_values
+
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(200, [{"id": "mc1"}]))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "mc1", "territory": "uk",
+                          "industry": "msp", "range": "30d"})
+    assert r.status_code == 200
+    call = fake_sb.calls_to("PATCH", "campaigns")[0]
+    assert call["json"] == {"copy_territory": "uk", "copy_industry": "msp"}
+    # Scoped on the client as well as the id: the ref came from the browser,
+    # and a copy source belongs to the client whose Copy Bank it names.
+    assert param_values(call, "id") == ["eq.mc1"]
+    assert param_values(call, "client_id") == [f"eq.{CLIENT}"]
+
+
+def test_a_copy_source_needs_both_halves(client, fake_sb, monkeypatch):
+    """A Copy Bank entry is the pair; half of one resolves to nothing."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "mc1", "territory": "uk", "industry": ""})
+    assert r.status_code == 200
+    assert "a Copy Bank entry is the pair" in r.text
+    assert not fake_sb.calls_to("PATCH", "campaigns")
+
+
+def test_a_campaign_that_is_not_this_clients_is_reported_not_silently_ignored(
+        client, fake_sb, monkeypatch):
+    """PostgREST returns 200 with an empty body when the filter matches
+    nothing. Reporting that as success left the panel unchanged with no
+    explanation for why."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(200, []))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "someone-elses", "territory": "uk",
+                          "industry": "msp"})
+    assert "Could not record that copy source" in r.text
