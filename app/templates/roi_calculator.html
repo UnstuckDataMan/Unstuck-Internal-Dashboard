@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}ROI Calculator · Unstuck Agency{% endblock %}
+{% block heading %}ROI Calculator{% endblock %}
+{% block extra_head %}
+<style>
+  .page-inner { max-width: 1120px; }
+  .roi-intro { margin-bottom: 18px; }
+  .roi-intro-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .roi-currency { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
+  .roi-currency select { background: #181827; color: var(--text-2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font: 500 12px var(--font); cursor: pointer; }
+  .roi-currency select:focus-visible { outline: 2px solid #34d399; outline-offset: 3px; }
+  .roi-eyebrow { color: #6ee7b7; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
+  .roi-intro h2 { font: 700 clamp(28px, 4vw, 40px) var(--font-display); letter-spacing: -.035em; margin: 10px 0 0; }
+  .roi-intro p, .roi-help { color: var(--text-2); font-size: 14px; line-height: 1.7; }
+  .roi-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 24px; align-items: start; }
+  .roi-panel { background: rgba(255,255,255,.045); border: 1px solid var(--border); border-radius: 20px; padding: 28px; }
+  .roi-panel h3 { font: 600 20px var(--font-display); margin-bottom: 6px; }
+  .roi-field { margin-top: 24px; }
+  .roi-field label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  .roi-field small { display: block; color: var(--text-2); font-size: 12px; margin-top: 7px; line-height: 1.5; }
+  .roi-input { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 10px; background: rgba(8,8,18,.5); overflow: hidden; }
+  .roi-input:focus-within { border-color: #34d399; box-shadow: 0 0 0 3px rgba(52,211,153,.12); }
+  .roi-input span { padding: 0 16px; color: var(--text-2); }
+  .roi-input input { width: 100%; min-width: 0; border: 0; background: transparent; color: var(--text); padding: 14px 16px; font: 500 20px var(--font); outline: none; }
+  .roi-input:has(input[aria-invalid="true"]) { border-color: var(--red); }
+  .roi-result { background: linear-gradient(145deg, rgba(16,185,129,.16), rgba(20,184,166,.035)); border-color: rgba(52,211,153,.3); }
+  .roi-ratio { font: 700 clamp(48px, 6vw, 72px) var(--font-display); letter-spacing: -.05em; color: #6ee7b7; margin: 18px 0 8px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .roi-result[data-state="below"] .roi-ratio { color: #fcd34d; }
+  .roi-stats { margin: 26px 0; border-top: 1px solid var(--border); }
+  .roi-stat { display: flex; justify-content: space-between; gap: 16px; padding: 17px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .roi-stat dt { color: var(--text-2); }
+  .roi-stat dd { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+  .roi-formula { margin-top: 24px; font-size: 12px; color: var(--text-2); line-height: 1.8; }
+  .roi-reset { margin-top: 24px; background: transparent; border: 1px solid var(--border); color: var(--text-2); padding: 10px 16px; border-radius: 8px; cursor: pointer; font: 500 13px var(--font); }
+  .roi-reset:hover { background: var(--surface-hover); color: var(--text); }
+  .roi-reset:focus-visible { outline: 2px solid #34d399; outline-offset: 3px; }
+  #roi-error { color: var(--red); font-size: 13px; line-height: 1.6; margin-top: 16px; }
+  @media (max-width: 760px) { .roi-grid { grid-template-columns: 1fr; } .roi-panel { padding: 22px; } }
+</style>
+{% endblock %}
+{% block content %}
+<div class="roi-intro">
+  <div class="roi-intro-top">
+    <div class="roi-eyebrow">Reporting &amp; Analytics</div>
+    <div class="roi-currency">
+      <label for="roi-currency">Currency</label>
+      <select id="roi-currency" aria-describedby="currency-help">
+        <option value="GBP">£ GBP</option>
+        <option value="USD">$ USD</option>
+      </select>
+    </div>
+  </div>
+  <h2>Your potential returns.</h2>
+</div>
+<div class="roi-grid">
+  <form class="roi-panel" id="roi-form" novalidate>
+    <h3>Your assumptions</h3>
+    <p class="roi-help">Four inputs. One clear monthly projection.</p>
+    <small class="roi-help" id="currency-help">Enter both monetary amounts in the selected currency.</small>
+    <div class="roi-field">
+      <label for="roi-leads">Leads per month</label>
+      <div class="roi-input"><input id="roi-leads" type="number" min="0" step="any" value="8.08" required inputmode="decimal" aria-describedby="leads-help roi-error"></div>
+      <small id="leads-help">Decimals are welcome for average monthly lead volumes.</small>
+    </div>
+    <div class="roi-field">
+      <label for="roi-conversion">Assumed conversion rate</label>
+      <div class="roi-input"><input id="roi-conversion" type="number" min="0" max="100" step="any" value="30" required inputmode="decimal" aria-describedby="conversion-help roi-error"><span>%</span></div>
+      <small id="conversion-help">The percentage of leads you expect to become deals.</small>
+    </div>
+    <div class="roi-field">
+      <label for="roi-value">Conversion value</label>
+      <div class="roi-input"><span data-currency-symbol>£</span><input id="roi-value" type="number" min="0" step="any" placeholder="Enter value per deal" required inputmode="decimal" aria-describedby="value-help roi-error"></div>
+      <small id="value-help">Revenue from one converted deal, in <span id="roi-currency-code">GBP</span>.</small>
+    </div>
+    <div class="roi-field">
+      <label for="roi-rate">Unstuck monthly rate</label>
+      <div class="roi-input"><span data-currency-symbol>£</span><input id="roi-rate" type="number" min="0" step="any" value="5490" required inputmode="decimal" aria-describedby="rate-help roi-error"></div>
+      <small id="rate-help">Your monthly investment in Unstuck. Must be greater than zero.</small>
+    </div>
+    <p id="roi-error" role="status"></p>
+    <button type="reset" class="roi-reset">Reset figures</button>
+  </form>
+  <section class="roi-panel roi-result" id="roi-result" aria-label="Monthly projection">
+    <div class="roi-eyebrow">Potential ROI · Monthly</div>
+    <div class="roi-ratio"><output id="roi-ratio">—</output></div>
+    <p class="roi-help" id="roi-summary" aria-live="polite">Enter a conversion value to see your potential return.</p>
+    <dl class="roi-stats">
+      <div class="roi-stat"><dt>Annual deals volume</dt><dd><output id="roi-deals">29.088</output></dd></div>
+      <div class="roi-stat"><dt>Annual projected revenue</dt><dd><output id="roi-revenue">—</output></dd></div>
+      <div class="roi-stat"><dt>Monthly revenue less monthly rate</dt><dd><output id="roi-net">—</output></dd></div>
+    </dl>
+    <p class="roi-help">A 1:1 return means projected revenue covers your Unstuck monthly rate.</p>
+    <div class="roi-formula">
+      <strong>How it’s calculated</strong><br>
+      Annual deals volume = monthly leads × conversion rate ÷ 100 × 12<br>
+      Annual projected revenue = annual deals volume × conversion value<br>
+      Potential ROI = annual projected revenue ÷ (monthly rate × 12)
+    </div>
+    <p class="roi-formula">This is a revenue projection based on your assumptions. It excludes delivery costs and other expenses. Fractional deals represent an average, not guaranteed sales.</p>
+  </section>
+</div>
+<noscript><p class="roi-help">Enable JavaScript to use the calculator.</p></noscript>
+{% endblock %}
+{% block extra_scripts %}
+<script src="/static/roi-calculator.js" defer></script>
+{% endblock %}

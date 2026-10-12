@@ -42,6 +42,7 @@ TOOLS: tuple[str, ...] = (
     "bd_targeting",
     "campaigns",
     "client_profiles",      # central client-profile manager
+    "roi_calculator",       # manual monthly ROI projections
     "outbound_pulse",       # Smartlead / Meet Alfred funnel reporting
     "launch_checker",
     "targeting_checker",
@@ -70,6 +71,7 @@ ROUTE_TOOL_MAP: tuple[tuple[str, str], ...] = (
     ("/bd-targeting",                     "bd_targeting"),
     ("/api/bd-targeting",                 "bd_targeting"),
     ("/api/campaigns",                    "campaigns"),
+    ("/roi-calculator",                   "roi_calculator"),
     ("/outbound-pulse",                   "outbound_pulse"),
     ("/api/outbound-pulse",               "outbound_pulse"),
     ("/client-profiles",                  "client_profiles"),

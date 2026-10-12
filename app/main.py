@@ -128,6 +128,11 @@ async def not_found(request: Request, exc):
     )
 
 
+@app.get("/roi-calculator")
+async def roi_calculator(request: Request):
+    return templates.TemplateResponse("roi_calculator.html", {"request": request, "active": "roi_calculator"})
+
+
 @app.get("/healthz")
 async def healthz():
     """Public, unauthenticated health check for Render."""
