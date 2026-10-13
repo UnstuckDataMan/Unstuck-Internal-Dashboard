@@ -91,7 +91,7 @@
     get('result').dataset.state = forecast.ratio < 1 ? 'below' : 'covered';
     set('summary', forecast.ratio < 1 ? 'Projected annual revenue is below your annual Unstuck investment.' : 'Projected annual revenue covers your annual Unstuck investment.');
     set('timing', `Your assumptions imply ${number.format(forecast.expectedDeals)} sales per year. This timeline books ${number.format(forecast.deals)} whole sales as they accumulate, starting with zero existing clients. ${applyChurn ? (mode.value === 'retainer' ? 'The separate churn scenario applies compound monthly retention to acquired retainer clients.' : 'The separate project churn scenario reduces future project revenue opportunities using compound monthly retention from the forecast start.') : 'Churn is off; both revenue lines are identical.'}`);
-    get('years').innerHTML = forecast.years.map(row => `<tr><td>Year ${row.year}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.accumulated)}</td><td>${money.format(row.adjustedRevenue)}</td><td>${row.ratio.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} : 1</td></tr>`).join('');
+    get('years').innerHTML = forecast.years.map(row => `<tr><td>Year ${row.year}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.adjustedRevenue)}</td><td>${money.format(row.accumulated)}</td><td>${row.ratio.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} : 1</td></tr>`).join('');
     drawChart(forecast, money, code);
     exportSnapshot = { forecast, inputs: { leads, conversion, value, rate, currency: code, scenario: scenarioNames[scenario.value], mode: mode.value, churn: churnValue, churnEnabled: applyChurn }, labels: dates.map(label) };
     pdf.disabled = false;
