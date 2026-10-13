@@ -59,6 +59,7 @@
       set('summary', message);
       set('chart', 'Complete your inputs to see the revenue forecast.');
       set('months', '');
+      set('years', '');
       set('timing', '');
     }
     if (!valid.every(Boolean) || !validChurn) {
@@ -79,6 +80,7 @@
     get('result').dataset.state = forecast.ratio < 1 ? 'below' : 'covered';
     set('summary', forecast.ratio < 1 ? 'Projected annual revenue is below your annual Unstuck investment.' : 'Projected annual revenue covers your annual Unstuck investment.');
     set('timing', `Your assumptions imply ${number.format(forecast.expectedDeals)} sales per year. This timeline books ${number.format(forecast.deals)} whole sales as they accumulate, starting with zero existing clients. ${applyChurn ? 'Annual churn is spread across months using compound retention; each new client starts paying in their sale month.' : 'No churn is applied.'}`);
+    get('years').innerHTML = forecast.years.map(row => `<tr><td>Year ${row.year}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.accumulated)}</td><td>${row.ratio.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}:1</td></tr>`).join('');
     drawChart(forecast, money, code);
   }
   currency.addEventListener('change', () => {

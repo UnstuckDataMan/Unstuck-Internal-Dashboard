@@ -21,3 +21,15 @@ assert.throws(() => forecast({ ...base, rate: 0 }), RangeError);
 assert.throws(() => forecast({ ...base, churn: 101 }), RangeError);
 assert.throws(() => forecast({ ...base, value: 1e308 }), RangeError);
 console.log('Forecast checks passed: spaced sales, project fees, accumulating retainers, churn, zero leads, fractional sales and invalid figures.');
+
+assert.equal(project.years.length, 5);
+assert.deepEqual(project.years.map(row => row.revenue), [30000,30000,30000,30000,30000]);
+assert.equal(project.years[4].accumulated,150000);
+assert.equal(project.years[4].ratio,150000 / (5490 * 60));
+assert.equal(retainer.years[1].revenue,510000);
+assert.equal(retainer.years[1].accumulated,660000);
+assert.equal(retainer.years[0].revenue,retainer.revenue);
+assert.ok(churned.years[4].accumulated < retainer.years[4].accumulated);
+assert.equal(forecast({...base, mode:'retainer', churn:100}).years[4].accumulated,150000);
+assert.equal(forecast({...base, leads:0}).years[4].accumulated,0);
+console.log('Five-year checks passed: cumulative revenue and fees, retainer carryover, churn and first-year consistency.');
