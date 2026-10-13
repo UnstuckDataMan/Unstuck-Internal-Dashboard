@@ -3,7 +3,7 @@
   const get = key => document.getElementById('roi-' + key);
   const set = (key, value) => { get(key).textContent = value; };
   const pdf = get('pdf');
-  let printAssumptions = '';
+  let exportSnapshot = null;
   const form = get('form');
   const fields = ['leads', 'conversion', 'value', 'rate'].map(get);
   const currency = get('currency');
@@ -58,7 +58,7 @@
     get('result').dataset.state = '';
     set('error', '');
     pdf.disabled = true;
-    printAssumptions = '';
+    exportSnapshot = null;
     function clear(message) {
       ['ratio', 'revenue', 'net', 'deals'].forEach(key => set(key, '—'));
       set('summary', message);
@@ -79,34 +79,41 @@
     try { forecast = window.roiForecast({ leads, conversion, value, rate, mode: mode.value, churn: churnValue }); }
     catch (error) { clear('Check your figures to calculate the projection.'); set('error', error.message); return; }
     set('deals', number.format(forecast.deals));
-    set('ratio', forecast.ratio.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ':1');
+    set('ratio', forecast.ratio.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' : 1');
     set('revenue', money.format(forecast.revenue));
     set('net', money.format(forecast.net));
     get('result').dataset.state = forecast.ratio < 1 ? 'below' : 'covered';
     set('summary', forecast.ratio < 1 ? 'Projected annual revenue is below your annual Unstuck investment.' : 'Projected annual revenue covers your annual Unstuck investment.');
     set('timing', `Your assumptions imply ${number.format(forecast.expectedDeals)} sales per year. This timeline books ${number.format(forecast.deals)} whole sales as they accumulate, starting with zero existing clients. ${applyChurn ? (mode.value === 'retainer' ? 'The separate churn scenario applies compound monthly retention to acquired retainer clients.' : 'The separate project churn scenario reduces future project revenue opportunities using compound monthly retention from the forecast start.') : 'Churn is off; both revenue lines are identical.'}`);
-    get('years').innerHTML = forecast.years.map(row => `<tr><td>Year ${row.year}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.accumulated)}</td><td>${money.format(row.adjustedRevenue)}</td><td>${row.ratio.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}:1</td></tr>`).join('');
+    get('years').innerHTML = forecast.years.map(row => `<tr><td>Year ${row.year}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.accumulated)}</td><td>${money.format(row.adjustedRevenue)}</td><td>${row.ratio.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} : 1</td></tr>`).join('');
     drawChart(forecast, money, code);
-    printAssumptions = `Unstuck Agency · ROI projection · ${label(dates[0])} – ${label(dates[11])}\nCurrency: ${code} · Leads per month: ${leads} · Assumed conversion: ${conversion}%\nFee type: ${mode.value === 'retainer' ? 'Monthly retainer' : 'One-off project'} · Conversion value: ${money.format(value)} · Unstuck monthly rate: ${money.format(rate)}\nChurn scenario: ${applyChurn ? churnValue + '% annually' : 'Off (0%)'} · Baseline revenue and ratios exclude churn.\nPrepared: ${now.toLocaleDateString('en-GB', { timeZone: 'Europe/London' })}`;
+    exportSnapshot = { forecast, inputs: { leads, conversion, value, rate, currency: code, mode: mode.value, churn: churnValue, churnEnabled: applyChurn }, labels: dates.map(label) };
     pdf.disabled = false;
   }
-  pdf.addEventListener('click', () => {
+  pdf.addEventListener('click', async () => {
     update();
-    if (pdf.disabled) return;
-    set('print-assumptions', printAssumptions);
-    get('print-assumptions').style.whiteSpace = 'pre-line';
-    const details = document.querySelectorAll('details');
-    const states = Array.from(details, node => node.open);
-    const oldTitle = document.title;
-    document.title = `Unstuck-ROI-${year}-${String(month + 1).padStart(2, '0')}`;
-    details.forEach(node => { node.open = true; });
-    const restore = () => {
-      document.title = oldTitle;
-      details.forEach((node, index) => { node.open = states[index]; });
-      window.removeEventListener('afterprint', restore);
-    };
-    window.addEventListener('afterprint', restore);
-    window.print();
+    if (pdf.disabled || !exportSnapshot) return;
+    const snapshot = exportSnapshot;
+    pdf.disabled = true;
+    pdf.textContent = 'PDF…';
+    try {
+      const source = get('pdf-logo');
+      if (!source.complete) await new Promise((resolve, reject) => {
+        source.addEventListener('load', resolve, { once: true });
+        source.addEventListener('error', () => reject(new Error('The Unstuck logo could not load. Refresh and retry.')), { once: true });
+      });
+      if (!source.naturalWidth) throw new Error('The Unstuck logo could not load. Refresh and retry.');
+      const canvas = document.createElement('canvas');
+      canvas.width = source.naturalWidth; canvas.height = source.naturalHeight;
+      canvas.getContext('2d').drawImage(source, 0, 0);
+      const report = window.createRoiPdf({ ...snapshot, logo: canvas.toDataURL('image/png') }, window.jspdf.jsPDF);
+      report.save(`Unstuck-Added-Revenue-${year}-${String(month + 1).padStart(2, '0')}.pdf`);
+    } catch (error) {
+      set('error', 'Could not create the PDF. ' + error.message);
+    } finally {
+      pdf.textContent = 'PDF ↓';
+      pdf.disabled = !exportSnapshot;
+    }
   });
   currency.addEventListener('change', () => {
     rates[previousCurrency] = get('rate').value;

@@ -1,0 +1,104 @@
+(function (root) {
+  'use strict';
+  function createRoiPdf({ forecast, inputs, labels, logo }, jsPDF) {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+    const C = { navy: '#17112B', purple: '#7C3AED', pink: '#E879F9', teal: '#176E56', muted: '#625B73', pale: '#F5F1FC', border: '#E3DCEC', white: '#FFFFFF' };
+    const money = new Intl.NumberFormat(inputs.currency === 'USD' ? 'en-US' : 'en-GB', { style: 'currency', currency: inputs.currency });
+    const ratio = value => value.toFixed(2) + ' : 1';
+    function text(value, x, y, size = 10, colour = C.navy, bold = false, options = {}) {
+      doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size); doc.setTextColor(colour); doc.text(Array.isArray(value) ? value : String(value), x, y, options);
+    }
+    function paragraph(value, x, y, width = 174, size = 10) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(size);
+      const lines = doc.splitTextToSize(value, width);
+      text(lines, x, y, size, C.muted, false, { lineHeightFactor: 1.55 });
+      return y + lines.length * size * .3528 * 1.55;
+    }
+    function box(x, y, width, height, colour) { doc.setFillColor(colour); doc.roundedRect(x, y, width, height, 3, 3, 'F'); }
+    function header(page) {
+      doc.setFillColor(C.navy); doc.rect(0, 0, 210, 43, 'F');
+      doc.setFillColor(C.purple); doc.rect(0, 43, 142, 2, 'F'); doc.setFillColor(C.pink); doc.rect(142, 43, 68, 2, 'F');
+      if (logo) doc.addImage(logo, 'PNG', 18, 10, 110, 21.45);
+      else text('UNSTUCK AGENCY', 18, 26, 20, C.white, true);
+      text('POTENTIAL RETURNS', 192, 25, 8, '#D9CBF4', true, { align: 'right' });
+      doc.setDrawColor(C.border); doc.line(18, 282, 192, 282);
+      text('Added revenue only. Existing company revenue is excluded.', 18, 289, 8, C.muted);
+      text(`${page} / 3`, 192, 289, 8, C.muted, false, { align: 'right' });
+    }
+    function cell(value, x, y, width, bold = false, size = 10) {
+      doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size);
+      while (doc.getTextWidth(String(value)) > width - 8 && size > 6) { size -= .5; doc.setFontSize(size); }
+      text(value, x + width - 4, y, size, C.navy, bold, { align: 'right' });
+    }
+    doc.setProperties({ title: 'Unstuck | Your potential returns', author: 'Unstuck Agency', subject: 'Added revenue forecast and assumptions' });
+    header(1);
+    text('Your potential returns.', 18, 61, 25, C.navy, true);
+    text(`${labels[0]} - ${labels[11]}  |  ${inputs.currency}`, 18, 71, 10, C.muted);
+    box(18, 82, 174, 56, C.navy);
+    text('BASELINE REVENUE-TO-FEE RATIO', 26, 93, 9, '#D9CBF4', true);
+    text(ratio(forecast.ratio), 26, 113, 36, '#6EE7B7', true);
+    text('Projected added revenue / 12 months of Unstuck fees', 26, 129, 10, '#E2DAEF');
+    const stats = [ ['Added revenue - next 12 months', money.format(forecast.revenue)], ['Added revenue less Unstuck fees', money.format(forecast.net)], ['Scheduled new deals', String(forecast.deals)] ];
+    stats.forEach(([name, value], index) => {
+      const y = 150 + index * 12;
+      text(name, 18, y, 10, C.muted); cell(value, 115, y, 77, true, 12);
+      doc.setDrawColor(C.border); doc.line(18, y + 4, 192, y + 4);
+    });
+    text('Your assumptions', 18, 196, 15, C.navy, true);
+    const rows = [ ['Leads per month', String(inputs.leads)], ['Assumed conversion rate', `${inputs.conversion}%`], ['Fee type', inputs.mode === 'retainer' ? 'Monthly retainer' : 'One-off project'], ['Conversion value', money.format(inputs.value)], ['Unstuck monthly rate', money.format(inputs.rate)], ['Annual churn scenario', inputs.churnEnabled ? `${inputs.churn}%` : 'Off (0%)'] ];
+    rows.forEach(([name, value], index) => {
+      const x = index % 2 === 0 ? 18 : 110, y = 208 + Math.floor(index / 2) * 20;
+      text(name, x, y, 9, C.muted); text(value, x, y + 7, 12, C.navy, true);
+    });
+    paragraph('This is a revenue-to-fee ratio, not a profit ROI percentage. Baseline figures exclude churn; the churn scenario is shown separately.', 18, 266, 174, 9);
+    doc.addPage(); header(2);
+    text('Added revenue over time', 18, 61, 22, C.navy, true);
+    text(`${labels[0]} - ${labels[11]}  |  Monthly added revenue`, 18, 71, 10, C.muted);
+    const x0 = 42, y0 = 86, width = 148, height = 55;
+    const max = Math.max(1, ...forecast.months.map(row => row.revenue));
+    const x = index => x0 + index / 11 * width, y = amount => y0 + height * (1 - amount / max);
+    const compact = new Intl.NumberFormat('en-GB', {style:'currency',currency:inputs.currency,notation:'compact',maximumFractionDigits:1});
+    for (let tick = 0; tick <= 4; tick++) {
+      const amount = max * tick / 4;
+      doc.setDrawColor(C.border); doc.setLineWidth(.2); doc.line(x0, y(amount), x0 + width, y(amount));
+      text(compact.format(amount), x0 - 4, y(amount) + 1, 8, C.muted, false, {align:'right'});
+    }
+    for (const [key, colour, dash] of [['revenue',C.teal,[]], ['adjustedRevenue',C.purple,[2,1.5]]]) {
+      doc.setDrawColor(colour); doc.setLineWidth(.7); doc.setLineDashPattern(dash,0);
+      for (let i=1;i<12;i++) doc.line(x(i-1),y(forecast.months[i-1][key]),x(i),y(forecast.months[i][key]));
+    }
+    doc.setLineDashPattern([],0);
+    labels.forEach((label,index)=>{ if(index%2===0||index===11) text(label.split(' ')[0],x(index),148,8,C.muted,false,{align:'center'}); });
+    text('Added revenue - baseline',42,157,9,C.teal,true); text('Added revenue after churn',118,157,9,C.purple,true);
+    box(18,166,174,11,C.pale);
+    text('Month',22,173,9,C.navy,true);text('New deals',94,173,9,C.navy,true,{align:'right'});text('Added revenue',141,173,9,C.navy,true,{align:'right'});text('After churn',188,173,9,C.navy,true,{align:'right'});
+    forecast.months.forEach((row,index)=>{
+      const top=177+index*8;
+      if(index%2===0) {doc.setFillColor('#FAF8FD');doc.rect(18,top,174,8,'F');}
+      text(labels[index],22,top+5.5,9);text(String(row.sales),94,top+5.5,9,C.navy,false,{align:'right'});
+      cell(money.format(row.revenue),96,top+5.5,49,false,9);cell(money.format(row.adjustedRevenue),145,top+5.5,47,false,9);
+    });
+    doc.addPage(); header(3);
+    text('Your five-year outlook',18,61,22,C.navy,true);
+    paragraph('Added revenue generated by Unstuck, assuming the same lead volume, conversion rate and fees continue.',18,72,174,10);
+    const widths=[18,39,43,43,31];
+    const headings=[['Year'],['Added revenue','in year'],['Accumulated','added revenue'],['Added revenue','after churn'],['Accumulated','ROI']];
+    box(18,91,174,18,C.pale);
+    let col=18;
+    headings.forEach((lines,index)=>{lines.forEach((line,row)=>text(line,index===0?col+4:col+widths[index]-4,98+row*4,8,C.navy,true,{align:index===0?'left':'right'}));col+=widths[index];});
+    forecast.years.forEach((row,index)=>{
+      const top=109+index*15;
+      if(index%2===0) {doc.setFillColor('#FAF8FD');doc.rect(18,top,174,15,'F');}
+      text(`Year ${row.year}`,22,top+9,9,C.navy,true);
+      const values=[money.format(row.revenue),money.format(row.accumulated),money.format(row.adjustedRevenue),ratio(row.ratio)];
+      let x=36;values.forEach((value,i)=>{cell(value,x,top+9,widths[i+1],i===3,9);x+=widths[i+1];});
+    });
+    text('How to read this forecast',18,202,14,C.navy,true);
+    let next=paragraph('Year 1 starts this month. Added revenue, accumulated added revenue and ROI are the baseline without churn. Accumulated ROI divides added revenue earned to date by Unstuck fees over the same period.',18,213,174,9);
+    next=paragraph(inputs.mode==='retainer'?'Retainers earn the monthly fee from each sale month. The churn scenario uses monthly retention of (1 - annual churn)^(1/12) on existing acquired clients; new clients pay in their sale month.':'Projects earn a one-off fee in the sale month. Project churn is an illustrative reduction in future opportunities: revenue in month m is multiplied by (1 - annual churn)^(m/12), starting at m = 0. It does not remove fees already earned.',18,next+4,174,9);
+    paragraph('Sales are scheduled when the accumulated conversion estimate reaches a whole deal. Payment starts immediately; the current month is a full month. Existing company revenue, delivery costs, taxes and inflation are excluded. Assumptions remain constant. Values are rounded for display; calculations use full precision.',18,next+4,174,9);
+    return doc;
+  }
+  if (typeof module !== 'undefined' && module.exports) module.exports = createRoiPdf;
+  else root.createRoiPdf = createRoiPdf;
+})(typeof window !== 'undefined' ? window : globalThis);

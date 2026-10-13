@@ -24,7 +24,7 @@
   .roi-input input { width: 100%; min-width: 0; border: 0; background: transparent; color: var(--text); padding: 14px 16px; font: 500 20px var(--font); outline: none; }
   .roi-input:has(input[aria-invalid="true"]) { border-color: var(--red); }
   .roi-result { background: linear-gradient(145deg, rgba(16,185,129,.16), rgba(20,184,166,.035)); border-color: rgba(52,211,153,.3); }
-  .roi-ratio { font: 700 clamp(48px, 6vw, 72px) var(--font-display); letter-spacing: -.05em; color: #6ee7b7; margin: 18px 0 8px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .roi-ratio { font: 700 clamp(40px, 5vw, 64px) var(--font-display); letter-spacing: -.025em; color: #6ee7b7; margin: 18px 0 8px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   .roi-result[data-state="below"] .roi-ratio { color: #fcd34d; }
   .roi-stats { margin: 26px 0; border-top: 1px solid var(--border); }
   .roi-stat { display: flex; justify-content: space-between; gap: 16px; padding: 17px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
@@ -92,12 +92,12 @@
         <option value="GBP">£ GBP</option>
         <option value="USD">$ USD</option>
       </select>
-      <button type="button" id="roi-pdf" class="roi-pdf" disabled title="Create a PDF using your browser’s Save as PDF option">PDF ↓</button>
+      <button type="button" id="roi-pdf" class="roi-pdf" disabled title="Download a branded PDF report">PDF ↓</button>
     </div>
   </div>
   <h2>Your potential returns.</h2>
 </div>
-<div id="roi-print-assumptions" class="roi-print-only"></div>
+<img id="roi-pdf-logo" src="/static/img/logo-report.png" alt="" hidden>
 <div class="roi-grid">
   <form class="roi-panel" id="roi-form" novalidate>
     <h3>Your assumptions</h3>
@@ -145,8 +145,8 @@
     <p class="roi-help" id="roi-summary" aria-live="polite">Enter a conversion value to see your potential return.</p>
     <dl class="roi-stats">
       <div class="roi-stat"><dt>Scheduled deals · next 12 months</dt><dd><output id="roi-deals">3</output></dd></div>
-      <div class="roi-stat"><dt>Annual projected revenue</dt><dd><output id="roi-revenue">—</output></dd></div>
-      <div class="roi-stat"><dt>Annual revenue less Unstuck fees</dt><dd><output id="roi-net">—</output></dd></div>
+      <div class="roi-stat"><dt>Annual projected added revenue</dt><dd><output id="roi-revenue">—</output></dd></div>
+      <div class="roi-stat"><dt>Annual added revenue less Unstuck fees</dt><dd><output id="roi-net">—</output></dd></div>
     </dl>
     <p class="roi-help">This is a revenue-to-fee ratio, not a profit ROI percentage. A 1:1 return means projected revenue covers 12 months of Unstuck fees.</p>
     <div class="roi-formula">
@@ -158,7 +158,7 @@
     <p class="roi-formula">This is a revenue projection based on your assumptions. It excludes delivery costs and other expenses. Sales timing is illustrative, not guaranteed: deals are scheduled when the accumulated conversion estimate reaches a whole sale, with no delay before payment. The current month is treated as a full month. The forecast starts with no existing clients.</p>
   </section>
   <section class="roi-panel" aria-label="Revenue over time">
-    <h3>Revenue over time</h3>
+    <h3>Added revenue over time</h3>
     <p class="roi-help" id="roi-period"></p>
     <p class="roi-help">Monthly revenue added by Unstuck</p>
     <p class="roi-formula" style="margin-top:8px"><span style="color:#6ee7b7">━ Added revenue</span> &nbsp; <span style="color:#c4b5fd">┄ Revenue after churn</span></p>
@@ -172,7 +172,7 @@
   <h3>Your five-year outlook</h3>
   <p class="roi-help">Revenue added by Unstuck, assuming your current lead volume, conversion rate and fees continue.</p>
   <div class="roi-table-wrap"><table class="roi-table">
-    <thead><tr><th>Year</th><th>Added revenue<br>in year</th><th>Accumulated<br>revenue</th><th>Revenue in year<br>after churn</th><th>Accumulated<br>ROI</th></tr></thead>
+    <thead><tr><th>Year</th><th>Added revenue<br>in year</th><th>Accumulated<br>added revenue</th><th>Added revenue in year<br>after churn</th><th>Accumulated<br>ROI</th></tr></thead>
     <tbody id="roi-years"><tr><td>Years 1–5</td><td colspan="4">Complete your inputs to see the projection.</td></tr></tbody>
   </table></div>
   <p class="roi-formula">Year 1 starts this month. Accumulated ROI = revenue earned to date ÷ Unstuck fees paid over the same period. Added revenue, accumulated revenue and ROI show the baseline without churn. The separate revenue-after-churn column applies your churn scenario; when disabled, it matches added revenue. Retainer clients carry into subsequent years. Existing client revenue is excluded. Assumptions and fees stay constant for five years; no inflation, taxes or delivery costs are modelled. Ratios are rounded to two decimal places and currency to the nearest penny; calculations use unrounded values.</p>
@@ -181,5 +181,7 @@
 {% endblock %}
 {% block extra_scripts %}
 <script src="/static/roi-forecast.js" defer></script>
+<script src="/static/vendor/jspdf.umd.min.js" defer></script>
+<script src="/static/roi-pdf.js" defer></script>
 <script src="/static/roi-calculator.js" defer></script>
 {% endblock %}
