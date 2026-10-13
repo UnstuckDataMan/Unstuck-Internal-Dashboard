@@ -30,12 +30,14 @@
       svg += `<line x1="${left}" y1="${y(value)}" x2="${width - right}" y2="${y(value)}" stroke="rgba(255,255,255,.1)"/><text x="${left - 8}" y="${y(value) + 4}" text-anchor="end" fill="#aaa6be" font-size="10">${compact.format(value)}</text>`;
     }
     svg += `<polyline points="${forecast.months.map((row, index) => `${x(index)},${y(row.revenue)}`).join(' ')}" fill="none" stroke="#6ee7b7" stroke-width="2.5" stroke-linejoin="round"/>`;
+    svg += `<polyline points="${forecast.months.map((row, index) => `${x(index)},${y(row.adjustedRevenue)}`).join(' ')}" fill="none" stroke="#c4b5fd" stroke-width="2.5" stroke-dasharray="6 4" stroke-linejoin="round"/>`;
     forecast.months.forEach((row, index) => {
+      svg += `<circle cx="${x(index)}" cy="${y(row.adjustedRevenue)}" r="3" fill="#c4b5fd"><title>${label(dates[index])}: ${money.format(row.adjustedRevenue)} after churn</title></circle>`;
       svg += `<circle cx="${x(index)}" cy="${y(row.revenue)}" r="3.5" fill="#6ee7b7"><title>${label(dates[index])}: ${money.format(row.revenue)} · ${row.sales} new sales</title></circle>`;
       if (index % 2 === 0 || index === 11) svg += `<text x="${x(index)}" y="${height - 17}" text-anchor="middle" fill="#aaa6be" font-size="10">${dates[index].toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</text>`;
     });
     get('chart').innerHTML = svg + '</svg>';
-    get('months').innerHTML = forecast.months.map((row, index) => `<tr><td>${label(dates[index])}</td><td>${number.format(row.sales)}</td><td>${money.format(row.revenue)}</td></tr>`).join('');
+    get('months').innerHTML = forecast.months.map((row, index) => `<tr><td>${label(dates[index])}</td><td>${number.format(row.sales)}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.adjustedRevenue)}</td></tr>`).join('');
   }
   function update() {
     const code = currency.value === 'USD' ? 'USD' : 'GBP';
@@ -43,8 +45,7 @@
     document.querySelectorAll('[data-currency-symbol]').forEach(symbol => { symbol.textContent = code === 'USD' ? '$' : '£'; });
     set('currency-code', code);
     set('value-description', mode.value === 'retainer' ? 'Monthly retainer revenue per client' : 'One-off revenue per deal');
-    churnEnabled.disabled = mode.value !== 'retainer';
-    const applyChurn = mode.value === 'retainer' && churnEnabled.checked;
+    const applyChurn = churnEnabled.checked;
     get('churn-controls').hidden = !applyChurn;
     const values = fields.map(field => field.value === '' ? NaN : field.valueAsNumber);
     const valid = values.map((value, index) => Number.isFinite(value) && value >= 0 && (index !== 1 || value <= 100) && (index !== 3 || value > 0));
@@ -79,8 +80,8 @@
     set('net', money.format(forecast.net));
     get('result').dataset.state = forecast.ratio < 1 ? 'below' : 'covered';
     set('summary', forecast.ratio < 1 ? 'Projected annual revenue is below your annual Unstuck investment.' : 'Projected annual revenue covers your annual Unstuck investment.');
-    set('timing', `Your assumptions imply ${number.format(forecast.expectedDeals)} sales per year. This timeline books ${number.format(forecast.deals)} whole sales as they accumulate, starting with zero existing clients. ${applyChurn ? 'Annual churn is spread across months using compound retention; each new client starts paying in their sale month.' : 'No churn is applied.'}`);
-    get('years').innerHTML = forecast.years.map(row => `<tr><td>Year ${row.year}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.accumulated)}</td><td>${row.ratio.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}:1</td></tr>`).join('');
+    set('timing', `Your assumptions imply ${number.format(forecast.expectedDeals)} sales per year. This timeline books ${number.format(forecast.deals)} whole sales as they accumulate, starting with zero existing clients. ${applyChurn ? (mode.value === 'retainer' ? 'The separate churn scenario applies compound monthly retention to acquired retainer clients.' : 'The separate project churn scenario reduces future project revenue opportunities using compound monthly retention from the forecast start.') : 'Churn is off; both revenue lines are identical.'}`);
+    get('years').innerHTML = forecast.years.map(row => `<tr><td>Year ${row.year}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.accumulated)}</td><td>${money.format(row.adjustedRevenue)}</td><td>${row.ratio.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}:1</td></tr>`).join('');
     drawChart(forecast, money, code);
   }
   currency.addEventListener('change', () => {

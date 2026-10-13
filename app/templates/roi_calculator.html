@@ -93,8 +93,8 @@
       <small id="rate-help">Your monthly investment in Unstuck. Must be greater than zero.</small>
     </div>
     <div class="roi-field">
-      <label class="roi-toggle"><input type="checkbox" id="roi-churn-enabled" disabled> Apply annual client churn</label>
-      <small id="churn-help">Available for monthly retainers. Churn reduces recurring revenue from previously acquired clients.</small>
+      <label class="roi-toggle"><input type="checkbox" id="roi-churn-enabled"> Show annual churn scenario</label>
+      <small id="churn-help">Retainers: reduces recurring revenue from acquired clients. Projects: reduces future project revenue opportunities. Baseline revenue stays unchanged.</small>
       <div id="roi-churn-controls" hidden>
         <label for="roi-churn" style="margin-top:12px">Annual churn rate</label>
         <div class="roi-input"><input id="roi-churn" type="number" min="0" max="100" step="any" value="10" inputmode="decimal" aria-describedby="churn-help roi-error"><span>%</span></div>
@@ -126,9 +126,10 @@
     <h3>Revenue over time</h3>
     <p class="roi-help" id="roi-period"></p>
     <p class="roi-help">Monthly revenue added by Unstuck</p>
+    <p class="roi-formula" style="margin-top:8px"><span style="color:#6ee7b7">━ Added revenue</span> &nbsp; <span style="color:#c4b5fd">┄ Revenue after churn</span></p>
     <div id="roi-chart" class="roi-chart"><p class="roi-help">Enter a conversion value to see your forecast.</p></div>
     <p class="roi-formula" id="roi-timing"></p>
-    <details class="roi-formula"><summary>View monthly figures</summary><div class="roi-table-wrap"><table class="roi-table"><thead><tr><th>Month</th><th>New sales</th><th>Added revenue</th></tr></thead><tbody id="roi-months"></tbody></table></div></details>
+    <details class="roi-formula"><summary>View monthly figures</summary><div class="roi-table-wrap"><table class="roi-table"><thead><tr><th>Month</th><th>New sales</th><th>Added revenue</th><th>After churn</th></tr></thead><tbody id="roi-months"></tbody></table></div></details>
   </section>
   </div>
 </div>
@@ -136,10 +137,10 @@
   <h3>Your five-year outlook</h3>
   <p class="roi-help">Revenue added by Unstuck, assuming your current lead volume, conversion rate and fees continue.</p>
   <div class="roi-table-wrap"><table class="roi-table">
-    <thead><tr><th>Year</th><th>Added revenue<br>in year</th><th>Accumulated<br>revenue</th><th>Accumulated<br>ROI</th></tr></thead>
-    <tbody id="roi-years"><tr><td>Years 1–5</td><td colspan="3">Complete your inputs to see the projection.</td></tr></tbody>
+    <thead><tr><th>Year</th><th>Added revenue<br>in year</th><th>Accumulated<br>revenue</th><th>Revenue in year<br>after churn</th><th>Accumulated<br>ROI</th></tr></thead>
+    <tbody id="roi-years"><tr><td>Years 1–5</td><td colspan="4">Complete your inputs to see the projection.</td></tr></tbody>
   </table></div>
-  <p class="roi-formula">Year 1 starts this month. Accumulated ROI = revenue earned to date ÷ Unstuck fees paid over the same period. Retainer clients carry into subsequent years, with churn applied when enabled; otherwise churn is zero. Existing client revenue is excluded.</p>
+  <p class="roi-formula">Year 1 starts this month. Accumulated ROI = revenue earned to date ÷ Unstuck fees paid over the same period. Added revenue, accumulated revenue and ROI show the baseline without churn. The separate revenue-after-churn column applies your churn scenario; when disabled, it matches added revenue. Retainer clients carry into subsequent years. Existing client revenue is excluded.</p>
 </section>
 <noscript><p class="roi-help">Enable JavaScript to use the calculator.</p></noscript>
 {% endblock %}

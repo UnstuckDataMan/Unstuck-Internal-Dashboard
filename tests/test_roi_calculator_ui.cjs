@@ -20,10 +20,10 @@ assert.equal(elements.rate.value,'7990');assert.equal(elements.revenue.textConte
 elements.rate.value='8000';elements.currency.value='GBP';elements.currency.handlers.change();
 assert.equal(elements.rate.value,'5490');
 elements.currency.value='USD';elements.currency.handlers.change();assert.equal(elements.rate.value,'8000');
-elements.mode.value='retainer';update();assert.equal(elements.revenue.textContent,'$150,000.00');assert.equal(elements['churn-enabled'].disabled,false);
-elements['churn-enabled'].checked=true;update();assert.equal(elements['churn-controls'].hidden,false);assert.notEqual(elements.revenue.textContent,'$150,000.00');
+elements.mode.value='retainer';update();assert.equal(elements.revenue.textContent,'$150,000.00');
+elements['churn-enabled'].checked=true;update();assert.equal(elements['churn-controls'].hidden,false);assert.equal(elements.revenue.textContent,'$150,000.00');assert.match(elements.chart.innerHTML,/stroke-dasharray/);
 elements.churn.value='101';update();assert.equal(elements.ratio.textContent,'—');
-elements.mode.value='project';update();assert.equal(elements.revenue.textContent,'$30,000.00');assert.equal(elements['churn-enabled'].disabled,true);
+elements.mode.value='project';elements.churn.value='10';update();assert.equal(elements.revenue.textContent,'$30,000.00');assert.equal(elements['churn-controls'].hidden,false);
 elements.rate.value='0';update();assert.equal(elements.ratio.textContent,'—');
 elements.form.handlers.reset();assert.equal(elements.rate.value,'7990');
 console.log('UI checks passed: editable currency defaults, currency memory, retainer mode, churn toggle, invalid inputs, chart generation and reset.');
