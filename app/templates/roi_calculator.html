@@ -34,6 +34,17 @@
   .roi-reset { margin-top: 24px; background: transparent; border: 1px solid var(--border); color: var(--text-2); padding: 10px 16px; border-radius: 8px; cursor: pointer; font: 500 13px var(--font); }
   .roi-reset:hover { background: var(--surface-hover); color: var(--text); }
   .roi-reset:focus-visible { outline: 2px solid #34d399; outline-offset: 3px; }
+  .roi-results-stack { display: grid; gap: 24px; min-width: 0; }
+  .roi-select { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: #181827; color: var(--text); font: 500 14px var(--font); }
+  .roi-select:focus-visible { outline: 2px solid #34d399; outline-offset: 3px; }
+  .roi-toggle { display: flex !important; align-items: center; gap: 10px; }
+  .roi-toggle input { accent-color: #34d399; width: 16px; height: 16px; }
+  .roi-chart { margin-top: 18px; }
+  .roi-chart svg { width: 100%; height: auto; display: block; }
+  .roi-table-wrap { overflow-x: auto; }
+  .roi-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+  .roi-table th, .roi-table td { text-align: right; padding: 8px 4px; border-bottom: 1px solid var(--border); }
+  .roi-table th:first-child, .roi-table td:first-child { text-align: left; }
   #roi-error { color: var(--red); font-size: 13px; line-height: 1.6; margin-top: 16px; }
   @media (max-width: 760px) { .roi-grid { grid-template-columns: 1fr; } .roi-panel { padding: 22px; } }
 </style>
@@ -55,52 +66,75 @@
 <div class="roi-grid">
   <form class="roi-panel" id="roi-form" novalidate>
     <h3>Your assumptions</h3>
-    <p class="roi-help">Four inputs. One clear monthly projection.</p>
+    <p class="roi-help">Your inputs. One clear annual projection.</p>
     <small class="roi-help" id="currency-help">Enter both monetary amounts in the selected currency.</small>
     <div class="roi-field">
       <label for="roi-leads">Leads per month</label>
-      <div class="roi-input"><input id="roi-leads" type="number" min="0" step="any" value="8.08" required inputmode="decimal" aria-describedby="leads-help roi-error"></div>
+      <div class="roi-input"><input id="roi-leads" type="number" min="0" step="any" value="5.00" required inputmode="decimal" aria-describedby="leads-help roi-error"></div>
       <small id="leads-help">Decimals are welcome for average monthly lead volumes.</small>
     </div>
     <div class="roi-field">
       <label for="roi-conversion">Assumed conversion rate</label>
-      <div class="roi-input"><input id="roi-conversion" type="number" min="0" max="100" step="any" value="30" required inputmode="decimal" aria-describedby="conversion-help roi-error"><span>%</span></div>
+      <div class="roi-input"><input id="roi-conversion" type="number" min="0" max="100" step="any" value="5" required inputmode="decimal" aria-describedby="conversion-help roi-error"><span>%</span></div>
       <small id="conversion-help">The percentage of leads you expect to become deals.</small>
+    </div>
+    <div class="roi-field">
+      <label for="roi-mode">Client fee type</label>
+      <select id="roi-mode" class="roi-select"><option value="project">Project fee · one-off</option><option value="retainer">Retainer fee · monthly</option></select>
     </div>
     <div class="roi-field">
       <label for="roi-value">Conversion value</label>
       <div class="roi-input"><span data-currency-symbol>£</span><input id="roi-value" type="number" min="0" step="any" placeholder="Enter value per deal" required inputmode="decimal" aria-describedby="value-help roi-error"></div>
-      <small id="value-help">Revenue from one converted deal, in <span id="roi-currency-code">GBP</span>.</small>
+      <small id="value-help"><span id="roi-value-description">One-off revenue per deal</span>, in <span id="roi-currency-code">GBP</span>.</small>
     </div>
     <div class="roi-field">
       <label for="roi-rate">Unstuck monthly rate</label>
       <div class="roi-input"><span data-currency-symbol>£</span><input id="roi-rate" type="number" min="0" step="any" value="5490" required inputmode="decimal" aria-describedby="rate-help roi-error"></div>
       <small id="rate-help">Your monthly investment in Unstuck. Must be greater than zero.</small>
     </div>
+    <div class="roi-field">
+      <label class="roi-toggle"><input type="checkbox" id="roi-churn-enabled" disabled> Apply annual client churn</label>
+      <small id="churn-help">Available for monthly retainers. Churn reduces recurring revenue from previously acquired clients.</small>
+      <div id="roi-churn-controls" hidden>
+        <label for="roi-churn" style="margin-top:12px">Annual churn rate</label>
+        <div class="roi-input"><input id="roi-churn" type="number" min="0" max="100" step="any" value="10" inputmode="decimal" aria-describedby="churn-help roi-error"><span>%</span></div>
+      </div>
+    </div>
     <p id="roi-error" role="status"></p>
     <button type="reset" class="roi-reset">Reset figures</button>
   </form>
-  <section class="roi-panel roi-result" id="roi-result" aria-label="Monthly projection">
-    <div class="roi-eyebrow">Potential ROI · Monthly</div>
+  <div class="roi-results-stack">
+  <section class="roi-panel roi-result" id="roi-result" aria-label="Annual projection">
+    <div class="roi-eyebrow">Potential ROI · Next 12 months</div>
     <div class="roi-ratio"><output id="roi-ratio">—</output></div>
     <p class="roi-help" id="roi-summary" aria-live="polite">Enter a conversion value to see your potential return.</p>
     <dl class="roi-stats">
-      <div class="roi-stat"><dt>Annual deals volume</dt><dd><output id="roi-deals">29.088</output></dd></div>
+      <div class="roi-stat"><dt>Annual deals volume</dt><dd><output id="roi-deals">3</output></dd></div>
       <div class="roi-stat"><dt>Annual projected revenue</dt><dd><output id="roi-revenue">—</output></dd></div>
-      <div class="roi-stat"><dt>Monthly revenue less monthly rate</dt><dd><output id="roi-net">—</output></dd></div>
+      <div class="roi-stat"><dt>Annual revenue less Unstuck fees</dt><dd><output id="roi-net">—</output></dd></div>
     </dl>
-    <p class="roi-help">A 1:1 return means projected revenue covers your Unstuck monthly rate.</p>
+    <p class="roi-help">A 1:1 return means projected revenue covers 12 months of Unstuck fees.</p>
     <div class="roi-formula">
       <strong>How it’s calculated</strong><br>
-      Annual deals volume = monthly leads × conversion rate ÷ 100 × 12<br>
-      Annual projected revenue = annual deals volume × conversion value<br>
-      Potential ROI = annual projected revenue ÷ (monthly rate × 12)
+      Sales accumulate from leads × conversion rate ÷ 100, with a sale booked when a whole deal is reached.<br>
+      Projects earn the fee once. Retainers earn the monthly fee from the sale month onwards.<br>
+      Potential ROI = projected 12-month revenue ÷ (Unstuck monthly rate × 12)
     </div>
-    <p class="roi-formula">This is a revenue projection based on your assumptions. It excludes delivery costs and other expenses. Fractional deals represent an average, not guaranteed sales.</p>
+    <p class="roi-formula">This is a revenue projection based on your assumptions. It excludes delivery costs and other expenses. Sales timing is illustrative, not guaranteed. The forecast starts with no existing clients.</p>
   </section>
+  <section class="roi-panel" aria-label="Revenue over time">
+    <h3>Revenue over time</h3>
+    <p class="roi-help" id="roi-period"></p>
+    <p class="roi-help">Monthly revenue added by Unstuck</p>
+    <div id="roi-chart" class="roi-chart"><p class="roi-help">Enter a conversion value to see your forecast.</p></div>
+    <p class="roi-formula" id="roi-timing"></p>
+    <details class="roi-formula"><summary>View monthly figures</summary><div class="roi-table-wrap"><table class="roi-table"><thead><tr><th>Month</th><th>New sales</th><th>Added revenue</th></tr></thead><tbody id="roi-months"></tbody></table></div></details>
+  </section>
+  </div>
 </div>
 <noscript><p class="roi-help">Enable JavaScript to use the calculator.</p></noscript>
 {% endblock %}
 {% block extra_scripts %}
+<script src="/static/roi-forecast.js" defer></script>
 <script src="/static/roi-calculator.js" defer></script>
 {% endblock %}
