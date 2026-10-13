@@ -93,10 +93,11 @@
       const values=[money.format(row.revenue),money.format(row.accumulated),money.format(row.adjustedRevenue),ratio(row.ratio)];
       let x=36;values.forEach((value,i)=>{cell(value,x,top+9,widths[i+1],i===3,9);x+=widths[i+1];});
     });
-    text('How to read this forecast',18,202,14,C.navy,true);
-    let next=paragraph('Year 1 starts this month. Added revenue, accumulated added revenue and ROI are the baseline without churn. Accumulated ROI divides added revenue earned to date by Unstuck fees over the same period.',18,213,174,9);
-    next=paragraph(inputs.mode==='retainer'?'Retainers earn the monthly fee from each sale month. The churn scenario uses monthly retention of (1 - annual churn)^(1/12) on existing acquired clients; new clients pay in their sale month.':'Projects earn a one-off fee in the sale month. Project churn is an illustrative reduction in future opportunities: revenue in month m is multiplied by (1 - annual churn)^(m/12), starting at m = 0. It does not remove fees already earned.',18,next+4,174,9);
-    paragraph('Sales are scheduled when the accumulated conversion estimate reaches a whole deal. Payment starts immediately; the current month is a full month. Existing company revenue, delivery costs, taxes and inflation are excluded. Assumptions remain constant. Values are rounded for display; calculations use full precision.',18,next+4,174,9);
+    text('How to read this forecast',18,197,14,C.navy,true);
+    let next=paragraph('This is a rough illustration of how added revenue could develop if the assumptions hold and things go reasonably well. It is not a guarantee of leads, sales, revenue or timing. Actual results may be lower or higher, and may take longer to achieve.',18,208,174,8.5);
+    next=paragraph('Year 1 starts this month. Baseline added revenue and ROI exclude churn. Accumulated ROI compares added revenue earned to date with Unstuck fees over the same period; it is not a profit ROI percentage.',18,next+3,174,8.5);
+    next=paragraph(inputs.mode==='retainer'?'Retainers earn monthly fees from the sale month. The separate churn scenario estimates how client losses could reduce later recurring revenue.':'Projects earn a one-off fee in the sale month. Project churn is an illustrative reduction in future opportunities, not a loss of fees already earned.',18,next+3,174,8.5);
+    paragraph('The model schedules whole deals and assumes immediate payment, a full first month and constant inputs. It excludes existing company revenue, delivery costs, taxes and inflation. Use this as a planning guide and review the assumptions as real results emerge.',18,next+3,174,8.5);
     return doc;
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = createRoiPdf;
