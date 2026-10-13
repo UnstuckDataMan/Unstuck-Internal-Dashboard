@@ -33,7 +33,7 @@
     const investment = rate * 12;
     const ratio = revenue / investment;
     if (![salesRate * 12, revenue, investment, ratio, ...months.flatMap(month => [month.revenue, month.adjustedRevenue]), ...years.flatMap(year => [year.revenue, year.accumulated, year.adjustedRevenue, year.adjustedAccumulated, year.investment, year.ratio])].every(Number.isFinite)) throw new RangeError('These figures are too large. Enter smaller values.');
-    return { months: firstYearMonths, years, deals: firstYearMonths.reduce((total, month) => total + month.sales, 0), expectedDeals: salesRate * 12, revenue, investment, net: revenue - investment, ratio };
+    return { months: firstYearMonths, timeline: months, years, deals: firstYearMonths.reduce((total, month) => total + month.sales, 0), expectedDeals: salesRate * 12, revenue, investment, net: revenue - investment, ratio };
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = forecast;
   else root.roiForecast = forecast;

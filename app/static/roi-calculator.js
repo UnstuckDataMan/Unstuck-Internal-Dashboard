@@ -17,29 +17,29 @@
   const london = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: 'numeric' }).formatToParts(now);
   const year = Number(london.find(part => part.type === 'year').value);
   const month = Number(london.find(part => part.type === 'month').value) - 1;
-  const dates = Array.from({ length: 12 }, (_, index) => new Date(Date.UTC(year, month + index, 1)));
+  const dates = Array.from({ length: 60 }, (_, index) => new Date(Date.UTC(year, month + index, 1)));
   const label = date => date.toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
-  set('period', label(dates[0]) + ' – ' + label(dates[11]));
+  set('period', label(dates[0]) + ' – ' + label(dates[59]));
   function drawChart(forecast, money, code) {
     const width = 520, height = 250, left = 64, right = 14, top = 18, bottom = 40;
-    const maximum = Math.max(1, ...forecast.months.map(row => row.revenue));
-    const x = index => left + index / 11 * (width - left - right);
+    const maximum = Math.max(1, ...forecast.timeline.map(row => row.revenue));
+    const x = index => left + index / 59 * (width - left - right);
     const y = revenue => top + (1 - revenue / maximum) * (height - top - bottom);
     const compact = new Intl.NumberFormat(code === 'USD' ? 'en-US' : 'en-GB', { style: 'currency', currency: code, notation: 'compact', maximumFractionDigits: 1 });
-    let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Monthly revenue added by Unstuck from ${label(dates[0])} to ${label(dates[11])}. Exact figures are in the monthly table.">`;
+    let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Monthly revenue added by Unstuck from ${label(dates[0])} to ${label(dates[59])}. Exact figures are in the monthly table.">`;
     for (let tick = 0; tick <= 4; tick++) {
       const value = maximum * tick / 4;
       svg += `<line x1="${left}" y1="${y(value)}" x2="${width - right}" y2="${y(value)}" stroke="rgba(255,255,255,.1)"/><text x="${left - 8}" y="${y(value) + 4}" text-anchor="end" fill="#aaa6be" font-size="10">${compact.format(value)}</text>`;
     }
-    svg += `<polyline points="${forecast.months.map((row, index) => `${x(index)},${y(row.revenue)}`).join(' ')}" fill="none" stroke="#6ee7b7" stroke-width="2.5" stroke-linejoin="round"/>`;
-    svg += `<polyline points="${forecast.months.map((row, index) => `${x(index)},${y(row.adjustedRevenue)}`).join(' ')}" fill="none" stroke="#c4b5fd" stroke-width="2.5" stroke-dasharray="6 4" stroke-linejoin="round"/>`;
-    forecast.months.forEach((row, index) => {
-      svg += `<circle cx="${x(index)}" cy="${y(row.adjustedRevenue)}" r="3" fill="#c4b5fd"><title>${label(dates[index])}: ${money.format(row.adjustedRevenue)} after churn</title></circle>`;
-      svg += `<circle cx="${x(index)}" cy="${y(row.revenue)}" r="3.5" fill="#6ee7b7"><title>${label(dates[index])}: ${money.format(row.revenue)} · ${row.sales} new sales</title></circle>`;
-      if (index % 2 === 0 || index === 11) svg += `<text x="${x(index)}" y="${height - 17}" text-anchor="middle" fill="#aaa6be" font-size="10">${dates[index].toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</text>`;
+    svg += `<polyline points="${forecast.timeline.map((row, index) => `${x(index)},${y(row.revenue)}`).join(' ')}" fill="none" stroke="#6ee7b7" stroke-width="2.5" stroke-linejoin="round"/>`;
+    svg += `<polyline points="${forecast.timeline.map((row, index) => `${x(index)},${y(row.adjustedRevenue)}`).join(' ')}" fill="none" stroke="#c4b5fd" stroke-width="2.5" stroke-dasharray="6 4" stroke-linejoin="round"/>`;
+    forecast.timeline.forEach((row, index) => {
+      svg += `<circle cx="${x(index)}" cy="${y(row.adjustedRevenue)}" r="1.8" fill="#c4b5fd"><title>${label(dates[index])}: ${money.format(row.adjustedRevenue)} after churn</title></circle>`;
+      svg += `<circle cx="${x(index)}" cy="${y(row.revenue)}" r="2" fill="#6ee7b7"><title>${label(dates[index])}: ${money.format(row.revenue)} · ${row.sales} new sales</title></circle>`;
+      if (index % 12 === 0 || index === 59) svg += `<text x="${x(index)}" y="${height - 17}" text-anchor="middle" fill="#aaa6be" font-size="10">${dates[index].toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' })}</text>`;
     });
     get('chart').innerHTML = svg + '</svg>';
-    get('months').innerHTML = forecast.months.map((row, index) => `<tr><td>${label(dates[index])}</td><td>${number.format(row.sales)}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.adjustedRevenue)}</td></tr>`).join('');
+    get('months').innerHTML = forecast.timeline.map((row, index) => `<tr><td>${label(dates[index])}</td><td>${number.format(row.sales)}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.adjustedRevenue)}</td></tr>`).join('');
   }
   function update() {
     const code = currency.value === 'USD' ? 'USD' : 'GBP';

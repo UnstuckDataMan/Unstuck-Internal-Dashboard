@@ -5,7 +5,7 @@ const { jsPDF } = require('../app/static/vendor/jspdf.umd.min.js');
 const forecast = require('../app/static/roi-forecast.js');
 const create = require('../app/static/roi-pdf.js');
 const inputs = {leads:5,conversion:5,value:62000,rate:5490,mode:'project',churn:10,churnEnabled:true,currency:'GBP'};
-const labels = Array.from({length:12},(_,i)=>new Date(Date.UTC(2026,9+i,1)).toLocaleDateString('en-GB',{month:'short',year:'numeric',timeZone:'UTC'}));
+const labels = Array.from({length:60},(_,i)=>new Date(Date.UTC(2026,9+i,1)).toLocaleDateString('en-GB',{month:'short',year:'numeric',timeZone:'UTC'}));
 const logo = 'data:image/png;base64,' + fs.readFileSync(path.join(__dirname,'../app/static/img/logo-report.png')).toString('base64');
 for (const mode of ['project','retainer']) {
  const data={...inputs,mode};

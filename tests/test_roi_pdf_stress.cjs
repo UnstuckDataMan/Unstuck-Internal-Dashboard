@@ -9,7 +9,7 @@ const out=process.argv[2];if(out)fs.mkdirSync(out,{recursive:true});
 let count=0;
 for(const currency of ['GBP','USD'])for(const mode of ['project','retainer'])for(const churn of [0,30,100])for(const large of [false,true]) {
  const inputs={currency,mode,churn,churnEnabled:churn!==0,leads:large?1000:3,conversion:large?100:5,value:large?1000000:25000,rate:currency==='USD'?7990:5490};
- const labels=Array.from({length:12},(_,i)=>new Date(Date.UTC(2026,11+i,1)).toLocaleDateString('en-GB',{month:'short',year:'numeric',timeZone:'UTC'}));
+ const labels=Array.from({length:60},(_,i)=>new Date(Date.UTC(2026,11+i,1)).toLocaleDateString('en-GB',{month:'short',year:'numeric',timeZone:'UTC'}));
  const f=forecast(inputs),pdf=create({forecast:f,inputs,labels,logo},jsPDF);
  assert.equal(pdf.getNumberOfPages(),3);
  const filename=`${currency}-${mode}-${churn}-${large?'large':'normal'}.pdf`;

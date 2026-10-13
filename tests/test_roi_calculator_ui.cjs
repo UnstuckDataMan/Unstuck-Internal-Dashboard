@@ -18,6 +18,8 @@ assert.equal(elements.ratio.textContent,'—');
 elements.value.value='10000';update();
 assert.equal(elements.deals.textContent,'3');assert.equal(elements.revenue.textContent,'£30,000.00');
 assert.match(elements.chart.innerHTML,/<svg/);
+assert.equal((elements.months.innerHTML.match(/<tr>/g)||[]).length,60);
+assert.match(elements.chart.innerHTML,/31/);
 assert.match(elements.years.innerHTML,/Year 5/);
 assert.match(elements.years.innerHTML,/£150,000.00/);
 elements.currency.value='USD';elements.currency.handlers.change();

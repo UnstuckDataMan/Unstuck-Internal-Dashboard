@@ -61,10 +61,10 @@
     });
     doc.addPage(); header(2);
     text('Added revenue over time', 18, 61, 22, C.navy, true);
-    text(`${labels[0]} - ${labels[11]}  |  Monthly added revenue`, 18, 71, 10, C.muted);
+    text(`${labels[0]} - ${labels[59]}  |  Monthly added revenue`, 18, 71, 10, C.muted);
     const x0 = 42, y0 = 86, width = 148, height = 55;
-    const max = Math.max(1, ...forecast.months.map(row => row.revenue));
-    const x = index => x0 + index / 11 * width, y = amount => y0 + height * (1 - amount / max);
+    const max = Math.max(1, ...forecast.timeline.map(row => row.revenue));
+    const x = index => x0 + index / 59 * width, y = amount => y0 + height * (1 - amount / max);
     const compact = new Intl.NumberFormat('en-GB', {style:'currency',currency:inputs.currency,notation:'compact',maximumFractionDigits:1});
     for (let tick = 0; tick <= 4; tick++) {
       const amount = max * tick / 4;
@@ -73,11 +73,12 @@
     }
     for (const [key, colour, dash] of [['revenue',C.teal,[]], ['adjustedRevenue',C.purple,[2,1.5]]]) {
       doc.setDrawColor(colour); doc.setLineWidth(.7); doc.setLineDashPattern(dash,0);
-      for (let i=1;i<12;i++) doc.line(x(i-1),y(forecast.months[i-1][key]),x(i),y(forecast.months[i][key]));
+      for (let i=1;i<60;i++) doc.line(x(i-1),y(forecast.timeline[i-1][key]),x(i),y(forecast.timeline[i][key]));
     }
     doc.setLineDashPattern([],0);
-    labels.forEach((label,index)=>{ if(index%2===0||index===11) text(label.split(' ')[0],x(index),148,8,C.muted,false,{align:'center'}); });
+    labels.forEach((label,index)=>{ if(index%12===0||index===59) text(label,x(index),148,8,C.muted,false,{align:'center'}); });
     text('Added revenue - baseline',42,157,9,C.teal,true); text('Added revenue after churn',118,157,9,C.purple,true);
+    text('First 12 months - monthly breakdown',18,164,8,C.muted);
     box(18,166,174,11,C.pale);
     text('Month',22,173,9,C.navy,true);text('New deals',94,173,9,C.navy,true,{align:'right'});text('Added revenue',141,173,9,C.navy,true,{align:'right'});text('After churn',188,173,9,C.navy,true,{align:'right'});
     forecast.months.forEach((row,index)=>{

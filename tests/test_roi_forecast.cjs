@@ -43,3 +43,9 @@ assert.ok(projectChurn.years[0].adjustedRevenue < project.revenue);
 assert.ok(projectChurn.years[4].adjustedRevenue < projectChurn.years[0].adjustedRevenue);
 assert.equal(project.years[4].adjustedRevenue,project.years[4].revenue);
 console.log('Separate churn scenarios passed for projects and retainers; baseline revenue and ROI unchanged.');
+
+assert.equal(retainer.timeline.length,60);
+for(let year=0;year<5;year++) {
+ assert.equal(retainer.timeline.slice(year*12,(year+1)*12).reduce((sum,row)=>sum+row.revenue,0),retainer.years[year].revenue);
+}
+console.log('60-month chart reconciles with every annual total.');
