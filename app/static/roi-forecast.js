@@ -1,12 +1,16 @@
 (function (root) {
   'use strict';
   function forecast({ leads, conversion, value, rate, mode = 'project', churn = 0 }) {
-    if (![leads, conversion, value, rate, churn].every(Number.isFinite) || leads < 0 || conversion < 0 || conversion > 100 || value < 0 || rate <= 0 || churn < 0 || churn > 100) throw new RangeError('Check your figures.');
+    if (![leads, conversion, value, rate, churn].every(Number.isFinite) || leads < 0 || conversion < 0 || conversion > 100 || value < 0 || rate <= 0 || churn < 0 || churn > 100 || !['project', 'retainer'].includes(mode)) throw new RangeError('Check your figures.');
     const salesRate = leads * conversion / 100;
     const retention = Math.pow(1 - churn / 100, 1 / 12);
     let active = 0, adjustedActive = 0, previousSales = 0;
     const months = Array.from({ length: 60 }, (_, index) => {
-      const totalSales = Math.floor(salesRate * (index + 1) + 1e-9);
+      const cumulativeSales = salesRate * (index + 1);
+      if (!Number.isFinite(cumulativeSales) || cumulativeSales > Number.MAX_SAFE_INTEGER) throw new RangeError('These figures are too large. Enter smaller values.');
+      // Correct machine rounding near whole deals without advancing genuinely fractional sales.
+      const nearest = Math.round(cumulativeSales);
+      const totalSales = Math.floor(Math.abs(cumulativeSales - nearest) <= Number.EPSILON * Math.max(1, cumulativeSales) * 2 ? nearest : cumulativeSales);
       const sales = totalSales - previousSales;
       previousSales = totalSales;
       active += sales;

@@ -45,6 +45,39 @@
   .roi-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
   .roi-table th, .roi-table td { text-align: right; padding: 8px 4px; border-bottom: 1px solid var(--border); }
   .roi-table th:first-child, .roi-table td:first-child { text-align: left; }
+  .roi-pdf { border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--text-2); font: 500 12px var(--font); padding: 7px 10px; cursor: pointer; white-space: nowrap; }
+  .roi-pdf:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); }
+  .roi-pdf:disabled { opacity: .4; cursor: default; }
+  .roi-pdf:focus-visible { outline: 2px solid #34d399; outline-offset: 3px; }
+  .roi-print-only { display: none; }
+  @page { size: A4; margin: 14mm; }
+  @media print {
+    :root { --text: #171329; --text-2: #494354; --border: #d5d0df; }
+    html, body { height: auto; min-height: 0; display: block; background: white !important; color: #171329; }
+    .bg-orbs, .topbar, #sop-modal, #roi-form, .roi-currency, noscript { display: none !important; }
+    .page { overflow: visible; padding: 0; }
+    .page-inner { max-width: none; animation: none; }
+    .roi-print-only { display: block; margin-bottom: 18px; font-size: 12px; line-height: 1.7; border-bottom: 1px solid #d5d0df; padding-bottom: 14px; }
+    .roi-grid, .roi-results-stack { display: block; }
+    .roi-panel { background: white; border-color: #d5d0df; padding: 18px; margin-bottom: 16px; break-inside: avoid; }
+    .roi-result .roi-ratio, .roi-result[data-state="below"] .roi-ratio, .roi-eyebrow { color: #176e56; }
+    .roi-intro h2 { font-size: 28px; }
+    .roi-ratio { font-size: 44px; }
+    .roi-table-wrap { overflow: visible; }
+    .roi-table { font-size: 10px; }
+    .roi-chart svg { max-height: 220px; }
+    .roi-chart svg text { fill: #494354; }
+    .roi-chart svg line { stroke: #d5d0df; }
+    .roi-chart svg polyline:not([stroke-dasharray]) { stroke: #176e56; }
+    .roi-chart svg polyline[stroke-dasharray] { stroke: #7451a6; }
+    .roi-chart + .roi-formula { color: #494354; }
+    .roi-formula span[style] { color: #176e56 !important; }
+    .roi-formula span[style]:last-child { color: #7451a6 !important; }
+    .roi-chart svg circle { fill: #176e56; }
+    .roi-chart svg circle[fill="#c4b5fd"] { fill: #7451a6; }
+    details summary { display: none; }
+    details { break-before: page; }
+  }
   #roi-error { color: var(--red); font-size: 13px; line-height: 1.6; margin-top: 16px; }
   @media (max-width: 760px) { .roi-grid { grid-template-columns: 1fr; } .roi-panel { padding: 22px; } }
 </style>
@@ -59,10 +92,12 @@
         <option value="GBP">£ GBP</option>
         <option value="USD">$ USD</option>
       </select>
+      <button type="button" id="roi-pdf" class="roi-pdf" disabled title="Create a PDF using your browser’s Save as PDF option">PDF ↓</button>
     </div>
   </div>
   <h2>Your potential returns.</h2>
 </div>
+<div id="roi-print-assumptions" class="roi-print-only"></div>
 <div class="roi-grid">
   <form class="roi-panel" id="roi-form" novalidate>
     <h3>Your assumptions</h3>
@@ -94,7 +129,7 @@
     </div>
     <div class="roi-field">
       <label class="roi-toggle"><input type="checkbox" id="roi-churn-enabled"> Show annual churn scenario</label>
-      <small id="churn-help">Retainers: reduces recurring revenue from acquired clients. Projects: reduces future project revenue opportunities. Baseline revenue stays unchanged.</small>
+      <small id="churn-help">Retainers: client retention is compounded monthly. Projects: an illustrative reduction in future revenue opportunities, not losses on completed projects. Baseline revenue stays unchanged.</small>
       <div id="roi-churn-controls" hidden>
         <label for="roi-churn" style="margin-top:12px">Annual churn rate</label>
         <div class="roi-input"><input id="roi-churn" type="number" min="0" max="100" step="any" value="10" inputmode="decimal" aria-describedby="churn-help roi-error"><span>%</span></div>
@@ -105,22 +140,22 @@
   </form>
   <div class="roi-results-stack">
   <section class="roi-panel roi-result" id="roi-result" aria-label="Annual projection">
-    <div class="roi-eyebrow">Potential ROI · Next 12 months</div>
+    <div class="roi-eyebrow">Potential ROI · Next 12 months · Baseline</div>
     <div class="roi-ratio"><output id="roi-ratio">—</output></div>
     <p class="roi-help" id="roi-summary" aria-live="polite">Enter a conversion value to see your potential return.</p>
     <dl class="roi-stats">
-      <div class="roi-stat"><dt>Annual deals volume</dt><dd><output id="roi-deals">3</output></dd></div>
+      <div class="roi-stat"><dt>Scheduled deals · next 12 months</dt><dd><output id="roi-deals">3</output></dd></div>
       <div class="roi-stat"><dt>Annual projected revenue</dt><dd><output id="roi-revenue">—</output></dd></div>
       <div class="roi-stat"><dt>Annual revenue less Unstuck fees</dt><dd><output id="roi-net">—</output></dd></div>
     </dl>
-    <p class="roi-help">A 1:1 return means projected revenue covers 12 months of Unstuck fees.</p>
+    <p class="roi-help">This is a revenue-to-fee ratio, not a profit ROI percentage. A 1:1 return means projected revenue covers 12 months of Unstuck fees.</p>
     <div class="roi-formula">
       <strong>How it’s calculated</strong><br>
       Sales accumulate from leads × conversion rate ÷ 100, with a sale booked when a whole deal is reached.<br>
       Projects earn the fee once. Retainers earn the monthly fee from the sale month onwards.<br>
       Potential ROI = projected 12-month revenue ÷ (Unstuck monthly rate × 12)
     </div>
-    <p class="roi-formula">This is a revenue projection based on your assumptions. It excludes delivery costs and other expenses. Sales timing is illustrative, not guaranteed. The forecast starts with no existing clients.</p>
+    <p class="roi-formula">This is a revenue projection based on your assumptions. It excludes delivery costs and other expenses. Sales timing is illustrative, not guaranteed: deals are scheduled when the accumulated conversion estimate reaches a whole sale, with no delay before payment. The current month is treated as a full month. The forecast starts with no existing clients.</p>
   </section>
   <section class="roi-panel" aria-label="Revenue over time">
     <h3>Revenue over time</h3>
@@ -140,7 +175,7 @@
     <thead><tr><th>Year</th><th>Added revenue<br>in year</th><th>Accumulated<br>revenue</th><th>Revenue in year<br>after churn</th><th>Accumulated<br>ROI</th></tr></thead>
     <tbody id="roi-years"><tr><td>Years 1–5</td><td colspan="4">Complete your inputs to see the projection.</td></tr></tbody>
   </table></div>
-  <p class="roi-formula">Year 1 starts this month. Accumulated ROI = revenue earned to date ÷ Unstuck fees paid over the same period. Added revenue, accumulated revenue and ROI show the baseline without churn. The separate revenue-after-churn column applies your churn scenario; when disabled, it matches added revenue. Retainer clients carry into subsequent years. Existing client revenue is excluded.</p>
+  <p class="roi-formula">Year 1 starts this month. Accumulated ROI = revenue earned to date ÷ Unstuck fees paid over the same period. Added revenue, accumulated revenue and ROI show the baseline without churn. The separate revenue-after-churn column applies your churn scenario; when disabled, it matches added revenue. Retainer clients carry into subsequent years. Existing client revenue is excluded. Assumptions and fees stay constant for five years; no inflation, taxes or delivery costs are modelled. Ratios are rounded to two decimal places and currency to the nearest penny; calculations use unrounded values.</p>
 </section>
 <noscript><p class="roi-help">Enable JavaScript to use the calculator.</p></noscript>
 {% endblock %}
