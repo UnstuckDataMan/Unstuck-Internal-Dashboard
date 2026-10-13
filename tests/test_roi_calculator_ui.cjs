@@ -43,3 +43,22 @@ assert.equal(context.document.title,'ROI Calculator');
 elements.value.value='';update();assert.equal(elements.pdf.disabled,true);
 elements.pdf.handlers.click();assert.equal(printed,1);
 console.log('PDF checks passed: current assumptions, valid-input requirement and direct download without browser headers.');
+// Repeated editing exercises stale-result clearing and export snapshots.
+for (let i=0;i<1000;i++) {
+  elements.currency.value=i%2?'USD':'GBP';elements.currency.handlers.change();
+  elements.leads.value=String((i%37)/3);
+  elements.conversion.value=String(i%101);
+  elements.value.value=String((i+1)*137.25);
+  elements.rate.value=String(100+i);
+  elements.mode.value=i%2?'retainer':'project';
+  elements['churn-enabled'].checked=i%3!==0;elements.churn.value=String(i%101);
+  update();
+  const f=context.window.roiForecast({leads:Number(elements.leads.value),conversion:Number(elements.conversion.value),value:Number(elements.value.value),rate:Number(elements.rate.value),mode:elements.mode.value,churn:elements['churn-enabled'].checked?Number(elements.churn.value):0});
+  const money=new Intl.NumberFormat(elements.currency.value==='USD'?'en-US':'en-GB',{style:'currency',currency:elements.currency.value});
+  assert.equal(elements.revenue.textContent,money.format(f.revenue));
+  assert.equal(elements.pdf.disabled,false);
+  assert.ok(!/NaN|Infinity|undefined/.test(elements.chart.innerHTML+elements.years.innerHTML));
+  if(i%50===0) {elements.pdf.handlers.click();assert.equal(capturedReport.forecast.revenue,f.revenue);assert.equal(capturedReport.inputs.currency,elements.currency.value);}
+  elements.conversion.value='101';update();assert.equal(elements.pdf.disabled,true);assert.equal(elements.revenue.textContent,'—');
+}
+console.log('Repeated control stress passed: 1,000 edits, 1,000 invalid-input transitions and 20 PDF snapshots.');
