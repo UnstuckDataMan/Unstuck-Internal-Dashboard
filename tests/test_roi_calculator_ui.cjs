@@ -80,3 +80,16 @@ elements.optimistic.value='12';update();assert.equal(elements.revenue.textConten
 elements.baseline.value='101';update();assert.equal(elements.revenue.textContent,'£70,000.00');
 elements.scenario.value='baseline';elements.scenario.handlers.change();assert.equal(elements.pdf.disabled,true);
 console.log('Visible inputs passed: selected-rate isolation, heading updates, edits and equal-first-year/different-chart case.');
+
+// Headers and values must move together, including when churn and cumulative
+// revenue are very different (the reported £150,000/year, 50% churn example).
+elements.currency.value='GBP';elements.currency.handlers.change();
+elements.scenario.value='baseline';elements.baseline.value='5';elements.leads.value='5';elements.value.value='50000';elements.rate.value='5490';elements.mode.value='project';elements['churn-enabled'].checked=true;elements.churn.value='50';update();
+const rows=Array.from(elements.years.innerHTML.matchAll(/<tr>(.*?)<\/tr>/g),m=>Array.from(m[1].matchAll(/<td>(.*?)<\/td>/g),cell=>cell[1]));
+assert.equal(rows[0][2],'£101,902.39');assert.equal(rows[0][3],'£150,000.00');
+assert.equal(rows[1][2],'£50,951.20');assert.equal(rows[1][3],'£300,000.00');
+assert.equal(rows[4][2],'£6,368.90');assert.equal(rows[4][3],'£750,000.00');
+const template=fs.readFileSync('app/templates/roi_calculator.html','utf8');
+assert.ok(template.indexOf('<th>After churn')<template.indexOf('<th>Total added revenue'));
+assert.match(template,/roi-calculator.js\?v=column-order-2/);
+console.log('Reported column mismatch regression passed: churn in column 3, accumulated revenue in column 4, and updated script URLs.');
