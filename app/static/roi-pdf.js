@@ -36,7 +36,7 @@
     text(`${labels[0]} - ${labels[11]}  |  ${inputs.currency}`, 18, 71, 10, C.muted);
     paragraph('This is a rough illustration of how added revenue could develop if the assumptions hold and things go reasonably well. It is not a guarantee of leads, sales, revenue or timing. Actual results may be lower or higher, and may take longer to achieve.',18,81,174,9);
     box(18, 104, 174, 43, C.navy);
-    text('BASELINE REVENUE-TO-FEE RATIO', 26, 114, 9, '#D9CBF4', true);
+    text((inputs.scenario || 'Baseline').toUpperCase() + ' · REVENUE-TO-FEE RATIO', 26, 114, 9, '#D9CBF4', true);
     text(ratio(forecast.ratio), 26, 132, 32, '#6EE7B7', true);
     text('Projected added revenue / 12 months of Unstuck fees', 26, 142, 9, '#E2DAEF');
     const stats = [ ['Added revenue - next 12 months', money.format(forecast.revenue)], ['Added revenue less Unstuck fees', money.format(forecast.net)], ['Scheduled new deals', String(forecast.deals)] ];
@@ -89,12 +89,12 @@
     });
     doc.addPage(); header(3);
     text('Your assumptions', 18, 61, 22, C.navy, true);
-    const rows = [ ['Leads per month', String(inputs.leads)], ['Assumed conversion rate', `${inputs.conversion}%`], ['Fee type', inputs.mode === 'retainer' ? 'Monthly retainer' : 'One-off project'], ['Conversion value', money.format(inputs.value)], ['Unstuck monthly rate', money.format(inputs.rate)], ['Annual churn scenario', inputs.churnEnabled ? `${inputs.churn}%` : 'Off (0%)'] ];
+    const rows = [ ['Leads per month', String(inputs.leads)], [(inputs.scenario || 'Baseline') + ' conversion rate', `${inputs.conversion}%`], ['Fee type', inputs.mode === 'retainer' ? 'Monthly retainer' : 'One-off project'], ['Conversion value', money.format(inputs.value)], ['Unstuck monthly rate', money.format(inputs.rate)], ['Annual churn scenario', inputs.churnEnabled ? `${inputs.churn}%` : 'Off (0%)'] ];
     rows.forEach(([name, value], index) => {
       const x = index % 2 === 0 ? 18 : 110, y = 78 + Math.floor(index / 2) * 25;
       text(name, x, y, 9, C.muted); text(value, x, y + 7, 12, C.navy, true);
     });
-    paragraph('This is a revenue-to-fee ratio, not a profit ROI percentage. Baseline figures exclude churn; the churn scenario is shown separately.', 18, 155, 174, 9);
+    paragraph('This is a revenue-to-fee ratio, not a profit ROI percentage. Figures use the selected conversion scenario and exclude churn; the churn scenario is separate.', 18, 155, 174, 9);
 
     text('How to read this forecast',18,197,14,C.navy,true);
     let next=208;

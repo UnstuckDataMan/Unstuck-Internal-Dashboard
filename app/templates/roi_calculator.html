@@ -122,8 +122,17 @@
       <small id="leads-help">Decimals are welcome for average monthly lead volumes.</small>
     </div>
     <div class="roi-field">
+      <label for="roi-scenario">Forecast scenario</label>
+      <select id="roi-scenario" class="roi-select">
+        <option value="conservative">Conservative</option>
+        <option value="baseline" selected>Baseline · default</option>
+        <option value="optimistic">Optimistic</option>
+      </select>
+      <small>Each scenario has its own editable conversion rate. The starting assumptions are 2%, 3% and 6%; these are modelling assumptions, not established industry averages.</small>
+    </div>
+    <div class="roi-field">
       <label for="roi-conversion">Assumed conversion rate</label>
-      <div class="roi-input"><input id="roi-conversion" type="number" min="0" max="100" step="any" value="5" required inputmode="decimal" aria-describedby="conversion-help roi-error"><span>%</span></div>
+      <div class="roi-input"><input id="roi-conversion" type="number" min="0" max="100" step="any" value="3" required inputmode="decimal" aria-describedby="conversion-help roi-error"><span>%</span></div>
       <small id="conversion-help">The percentage of leads you expect to become deals.</small>
     </div>
     <div class="roi-field">
@@ -153,7 +162,7 @@
   </form>
   <div class="roi-results-stack">
   <section class="roi-panel roi-result" id="roi-result" aria-label="Annual projection">
-    <div class="roi-eyebrow">Potential ROI · Next 12 months · Baseline</div>
+    <div class="roi-eyebrow">Potential ROI · Next 12 months · <span id="roi-scenario-name">Baseline</span> · No churn</div>
     <div class="roi-ratio"><output id="roi-ratio">—</output></div>
     <p class="roi-help" id="roi-summary" aria-live="polite">Enter a conversion value to see your potential return.</p>
     <dl class="roi-stats">

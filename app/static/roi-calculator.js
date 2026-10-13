@@ -6,6 +6,10 @@
   let exportSnapshot = null;
   const form = get('form');
   const fields = ['leads', 'conversion', 'value', 'rate'].map(get);
+  const scenario = get('scenario');
+  const scenarioNames = { conservative: 'Conservative', baseline: 'Baseline', optimistic: 'Optimistic' };
+  const scenarioRates = { conservative: '2', baseline: '3', optimistic: '6' };
+  let previousScenario = scenario.value;
   const currency = get('currency');
   const mode = get('mode');
   const churnEnabled = get('churn-enabled');
@@ -46,6 +50,7 @@
     const money = new Intl.NumberFormat(code === 'USD' ? 'en-US' : 'en-GB', { style: 'currency', currency: code });
     document.querySelectorAll('[data-currency-symbol]').forEach(symbol => { symbol.textContent = code === 'USD' ? '$' : '£'; });
     set('currency-code', code);
+    set('scenario-name', scenarioNames[scenario.value]);
     set('top-period', label(dates[0]) + ' – ' + label(dates[11]) + ' | ' + code);
     set('value-description', mode.value === 'retainer' ? 'Monthly retainer revenue per client' : 'One-off revenue per deal');
     const applyChurn = churnEnabled.checked;
@@ -88,7 +93,7 @@
     set('timing', `Your assumptions imply ${number.format(forecast.expectedDeals)} sales per year. This timeline books ${number.format(forecast.deals)} whole sales as they accumulate, starting with zero existing clients. ${applyChurn ? (mode.value === 'retainer' ? 'The separate churn scenario applies compound monthly retention to acquired retainer clients.' : 'The separate project churn scenario reduces future project revenue opportunities using compound monthly retention from the forecast start.') : 'Churn is off; both revenue lines are identical.'}`);
     get('years').innerHTML = forecast.years.map(row => `<tr><td>Year ${row.year}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.accumulated)}</td><td>${money.format(row.adjustedRevenue)}</td><td>${row.ratio.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} : 1</td></tr>`).join('');
     drawChart(forecast, money, code);
-    exportSnapshot = { forecast, inputs: { leads, conversion, value, rate, currency: code, mode: mode.value, churn: churnValue, churnEnabled: applyChurn }, labels: dates.map(label) };
+    exportSnapshot = { forecast, inputs: { leads, conversion, value, rate, currency: code, scenario: scenarioNames[scenario.value], mode: mode.value, churn: churnValue, churnEnabled: applyChurn }, labels: dates.map(label) };
     pdf.disabled = false;
   }
   pdf.addEventListener('click', async () => {
@@ -116,6 +121,12 @@
       pdf.disabled = !exportSnapshot;
     }
   });
+  scenario.addEventListener('change', () => {
+    scenarioRates[previousScenario] = get('conversion').value;
+    previousScenario = scenario.value;
+    get('conversion').value = scenarioRates[previousScenario];
+    update();
+  });
   currency.addEventListener('change', () => {
     rates[previousCurrency] = get('rate').value;
     previousCurrency = currency.value === 'USD' ? 'USD' : 'GBP';
@@ -126,6 +137,9 @@
   form.addEventListener('change', update);
   form.addEventListener('submit', event => event.preventDefault());
   form.addEventListener('reset', () => setTimeout(() => {
+    scenarioRates.conservative = '2'; scenarioRates.baseline = '3'; scenarioRates.optimistic = '6';
+    previousScenario = scenario.value;
+    get('conversion').value = scenarioRates[previousScenario];
     rates.GBP = '5490'; rates.USD = '7990';
     get('rate').value = rates[currency.value === 'USD' ? 'USD' : 'GBP'];
     update();
