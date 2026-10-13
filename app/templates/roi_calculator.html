@@ -35,6 +35,11 @@
   .roi-reset:hover { background: var(--surface-hover); color: var(--text); }
   .roi-reset:focus-visible { outline: 2px solid #34d399; outline-offset: 3px; }
   .roi-results-stack { display: grid; gap: 24px; min-width: 0; }
+  .roi-scenario-inputs { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+  .roi-scenario-inputs label { font-size: 11px; }
+  .roi-scenario-inputs input { padding: 12px 8px; font-size: 18px; }
+  .roi-scenario-inputs .roi-input span { padding: 0 8px; font-size: 13px; }
+  .roi-scenario-inputs .roi-input:has(input[data-selected="true"]) { border-color: #8b5cf6; background: rgba(139,92,246,.12); }
   .roi-select { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: #181827; color: var(--text); font: 500 14px var(--font); }
   .roi-select:focus-visible { outline: 2px solid #34d399; outline-offset: 3px; }
   .roi-toggle { display: flex !important; align-items: center; gap: 10px; }
@@ -128,12 +133,14 @@
         <option value="baseline" selected>Baseline · default</option>
         <option value="optimistic">Optimistic</option>
       </select>
-      <small>Each scenario has its own editable conversion rate. The starting assumptions are 2%, 3% and 6%; these are modelling assumptions, not established industry averages.</small>
     </div>
     <div class="roi-field">
-      <label for="roi-conversion">Assumed conversion rate</label>
-      <div class="roi-input"><input id="roi-conversion" type="number" min="0" max="100" step="any" value="3" required inputmode="decimal" aria-describedby="conversion-help roi-error"><span>%</span></div>
-      <small id="conversion-help">The percentage of leads you expect to become deals.</small>
+      <label>Lead-to-client conversion rates</label>
+      <div class="roi-scenario-inputs">
+        <div><label for="roi-conservative">Conservative</label><div class="roi-input"><input id="roi-conservative" type="number" min="0" max="100" step="any" value="3" required inputmode="decimal" aria-describedby="roi-error"><span>%</span></div></div>
+        <div><label for="roi-baseline">Baseline</label><div class="roi-input"><input id="roi-baseline" type="number" min="0" max="100" step="any" value="5" required inputmode="decimal" aria-describedby="roi-error"><span>%</span></div></div>
+        <div><label for="roi-optimistic">Optimistic</label><div class="roi-input"><input id="roi-optimistic" type="number" min="0" max="100" step="any" value="6" required inputmode="decimal" aria-describedby="roi-error"><span>%</span></div></div>
+      </div>
     </div>
     <div class="roi-field">
       <label for="roi-mode">Client fee type</label>
@@ -206,5 +213,5 @@
 <script src="/static/roi-forecast.js" defer></script>
 <script src="/static/vendor/jspdf.umd.min.js" defer></script>
 <script src="/static/roi-pdf.js" defer></script>
-<script src="/static/roi-calculator.js" defer></script>
+<script src="/static/roi-calculator.js?v=visible-scenarios-1" defer></script>
 {% endblock %}

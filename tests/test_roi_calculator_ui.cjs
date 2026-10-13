@@ -2,9 +2,9 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const elements = {};
-const keys = ['scenario','scenario-name','pdf','pdf-logo','form','leads','conversion','value','rate','currency','mode','churn-enabled','churn','churn-controls','years','top-period','period','chart','months','timing','currency-code','value-description','result','ratio','deals','revenue','net','summary','error'];
+const keys = ['conservative','optimistic','scenario','scenario-name','pdf','pdf-logo','form','leads','baseline','value','rate','currency','mode','churn-enabled','churn','churn-controls','years','top-period','period','chart','months','timing','currency-code','value-description','result','ratio','deals','revenue','net','summary','error'];
 keys.forEach(key => { elements[key] = { value: '', textContent: '', innerHTML: '', checked: false, dataset: {}, style: {}, handlers: {}, setAttribute(key,value) { this[key] = value; }, addEventListener(key,fn) { this.handlers[key] = fn; }, get valueAsNumber() { return Number(this.value); } }; });
-Object.entries({scenario:'baseline',leads:'5.00', conversion:'5', rate:'5490', currency:'GBP', mode:'project', churn:'10'}).forEach(([key,value]) => { elements[key].value = value; });
+Object.entries({scenario:'baseline',leads:'5.00', baseline:'5',conservative:'3',optimistic:'6', rate:'5490', currency:'GBP', mode:'project', churn:'10'}).forEach(([key,value]) => { elements[key].value = value; });
 const symbols = [{},{}];
 let printed = 0;
 const events = {};
@@ -49,28 +49,34 @@ console.log('PDF checks passed: current assumptions, valid-input requirement and
 for (let i=0;i<1000;i++) {
   elements.currency.value=i%2?'USD':'GBP';elements.currency.handlers.change();
   elements.leads.value=String((i%37)/3);
-  elements.conversion.value=String(i%101);
+  elements.baseline.value=String(i%101);
   elements.value.value=String((i+1)*137.25);
   elements.rate.value=String(100+i);
   elements.mode.value=i%2?'retainer':'project';
   elements['churn-enabled'].checked=i%3!==0;elements.churn.value=String(i%101);
   update();
-  const f=context.window.roiForecast({leads:Number(elements.leads.value),conversion:Number(elements.conversion.value),value:Number(elements.value.value),rate:Number(elements.rate.value),mode:elements.mode.value,churn:elements['churn-enabled'].checked?Number(elements.churn.value):0});
+  const f=context.window.roiForecast({leads:Number(elements.leads.value),conversion:Number(elements.baseline.value),value:Number(elements.value.value),rate:Number(elements.rate.value),mode:elements.mode.value,churn:elements['churn-enabled'].checked?Number(elements.churn.value):0});
   const money=new Intl.NumberFormat(elements.currency.value==='USD'?'en-US':'en-GB',{style:'currency',currency:elements.currency.value});
   assert.equal(elements.revenue.textContent,money.format(f.revenue));
   assert.equal(elements.pdf.disabled,false);
   assert.ok(!/NaN|Infinity|undefined/.test(elements.chart.innerHTML+elements.years.innerHTML));
   if(i%50===0) {elements.pdf.handlers.click();assert.equal(capturedReport.forecast.revenue,f.revenue);assert.equal(capturedReport.inputs.currency,elements.currency.value);}
-  elements.conversion.value='101';update();assert.equal(elements.pdf.disabled,true);assert.equal(elements.revenue.textContent,'—');
+  elements.baseline.value='101';update();assert.equal(elements.pdf.disabled,true);assert.equal(elements.revenue.textContent,'—');
 }
 console.log('Repeated control stress passed: 1,000 edits, 1,000 invalid-input transitions and 20 PDF snapshots.');
 
 // Scenario defaults and editable per-scenario memory use the unchanged forecast model.
 elements.currency.value='GBP';elements.currency.handlers.change();
-elements['churn-enabled'].checked=false;elements.value.value='10000';elements.leads.value='5';elements.rate.value='5490';elements.mode.value='project';elements.conversion.value='3';update();
-elements.scenario.value='conservative';elements.scenario.handlers.change();assert.equal(elements.conversion.value,'2');assert.equal(elements.revenue.textContent,'£10,000.00');
-elements.conversion.value='2.5';update();
-elements.scenario.value='optimistic';elements.scenario.handlers.change();assert.equal(elements.conversion.value,'6');assert.equal(elements.revenue.textContent,'£30,000.00');
-elements.scenario.value='conservative';elements.scenario.handlers.change();assert.equal(elements.conversion.value,'2.5');
-elements.scenario.value='baseline';elements.scenario.handlers.change();assert.equal(elements.conversion.value,'3');const beforeExport=printed;elements.pdf.handlers.click();assert.equal(printed,beforeExport+1);assert.equal(capturedReport.inputs.scenario,'Baseline');assert.equal(capturedReport.inputs.conversion,3);
+elements['churn-enabled'].checked=false;elements.value.value='10000';elements.leads.value='5';elements.rate.value='5490';elements.mode.value='project';elements.baseline.value='5';update();
+elements.scenario.value='conservative';elements.scenario.handlers.change();assert.equal(elements.conservative.value,'3');assert.equal(elements.revenue.textContent,'£10,000.00');
+elements.conservative.value='2.5';update();
+elements.scenario.value='optimistic';elements.scenario.handlers.change();assert.equal(elements.optimistic.value,'6');assert.equal(elements.revenue.textContent,'£30,000.00');
+elements.scenario.value='conservative';elements.scenario.handlers.change();assert.equal(elements.conservative.value,'2.5');
+elements.scenario.value='baseline';elements.scenario.handlers.change();assert.equal(elements.baseline.value,'5');const beforeExport=printed;elements.pdf.handlers.click();assert.equal(printed,beforeExport+1);assert.equal(capturedReport.inputs.scenario,'Baseline');assert.equal(capturedReport.inputs.conversion,5);
 console.log('Scenario switching and editable rate memory passed.');
+elements.scenario.value='baseline';elements.scenario.handlers.change();const baselineChart=elements.chart.innerHTML;
+elements.scenario.value='optimistic';elements.scenario.handlers.change();assert.notEqual(elements.chart.innerHTML,baselineChart);assert.equal(elements['scenario-name'].textContent,'Optimistic · 6%');
+elements.optimistic.value='12';update();assert.equal(elements.revenue.textContent,'£70,000.00');
+elements.baseline.value='101';update();assert.equal(elements.revenue.textContent,'£70,000.00');
+elements.scenario.value='baseline';elements.scenario.handlers.change();assert.equal(elements.pdf.disabled,true);
+console.log('Visible inputs passed: selected-rate isolation, heading updates, edits and equal-first-year/different-chart case.');

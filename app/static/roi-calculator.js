@@ -5,11 +5,8 @@
   const pdf = get('pdf');
   let exportSnapshot = null;
   const form = get('form');
-  const fields = ['leads', 'conversion', 'value', 'rate'].map(get);
   const scenario = get('scenario');
   const scenarioNames = { conservative: 'Conservative', baseline: 'Baseline', optimistic: 'Optimistic' };
-  const scenarioRates = { conservative: '2', baseline: '3', optimistic: '6' };
-  let previousScenario = scenario.value;
   const currency = get('currency');
   const mode = get('mode');
   const churnEnabled = get('churn-enabled');
@@ -50,7 +47,10 @@
     const money = new Intl.NumberFormat(code === 'USD' ? 'en-US' : 'en-GB', { style: 'currency', currency: code });
     document.querySelectorAll('[data-currency-symbol]').forEach(symbol => { symbol.textContent = code === 'USD' ? '$' : '£'; });
     set('currency-code', code);
-    set('scenario-name', scenarioNames[scenario.value]);
+    const selectedRate = get(scenario.value);
+    const fields = ['leads', scenario.value, 'value', 'rate'].map(get);
+    for (const key of Object.keys(scenarioNames)) get(key).dataset.selected = String(key === scenario.value);
+    set('scenario-name', scenarioNames[scenario.value] + ' · ' + (selectedRate.value === '' ? '—' : selectedRate.value + '%'));
     set('top-period', label(dates[0]) + ' – ' + label(dates[11]) + ' | ' + code);
     set('value-description', mode.value === 'retainer' ? 'Monthly retainer revenue per client' : 'One-off revenue per deal');
     const applyChurn = churnEnabled.checked;
@@ -121,12 +121,7 @@
       pdf.disabled = !exportSnapshot;
     }
   });
-  scenario.addEventListener('change', () => {
-    scenarioRates[previousScenario] = get('conversion').value;
-    previousScenario = scenario.value;
-    get('conversion').value = scenarioRates[previousScenario];
-    update();
-  });
+  scenario.addEventListener('change', update);
   currency.addEventListener('change', () => {
     rates[previousCurrency] = get('rate').value;
     previousCurrency = currency.value === 'USD' ? 'USD' : 'GBP';
@@ -137,9 +132,7 @@
   form.addEventListener('change', update);
   form.addEventListener('submit', event => event.preventDefault());
   form.addEventListener('reset', () => setTimeout(() => {
-    scenarioRates.conservative = '2'; scenarioRates.baseline = '3'; scenarioRates.optimistic = '6';
-    previousScenario = scenario.value;
-    get('conversion').value = scenarioRates[previousScenario];
+    get('conservative').value = '3'; get('baseline').value = '5'; get('optimistic').value = '6';
     rates.GBP = '5490'; rates.USD = '7990';
     get('rate').value = rates[currency.value === 'USD' ? 'USD' : 'GBP'];
     update();
