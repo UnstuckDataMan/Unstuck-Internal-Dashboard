@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const elements = {};
-const keys = ['pdf','pdf-logo','form','leads','conversion','value','rate','currency','mode','churn-enabled','churn','churn-controls','years','period','chart','months','timing','currency-code','value-description','result','ratio','deals','revenue','net','summary','error'];
+const keys = ['pdf','pdf-logo','form','leads','conversion','value','rate','currency','mode','churn-enabled','churn','churn-controls','years','top-period','period','chart','months','timing','currency-code','value-description','result','ratio','deals','revenue','net','summary','error'];
 keys.forEach(key => { elements[key] = { value: '', textContent: '', innerHTML: '', checked: false, dataset: {}, style: {}, handlers: {}, setAttribute(key,value) { this[key] = value; }, addEventListener(key,fn) { this.handlers[key] = fn; }, get valueAsNumber() { return Number(this.value); } }; });
 Object.entries({leads:'5.00', conversion:'5', rate:'5490', currency:'GBP', mode:'project', churn:'10'}).forEach(([key,value]) => { elements[key].value = value; });
 const symbols = [{},{}];

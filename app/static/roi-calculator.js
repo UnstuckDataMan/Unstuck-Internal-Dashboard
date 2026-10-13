@@ -46,6 +46,7 @@
     const money = new Intl.NumberFormat(code === 'USD' ? 'en-US' : 'en-GB', { style: 'currency', currency: code });
     document.querySelectorAll('[data-currency-symbol]').forEach(symbol => { symbol.textContent = code === 'USD' ? '$' : '£'; });
     set('currency-code', code);
+    set('top-period', label(dates[0]) + ' – ' + label(dates[11]) + ' | ' + code);
     set('value-description', mode.value === 'retainer' ? 'Monthly retainer revenue per client' : 'One-off revenue per deal');
     const applyChurn = churnEnabled.checked;
     get('churn-controls').hidden = !applyChurn;
