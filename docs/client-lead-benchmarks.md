@@ -1,6 +1,6 @@
-# Client Lead Benchmarks
+# Average Client Data
 
-Open Reporting & Analytics → Client Lead Benchmarks. Access uses the new
+Open Reporting & Analytics → Average Client Data. Access uses the new
 `client_benchmarks` tool permission. Existing tool permissions are unchanged.
 
 ## Isolation
@@ -53,22 +53,19 @@ The downloadable template contains instructions and no fabricated records.
 
 ## Presentation
 
-The headline shows the overall metric with sample size, denominator, median and
-coverage limitations. Size-specific averages are in an expandable detail table;
-they use different client samples and are not additive.
+The page automatically reads Google Sheets and displays only four target-size
+cards (Micro, SME, Medium, Enterprise), a refresh control and a short period/basis
+note. Cards use `groups[].average`, never selected maximum results. The page and
+home card are named Average Client Data; existing routes and permissions stay
+compatible. Excel controls, examples, overall metric, detailed tables, trends and
+PDF controls are removed from this page. Upload APIs remain available for existing
+integrations but are not invoked by this UI.
 
-Prominent segment cards show selected highest recorded single account/calendar-
-month counts, not averages or expected volumes. Group bands are combined first;
-ties choose the most recent month then stable account order. Each card discloses
-the date, candidate sample and one-account/one-month basis. Unstuck's own
-prospecting is explicitly identified and other account names are anonymised.
-Missing results show a dash rather than a fabricated example.
-
-Delivery-month examples use the last 12 completed months and matched roster
-accounts plus Unstuck, separately from the headline's all-history scope. Other
-modes use the selected reporting period. Examples may come from different months
-and must not be added together. Own prospecting without a supplied delivery count
-can appear as an example without entering the billing-denominator average.
+The live lead-only view uses the latest three completed calendar months
+consistently across groups. The note identifies Unstuck when included and makes
+clear that active delivery months are not verified. Lead-producing months cannot
+serve as a substitute for a complete activity roster. A missing segment displays
+a dash, not zero. Failures hide old results; refresh retries the live source.
 
 ## Validation
 
@@ -76,5 +73,5 @@ Run `.venv/bin/python -m pytest -q` and
 `node --check app/static/client-benchmarks.js`. Tests cover access controls,
 parsing, source errors, private session isolation, read-only requests, caching,
 zero months, denominator arithmetic, selected examples and Excel limits.
-Browser checks cover real uploads, mobile width, PDF output and source switching.
+Browser checks cover automatic Google loading, actual averages rather than peak examples, no-data results, mobile width, source failures and recovery.
 Client workbooks, private audit results and credentials are kept outside Git.
