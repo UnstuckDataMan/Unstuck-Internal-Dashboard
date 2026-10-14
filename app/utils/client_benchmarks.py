@@ -80,7 +80,7 @@ def parse_date(value):
         return parsed.date()
     except ValueError:
         pass
-    for fmt in ("%d/%m/%Y", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%y", "%d-%m-%Y"):
+    for fmt in ("%d/%m/%Y", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%y", "%d-%m-%Y", "%A, %B %d, %Y", "%B %d, %Y", "%A, %d %B %Y", "%d %B %Y"):
         try:
             return datetime.strptime(value, fmt).date()
         except ValueError:
@@ -162,7 +162,10 @@ def load_source():
                 base = f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
                 metadata = session.get(base, params={"fields": "sheets.properties"}, timeout=20)
                 metadata.raise_for_status()
-                title = next((s["properties"]["title"] for s in metadata.json().get("sheets", []) if s["properties"]["sheetId"] == GID), None)
+                tabs = [item['properties'] for item in metadata.json().get('sheets', [])]
+                raw_tab = next((tab for tab in tabs if _normal(tab['title']) == 'form responses'), None)
+                chosen = raw_tab or next((tab for tab in tabs if tab['sheetId'] == GID), None)
+                title = chosen['title'] if chosen else None
                 if title is None:
                     raise SourceError("The selected source tab could not be found.")
                 sheet_range = "'" + title.replace("'", "''") + "'!A:Z"
@@ -175,7 +178,16 @@ def load_source():
                 if "text/html" in response.headers.get("Content-Type", ""):
                     raise SourceError("The source sheet requires access. Connect the dashboard's Google Sheets service account and share this sheet with it as a viewer.")
                 values = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
-            records, quality = parse_rows(values)
+            from app.utils.benchmark_upload import RAW_HEADERS, parse_form_responses
+            raw_header = next(((index, [_normal(cell) for cell in row]) for index, row in enumerate(values[:10])
+                               if all(header in [_normal(cell) for cell in row] for header in RAW_HEADERS)), None)
+            if raw_header:
+                index, names = raw_header
+                if any(names.count(header) != 1 for header in RAW_HEADERS):
+                    raise SourceError('Duplicate Form Responses column headers. Give each required column a unique name.')
+                records, quality = parse_form_responses(names, values[index + 1:])
+            else:
+                records, quality = parse_rows(values)
         except SourceError:
             raise
         except RefreshError as exc:

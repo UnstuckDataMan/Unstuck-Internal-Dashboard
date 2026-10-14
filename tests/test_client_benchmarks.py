@@ -487,3 +487,33 @@ def test_empty_live_history_keeps_a_valid_reporting_month(client, monkeypatch):
     data = client.get('/api/client-benchmarks').json()
     assert data['months'] == ['2026-10']
     assert data['overall']['average'] is None
+
+
+@pytest.mark.parametrize('text', ['Tuesday, March 19, 2024', 'March 19, 2024', 'Tuesday, 19 March 2024', '19 March 2024'])
+def test_google_long_form_dates(text):
+    assert b.parse_date(text) == date(2024, 3, 19)
+
+
+def test_live_reader_prefers_full_form_responses_history(monkeypatch):
+    monkeypatch.setattr(b, '_cache', None)
+    monkeypatch.setattr(b, '_is_configured', lambda: True)
+    class Response:
+        def __init__(self, payload): self.payload = payload
+        def raise_for_status(self): pass
+        def json(self): return self.payload
+    class Session:
+        def get(self, url, **kwargs):
+            if '/values/' in url:
+                assert 'Form%20Responses' in url
+                return Response({'values': [
+                    ['Timestamp', 'Client', 'Lead company size', 'Lead category'],
+                    ['Tuesday, March 19, 2024', 'Alpha', '11-50', 'Lead'],
+                    ['Tuesday, March 19, 2024', 'Alpha', '11-50', 'Interested'],
+                ]})
+            return Response({'sheets': [
+                {'properties': {'sheetId': b.GID, 'title': 'Responses (clean)'}},
+                {'properties': {'sheetId': 1234, 'title': 'Form Responses'}}]})
+    monkeypatch.setattr(b, '_read_session', lambda: Session())
+    result = b.load_source()
+    assert result['records'] == [{'client': 'alpha', 'date': date(2024, 3, 19), 'band': 1}]
+    assert result['quality']['excluded_category'] == 1

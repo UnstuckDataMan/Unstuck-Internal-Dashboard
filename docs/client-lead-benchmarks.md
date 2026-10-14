@@ -19,7 +19,9 @@ background polling. A connection failure returns a tool-specific error without
 substituting invented results. Google access must be verified after deployment;
 it cannot be verified locally without the runtime credential.
 
-The configured sheet/tab is in `app/utils/client_benchmarks.py`. The live tab
+The configured sheet/tab is in `app/utils/client_benchmarks.py`. The live reader prefers the Form Responses tab by name and parses Timestamp,
+Client, Lead company size and Lead category, including Google long-form dates.
+Only Lead-category records count. If that tab is absent, the configured tab
 expects Client, Date, Lead, Job role, Company size, Company Industry, Channel,
 Country. CSV export is a fallback only for sources that are already public.
 Private client sheets should remain private. Required network destinations are
