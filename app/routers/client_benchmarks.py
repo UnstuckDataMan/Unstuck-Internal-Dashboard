@@ -33,10 +33,10 @@ def data(start: str = '', end: str = ''):
             first = min((row['date'] for row in records), default=today)
             months = [benchmarks.month_string(i) for i in range(
                 first.year * 12 + first.month - 1, today.year * 12 + today.month)]
-            result = benchmarks.summarize(source, months)
+            result = benchmarks.summarize(source, months, lead_producing_only=True)
             result.update(history_scope='all_available', through_date=today.isoformat(), current_month_partial=True)
         else:
-            result = benchmarks.summarize(source, months)
+            result = benchmarks.summarize(source, months, lead_producing_only=True)
     except benchmarks.SourceError as exc:
         return JSONResponse({'error': str(exc)}, status_code=503, headers={'Cache-Control': 'no-store'})
     return JSONResponse(result, headers={'Cache-Control': 'no-store'})

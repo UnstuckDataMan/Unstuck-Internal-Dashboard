@@ -84,7 +84,8 @@ def test_page_api_and_reporting_navigation(client, monkeypatch):
     assert 'href="/client-benchmarks"' in client.get('/').text
     response = client.get('/api/client-benchmarks?start=2026-07&end=2026-09')
     assert response.status_code == 200
-    assert response.json()['overall']['average'] == pytest.approx(1/3)
+    assert response.json()['overall']['average'] == 1
+    assert response.json()['basis'] == 'lead_producing_client_month'
     assert response.headers['cache-control'] == 'no-store'
     assert client.get('/api/client-benchmarks?start=invalid').status_code == 400
 
@@ -475,7 +476,8 @@ def test_default_live_view_includes_all_history_and_current_month(client, monkey
     assert data['months'][-1] == '2026-10'
     assert len(data['months']) == 82
     assert data['overall']['leads'] == 2
-    assert data['overall']['average'] == pytest.approx(2/82)
+    assert data['overall']['average'] == 1
+    assert data['overall']['exposure_months'] == 2
     assert data['history_scope'] == 'all_available'
     assert data['current_month_partial'] is True
     assert data['through_date'] == '2026-10-14'
@@ -517,3 +519,23 @@ def test_live_reader_prefers_full_form_responses_history(monkeypatch):
     result = b.load_source()
     assert result['records'] == [{'client': 'alpha', 'date': date(2024, 3, 19), 'band': 1}]
     assert result['quality']['excluded_category'] == 1
+
+
+def test_productive_client_months_are_distinct_per_group():
+    data = source(row('Alpha', '01/07/2026', 'A', '11-50'),
+                  row('Alpha', '02/07/2026', 'B', '51-200'),
+                  row('Alpha', '01/09/2026', 'C', '11-50'),
+                  row('Beta', '01/07/2026', 'D', '11-50'),
+                  row('Alpha', '02/07/2026', 'E', '201-500'))
+    result = b.summarize(data, ['2026-07', '2026-08', '2026-09'], lead_producing_only=True)
+    sme = result['groups'][1]
+    assert result['basis'] == 'lead_producing_client_month'
+    assert sme['leads'] == 4
+    assert sme['exposure_months'] == 3
+    assert sme['average'] == pytest.approx(4/3)
+    assert sme['monthly'][1]['average'] is None
+    assert result['groups'][2]['exposure_months'] == 1
+    assert result['overall']['exposure_months'] == 3
+    assert result['groups'][3]['average'] is None
+    # Existing calendar calculations used elsewhere remain unchanged.
+    assert b.summarize(data, result['months'])['groups'][1]['exposure_months'] == 6

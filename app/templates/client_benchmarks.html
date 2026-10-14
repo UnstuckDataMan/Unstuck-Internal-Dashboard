@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Average Client Data · Unstuck Agency{% endblock %}
 {% block heading %}Average Client Data{% endblock %}
-{% block extra_head %}<link rel="stylesheet" href="/static/client-benchmarks.css?v=2">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/client-benchmarks.css?v=3">{% endblock %}
 {% block content %}
 <section class="average-client-data" aria-label="Average monthly leads by target company size">
   <div class="average-toolbar"><p id="bench-status" role="status">Loading Google Sheets…</p><button type="button" id="bench-refresh">Refresh ↻</button></div>
@@ -13,4 +13,4 @@
 </section>
 <noscript><p>Enable JavaScript to load average client data.</p></noscript>
 {% endblock %}
-{% block extra_scripts %}<script src="/static/client-benchmarks.js?v=2" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="/static/client-benchmarks.js?v=3" defer></script>{% endblock %}

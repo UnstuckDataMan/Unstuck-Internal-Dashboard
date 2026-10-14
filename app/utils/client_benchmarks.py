@@ -227,11 +227,12 @@ def load_source():
         return result
 
 
-def summarize(source, months):
+def summarize(source, months, *, lead_producing_only=False):
     if 'delivery_roster' in source:
         from app.utils.benchmark_billing import summarize as summarize_billing
         return summarize_billing(source)
     active = 'active_records' in source
+    productive = lead_producing_only and not active
     selected = [r for r in source.get('active_records', source.get('records', [])) if r['date'].strftime('%Y-%m') in months]
     def segment(key, label, indices):
         rows = [r for r in selected if r['band'] in indices]
@@ -246,7 +247,7 @@ def summarize(source, months):
             counts[subject(r)] += n
             monthly[m] += n
             exposure.add((subject(r), m))
-        if not active:
+        if not active and not productive:
             exposure = {(client, m) for client in clients for m in months}
         subject_months = Counter(s for s, m in exposure)
         month_counts = Counter(m for s, m in exposure)
@@ -268,7 +269,7 @@ def summarize(source, months):
     return {
         **build_examples(selected, months, GROUPS),
         'months': months, 'fetched_at': source['fetched_at'], 'source_url': SOURCE_URL,
-        'basis': 'active_campaign_month' if active else 'calendar_account_month',
+        'basis': 'active_campaign_month' if active else 'lead_producing_client_month' if productive else 'calendar_account_month',
         **{key: source[key] for key in ('source_kind', 'source_tab', 'date_min', 'date_max', 'lead_definition') if key in source},
         'bands': [segment(f'band-{i}', label, (i,)) for i, label in enumerate(BANDS)],
         'groups': [segment(f'group-{i}', label, indices) for i, (label, indices) in enumerate(GROUPS)],

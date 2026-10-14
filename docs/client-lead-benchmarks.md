@@ -66,7 +66,11 @@ integrations but are not invoked by this UI.
 The live lead-only view uses all available dated history through today, from the
 earliest valid record to the current month, with no 36-month history cap. Future
 records are excluded. The current partial month counts once and is explicitly
-labelled. Quiet months throughout the period count consistently across groups.
+labelled. The live view divides each segment’s leads by distinct client/month pairs with
+at least one lead in that segment. A client/month spanning multiple bands in a
+group counts once. Cards say “Average leads in months with leads”. This is a
+conditional average, not an average across all active delivery months. Existing
+Excel/calendar calculations retain their prior denominator.
 Explicit API date filters retain their existing completed-month validation. The note identifies Unstuck when included and makes
 clear that active delivery months are not verified. Lead-producing months cannot
 serve as a substitute for a complete activity roster. A missing segment displays
