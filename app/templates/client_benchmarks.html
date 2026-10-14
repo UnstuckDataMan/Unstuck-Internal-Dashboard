@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Client Lead Benchmarks · Unstuck Agency{% endblock %}
+{% block heading %}Client Lead Benchmarks{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/client-benchmarks.css">{% endblock %}
+{% block content %}
+<header class="bench-intro">
+  <div class="bench-top"><span class="bench-eyebrow">Reporting &amp; Analytics</span><span id="bench-status" class="bench-status" role="status">Choose a data source</span></div>
+  <h2>Real results. Your next opportunity.</h2>
+  <p id="bench-intro-scope">Client and Unstuck campaign performance, by the size of the companies you want to reach.</p>
+</header>
+<form id="bench-filters" class="bench-toolbar">
+  <div class="bench-upload"><label for="bench-file">Excel snapshot</label><input id="bench-file" type="file" accept=".xlsx" aria-describedby="bench-upload-help"><small id="bench-upload-help">Choose your lead workbook. Files are processed for this view only; they are not saved or shared with other users.</small><button type="button" id="bench-google">Use Google Sheet instead</button><a href="/api/client-benchmarks/activity-template">Download active campaign-month template</a></div>
+  <div class="bench-period"><label>From <input type="month" id="bench-start" value="{{ start_month }}" max="{{ end_month }}" required></label><span aria-hidden="true">—</span><label>To <input type="month" id="bench-end" value="{{ end_month }}" max="{{ end_month }}" required></label></div>
+  <div class="bench-actions"><button type="submit" id="bench-refresh">Update results ↻</button><button type="button" id="bench-print" disabled>Print / Save PDF ↓</button></div>
+</form>
+<div id="bench-message" class="bench-message" role="status">Upload your Excel workbook to calculate benchmarks from its records.</div>
+<div id="bench-report" hidden>
+  <p id="bench-basis" class="bench-message" style="margin-bottom:24px"></p>
+  <section class="bench-hero">
+    <div class="bench-result">
+      <div class="bench-eyebrow">Overall observed benchmark</div>
+      <p class="bench-muted">Total leads across all target company sizes</p>
+      <div class="bench-number" id="bench-average">—</div>
+      <p class="bench-unit" id="bench-unit">leads per account / month</p>
+      <p class="bench-muted" id="bench-context"></p>
+      <div class="bench-mini-stats"><div><span id="bench-median">—</span><small id="bench-median-label">Median account average</small></div><div><span id="bench-best">—</span><small>Strongest month average</small></div></div>
+    </div>
+    <div class="bench-evidence">
+      <span class="bench-eyebrow">A clearer starting point</span><h3>Make your next conversation count.</h3>
+      <p>Use recent client results to explore the opportunity in your target market.</p>
+      <dl><div><dt>Reporting period</dt><dd id="bench-period-label">—</dd></div><div><dt id="bench-accounts-label">Accounts represented (including Unstuck)</dt><dd id="bench-clients">—</dd></div><div><dt>Leads recorded</dt><dd id="bench-leads">—</dd></div><div><dt id="bench-exposure-label">Account-months in the average</dt><dd id="bench-exposure">—</dd></div></dl>
+      <p class="bench-caption" id="bench-scope"></p>
+    </div>
+  </section>
+  <section class="bench-section" aria-labelledby="bench-market-heading"><div class="bench-section-heading"><div><span class="bench-eyebrow">Selected results · Not typical averages</span><h3 id="bench-market-heading">Strong-performing examples.</h3></div><span class="bench-caption" id="bench-group-unit">One account, one calendar month</span></div><p id="bench-example-note" class="bench-caption" style="margin-bottom:18px"></p><div id="bench-groups" class="bench-groups"></div></section>
+  <details class="bench-panel bench-detail-averages"><summary>Detailed size-specific averages · separate denominators</summary><div style="margin-top:20px" aria-labelledby="bench-table-heading"><div class="bench-section-heading"><div><span class="bench-eyebrow">The full picture</span><h3 id="bench-table-heading">Performance by target company size.</h3></div></div>
+    <div class="bench-table-wrap" tabindex="0" role="region" aria-label="Company size benchmark table"><table class="bench-table"><caption>Monthly averages by employee count at the target company</caption><thead><tr><th scope="col">Target employees</th><th scope="col">1–10</th><th scope="col">11–50</th><th scope="col">51–200</th><th scope="col">201–500</th><th scope="col">501–1,000</th><th scope="col">1,001–5,000</th><th scope="col">5,001–10,000</th><th scope="col">10,001+</th></tr></thead><tbody id="bench-table"></tbody></table></div>
+    <p class="bench-caption">Segment totals count each denominator unit once, even when it appears in multiple size bands. A dash means no matching observations; it does not mean zero performance. These averages use different client samples and should not be added together or compared directly with the overall average.</p>
+  </div></details>
+  <section class="bench-panel bench-trend" aria-labelledby="bench-trend-heading"><div class="bench-section-heading"><div><span class="bench-eyebrow">Recent momentum</span><h3 id="bench-trend-heading">Month by month.</h3></div><span id="bench-trend-label" class="bench-caption"></span></div><div id="bench-months" class="bench-months"></div></section>
+  <details class="bench-method" open><summary>How these benchmarks are calculated</summary><div>
+    <p id="bench-formula"></p>
+    <p id="bench-general-scope"><strong>The scope:</strong> the latest three completed months by default, with an adjustable period. Unstuck’s own prospecting is included and identified as part of the sample. Company size describes the company targeted, not the agency’s client. Results are historical observations, not guaranteed volumes.</p>
+    <p><strong>The source:</strong> the original Form Responses tab counts dated client records categorised Lead, even if the company name is blank. Interested and uncategorised records are excluded. Eight-column imports count dated, named lead rows. Exact duplicate rows are counted once. Blank or invalid required fields are excluded; unrecognised company sizes are excluded from size benchmarks. Dates use ISO or UK day/month/year format. These are recorded leads, not independently verified qualified leads.</p>
+    <p id="bench-definition"></p><p id="bench-quality"></p><p id="bench-fetched"></p>
+  </div></details>
+</div>
+<footer class="bench-footer"><span>Unstuck Agency <span aria-hidden="true">/</span> Client Lead Benchmarks</span><a href="{{ source_url }}" target="_blank" rel="noopener noreferrer">Open source sheet ↗</a></footer>
+<noscript><p class="bench-message">Enable JavaScript to load the live benchmarks.</p></noscript>
+{% endblock %}
+{% block extra_scripts %}<script src="/static/client-benchmarks.js" defer></script>{% endblock %}
