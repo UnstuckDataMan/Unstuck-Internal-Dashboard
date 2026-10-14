@@ -37,7 +37,7 @@
       const period = `${month(data.months[0])} – ${month(data.months.at(-1))}`;
       const own = data.overall.unstuck_leads ? ' Includes Unstuck’s own prospecting.' : '';
       const basis = active ? 'Includes supplied active months with zero leads.' : billed ? 'Available lead history divided by supplied lifetime delivery months; coverage may differ.' : `Includes accounts with recorded leads in each segment; all ${data.months.length} calendar months count. Active delivery months are not verified.`;
-      get('note').textContent = `${period} · ${basis}${own} Historical averages, not guaranteed volumes.`;
+      get('note').textContent = `${data.history_scope === 'all_available' ? 'All available history · ' : ''}${period}${data.current_month_partial ? ' (current month partial, counted as one calendar month)' : ''} · ${basis}${own} Historical averages, not guaranteed volumes.`;
       get('message').hidden = true;
       get('report').hidden = false;
       get('status').textContent = 'Live Google Sheets · Refreshes on request';

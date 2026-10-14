@@ -21,11 +21,22 @@ def page(request: Request):
 def data(start: str = '', end: str = ''):
     default_start, default_end = benchmarks.default_period()
     try:
-        months = benchmarks.period_months(start or default_start, end or default_end)
+        months = benchmarks.period_months(start or default_start, end or default_end) if start or end else None
     except ValueError as exc:
         return JSONResponse({'error': str(exc)}, status_code=400)
     try:
-        result = benchmarks.summarize(benchmarks.load_source(), months)
+        source = benchmarks.load_source()
+        if months is None:
+            today = benchmarks.london_today()
+            records = [row for row in source['records'] if row['date'] <= today]
+            source = {**source, 'records': records}
+            first = min((row['date'] for row in records), default=today)
+            months = [benchmarks.month_string(i) for i in range(
+                first.year * 12 + first.month - 1, today.year * 12 + today.month)]
+            result = benchmarks.summarize(source, months)
+            result.update(history_scope='all_available', through_date=today.isoformat(), current_month_partial=True)
+        else:
+            result = benchmarks.summarize(source, months)
     except benchmarks.SourceError as exc:
         return JSONResponse({'error': str(exc)}, status_code=503, headers={'Cache-Control': 'no-store'})
     return JSONResponse(result, headers={'Cache-Control': 'no-store'})

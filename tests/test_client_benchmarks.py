@@ -461,3 +461,29 @@ def test_google_auth_and_network_errors_are_sanitized(monkeypatch, failure, expe
         b.load_source()
     assert expected in str(error.value)
     assert 'PRIVATE CONTENT' not in str(error.value)
+
+
+def test_default_live_view_includes_all_history_and_current_month(client, monkeypatch):
+    monkeypatch.setattr(b, 'london_today', lambda: date(2026, 10, 14))
+    monkeypatch.setattr(b, 'load_source', lambda: source(
+        row('Alpha', '01/01/2020', 'Old'), row('Alpha', '14/10/2026', 'Today'),
+        row('Alpha', '15/10/2026', 'Future')))
+    response = client.get('/api/client-benchmarks')
+    assert response.status_code == 200
+    data = response.json()
+    assert data['months'][0] == '2020-01'
+    assert data['months'][-1] == '2026-10'
+    assert len(data['months']) == 82
+    assert data['overall']['leads'] == 2
+    assert data['overall']['average'] == pytest.approx(2/82)
+    assert data['history_scope'] == 'all_available'
+    assert data['current_month_partial'] is True
+    assert data['through_date'] == '2026-10-14'
+
+
+def test_empty_live_history_keeps_a_valid_reporting_month(client, monkeypatch):
+    monkeypatch.setattr(b, 'london_today', lambda: date(2026, 10, 14))
+    monkeypatch.setattr(b, 'load_source', lambda: source())
+    data = client.get('/api/client-benchmarks').json()
+    assert data['months'] == ['2026-10']
+    assert data['overall']['average'] is None

@@ -61,8 +61,11 @@ compatible. Excel controls, examples, overall metric, detailed tables, trends an
 PDF controls are removed from this page. Upload APIs remain available for existing
 integrations but are not invoked by this UI.
 
-The live lead-only view uses the latest three completed calendar months
-consistently across groups. The note identifies Unstuck when included and makes
+The live lead-only view uses all available dated history through today, from the
+earliest valid record to the current month, with no 36-month history cap. Future
+records are excluded. The current partial month counts once and is explicitly
+labelled. Quiet months throughout the period count consistently across groups.
+Explicit API date filters retain their existing completed-month validation. The note identifies Unstuck when included and makes
 clear that active delivery months are not verified. Lead-producing months cannot
 serve as a substitute for a complete activity roster. A missing segment displays
 a dash, not zero. Failures hide old results; refresh retries the live source.
