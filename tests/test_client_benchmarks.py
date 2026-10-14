@@ -416,3 +416,48 @@ def test_average_client_data_page_is_google_only(client):
     for removed in ['id="bench-file"', 'Excel snapshot', 'Strong-performing examples', 'id="bench-average"', 'id="bench-table"', 'id="bench-print"']:
         assert removed not in page
     assert 'Average Client Data' in client.get('/').text
+
+
+@pytest.mark.parametrize('status,reason,expected', [
+    (403, 'SERVICE_DISABLED', 'API disabled'),
+    (403, 'accessNotConfigured', 'API disabled'),
+    (403, 'PERMISSION_DENIED', 'sheet access error'),
+    (404, None, 'sheet access error'),
+    (401, None, 'HTTP 401'),
+    (429, None, 'HTTP 429'),
+    (503, None, 'Google server error'),
+])
+def test_google_failures_are_actionable_without_exposing_response(monkeypatch, status, reason, expected):
+    import json
+    import requests
+    monkeypatch.setattr(b, '_cache', None)
+    monkeypatch.setattr(b, '_is_configured', lambda: True)
+    response = requests.Response()
+    response.status_code = status
+    response._content = json.dumps({'error': {'message': 'PRIVATE CONTENT', 'details': [{'reason': reason}]}}).encode()
+    class Session:
+        def get(self, *args, **kwargs):
+            return response
+    monkeypatch.setattr(b, '_read_session', lambda: Session())
+    with pytest.raises(b.SourceError) as error:
+        b.load_source()
+    assert expected in str(error.value)
+    assert 'PRIVATE CONTENT' not in str(error.value)
+    assert b._cache is None
+
+
+@pytest.mark.parametrize('failure,expected', [
+    (b.RefreshError('PRIVATE CONTENT'), 'authentication error'),
+    (b.requests.Timeout('PRIVATE CONTENT'), 'connection error'),
+    (b.TransportError('PRIVATE CONTENT'), 'connection error'),
+])
+def test_google_auth_and_network_errors_are_sanitized(monkeypatch, failure, expected):
+    monkeypatch.setattr(b, '_cache', None)
+    monkeypatch.setattr(b, '_is_configured', lambda: True)
+    def fail():
+        raise failure
+    monkeypatch.setattr(b, '_read_session', fail)
+    with pytest.raises(b.SourceError) as error:
+        b.load_source()
+    assert expected in str(error.value)
+    assert 'PRIVATE CONTENT' not in str(error.value)

@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
@@ -140,10 +141,13 @@ def _is_configured():
 def _read_session():
     """Independent read-only session; never mutate other tools' auth caches."""
     raw = os.environ.get('GOOGLE_SHEETS_SA_JSON', '').strip()
-    info = json.loads(base64.b64decode(raw + '=='))
-    credentials = Credentials.from_service_account_info(
-        info, scopes=['https://www.googleapis.com/auth/spreadsheets.readonly'])
-    return AuthorizedSession(credentials)
+    try:
+        info = json.loads(base64.b64decode(raw + '=='))
+        credentials = Credentials.from_service_account_info(
+            info, scopes=['https://www.googleapis.com/auth/spreadsheets.readonly'])
+        return AuthorizedSession(credentials)
+    except Exception as exc:
+        raise SourceError('Google credential configuration could not be read (configuration error). Ask the dashboard administrator to check the existing credential; do not replace shared settings without checking other tools.') from exc
 
 
 def load_source():
@@ -174,6 +178,35 @@ def load_source():
             records, quality = parse_rows(values)
         except SourceError:
             raise
+        except RefreshError as exc:
+            raise SourceError('Google could not authenticate the configured service account (authentication error). Its key may be invalid, revoked or disabled. Ask the dashboard administrator to check the existing account; spreadsheet sharing alone will not resolve an authentication error.') from exc
+        except requests.HTTPError as exc:
+            response = exc.response
+            status = response.status_code if response is not None else None
+            disabled = False
+            if response is not None and status == 403:
+                try:
+                    payload = response.json().get('error', {})
+                    reasons = [item.get('reason') for item in payload.get('errors', [])]
+                    reasons += [item.get('reason') for item in payload.get('details', [])]
+                    disabled = any(reason in ('SERVICE_DISABLED', 'accessNotConfigured') for reason in reasons)
+                except (ValueError, AttributeError, TypeError):
+                    pass
+            if disabled:
+                message = 'Google Sheets API is disabled for the configured service account’s project (API disabled). Enable it in that project, which may differ from your newly created project.'
+            elif status in (403, 404):
+                message = 'Google denied access to the lead spreadsheet (sheet access error). Check that this exact sheet is shared as Viewer with the service account already configured in Render, not only the newly created account.'
+            elif status == 401:
+                message = 'Google rejected authentication for the sheet (HTTP 401). Check the existing service-account configuration.'
+            elif status == 429:
+                message = 'Google Sheets is temporarily rate-limiting requests (HTTP 429). Wait a minute, then refresh.'
+            elif status is not None and status >= 500:
+                message = 'Google Sheets is temporarily unavailable (Google server error). Please refresh shortly.'
+            else:
+                message = 'Google rejected the spreadsheet read (request error). Ask the dashboard administrator to check the configured source tab.'
+            raise SourceError(message) from exc
+        except (requests.Timeout, requests.ConnectionError, TransportError) as exc:
+            raise SourceError('The dashboard could not reach Google Sheets or its authentication service (connection error). Please refresh; if it persists, check Render network access.') from exc
         except Exception as exc:
             # Never expose OAuth exceptions, response bodies or credentials to clients.
             raise SourceError("The live sheet is unavailable. Check Google network access and share the sheet with the dashboard's configured Google Sheets service account. No example figures are being substituted.") from exc
