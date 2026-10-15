@@ -167,3 +167,12 @@ def test_preview_requires_dns_scope():
     fake=Registrar();fake.check=lambda:{'credentials_valid':True,'read':True,'dns':False}
     with pytest.raises(HTTPException) as exc:p.preview(['cedargrowth.com'],options(),fake)
     assert exc.value.status_code==403 and fake.calls==[]
+
+
+def test_provider_errors_expose_machine_code_not_secret_or_raw_message(monkeypatch):
+    from conftest import FakeResponse
+    monkeypatch.setenv('PORKBUN_API_KEY','key');monkeypatch.setenv('PORKBUN_SECRET_API_KEY','private-secret')
+    monkeypatch.setattr(p.requests,'post',lambda *a,**kw:FakeResponse(400,{'status':'ERROR','code':'INVALID_API_KEYS_002','message':'reflected private-secret'}))
+    with pytest.raises(HTTPException) as exc:p.Porkbun().check()
+    assert 'INVALID_API_KEYS_002' in exc.value.detail
+    assert 'private-secret' not in exc.value.detail

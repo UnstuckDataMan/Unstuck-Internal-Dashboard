@@ -26,6 +26,9 @@ def check():
     try:
         source=sheets.read_live()
         report['sheets']={'ready':not source['invalid'],'live_domains':len({r['domain'] for r in source['records']}),'invalid_live_rows':len(source['invalid'])}
+        if source['invalid']:
+            report['sheets']['issues']=source['invalid']
+            report['sheets']['message']='Correct Live rows before generation: '+', '.join(r['sheet']+' row '+str(r['row']) for r in source['invalid'])
     except HTTPException as exc:
         report['sheets']={'ready':False,'message':str(exc.detail)}
     return report

@@ -30,15 +30,26 @@ class Porkbun:
         if idempotency:
             headers['Idempotency-Key'] = idempotency
         try:
-            response = getattr(requests, method)(BASE+path, headers=headers, **({'json':data or {}} if method=='post' else {}), timeout=(3,6), allow_redirects=False)
+            response = getattr(requests, method)(BASE+path, headers=headers, **({'json':{'apikey':os.environ['PORKBUN_API_KEY'],'secretapikey':os.environ['PORKBUN_SECRET_API_KEY'],**(data or {})}} if method=='post' else {}), timeout=(3,6), allow_redirects=False)
             if response.status_code == 429:
                 raise HTTPException(429, 'Porkbun lookup/write limit reached. Wait before retrying.')
-            if not response.ok:
-                # Provider messages may contain credentials or untrusted data.
-                raise HTTPException(502, 'Porkbun could not complete the operation. Check ownership, API access and read/DNS permissions.')
             body = response.json()
-            if body.get('status') != 'SUCCESS':
-                raise HTTPException(502, 'Porkbun did not confirm success. No completion was assumed.')
+            if not response.ok or body.get('status') != 'SUCCESS':
+                # Report only a bounded machine code; never echo provider messages,
+                # which could reflect credential-bearing request content.
+                code = str(body.get('code',''))
+                code = code if re.fullmatch(r'[A-Z0-9_]{1,80}',code) else 'HTTP_'+str(response.status_code)
+                hints = {
+                    'MISSING_SECRETAPIKEY':'The secret API key was not accepted. Check PORKBUN_SECRET_API_KEY on Render.',
+                    'API_KEY_REQUIRED':'Porkbun did not accept the API key. Check the Render key binding.',
+                    'INVALID_API_KEYS_001':'Porkbun rejected the API key and secret pair. Use the matching keys from the same Porkbun entry.',
+                    'INVALID_API_KEYS_002':'Porkbun rejected the API key and secret pair. Use the matching keys from the same Porkbun entry.',
+                    'IP_NOT_ALLOWED':'The Porkbun key IP allowlist does not permit this Render server.',
+                    'INSUFFICIENT_SCOPE':'The Porkbun key needs read permission for checks and DNS permission for setup.',
+                    'API_ACCESS_DISABLED':'Enable API access for this domain in Porkbun.',
+                    'DOMAIN_NOT_FOUND':'The selected domain is not in the connected Porkbun account.',
+                }
+                raise HTTPException(502, hints.get(code,'Porkbun could not complete this request. Check the account API settings.')+' ('+code+')')
             if str(response.headers.get('X-Porkbun-Mock','')).lower()=='true' or body.get('mock') is True or body.get('sandbox') is True:
                 raise HTTPException(502, 'Porkbun returned a mock or sandbox response; live setup was not verified.')
             if body.get('warnings'):
