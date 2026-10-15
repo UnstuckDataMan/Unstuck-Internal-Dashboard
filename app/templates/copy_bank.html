@@ -4518,7 +4518,8 @@ async function approveCopy(approvedBy) {
         delete PENDING_APPLIED[k];
       } else {
         anyFailed = true;
-        const errMsg = typeof data.error === 'object' ? JSON.stringify(data.error) : (data.error || 'Unknown');
+        var rawErr = data.error || data.detail || 'Unknown error';
+        const errMsg = typeof rawErr === 'object' ? JSON.stringify(rawErr) : String(rawErr);
         showToast('Error approving ' + k + ': ' + errMsg, true);
       }
     } catch(e) { anyFailed = true; showToast('Error: ' + e.message, true); }

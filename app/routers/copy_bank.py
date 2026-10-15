@@ -26,7 +26,7 @@ async def copy_bank(request: Request):
         "supabase_anon_key": os.environ.get("SUPABASE_ANON_KEY", ""),
         "sop_key":           "copy_bank",
         "is_admin":          role == "admin" or not auth.auth_enabled(),
-        "is_approver":       role in {"admin", "reviewer"} or not auth.auth_enabled(),
+        "is_approver":       True,  # copy_bank tool access (enforced by middleware) is sufficient
     })
 
 
@@ -445,7 +445,7 @@ def get_pending(key: str):
     return JSONResponse({"pending": rows[0] if rows else None})
 
 
-@router.post("/api/copy-bank/approve", dependencies=[Depends(auth.require_role(auth.COPY_APPROVER_ROLES))])
+@router.post("/api/copy-bank/approve", dependencies=[Depends(auth.require_login)])
 def approve_copy(body: ApproveBody):
     """
     Approve a pending draft:
