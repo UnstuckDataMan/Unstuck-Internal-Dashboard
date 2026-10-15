@@ -18,3 +18,6 @@ mail_merge/server_out.txt
 mail_merge/.claude/
 mail_merge/Start Mail Merge Tool.bat
 mail_merge/Procfile
+
+# Task scratch and generated QA screenshots
+work/

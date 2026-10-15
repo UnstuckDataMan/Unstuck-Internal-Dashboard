@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Domain Cluster Builder · Gmail Set{% endblock %}
+{% block heading %}Gmail Set{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/domain-cluster.css?v=1">{% endblock %}
+{% block content %}
+<div id="dc-app" data-csrf="{{ csrf }}">
+  <div class="dc-intro"><div><div class="dc-eyebrow">OPERATIONS / GMAIL SET</div><h2>Domain Cluster Builder</h2><p>Analyse your outbound sending domains, identify semantic clustering and plan additional sending infrastructure.</p></div><span class="dc-version">Step 01 · Domain planning</span></div>
+  <div id="dc-message" role="status" aria-live="polite"></div>
+  <section class="dc-card dc-toolbar" aria-label="Portfolio">
+    <label>Saved portfolio<select id="dc-portfolios"><option value="">New portfolio</option></select></label>
+    <label>Portfolio name<input id="dc-name" maxlength="100" value="My domain portfolio"></label>
+    <button id="dc-check-setup">Check setup</button><button id="dc-save" class="dc-primary">Save to Portfolio</button><button id="dc-undo" disabled>Undo last saved update</button>
+    <span id="dc-save-status">Working analysis · not saved</span>
+  </section>
+  <div id="dc-integration-results" role="status"></div>
+  <div class="dc-layout">
+    <section class="dc-card dc-input"><label>Inventory source<select id="dc-source"><option value="sheet">Live strategy sheet · Client + Biz Dev</option><option value="manual">Paste / upload manually</option></select></label>
+      <p id="dc-live-status" class="dc-caption">Live mode fetches both tabs fresh every time you submit Analyse or Generate. Only Live checked rows are counted. The sheet is read-only.</p>
+      <div class="dc-section-title"><h3>Your sending domains</h3><span class="dc-pill">01 / IMPORT</span></div>
+      <label for="dc-text">Paste ALL current business development sending domains used across every team member, one per line. Include every active outbound domain.</label>
+      <textarea id="dc-text" rows="8" placeholder="summitgrowth.com&#10;sales@mail.bridgeoutreach.com&#10;https://www.atlanticpartners.com&#10;sara@team.example.co.uk" spellcheck="false" maxlength="1000000"></textarea>
+      <div class="dc-row"><span id="dc-parse-status" aria-live="polite">Root domains, mailboxes, URLs, CSV or spreadsheet lists</span><label class="dc-file">Upload CSV / TXT<input id="dc-file" type="file" accept=".csv,.txt,text/plain,text/csv"></label></div>
+      <div class="dc-actions"><button id="dc-analyse" class="dc-primary">Analyse Domain Clustering</button><button id="dc-reset">Reset input</button><label>Import mode<select id="dc-mode"><option value="add">Add to Existing Portfolio</option><option value="replace">Replace Current Portfolio</option></select></label></div>
+      <details id="dc-invalid"><summary>Validation feedback</summary><div id="dc-invalid-list"></div></details>
+    </section>
+    <aside class="dc-card dc-guide"><div class="dc-eyebrow">PLAN WITH CONTEXT</div><h3>A clear view of your domain portfolio.</h3><ol><li>Paste your complete domain inventory.</li><li>Review tranches, evidence and overlaps.</li><li>Generate ten names within your capacity.</li></ol><div class="dc-policy"><strong>Your policy, explained.</strong><p>The default limit is 10 domains per semantic tranche. These are planning thresholds, not verified inbox-provider rules. Naming similarity alone does not prove shared reputation or deliverability risk.</p></div></aside>
+  </div>
+  <section id="dc-preview" class="dc-card" hidden><h3>Review import changes</h3><div id="dc-preview-body"></div><p id="dc-preview-note"></p><div class="dc-actions"><button id="dc-apply" class="dc-primary">Apply import to working portfolio</button><button id="dc-cancel-import">Cancel import</button></div></section>
+  <section aria-label="Domain Portfolio Overview"><div class="dc-section-title"><h3>Domain Portfolio Overview</h3><span id="dc-rule"></span></div><div id="dc-stats" class="dc-stats"></div><div id="dc-distribution" class="dc-distribution" aria-label="Domain distribution"></div></section>
+  <section class="dc-card"><div class="dc-section-title"><h3>Cluster Risk Warning</h3><span class="dc-pill">POLICY & EVIDENCE</span></div><div id="dc-risks"></div></section>
+  <section class="dc-card"><div class="dc-section-title"><h3>Current Tranches</h3><div class="dc-actions"><button id="dc-new-cluster">Create cluster</button><button id="dc-reanalyse">Reanalyse</button></div></div>
+    <div class="dc-filters"><label>Search<input id="dc-search" type="search" placeholder="Domain, cluster or owner"></label><label>Status<select id="dc-status"><option value="">All statuses</option><option>Active</option><option>Planned</option><option>Paused</option><option>Retired</option></select></label><label>Source<select id="dc-source-filter"><option value="">All sources</option><option value="client">Client email</option><option value="bizdev">Biz Dev email</option><option value="manual">Manual</option></select></label><label>Risk<select id="dc-risk"><option value="">All levels</option><option>Healthy</option><option>Watch</option><option>Near Limit</option><option>Full</option><option>Over Limit</option></select></label><label>Confidence<select id="dc-confidence"><option value="">All classifications</option><option value="review">Review Required</option><option value="confirmed">Reviewed / confident</option></select></label><label>Owner<input id="dc-owner" placeholder="Any owner"></label><label>Platform<input id="dc-platform" placeholder="Any platform"></label><label>Sort<select id="dc-sort"><option value="name">Domain name</option><option value="size">Cluster size</option><option value="risk">Risk level</option><option value="date">Date added</option></select></label></div>
+    <div id="dc-clusters"></div><p id="dc-table-count" class="dc-caption"></p>
+    <details><summary>Optional cluster map</summary><div class="dc-row"><label>Zoom<input id="dc-zoom" type="range" min="50" max="180" value="100"></label><span class="dc-caption">Scroll to pan. Select a domain to inspect its tranche; dashed links indicate semantic overlap.</span></div><div id="dc-map" tabindex="0" aria-label="Scrollable cluster map"></div></details>
+  </section>
+  <section class="dc-card"><div class="dc-section-title"><div><h3>Recommended New Domains (10)</h3><p class="dc-caption">Validated against Active and Planned domains, including cumulative semantic overlap.</p></div><button id="dc-generate" class="dc-primary">Generate 10 New Domains</button></div>
+    <div class="dc-actions"><label><span><input id="dc-require-available" type="checkbox"> Only return names verified available on Porkbun</span></label><span id="dc-porkbun-status" class="dc-caption">Checking Porkbun connection…</span></div><div id="dc-recommendations"><div class="dc-empty">Your next ten domains will appear here after generation.</div></div>
+    <div class="dc-actions"><button id="dc-copy-ten" disabled>Copy All 10 Domains</button><button id="dc-check-porkbun" disabled>Check on Porkbun</button><button id="dc-plan" disabled>Save selected as Planned</button><span class="dc-caption">Availability can change. Confirm current pricing at checkout.</span></div>
+  </section>
+  <section class="dc-card" id="dc-domain-setup">
+    <div class="dc-section-title"><div><h3>Set up this new batch</h3><p class="dc-caption">Forward a website URL and create DMARC records for selected new domains only. Register them in Porkbun first and enable their API access.</p></div><span class="dc-pill">FORWARDING + DMARC</span></div>
+    {% if can_setup %}
+    <div id="dc-setup-empty" class="dc-empty">Save selected recommendations as Planned to create a new setup batch.</div>
+    <div id="dc-setup-controls" hidden>
+      <div class="dc-filters">
+        <label><span><input id="dc-setup-forward" type="checkbox" checked> Website URL forwarding</span></label>
+        <label>Forward all selected domains to<input id="dc-setup-url" type="url" maxlength="2048" placeholder="https://your-company.com"></label>
+        <label>Redirect type<select id="dc-setup-code"><option value="301">301 · Permanent</option><option value="302">302 · Temporary</option><option value="307">307 · Temporary</option></select></label>
+        <label><span><input id="dc-setup-www" type="checkbox" checked> Include www</span></label>
+        <label><span><input id="dc-setup-path" type="checkbox" checked> Keep URL paths</span></label>
+      </div>
+      <div class="dc-filters">
+        <label><span><input id="dc-setup-dmarc" type="checkbox" checked> Set up DMARC</span></label>
+        <label>Report mailbox name<input id="dc-setup-name" value="me" maxlength="64" placeholder="me"></label>
+      </div>
+      <p class="dc-caption">Both rua and ruf use <strong>me@each-selected-domain</strong> by default. Enter a known name above, or set a name beside an individual domain. The receiving mailbox must exist; this action does not create inboxes.</p>
+      <p class="dc-caption">TXT at _dmarc · v=DMARC1; p=none; pct=100; rua=mailto:me@{domain}; ruf=mailto:me@{domain}; fo=1 · TTL 600. Conflicting existing records are skipped and reported.</p>
+      <div id="dc-setup-domains" class="dc-table-wrap"></div>
+      <div class="dc-actions"><button id="dc-setup-preview">Preview selected setup</button><button id="dc-setup-apply" class="dc-primary" disabled>Apply setup to ready domains</button><span id="dc-setup-progress" role="status"></span></div>
+      <div id="dc-setup-preview-results"></div>
+    </div>
+    {% else %}<p>Forwarding and DNS setup require administrator access to the shared Porkbun account. Domain analysis and planning remain available.</p>{% endif %}
+  </section>
+  <details class="dc-card"><summary>Advanced Infrastructure Analysis · optional</summary><p>Check public MX, SPF, DMARC and nameserver records. Common providers do not automatically imply harmful clustering. This is separate from semantic analysis.</p><div class="dc-actions"><button id="dc-dns">Check up to 20 active domains</button><label>Known DKIM selector (optional)<input id="dc-dkim" maxlength="63" placeholder="e.g. google"></label></div><div id="dc-dns-results"></div></details>
+  <details class="dc-card"><summary>Settings</summary><div class="dc-filters"><label>Maximum per tranche<input id="dc-capacity" type="number" min="1" max="10" value="10"></label><label>Watch at<input id="dc-watch" type="number" min="1" max="10" value="7"></label><label>Near limit at<input id="dc-near" type="number" min="1" max="10" value="9"></label><label>Review sensitivity<input id="dc-sensitivity" type="number" min="0.3" max="0.99" step="0.01" value="0.72"></label><label>Preferred naming theme<select id="dc-theme"><option value="">Balanced mix</option>{% for key, name in families.items() %}<option value="{{ key }}">{{ name }}</option>{% endfor %}</select></label><label>Default import<select id="dc-default-import"><option value="add">Add</option><option value="replace">Replace with preview</option></select></label></div><label for="dc-dictionary">Additional semantic dictionary (JSON: family identifier → lowercase word list)</label><textarea id="dc-dictionary" rows="3" spellcheck="false">{}</textarea><p class="dc-caption">Rules run locally on the server without an AI API key. AI classification is not connected. Porkbun availability uses server environment credentials when configured.</p><button id="dc-settings">Apply settings</button></details>
+  <section class="dc-card dc-toolbar" aria-label="Export results"><label>Export scope<select id="dc-export-scope"><option value="report">Complete analysis report</option><option value="domains">All current domains</option><option value="clusters">Clusters and assigned domains</option><option value="risks">Risk warnings</option><option value="recommendations">Recommended domains</option></select></label><label>Format<select id="dc-export-format"><option value="txt">TXT</option><option value="csv">CSV</option><option value="json">JSON</option></select></label><button id="dc-export">Download export</button><button id="dc-print">Printable report</button></section>
+  <details class="dc-card"><summary>Saved change history & analysis snapshots</summary><div id="dc-history">Save a portfolio to record changes.</div></details>
+</div>
+<dialog id="dc-dialog"><form method="dialog"><h3 id="dc-dialog-title">Edit</h3><div id="dc-dialog-body"></div><p id="dc-dialog-error" role="alert"></p><div class="dc-actions"><button value="cancel">Cancel</button><button id="dc-dialog-save" value="save" class="dc-primary">Apply</button></div></form></dialog>
+<script id="dc-family-data" type="application/json">{{ families | tojson }}</script>
+<noscript>Enable JavaScript to analyse and manage domain portfolios.</noscript>
+{% endblock %}
+{% block extra_scripts %}<script src="/static/domain-cluster.js?v=1" defer></script>{% endblock %}

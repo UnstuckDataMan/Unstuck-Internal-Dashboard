@@ -19,3 +19,6 @@ google-api-python-client>=2.100.0
 google-auth-oauthlib>=1.0.0
 # ── Scheduled jobs ────────────────────────────────────────────────────────────
 apscheduler>=3.10.0
+# Domain Cluster Builder — bundled Public Suffix List; optional public DNS checks
+tldextract==5.3.0
+dnspython==2.8.0

@@ -522,7 +522,7 @@
               </svg>
             </div>
             <div class="cat-card-title">Operations</div>
-            <div class="cat-card-count" id="count-operations">3 tools</div>
+            <div class="cat-card-count" id="count-operations">4 tools</div>
             <div class="cat-card-cta">
               Explore tools
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -991,6 +991,15 @@
     <div class="tool-content narrow">
       <h2 class="tool-screen-title">Operations</h2>
       <div class="tool-grid g2">
+
+        {% if 'gmail_set' in tools %}
+        <a href="/gmail-set" class="card-link anim" style="--d:0.02s">
+          <div class="tool-card"><div class="card-bar"></div><div class="card-body">
+            <div class="card-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M9 6h6M7 9l4 6m6-6-4 6"/></svg></div>
+            <h2>Gmail Set</h2><p>Domain Cluster Builder — analyse sending domains, review tranches and plan your next ten.</p>
+          </div></div>
+        </a>
+        {% endif %}
 
         {% if 'credit_control' in tools %}
         <a href="/credit-control" class="card-link anim" style="--d:0.04s">

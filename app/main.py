@@ -14,7 +14,7 @@ from app.routers import (
     gender, city, dnc, reply_bank, mail_merge, copy_bank, copy_bank_export,
     campaigns, launch_checker, targeting_checker, bd_targeting, profiles,
     auth as auth_router, admin, sops, outbound_pulse, pulse_portal, credit_control,
-    client_benchmarks,
+    client_benchmarks, domain_cluster,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,9 @@ async def _lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Pulse sync scheduler could not start: %s", exc)
 
+    from app.utils.domain_cluster.diagnostics import start_check
+    start_check()
+
     yield  # app runs here
 
     try:
@@ -75,7 +78,22 @@ async def auth_gate(request: Request, call_next):
     blocked = auth.access_response(request)
     if blocked is not None:
         return blocked
-    return await call_next(request)
+    # Bound domain-tool JSON before model parsing, including chunked requests.
+    domain_tool = request.url.path.startswith('/api/domain-cluster')
+    if domain_tool and request.method == 'POST':
+        chunks, total = [], 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > 8_000_000:
+                from fastapi.responses import JSONResponse
+                return JSONResponse({'detail': 'Request exceeds 8 MB. Import in smaller batches.'}, status_code=413)
+            chunks.append(chunk)
+        request._body = b''.join(chunks)
+    response = await call_next(request)
+    if domain_tool or request.url.path in {'/gmail-set', '/domain-cluster-builder'}:
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 # SessionMiddleware is added LAST so it wraps auth_gate (Starlette runs the most
 # recently added middleware first) — the session must be decoded before the gate
@@ -117,6 +135,7 @@ app.include_router(outbound_pulse.router)
 app.include_router(pulse_portal.router)
 app.include_router(credit_control.router)
 app.include_router(client_benchmarks.router)
+app.include_router(domain_cluster.router)
 
 
 @app.exception_handler(404)
