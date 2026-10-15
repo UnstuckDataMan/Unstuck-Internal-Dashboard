@@ -83,6 +83,7 @@ class Identifier(Strict):
 class Bulk(Strict):
     client_id: str = Field(max_length=36)
     domains: str = Field(min_length=1, max_length=50000)
+    sender_name: str = Field('', max_length=64)
     operator_id: str | None = Field(None, max_length=36)
 
 

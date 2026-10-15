@@ -81,6 +81,7 @@ def ensure_device_usage(state):
     known = {}
     for job in state['setups']:
         snapshots = [job.get('purchase_device') or {}]
+        snapshots += job.get('purchase_device_history', [])
         snapshots += [failure.get('device') or {} for failure in job.get('device_failures', [])]
         for snapshot in snapshots:
             if snapshot.get('id'):
@@ -95,7 +96,7 @@ def allocation_available(state, device, job_id=None):
     if device.get('archived') or device['status'] == 'Blocked':
         return False
     reserved = sum(j['id'] != job_id and not j.get('archived') and j['stage'] == STAGES[0]
-        and j.get('device_id') == device['id'] for j in state['setups'])
+        and j.get('device_id') == device['id'] and j['id'] not in device.get('setup_ids', []) for j in state['setups'])
     if device['kind'] == 'Phone':
         return device_uses(device) + reserved < 2
     return reserved == 0
@@ -216,6 +217,12 @@ def mutate(user, expected, action, data):
                 job.update(archived=True, deleted_at=now())
     elif action == 'setup_bulk':
         client = find(state, 'clients', data['client_id'], True)
+        sender = text(data.get('sender_name'), 'Sender name', False).lower().rstrip('@')
+        if sender:
+            try:
+                email_domain(sender+'@example.com', 'example.com')
+            except HTTPException:
+                raise HTTPException(400, 'Enter the sender name before @, such as ashley or ashley.smith.') from None
         operator_id = data.get('operator_id')
         if operator_id:
             find(state, 'members', operator_id, True)
@@ -230,7 +237,7 @@ def mutate(user, expected, action, data):
                     domain = normalize(raw_domain)
                     if domain != raw_domain:
                         raise ValueError()
-                    email = email_domain(token, domain) if '@' in token else ''
+                    email = email_domain(token, domain) if '@' in token else sender+'@'+domain if sender else ''
                 except (ValueError, HTTPException):
                     raise HTTPException(400, f'Line {line}: enter a valid root domain or email address.') from None
                 parsed.append((domain, email))
@@ -334,7 +341,7 @@ def mutate(user, expected, action, data):
             if 'email' in patch and patch['email'] is None:
                 raise HTTPException(400, 'Enter an email address or leave it blank while planning.')
             if 'operator_id' in patch and patch['operator_id'] != current.get('operator_id'):
-                if current.get('purchase_device') and current['stage'] not in FAILURES:
+                if current.get('purchase_device') and current['stage'] in STAGES[1:]:
                     raise HTTPException(409, 'The purchase owner is recorded in history. It cannot be reassigned.')
                 patch = {'device_id': None, **patch}
             data = {**current, **patch}
@@ -370,12 +377,12 @@ def mutate(user, expected, action, data):
         if any(s['id'] != (current or {}).get('id') and not s.get('archived') and (email and s['email'] == email or not email and not s['email'] and s['domain'] == domain) for s in state['setups']):
             raise HTTPException(409, 'This sending email or domain-only draft already has a setup. Update that record instead.')
         device_id = data.get('device_id')
-        if current and current.get('purchase_device') and current['stage'] not in FAILURES and data.get('operator_id') != current.get('operator_id'):
+        if current and current.get('purchase_device') and current['stage'] in STAGES[1:] and data.get('operator_id') != current.get('operator_id'):
             raise HTTPException(409, 'The purchase owner is recorded in history. It cannot be reassigned.')
-        if current and current.get('purchase_device') and current['stage'] not in FAILURES and device_id != current.get('device_id'):
+        if current and current.get('purchase_device') and current['stage'] in STAGES[1:] and device_id != current.get('device_id'):
             raise HTTPException(409, 'The purchase device is recorded in history and cannot be changed after purchase.')
         if device_id:
-            historical = current and current['stage'] != STAGES[0] and current.get('device_id') == device_id
+            historical = current and current.get('device_id') == device_id and (current['stage'] != STAGES[0] or (current.get('purchase_device') or {}).get('id') == device_id)
             device = find(state, 'devices', device_id, not historical)
             if not historical:
                 if not allocation_available(state, device, (current or {}).get('id')):
@@ -388,7 +395,7 @@ def mutate(user, expected, action, data):
             current = {'id': new_id(), 'stage': STAGES[0], 'created_at': now(), 'purchase_at': None, 'completed_at': None,
                        'purchase_device': None, 'order': None, 'sync': {'status': 'not_ready'}, 'archived': False}
             state['setups'].append(current)
-        if current['stage'] != STAGES[0] and domain != current['domain']:
+        if (current['stage'] != STAGES[0] or current.get('purchase_at')) and domain != current['domain']:
             raise HTTPException(409, 'The purchased domain cannot be changed. Create a new setup for a different domain.')
         client = next((c for c in state['clients'] if c['id'] == data.get('client_id')), None)
         if client is None:
@@ -419,7 +426,7 @@ def mutate(user, expected, action, data):
         if job['stage'] in FAILURES:
             raise HTTPException(409, 'Use Edit details to choose a replacement device and retry stage.')
         job.update(device_id=device['id'], operator_id=operator['id'], updated_at=now())
-        if job.get('purchase_at') or job['stage'] in STAGES[1:]:
+        if job['stage'] in STAGES[1:]:
             record_purchase_device(state, job)
     elif action == 'setup_stage':
         job = find(state, 'setups', data['id'], True)
@@ -450,6 +457,9 @@ def record_purchase_device(state, job):
         raise HTTPException(409, 'Allocate the device to the setup owner before recording purchase.')
     consume_device_use(d, job['id'])
     d['status'] = 'Used'
+    previous = job.get('purchase_device')
+    if previous and previous['id'] != d['id']:
+        job.setdefault('purchase_device_history', []).append(previous)
     job['purchase_device'] = device_snapshot(state, d)
 
 
@@ -457,9 +467,16 @@ def set_stage(state, job, stage):
     if stage not in (*STAGES, *FAILURES):
         raise HTTPException(400, 'Choose a valid setup stage.')
     old = job['stage']
-    if (old == STAGES[2] and stage != old or
-            stage == STAGES[0] and (job.get('purchase_at') or old == STAGES[1])):
-        raise HTTPException(409, 'Purchase and Live sheet history cannot be reset. Select the current or a later stage.')
+    if old == STAGES[2] and stage not in {old, STAGES[0]}:
+        raise HTTPException(409, 'Choose Not started to reopen this setup before changing its stage.')
+    if stage == STAGES[0]:
+        # The workflow can be reopened independently of recorded purchases,
+        # completed sheet writes and the physical phone's usage/block state.
+        device = find(state, 'devices', job['device_id']) if job.get('device_id') else None
+        if device and (device['status'] == 'Blocked' or device.get('archived')):
+            job['device_id'] = None
+        job.update(stage=stage, updated_at=now())
+        return
     if stage == STAGES[2] and not job['email']:
         raise HTTPException(400, 'Add the sending email address before completing setup.')
     if stage == STAGES[2] and not job.get('operator_id'):
@@ -485,9 +502,7 @@ def set_stage(state, job, stage):
         if job.get('device_id') and (job.get('purchase_device') or {}).get('id') != job['device_id']:
             record_purchase_device(state, job)
         job['purchase_at'] = job.get('purchase_at') or now()
-    elif job.get('device_id') and find(state, 'devices', job['device_id'], True)['status'] == 'Blocked':
-        raise HTTPException(409, 'Choose a replacement device or allocate one later before retrying.')
-    if stage == STAGES[2] and old != stage:
+    if stage == STAGES[2] and not job.get('completed_at'):
         client = find(state, 'clients', job['client_id'], True)
         completed = [j for j in state['setups'] if j.get('client_id') == client['id'] and j.get('completed_at')]
         number = max(client.get('next_order', 1), len(completed)+1, max((j.get('order') or 0 for j in completed), default=0)+1)

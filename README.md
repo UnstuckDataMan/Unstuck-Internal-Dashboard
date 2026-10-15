@@ -20,6 +20,8 @@ no new service, frontend build step or database provider.
 Open **Operations → Gmail Set** (`/gmail-set`). The main tool tracks the shared
 company setup journey: **Not started → Purchase made → Setup complete**.
 Create a client first, click its card, then paste up to 500 domains or emails.
+An optional sender name (for example, `ashley`) populates `ashley@domain.com`
+for bare domains; explicit pasted email addresses are preserved.
 One account manager applies to the client. Optionally choose a default setup
 person, then change setup person, sending email, device and stage inline for
 each domain. Bare domains can be planned without an email or setup person;
@@ -67,8 +69,10 @@ is no longer the main workflow.
   20 unused devices (phones + PCs combined). Counts refresh after every change
   and while visible. No external notifications or purchases are sent.
 - Selecting a later stage records purchase/device history as needed; choosing
-  Setup complete also publishes the sending email. Earlier purchase/Live history
-  cannot be erased by moving a stage backwards. Completion is saved before attempting Google sync. The correct authorised tab
+  Setup complete also publishes the sending email. Select **Not started** to reopen a completed or failed domain. Blocked devices
+  are released from the current allocation, while phone usage, block history,
+  original completion order and existing sheet rows stay recorded. Re-completing
+  the same domain reuses its order/row rather than counting another setup. Completion is saved before attempting Google sync. The correct authorised tab
   is selected, columns are resolved by headings (including the moved BD Live
   column), existing exact emails/row markers are reconciled, and a native row is
   inserted immediately after the last actual email/domain entry (ignoring the

@@ -83,7 +83,9 @@ def test_purchase_consumes_fresh_stock_once_and_preserves_device_history(board_d
     record=change('device_update',{'id':d['id'],'member_id':ids['Matthew']})
     assert record['state']['setups'][0]['purchase_device']==original
     with pytest.raises(HTTPException):change('device_update',{'id':d['id'],'status':'Unused'})
-    with pytest.raises(HTTPException):change('setup_stage',{'id':jid,'stage':'Not started'})
+    reset=change('setup_stage',{'id':jid,'stage':'Not started'})
+    assert reset['state']['setups'][0]['stage']=='Not started'
+    assert reset['state']['devices'][0]['use_count']==1
     # Reusing an unblocked used device does not pretend another new device was consumed.
     record,jid2=create_setup(ids['Matthew'],d['id'],'otherclient.com','me@otherclient.com')
     record=change('setup_stage',{'id':jid2,'stage':'Purchase made'})
@@ -319,7 +321,9 @@ def test_explicit_client_is_authoritative_and_direct_complete_is_atomic(board_db
     assert job['client_id']==client['id'] and job['stage']=='Setup complete'
     assert job['purchase_device']['id']==d['id'] and job['purchase_at'] and job['completed_at']
     assert s.summary(record['state'])['unused']==0
-    with pytest.raises(HTTPException):change('setup_stage',{'id':job['id'],'stage':'Not started'})
+    reset=change('setup_stage',{'id':job['id'],'stage':'Not started'})
+    assert reset['state']['setups'][0]['stage']=='Not started'
+    assert reset['state']['setups'][0]['completed_at']==job['completed_at']
 
 
 @pytest.mark.parametrize('section',['client','bizdev'])
@@ -567,3 +571,60 @@ def test_inline_assignment_tracks_owner_and_device_without_resetting_usage(board
     record=change('setup_stage',{'id':second['id'],'stage':'Setup complete'})
     assert record['state']['devices'][-1]['use_count']==1
     with pytest.raises(HTTPException):change('setup_assign',{'id':second['id'],'operator_id':ids['Matthew']})
+
+
+@pytest.mark.parametrize('failure',list(s.FAILURES))
+@pytest.mark.parametrize('purchased',[False,True])
+def test_failed_setup_can_reset_and_use_a_replacement_without_erasing_phone_history(board_db,failure,purchased):
+    owner=people()['Dylan'];phone,replacement=devices(owner,phones=2)['state']['devices']
+    _,jid=create_setup(owner,phone['id'])
+    if purchased:change('setup_stage',{'id':jid,'stage':'Purchase made'})
+    failed=change('setup_stage',{'id':jid,'stage':failure})['state']['setups'][0]
+    record=change('setup_stage',{'id':jid,'stage':'Not started'})
+    job=record['state']['setups'][0]
+    assert job['stage']=='Not started' and job['device_id'] is None
+    assert job['device_failures']==failed['device_failures']
+    assert record['state']['devices'][0]['status']=='Blocked' and record['state']['devices'][0]['use_count']==1
+    record=change('setup_device',{'id':jid,'operator_id':owner,'device_id':replacement['id']})
+    assert record['state']['devices'][1]['use_count']==0 # allocation for a retry is not a new purchase
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    assert record['state']['setups'][0]['order']==1 and record['state']['devices'][1]['use_count']==1
+    assert record['state']['devices'][0]['status']=='Blocked'
+    if purchased:assert record['state']['setups'][0]['purchase_device_history'][0]['id']==phone['id']
+
+
+@pytest.mark.parametrize('synced',[False,True])
+def test_completed_setup_can_reopen_without_renumbering_or_duplicate_sheet_writes(board_db,sheet_session,synced):
+    session=sheet_session();owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,jid=create_setup(owner,phone['id'])
+    change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    session.lose_response=not synced
+    original=s.sync_completed(USER,jid)['state']['setups'][0]
+    assert session.inserts==1
+    record=change('setup_stage',{'id':jid,'stage':'Not started'})
+    job=record['state']['setups'][0]
+    assert job['stage']=='Not started' and job['order']==original['order']==1
+    assert job['completed_at']==original['completed_at'] and job['sync']==original['sync']
+    assert record['state']['devices'][0]['use_count']==1
+    # Reopening an already-counted use must not reserve a second phone slot.
+    _,second=create_setup(owner,phone['id'],'secondafterreset.com','me@secondafterreset.com')
+    change('setup_stage',{'id':second,'stage':'Setup complete'})
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    assert record['state']['devices'][0]['use_count']==2
+    assert record['state']['clients'][0]['next_order']==3
+    assert record['state']['setups'][0]['order']==1
+    result=s.sync_completed(USER,jid)
+    assert result['state']['setups'][0]['sync']['status']=='synced' and session.inserts==1
+    assert session.rows[2][1]==1
+
+
+@pytest.mark.parametrize('sender',[' Ashley ','ashley@','ashley.smith'])
+def test_bulk_sender_name_autofills_bare_domains_and_preserves_explicit_emails(board_db,sender):
+    ids=people();client=change('client_save',{'name':'Sender client','section':'client','account_manager_id':ids['Robyn']})['state']['clients'][0]
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'senderone.com\ncustom@sendertwo.com\nsenderthree.com','sender_name':sender})
+    prefix=sender.strip().lower().rstrip('@')
+    assert [j['email'] for j in record['state']['setups']]==[prefix+'@senderone.com','custom@sendertwo.com',prefix+'@senderthree.com']
+    assert all(j['operator_id'] is None and j['device_id'] is None for j in record['state']['setups'])
+    before=s.board(USER)
+    with pytest.raises(HTTPException) as exc:change('setup_bulk',{'client_id':client['id'],'domains':'newdomain.com','sender_name':'invalid sender'})
+    assert 'sender name' in exc.value.detail and s.board(USER)==before
