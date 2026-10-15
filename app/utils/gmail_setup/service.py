@@ -345,14 +345,19 @@ def mutate(user, expected, action, data):
             raise HTTPException(400, 'Choose at least one device to add.')
         if len(state['devices'])+count > 5000:
             raise HTTPException(400, 'Device history limit reached.')
+        status = data.get('status', 'Unused')
+        use_count = data.get('use_count')
+        if use_count is None:
+            use_count = 1 if status == 'Used' else 0
+        if type(use_count) is not int or not 0 <= use_count <= 2 or status == 'Unused' and use_count or status == 'Used' and not use_count:
+            raise HTTPException(400, 'Choose Unused, Used once or Used twice to match the device usage.')
         for kind, amount in [('Phone', data['phones']), ('PC', data['pcs'])]:
             for _ in range(amount):
                 number = device_slot(state, member_id, kind) if member_id else 1+max((d['number'] for d in state['devices'] if d['member_id'] is None and d['kind'] == kind), default=0)
-                status = data.get('status', 'Unused')
                 state['devices'].append({'id': new_id(), 'asset_tag': 'DEV-'+uuid4().hex[:8].upper(), 'kind': kind, 'number': number,
-                    'member_id': member_id, 'status': status, 'block_reason': (data.get('block_reason') or 'Other') if status == 'Blocked' else None, 'used_at': now() if status == 'Used' else None,
+                    'member_id': member_id, 'status': status, 'block_reason': (data.get('block_reason') or 'Other') if status == 'Blocked' else None, 'used_at': now() if use_count else None,
                     'blocked_at': now() if status == 'Blocked' else None, 'archived': False, 'added_at': now(),
-                    'use_count': 1 if status == 'Used' else 0, 'setup_ids': [], 'manual_block': status == 'Blocked'})
+                    'use_count': use_count, 'setup_ids': [], 'manual_block': status == 'Blocked'})
     elif action == 'device_update':
         d = find(state, 'devices', data['id'], True)
         if 'member_id' in data and data['member_id'] != d['member_id']:

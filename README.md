@@ -54,6 +54,8 @@ is no longer the main workflow.
 - Add actual inventory in batches of 0–10 phones and 0–10 PCs per person, with
   labels Phone 1–10 and PC 1–10 plus stable physical asset IDs. The unallocated pool
   supports stock awaiting assignment. No imaginary devices are seeded.
+  When adding inventory, choose Unused, Used once or Used twice (or a block
+  reason). Previous uses count towards the device's setup limit immediately.
 - Setup stages include **Failed at QR** and **Failed at payment**. Selecting either
   blocks the linked device in red with the matching reason, without publishing a
   Live row. Retry with a replacement device or leave it unallocated; the failed

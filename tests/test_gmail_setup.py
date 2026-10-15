@@ -489,6 +489,45 @@ def test_pc_allows_one_setup_and_keeps_capacity_after_transfer_and_reopening(boa
     with pytest.raises(HTTPException):change('setup_assign',{'id':second,'device_id':pc['id']})
 
 
+@pytest.mark.parametrize('use_count',[1,2])
+def test_added_inventory_usage_counts_towards_capacity_and_survives_edits(board_db,use_count):
+    owner=people()['Dylan']
+    record=change('devices_add',{'member_id':owner,'phones':1,'pcs':1,'status':'Used','use_count':use_count})
+    phone,pc=record['state']['devices']
+    assert all(d['use_count']==use_count and d['used_at'] and not d['setup_ids'] for d in (phone,pc))
+    assert record['state']['devices'][0]['status']=='Used'
+    assert s.summary(record['state'])['unused']==0
+    assert s.allocation_available(record['state'],phone)==(use_count==1)
+    assert not s.allocation_available(record['state'],pc)
+    # Existing edit/transfer requests must retain an imported count of two.
+    change('device_update',{'id':phone['id'],'status':'Used','asset_tag':'Imported phone'})
+    assert s.board(OTHER)['state']['devices'][0]['use_count']==use_count
+    if use_count==1:
+        _,jid=create_setup(owner,phone['id'])
+        change('setup_stage',{'id':jid,'stage':'Failed at payment'})
+        reset=change('setup_stage',{'id':jid,'stage':'Not started'})
+        assert reset['state']['devices'][0]['use_count']==1
+        assert reset['state']['devices'][0]['status']=='Used'
+        change('setup_device',{'id':jid,'operator_id':owner,'device_id':phone['id']})
+        record=change('setup_stage',{'id':jid,'stage':'Purchase made'})
+        assert record['state']['devices'][0]['use_count']==2
+    with pytest.raises(HTTPException):create_setup(owner,phone['id'],'fullphone.com','me@fullphone.com')
+
+
+@pytest.mark.parametrize('count',[-1,3,1.5,True,'2'])
+def test_inventory_usage_schema_rejects_invalid_counts(count):
+    from app.routers.gmail_setup import Devices
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):Devices(phones=1,status='Used',use_count=count)
+
+
+@pytest.mark.parametrize('status,count',[('Unused',1),('Unused',2),('Used',0)])
+def test_inventory_usage_rejects_conflicting_condition_without_adding_stock(board_db,status,count):
+    before=s.board(USER)
+    with pytest.raises(HTTPException):change('devices_add',{'phones':1,'pcs':0,'status':status,'use_count':count})
+    assert s.board(USER)==before
+
+
 @pytest.mark.parametrize('failure',list(s.FAILURES))
 def test_failed_pc_reset_restores_its_single_slot(board_db,failure):
     owner=people()['Dylan'];pc=devices(owner,phones=0,pcs=1)['state']['devices'][0]

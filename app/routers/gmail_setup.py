@@ -32,6 +32,7 @@ class Devices(Strict):
     pcs: int = Field(0, ge=0, le=10)
     status: Literal['Unused', 'Used', 'Blocked'] = 'Unused'
     block_reason: Literal['QR code', 'Payment', 'Other'] | None = None
+    use_count: int | None = Field(None, ge=0, le=2, strict=True)
 
 
 class Device(Strict):
