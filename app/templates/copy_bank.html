@@ -4272,25 +4272,37 @@ let currentPending = null;
 async function checkPendingForView() {
   if (!activeProfile) return;
 
-  // Find all pending keys that belong to this profile (from cache loaded at init)
-  var profilePendingKeys = Object.keys(PENDING_CACHE).filter(function(k){
-    return keyBelongsToProfile(k, activeProfile);
+  // Always apply pending content for ALL profile keys to TEMPLATES (first time only)
+  // so pending copy is visible when the user navigates between industries.
+  Object.keys(PENDING_CACHE).forEach(function(k){
+    if (!keyBelongsToProfile(k, activeProfile)) return;
+    if (PENDING_APPLIED[k]) return;
+    var row = PENDING_CACHE[k];
+    if (row && row.content) {
+      TEMPLATES[k] = migrateContent(JSON.parse(JSON.stringify(row.content)));
+      PENDING_APPLIED[k] = true;
+    }
   });
 
-  if (!profilePendingKeys.length) {
-    // No cached pending — do a live fetch for just the current key as a fallback
-    const key = currentKey();
+  // The approve banner and button are keyed to the CURRENT industry only.
+  // Showing "Approve & Publish" for any pending key in the profile caused
+  // approvers to accidentally publish other industries they weren't viewing.
+  var curKey = currentKey();
+  var curPendingRow = PENDING_CACHE[curKey] || null;
+
+  if (!curPendingRow) {
+    // No cached row for this specific key — try a live fetch
     currentPending = null;
     setNormalApprovalState();
     try {
-      const res = await fetch('/api/copy-bank/pending/' + encodeURIComponent(key));
+      const res = await fetch('/api/copy-bank/pending/' + encodeURIComponent(curKey));
       if (res.ok) {
         const data = await res.json();
         if (data.pending) {
-          PENDING_CACHE[key] = data.pending;
-          if (!PENDING_APPLIED[key]) {
-            TEMPLATES[key] = migrateContent(JSON.parse(JSON.stringify(data.pending.content)));
-            PENDING_APPLIED[key] = true;
+          PENDING_CACHE[curKey] = data.pending;
+          if (!PENDING_APPLIED[curKey]) {
+            TEMPLATES[curKey] = migrateContent(JSON.parse(JSON.stringify(data.pending.content)));
+            PENDING_APPLIED[curKey] = true;
           }
           currentPending = data.pending;
           render();
@@ -4301,26 +4313,9 @@ async function checkPendingForView() {
     return;
   }
 
-  // Apply pending content for this profile to TEMPLATES — but only the first time each
-  // key is encountered, so in-progress edits aren't clobbered on every toggle switch.
-  profilePendingKeys.forEach(function(k){
-    if (PENDING_APPLIED[k]) return;
-    var row = PENDING_CACHE[k];
-    if (row && row.content) {
-      TEMPLATES[k] = migrateContent(JSON.parse(JSON.stringify(row.content)));
-      PENDING_APPLIED[k] = true;
-    }
-  });
-
-  // Use most recent pending row to drive the banner date
-  var mostRecent = profilePendingKeys.reduce(function(best, k){
-    var row = PENDING_CACHE[k];
-    return (!best || row.created_at > best.created_at) ? row : best;
-  }, null);
-
-  currentPending = mostRecent;
+  currentPending = curPendingRow;
   render();
-  setPendingApprovalState(mostRecent.created_at);
+  setPendingApprovalState(curPendingRow.created_at);
 }
 
 function setPendingApprovalState(createdAt) {
@@ -4479,14 +4474,15 @@ async function approveCopy(approvedBy) {
   const btn = document.getElementById('approve-btn');
   btn.textContent = 'Publishing…'; btn.disabled = true;
 
-  // Approve every pending key for this profile (only keys that actually have a pending row)
-  var pendingKeys = Object.keys(PENDING_CACHE).filter(function(k){
-    return keyBelongsToProfile(k, activeProfile);
-  });
+  // Approve only the specific key the user is currently viewing.
+  // Approving all pending keys for a profile at once caused cross-industry
+  // approvals: stale pending rows from other industries would be published
+  // whenever an approver clicked the button on any industry.
+  var curKey = currentKey();
+  var pendingKeys = PENDING_CACHE[curKey] ? [curKey] : [];
 
   if (!pendingKeys.length) {
-    // No pending rows in cache — fetch live for current key as fallback
-    var curKey = currentKey();
+    // No cached row for this key — try a live fetch
     try {
       var liveRes = await fetch('/api/copy-bank/pending/' + encodeURIComponent(curKey));
       var liveData = await liveRes.json();
@@ -4922,12 +4918,24 @@ async function submitInlineApprovalRequest(afterCallback, requestedBy) {
   if (!activeProfile) { if (afterCallback) afterCallback(); return; }
   autoCommitOpenEdits();
 
-  // Collect every dirty key that belongs to this profile
+  // Collect keys that were genuinely edited in this session.
+  // A key already in PENDING_CACHE whose TEMPLATES content hasn't changed since
+  // being loaded is NOT a new edit — it only looks dirty because pending content
+  // differs from the last-approved ORIG_TEMPLATES baseline.  Submitting those
+  // stale pending entries as new requests would overwrite other industries'
+  // pending rows and cause unintended cross-industry approvals.
   var dirtyEntries = [];
   Object.keys(TEMPLATES).forEach(function(k){
     if (!keyBelongsToProfile(k, activeProfile)) return;
     var orig = ORIG_TEMPLATES[k];
     if (!orig || JSON.stringify(TEMPLATES[k]) !== JSON.stringify(orig)) {
+      // If this key is already pending and the content hasn't changed since it was
+      // loaded from PENDING_CACHE, skip it — it hasn't been touched this session.
+      var cached = PENDING_CACHE[k];
+      if (cached) {
+        var cachedMigrated = migrateContent(JSON.parse(JSON.stringify(cached.content)));
+        if (JSON.stringify(TEMPLATES[k]) === JSON.stringify(cachedMigrated)) return;
+      }
       var parsed = parseKeyForProfile(k);
       if (parsed) dirtyEntries.push({
         key:             k,
