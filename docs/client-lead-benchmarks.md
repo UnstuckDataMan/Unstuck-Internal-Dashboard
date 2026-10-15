@@ -1,5 +1,13 @@
 # Average Client Data
 
+Temporarily offline at the user's request. The home card is removed and the
+router-wide `require_available` dependency returns 503 before handlers run.
+Google reads, uploads and template downloads are blocked. Shared credentials,
+other tools and the underlying calculations are unchanged. To restore, remove
+the shutdown dependency and restore the home card together. Functional tests
+explicitly override the gate; separate offline tests verify the production default.
+
+
 Open Reporting & Analytics → Average Client Data. Access uses the new
 `client_benchmarks` tool permission. Existing tool permissions are unchanged.
 

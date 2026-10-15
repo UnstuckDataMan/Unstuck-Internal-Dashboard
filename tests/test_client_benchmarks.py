@@ -3,6 +3,17 @@ from datetime import date
 import pytest
 
 from app import auth
+from app.main import app
+from app.routers.client_benchmarks import require_available
+
+
+@pytest.fixture(autouse=True)
+def enable_benchmarks_for_functional_tests():
+    # Preserve feature coverage while production is temporarily offline.
+    app.dependency_overrides[require_available] = lambda: None
+    yield
+    app.dependency_overrides.pop(require_available, None)
+
 from app.utils import client_benchmarks as b
 
 
@@ -81,7 +92,7 @@ def test_header_banner_and_schema_failure():
 def test_page_api_and_reporting_navigation(client, monkeypatch):
     monkeypatch.setattr(b, 'load_source', lambda: source(row()))
     assert client.get('/client-benchmarks').status_code == 200
-    assert 'href="/client-benchmarks"' in client.get('/').text
+    assert 'href="/client-benchmarks"' not in client.get('/').text
     response = client.get('/api/client-benchmarks?start=2026-07&end=2026-09')
     assert response.status_code == 200
     assert response.json()['overall']['average'] == 1
@@ -100,7 +111,7 @@ def test_access_control_covers_api_and_page(client, monkeypatch):
     assert client.get('/api/client-benchmarks').status_code == 403
     assert 'href="/client-benchmarks"' not in client.get('/').text
     monkeypatch.setattr(auth, 'get_session_user', lambda request: {'role': 'sdr', 'tools': ['client_benchmarks']})
-    assert 'href="/client-benchmarks"' in client.get('/').text
+    assert 'href="/client-benchmarks"' not in client.get('/').text
 
 
 def test_source_failure_does_not_substitute_sample_data(client, monkeypatch):
@@ -416,7 +427,7 @@ def test_average_client_data_page_is_google_only(client):
     assert 'id="bench-groups"' in page
     for removed in ['id="bench-file"', 'Excel snapshot', 'Strong-performing examples', 'id="bench-average"', 'id="bench-table"', 'id="bench-print"']:
         assert removed not in page
-    assert 'Average Client Data' in client.get('/').text
+    assert 'href="/client-benchmarks"' not in client.get('/').text
 
 
 @pytest.mark.parametrize('status,reason,expected', [
