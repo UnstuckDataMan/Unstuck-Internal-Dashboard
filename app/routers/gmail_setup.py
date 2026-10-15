@@ -1,5 +1,7 @@
 """Shared Gmail setup board, protected by dashboard tool access and CSRF."""
 import secrets
+import hashlib
+from pathlib import Path
 from typing import Literal
 from uuid import UUID
 from fastapi import APIRouter, Depends, Request
@@ -9,6 +11,9 @@ from app.routers.domain_cluster import access, mutation_access
 from app.utils.gmail_setup import service, sheets
 
 router = APIRouter()
+_STATIC = Path(__file__).resolve().parents[1] / 'static'
+ASSET_VERSION = hashlib.sha256(b''.join((_STATIC / name).read_bytes() for name in
+    ('gmail-setup.js', 'gmail-setup.css'))).hexdigest()[:12]
 
 
 class Strict(BaseModel):
@@ -84,7 +89,8 @@ class Change(Strict):
 @router.get('/domain-cluster-builder', include_in_schema=False)
 def page(request: Request, user=Depends(access)):
     request.session.setdefault('domain_csrf', secrets.token_urlsafe(32))
-    return templates.TemplateResponse(request, 'gmail_setup.html', {'csrf': request.session['domain_csrf']})
+    return templates.TemplateResponse(request, 'gmail_setup.html', {
+        'csrf': request.session['domain_csrf'], 'gmail_asset_version': ASSET_VERSION})
 
 
 @router.get('/api/gmail-setup')

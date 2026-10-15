@@ -25,7 +25,8 @@ client list shows counts instead of every domain; unfinished domains appear abov
 completed ones in each client’s domain list. Each domain has a stage dropdown,
 and the add/edit form also lets you choose its stage. Existing flat records are
 grouped automatically without changing their sheet rows or purchase history. It starts
-with the instruction to use the GPT domain clustering plugin in Notion; clustering
+with a prominent instruction for SDRs and Scale Clients to use the GPT domain
+clustering plugin in Notion. This step is optional for normal clients; clustering
 is no longer the main workflow.
 
 - The tracker seeds its member list from active dashboard users in the signed-in
@@ -47,6 +48,10 @@ is no longer the main workflow.
 - Unused, Used and Blocked states are separate from allocation. **Block QR code**
   and **Block Payment** are explicit block reasons. All blocked equipment is red
   and excluded from purchases; previously used devices never count as new stock.
+- Each phone supports two distinct setups. It is green before use, orange after
+  one setup and red after two or any block/failure. Purchases and completion of
+  the same setup count once. Red phones cannot be selected for new allocations;
+  transfers and edits preserve usage. Known historical uses are recovered on read.
 - Both the tool and the Operations card alert when the company has fewer than
   20 unused devices (phones + PCs combined). Counts refresh after every change
   and while visible. No external notifications or purchases are sent.

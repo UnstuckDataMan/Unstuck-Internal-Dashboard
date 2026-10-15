@@ -99,6 +99,36 @@ require('node:fs').mkdirSync('work',{recursive:true});
  assert.doesNotMatch(await pending.textContent(),/Device not added yet/);assert.match(await pending.textContent(),/Live in/);
  await page.reload();await idle();assert.match(await failureCard.textContent(),/Failed at payment/);assert.match(await pending.textContent(),/Device: PC 1/);
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'work/gmail-setup-optional-devices-failures-mobile.png',fullPage:true,animations:'disabled'});
+ // Reproduce the reported form: existing client manager removed from the
+ // setup team, active operator, no selected device, including completion.
+ await page.click('#gs-back-clients');await page.click('#gs-add-setup');await page.fill('#gs-client-name','Alab Group');await page.selectOption('#gs-client-manager',ids.Matthew);await page.selectOption('#gs-client-operator',ids.Dylan);await save();
+ await page.click('#gs-tab-devices');await page.locator(`[data-member="${ids.Matthew}"] [data-remove-member]`).click();await idle();await page.click('#gs-tab-setups');
+ await page.click('#gs-add-setup');assert.match(await page.locator('#gs-job-manager option:checked').textContent(),/Matthew \(removed\)/);
+ await page.fill('#gs-job-email','ashley@alabgrouppr.com');await page.selectOption('#gs-job-stage','Setup complete');
+ assert.equal(await page.locator('#gs-job-device').evaluate(e=>e.required),false);assert.equal(await page.inputValue('#gs-job-device'),'');await save();
+ const alabJob=(await data()).state.setups.at(-1),alabCard=page.locator(`[data-setup="${alabJob.id}"]`);
+ assert.match(await alabCard.textContent(),/Device not added yet/);assert.match(await alabCard.textContent(),/Live in/);
+ const script=await page.locator('script[src*="gmail-setup.js"]').getAttribute('src');assert.match(script,/v=[a-f0-9]{12}/);
+ const asset=await page.request.get(new URL(script,page.url()).href);assert.equal(asset.headers()['cache-control'],'no-store');
+ // Two-use phone capacity: green -> orange -> red; completion does not
+ // count a second use for the same account, and red phones cannot be chosen.
+ await page.setViewportSize({width:1440,height:1050});
+ await page.locator('.gs-note').screenshot({path:'work/gmail-setup-sdr-scale-notice.png'});
+ assert.match(await page.textContent('.gs-note'),/SDR’s and Scale Clients only: Before you start/);
+ assert.match(await page.textContent('.gs-note'),/optional for normal clients/);
+ model=await data();const capacityPhone=model.state.devices.find(d=>d.kind==='Phone'&&d.number===6&&d.member_id===ids.Dylan);
+ await page.click('#gs-tab-devices');const phoneButton=()=>page.locator(`[data-device="${capacityPhone.id}"]`);
+ assert.match(await phoneButton().getAttribute('class'),/unused phone/);assert.match(await phoneButton().evaluate(e=>getComputedStyle(e).backgroundColor),/52, 211, 153/);
+ await page.click('#gs-tab-setups');await page.click('#gs-back-clients');await page.click('#gs-add-setup');await page.fill('#gs-client-name','Phone capacity QA');await page.selectOption('#gs-client-manager',ids.Robyn);await page.selectOption('#gs-client-operator',ids.Dylan);await save();
+ await page.click('#gs-add-setup');await page.fill('#gs-job-email','me@firstcapacity.com');await page.selectOption('#gs-job-device',capacityPhone.id);await page.selectOption('#gs-job-stage','Purchase made');await save();
+ const firstCapacity=(await data()).state.setups.at(-1),capacityCard=page.locator(`[data-setup="${firstCapacity.id}"]`);
+ await page.click('#gs-tab-devices');assert.match(await phoneButton().getAttribute('class'),/used phone/);assert.match(await phoneButton().evaluate(e=>getComputedStyle(e).backgroundColor),/251, 146, 60/);assert.match(await phoneButton().textContent(),/1 \/ 2 setups/);
+ await page.click('#gs-tab-setups');await capacityCard.locator('[data-set-stage]').selectOption('Setup complete');await idle();assert.equal((await data()).state.devices.find(d=>d.id===capacityPhone.id).use_count,1);
+ await page.click('#gs-add-setup');await page.fill('#gs-job-email','me@secondcapacity.com');await page.selectOption('#gs-job-device',capacityPhone.id);await page.selectOption('#gs-job-stage','Setup complete');await save();
+ await page.click('#gs-tab-devices');assert.match(await phoneButton().getAttribute('class'),/exhausted phone/);assert.match(await phoneButton().evaluate(e=>getComputedStyle(e).backgroundColor),/248, 113, 113/);assert.match(await phoneButton().textContent(),/2 \/ 2 setups/);
+ await phoneButton().screenshot({path:'work/gmail-setup-phone-two-uses.png'});
+ await page.click('#gs-tab-setups');await page.click('#gs-add-setup');assert.equal(await page.locator(`#gs-job-device option[value="${capacityPhone.id}"]`).count(),0);await page.fill('#gs-job-email','me@futureplanning.com');await save();assert.match(await page.locator('[data-setup]').filter({hasText:'futureplanning.com'}).textContent(),/Device not added yet/);
+ await page.reload();await idle();assert.equal((await data()).state.devices.find(d=>d.id===capacityPhone.id).use_count,2);
  assert.deepEqual(errors,[]);
- await browser.close();console.log('PASS: shared roster, 20-device reserve, add/transfer/remove inventory and members, QR/payment blocks, purchase history, client drill-in/back navigation, visible stage selectors, completed domains sorted last, both sheet destinations, failed sync/retry, filters, Operations alert and mobile layouts.');
+ await browser.close();console.log('PASS: shared roster, 20-device reserve, add/transfer/remove inventory and members, QR/payment blocks, purchase history, client drill-in/back navigation, visible stage selectors, completed domains sorted last, both sheet destinations, failed sync/retry, filters, Operations alert, device-free planning, exact reported form, green/orange/red two-use phones and mobile layouts.');
 })().catch(e=>{console.error(e);process.exit(1)});

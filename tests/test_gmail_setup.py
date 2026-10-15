@@ -94,7 +94,8 @@ def test_purchase_consumes_fresh_stock_once_and_preserves_device_history(board_d
 def test_pending_device_reservation_and_block_after_allocation(board_db):
     owner=people()['Dylan'];d=devices(owner)['state']['devices'][0]
     _,jid=create_setup(owner,d['id'])
-    with pytest.raises(HTTPException):create_setup(owner,d['id'],'otherclient.com','me@otherclient.com')
+    create_setup(owner,d['id'],'otherclient.com','me@otherclient.com')
+    with pytest.raises(HTTPException):create_setup(owner,d['id'],'thirdclient.com','me@thirdclient.com')
     change('device_update',{'id':d['id'],'status':'Blocked','block_reason':'Payment'})
     with pytest.raises(HTTPException):change('setup_stage',{'id':jid,'stage':'Purchase made'})
     assert s.board(USER)['state']['setups'][0]['stage']=='Not started'
@@ -230,6 +231,9 @@ def test_tracker_routes_auth_csrf_schema_and_shared_visibility(client,board_db,m
     page=client.get('/gmail-set');assert 'GPT domain clustering plugin in Notion' in page.text
     assert 'dc-app' not in page.text and 'gs-app' in page.text
     assert page.headers['cache-control']=='no-store'
+    from app.routers.gmail_setup import ASSET_VERSION
+    assert f'/static/gmail-setup.js?v={ASSET_VERSION}' in page.text
+    assert client.get('/static/gmail-setup.js?v=old').headers['cache-control']=='no-store'
     assert client.post('/api/gmail-setup/change',json={'revision':0,'action':'member_remove','data':{'id':'x'}}).status_code==403
     import re
     client.headers['X-Domain-CSRF']=re.search('data-csrf="([^"]+)"',page.text)[1]
@@ -396,7 +400,76 @@ def test_add_missing_device_after_sheet_sync_keeps_live_row_and_purchase_time(bo
 def test_later_device_cannot_take_reserved_or_blocked_stock(board_db):
     owner=people()['Dylan'];d=devices(owner)['state']['devices'][0]
     create_setup(owner,d['id'])
+    create_setup(owner,d['id'],'secondreserved.com','me@secondreserved.com')
     _,jid=create_setup(owner,domain='laterdevice.com',email='me@laterdevice.com')
     with pytest.raises(HTTPException):change('setup_device',{'id':jid,'operator_id':owner,'device_id':d['id']})
     change('device_update',{'id':d['id'],'status':'Blocked','block_reason':'Payment'})
     with pytest.raises(HTTPException):change('setup_device',{'id':jid,'operator_id':owner,'device_id':d['id']})
+
+
+def test_removed_client_manager_does_not_block_planning_without_devices(board_db):
+    ids=people()
+    client=change('client_save',{'name':'Alab Group','section':'client',
+        'account_manager_id':ids['Matthew'],'operator_id':ids['Dylan']})['state']['clients'][0]
+    change('member_remove',{'id':ids['Matthew']})
+    data={'client_id':client['id'],'account_manager_id':ids['Matthew'],'operator_id':ids['Dylan'],
+        'email':'ashley@alabgrouppr.com','section':'client','stage':'Not started'}
+    record=change('setup_save',data)
+    job=record['state']['setups'][0]
+    assert job['device_id'] is None and job['stage']=='Not started'
+    assert record['state']['devices']==[] and job['account_manager_id']==ids['Matthew']
+    # Removal is still enforced for setup operators and unrelated assignments.
+    with pytest.raises(HTTPException):change('setup_save',{**data,'id':job['id'],'operator_id':ids['Matthew']})
+    with pytest.raises(HTTPException):change('setup_save',{**data,'client_id':None,'email':'me@unrelatedclient.com','client_name':'Unrelated'})
+
+
+def test_phone_supports_two_distinct_setups_and_never_counts_completion_twice(board_db):
+    ids=people();phone=devices(ids['Dylan'])['state']['devices'][0]
+    assert phone['use_count']==0
+    _,first=create_setup(ids['Dylan'],phone['id'])
+    record=change('setup_stage',{'id':first,'stage':'Purchase made'})
+    assert record['state']['devices'][0]['use_count']==1
+    record=change('setup_stage',{'id':first,'stage':'Setup complete'})
+    assert record['state']['devices'][0]['use_count']==1
+    # Moving the same physical phone does not reset its history/capacity.
+    change('device_update',{'id':phone['id'],'member_id':ids['Matthew']})
+    _,second=create_setup(ids['Matthew'],phone['id'],'secondphoneuse.com','me@secondphoneuse.com')
+    record=change('setup_stage',{'id':second,'stage':'Purchase made'})
+    assert record['state']['devices'][0]['use_count']==2
+    assert s.summary(record['state'])['exhausted_phones']==1
+    with pytest.raises(HTTPException):create_setup(ids['Matthew'],phone['id'],'thirdphoneuse.com','me@thirdphoneuse.com')
+    with pytest.raises(HTTPException):change('device_update',{'id':phone['id'],'status':'Unused'})
+    # Existing second setup can still complete; a third cannot be allocated.
+    record=change('setup_stage',{'id':second,'stage':'Setup complete'})
+    assert record['state']['devices'][0]['use_count']==2
+    _,third=create_setup(ids['Matthew'],domain='thirdphoneuse.com',email='me@thirdphoneuse.com')
+    with pytest.raises(HTTPException):change('setup_device',{'id':third,'operator_id':ids['Matthew'],'device_id':phone['id']})
+
+
+def test_two_phone_slots_can_be_reserved_and_used_without_overbooking(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,first=create_setup(owner,phone['id'])
+    _,second=create_setup(owner,phone['id'],'secondreserved.com','me@secondreserved.com')
+    with pytest.raises(HTTPException):create_setup(owner,phone['id'],'thirdreserved.com','me@thirdreserved.com')
+    change('setup_stage',{'id':first,'stage':'Purchase made'})
+    with pytest.raises(HTTPException):create_setup(owner,phone['id'],'thirdreserved.com','me@thirdreserved.com')
+    record=change('setup_stage',{'id':second,'stage':'Purchase made'})
+    assert record['state']['devices'][0]['use_count']==2
+
+
+def test_legacy_phone_usage_recovered_from_history_without_reset(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    for i in range(2):
+        _,jid=create_setup(owner,phone['id'],f'legacyphone{i}.com',f'me@legacyphone{i}.com')
+        change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    stored=board_db[store.workspace(USER)]
+    stored['state']['devices'][0].pop('use_count')
+    stored['state']['devices'][0].pop('setup_ids')
+    revision=stored['revision']
+    migrated=s.board(USER)
+    assert migrated['revision']==revision
+    assert migrated['state']['devices'][0]['use_count']==2
+    assert len(migrated['state']['devices'][0]['setup_ids'])==2
+    assert s.summary(migrated['state'])['unused']==0
+    # Reading old records does not itself modify the persisted workspace.
+    assert 'use_count' not in stored['state']['devices'][0]

@@ -90,7 +90,8 @@ async def auth_gate(request: Request, call_next):
             chunks.append(chunk)
         request._body = b''.join(chunks)
     response = await call_next(request)
-    if domain_tool or request.url.path in {'/gmail-set', '/domain-cluster-builder'}:
+    if domain_tool or request.url.path in {'/gmail-set', '/domain-cluster-builder',
+            '/static/gmail-setup.js', '/static/gmail-setup.css'}:
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
     return response

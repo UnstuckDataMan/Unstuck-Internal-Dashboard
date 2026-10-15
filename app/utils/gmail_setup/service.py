@@ -36,6 +36,7 @@ def board(user):
     record = store.load(user) or {'state': initial(user), 'revision': 0, 'updated_at': None}
     record = copy.deepcopy(record)
     ensure_clients(record['state'])
+    ensure_device_usage(record['state'])
     return record
 
 
@@ -71,6 +72,44 @@ def find(state, collection, identifier, active=False):
     return row
 
 
+def device_uses(device):
+    return max(device.get('use_count', 0), int(bool(device.get('used_at') or device['status'] == 'Used')))
+
+
+def ensure_device_usage(state):
+    """Recover known historical uses without counting a stage transition twice."""
+    known = {}
+    for job in state['setups']:
+        snapshots = [job.get('purchase_device') or {}]
+        snapshots += [failure.get('device') or {} for failure in job.get('device_failures', [])]
+        for snapshot in snapshots:
+            if snapshot.get('id'):
+                known.setdefault(snapshot['id'], set()).add(job['id'])
+    for d in state['devices']:
+        setup_ids = set(d.get('setup_ids', [])) | known.get(d['id'], set())
+        d['setup_ids'] = sorted(setup_ids)
+        d['use_count'] = max(device_uses(d), len(setup_ids))
+
+
+def allocation_available(state, device, job_id=None):
+    if device.get('archived') or device['status'] == 'Blocked':
+        return False
+    reserved = sum(j['id'] != job_id and not j.get('archived') and j['stage'] == STAGES[0]
+        and j.get('device_id') == device['id'] for j in state['setups'])
+    if device['kind'] == 'Phone':
+        return device_uses(device) + reserved < 2
+    return reserved == 0
+
+
+def consume_device_use(device, job_id):
+    if job_id not in device.get('setup_ids', []):
+        if device['kind'] == 'Phone' and device_uses(device) >= 2:
+            raise HTTPException(409, 'This phone has already been used for two setups. Choose another phone or allocate a device later.')
+        device['use_count'] = device_uses(device) + 1
+        device.setdefault('setup_ids', []).append(job_id)
+    device['used_at'] = device.get('used_at') or now()
+
+
 def unlocked(state):
     lock = state.get('sync_lock')
     if lock and (datetime.now(timezone.utc)-datetime.fromisoformat(lock['at'])).total_seconds() < LEASE_SECONDS:
@@ -82,11 +121,13 @@ def audit(state, user, action):
 
 
 def summary(state):
+    ensure_device_usage(state)
     devices = [d for d in state['devices'] if not d.get('archived')]
-    unused = sum(d['status'] == 'Unused' and not d.get('used_at') for d in devices)
+    unused = sum(d['status'] == 'Unused' and not device_uses(d) for d in devices)
     return {'unused': unused, 'target': RESERVE_TARGET, 'shortfall': max(0, RESERVE_TARGET-unused),
             'low_stock': unused < RESERVE_TARGET, 'devices': len(devices),
             'blocked': sum(d['status'] == 'Blocked' for d in devices),
+            'exhausted_phones': sum(d['kind'] == 'Phone' and device_uses(d) >= 2 for d in devices),
             'not_started': sum(s['stage'] == STAGES[0] or s['stage'] in FAILURES and not s.get('purchase_at') for s in state['setups'] if not s.get('archived')),
             'purchased': sum(s['stage'] == STAGES[1] or s['stage'] in FAILURES and bool(s.get('purchase_at')) for s in state['setups'] if not s.get('archived')),
             'complete': sum(s['stage'] == STAGES[2] for s in state['setups'] if not s.get('archived')),
@@ -193,7 +234,8 @@ def mutate(user, expected, action, data):
                 status = data.get('status', 'Unused')
                 state['devices'].append({'id': new_id(), 'asset_tag': 'DEV-'+uuid4().hex[:8].upper(), 'kind': kind, 'number': number,
                     'member_id': member_id, 'status': status, 'block_reason': (data.get('block_reason') or 'Other') if status == 'Blocked' else None, 'used_at': now() if status == 'Used' else None,
-                    'blocked_at': now() if status == 'Blocked' else None, 'archived': False, 'added_at': now()})
+                    'blocked_at': now() if status == 'Blocked' else None, 'archived': False, 'added_at': now(),
+                    'use_count': 1 if status == 'Used' else 0, 'setup_ids': []})
     elif action == 'device_update':
         d = find(state, 'devices', data['id'], True)
         if 'member_id' in data and data['member_id'] != d['member_id']:
@@ -206,7 +248,7 @@ def mutate(user, expected, action, data):
             status = data['status']
             if d['status'] == 'Blocked' and status != 'Blocked':
                 raise HTTPException(409, 'Blocked devices cannot be returned to service. Add a different physical device.')
-            if status == 'Unused' and (d['used_at'] or d['status'] == 'Used'):
+            if status == 'Unused' and device_uses(d):
                 raise HTTPException(409, 'A used device cannot count as new stock again.')
             d['status'] = status
             if status == 'Blocked':
@@ -214,6 +256,7 @@ def mutate(user, expected, action, data):
                 d['block_reason'] = data.get('block_reason') or d.get('block_reason') or 'Other'
             if status == 'Used':
                 d['used_at'] = d['used_at'] or now()
+                d['use_count'] = max(device_uses(d), 1)
         if 'asset_tag' in data:
             tag = text(data['asset_tag'], 'Asset label')
             if any(x['id'] != d['id'] and x['asset_tag'].casefold() == tag.casefold() for x in state['devices']):
@@ -228,12 +271,16 @@ def mutate(user, expected, action, data):
         current = find(state, 'setups', data['id'], True) if data.get('id') else None
         if current and current.get('sync', {}).get('status') == 'synced':
             raise HTTPException(409, 'A published setup is locked to its sheet record. Correct the sheet directly if needed.')
+        client = None
         if data.get('client_id'):
             client = find(state, 'clients', data['client_id'])
             if current and current.get('client_id') != client['id']:
                 raise HTTPException(409, 'Edit this domain within its existing client.')
             data = {**data, 'client_name': client['name'], 'section': client['section']}
-        manager = find(state, 'members', data['account_manager_id'], True)
+        # Existing client assignments survive removal from the setup team.
+        # New manager assignments and all operators must still be active.
+        existing_manager = (client or current or {}).get('account_manager_id')
+        manager = find(state, 'members', data['account_manager_id'], data['account_manager_id'] != existing_manager)
         operator = find(state, 'members', data['operator_id'], True)
         try:
             supplied_domain = text(data.get('domain'), 'Domain', False).lower().rstrip('.')
@@ -258,12 +305,10 @@ def mutate(user, expected, action, data):
             historical = current and current['stage'] != STAGES[0] and current.get('device_id') == device_id
             device = find(state, 'devices', device_id, not historical)
             if not historical:
-                if device['status'] == 'Blocked':
-                    raise HTTPException(409, 'Choose an unblocked device for this setup.')
+                if not allocation_available(state, device, (current or {}).get('id')):
+                    raise HTTPException(409, 'This device is blocked, fully used or reserved. Choose another device or allocate one later.')
                 if device['member_id'] != operator['id']:
                     raise HTTPException(409, 'Allocate the device to the setup owner first.')
-                if any(s['id'] != (current or {}).get('id') and not s.get('archived') and s['stage'] == STAGES[0] and s.get('device_id') == device_id for s in state['setups']):
-                    raise HTTPException(409, 'This device is already reserved for another pending setup.')
         if current is None:
             if len(state['setups']) >= 5000:
                 raise HTTPException(400, 'Setup history limit reached.')
@@ -296,10 +341,8 @@ def mutate(user, expected, action, data):
             raise HTTPException(409, 'Keep the published setup owner. Allocate the device to that team member first.')
         operator = find(state, 'members', data['operator_id'], True)
         device = find(state, 'devices', data['device_id'], True)
-        if device['status'] == 'Blocked' or device['member_id'] != operator['id']:
-            raise HTTPException(409, 'Choose an unblocked device allocated to the setup owner.')
-        if any(s['id'] != job['id'] and not s.get('archived') and s['stage'] == STAGES[0] and s.get('device_id') == device['id'] for s in state['setups']):
-            raise HTTPException(409, 'This device is already reserved for another pending setup.')
+        if not allocation_available(state, device, job['id']) or device['member_id'] != operator['id']:
+            raise HTTPException(409, 'Choose an available device allocated to the setup owner, or add a device later.')
         if job['stage'] in FAILURES:
             raise HTTPException(409, 'Use Edit details to choose a replacement device and retry stage.')
         job.update(device_id=device['id'], operator_id=operator['id'], updated_at=now())
@@ -331,7 +374,8 @@ def record_purchase_device(state, job):
         raise HTTPException(409, 'The allocated purchase device is blocked. Select another device.')
     if d['member_id'] != job['operator_id']:
         raise HTTPException(409, 'Allocate the device to the setup owner before recording purchase.')
-    d.update(status='Used', used_at=d.get('used_at') or now())
+    consume_device_use(d, job['id'])
+    d['status'] = 'Used'
     job['purchase_device'] = device_snapshot(state, d)
 
 
@@ -350,7 +394,8 @@ def set_stage(state, job, stage):
         if d:
             if d['status'] != 'Blocked' and d['member_id'] != job['operator_id']:
                 raise HTTPException(409, 'Allocate the device to the setup owner before recording failure.')
-            d.update(status='Blocked', block_reason=reason, blocked_at=d.get('blocked_at') or now(), used_at=d.get('used_at') or now())
+            consume_device_use(d, job['id'])
+            d.update(status='Blocked', block_reason=reason, blocked_at=d.get('blocked_at') or now())
         # Keep the failed physical asset even when the retry uses a replacement.
         history = job.setdefault('device_failures', [])
         if old != stage or not history or history[-1].get('device', {}).get('id') != job.get('device_id'):
