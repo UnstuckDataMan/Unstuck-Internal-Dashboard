@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, UploadFile, File, Form, Depends, HTTPException
+from fastapi import APIRouter, Request, UploadFile, File, Form
 from starlette.concurrency import run_in_threadpool
 from app.utils.benchmark_upload import read_excel, MAX_UPLOAD_BYTES
 from fastapi.responses import JSONResponse
@@ -6,13 +6,7 @@ from fastapi.responses import JSONResponse
 from app.deps import templates
 from app.utils import client_benchmarks as benchmarks
 
-def require_available():
-    """Temporary shutdown, scoped to this tool's page and all API routes."""
-    raise HTTPException(status_code=503, detail='Average Client Data is temporarily offline.',
-                        headers={'Cache-Control': 'no-store'})
-
-
-router = APIRouter(dependencies=[Depends(require_available)])
+router = APIRouter()
 
 
 @router.get('/client-benchmarks')
