@@ -37,12 +37,21 @@ class Device(Strict):
     asset_tag: str | None = Field(None, min_length=1, max_length=80)
 
 
+class Client(Strict):
+    name: str = Field(min_length=1, max_length=150)
+    section: Literal['client', 'bizdev'] = 'client'
+    account_manager_id: str = Field(max_length=36)
+    operator_id: str | None = Field(None, max_length=36)
+
+
 class Setup(Strict):
+    client_id: str | None = Field(None, max_length=36)
+    stage: Literal['Not started', 'Purchase made', 'Setup complete'] | None = None
     id: str | None = Field(None, max_length=36)
     account_manager_id: str = Field(max_length=36)
     operator_id: str = Field(max_length=36)
     client_name: str = Field('', max_length=150)
-    domain: str = Field(min_length=1, max_length=253)
+    domain: str = Field('', max_length=253)
     email: str = Field('', max_length=254)
     section: Literal['client', 'bizdev'] = 'client'
     device_id: str | None = Field(None, max_length=36)
@@ -61,7 +70,7 @@ class Identifier(Strict):
 
 class Change(Strict):
     revision: int = Field(ge=0)
-    action: Literal['member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_remove']
+    action: Literal['client_save', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_remove']
     data: dict
 
 
@@ -86,7 +95,7 @@ def get_summary(user=Depends(access)):
 
 @router.post('/api/gmail-setup/change')
 def change(body: Change, user=Depends(mutation_access)):
-    models = {'member_save': Member, 'member_remove': Identifier, 'devices_add': Devices,
+    models = {'client_save': Client, 'member_save': Member, 'member_remove': Identifier, 'devices_add': Devices,
               'device_update': Device, 'device_remove': Identifier, 'setup_save': Setup,
               'setup_stage': Stage, 'setup_remove': Identifier}
     from pydantic import ValidationError
@@ -98,8 +107,10 @@ def change(body: Change, user=Depends(mutation_access)):
     except ValidationError:
         raise HTTPException(400, 'Check the required fields, device counts and selected values.') from None
     record = service.mutate(user, body.revision, body.action, data)
-    if body.action == 'setup_stage' and data['stage'] == 'Setup complete':
-        record = service.sync_completed(user, data['id'])
+    if body.action in {'setup_stage', 'setup_save'}:
+        job = next((j for j in record['state']['setups'] if j['id'] == data.get('id')), None) if data.get('id') else record['state']['setups'][-1]
+        if job and job['stage'] == 'Setup complete' and job.get('sync', {}).get('status') != 'synced':
+            record = service.sync_completed(user, job['id'])
     return service.result(record)
 
 

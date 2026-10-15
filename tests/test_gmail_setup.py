@@ -77,7 +77,6 @@ def test_purchase_consumes_fresh_stock_once_and_preserves_device_history(board_d
     ids=people();record=devices(ids['Dylan'],phones=2);d=record['state']['devices'][0]
     record,jid=create_setup(ids['Dylan'],d['id'])
     assert s.summary(record['state'])['unused']==2 # allocation is not purchase
-    with pytest.raises(HTTPException):change('setup_stage',{'id':jid,'stage':'Setup complete'})
     record=change('setup_stage',{'id':jid,'stage':'Purchase made'})
     assert s.summary(record['state'])['unused']==1
     original=record['state']['setups'][0]['purchase_device']
@@ -275,3 +274,70 @@ def test_missing_header_and_write_denial_point_to_exact_tab_and_row(board_db,she
     assert sync['url'].endswith('#gid=838806676&range=A3')
     assert 'protected' in sync['message']
     assert session.inserts==0
+
+
+def test_client_creation_grouping_and_existing_board_upgrade(board_db):
+    owner=people()['Dylan']
+    client=change('client_save',{'name':'  Cedar   Client ','section':'client','account_manager_id':people()['Robyn'],'operator_id':owner})['state']['clients'][0]
+    assert client['name']=='Cedar Client'
+    with pytest.raises(HTTPException):change('client_save',{'name':'cedar client','section':'client','account_manager_id':people()['Robyn']})
+    record,jid=create_setup(owner,domain='firstcedar.com',email='me@firstcedar.com')
+    record,jid2=create_setup(owner,domain='secondcedar.com',email='me@secondcedar.com')
+    assert len(record['state']['clients'])==1
+    assert {j['client_id'] for j in record['state']['setups']}=={client['id']}
+    # A pre-update flat board groups safely on read without publishing or
+    # changing records, purchase snapshots, revisions or device counts.
+    legacy=copy.deepcopy(record);legacy['state'].pop('clients')
+    for job in legacy['state']['setups']:job.pop('client_id')
+    board_db[store.workspace(USER)]=legacy
+    first=s.board(USER);second=s.board(USER)
+    assert first['revision']==record['revision']
+    assert len(first['state']['clients'])==1
+    assert first['state']['clients']==second['state']['clients']
+    assert all(j['client_id']==first['state']['clients'][0]['id'] for j in first['state']['setups'])
+    assert all(j['stage']=='Not started' and not j['purchase_device'] for j in first['state']['setups'])
+
+
+def test_explicit_client_is_authoritative_and_direct_complete_is_atomic(board_db):
+    owner=people()['Dylan'];d=devices(owner)['state']['devices'][0]
+    client=change('client_save',{'name':'Cedar Client','section':'bizdev','account_manager_id':people()['Robyn'],'operator_id':owner})['state']['clients'][0]
+    data={'client_id':client['id'],'account_manager_id':people()['Robyn'],'operator_id':owner,
+          'client_name':'Wrong client','section':'client','domain':'cedarclients.com','email':'',
+          'device_id':d['id'],'order':1,'stage':'Setup complete'}
+    before=s.board(USER)
+    with pytest.raises(HTTPException):change('setup_save',data)
+    assert s.board(USER)==before # failed completion neither saves nor consumes device
+    record=change('setup_save',{**data,'email':'me@cedarclients.com'})
+    job=record['state']['setups'][0]
+    assert job['client_name']=='Cedar Client' and job['section']=='bizdev'
+    assert job['client_id']==client['id'] and job['stage']=='Setup complete'
+    assert job['purchase_device']['id']==d['id'] and job['purchase_at'] and job['completed_at']
+    assert s.summary(record['state'])['unused']==0
+    with pytest.raises(HTTPException):change('setup_stage',{'id':job['id'],'stage':'Not started'})
+
+
+@pytest.mark.parametrize('section',['client','bizdev'])
+def test_new_sheet_row_is_immediately_below_last_entry_with_live_checkbox(sheet_session,section):
+    session=sheet_session(section)
+    n=len(session.headers)
+    session.rows.extend([['']*n,['']*n,['lastdomain.com',10]+[False]*(n-3)+['Last client'],['']*n,['']*n])
+    before=copy.deepcopy(session.rows)
+    job={'id':str(uuid4()),'section':section,'email':'me@newclient.com','order':1}
+    result=sheets.publish(job,'New client')
+    assert result['row']==6 # last actual domain is row 5, despite blank/formatted tail
+    assert session.rows[:5]==before[:5]
+    assert session.rows[5][0]=='me@newclient.com'
+    assert session.rows[5][session.headers.index('Live')] is True
+    batch=next(data for method,url,data in session.calls if method=='post' and url==sheets.BASE+':batchUpdate')
+    checkbox=next(r['setDataValidation'] for r in batch['requests'] if 'setDataValidation' in r and r['setDataValidation']['range']['startColumnIndex']==session.headers.index('Live'))
+    assert checkbox['rule']['condition']['type']=='BOOLEAN'
+
+
+@pytest.mark.parametrize('email,domain',[('me@cedarclients.com','cedarclients.com'),(' Person@team.example.co.uk ','example.co.uk')])
+def test_email_only_form_derives_domain_and_assigns_client(board_db,email,domain):
+    owner=people()['Dylan']
+    client=change('client_save',{'name':'Cedar','section':'client','account_manager_id':people()['Robyn']})['state']['clients'][0]
+    record=change('setup_save',{'client_id':client['id'],'account_manager_id':people()['Robyn'],'operator_id':owner,'email':email,'section':'client','order':1,'stage':'Not started'})
+    job=record['state']['setups'][0]
+    assert job['domain']==domain and job['email']==email.strip().lower()
+    assert job['client_id']==client['id'] and job['client_name']=='Cedar'

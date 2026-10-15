@@ -28,11 +28,39 @@ def initial(user):
         members.append({'id': str(uuid5(NAMESPACE_URL, 'gmail-set:'+email)),
                         'name': (row.get('name') or email.split('@')[0].replace('.', ' ').title())[:100],
                         'email': email, 'active': True})
-    return {'members': members, 'devices': [], 'setups': [], 'events': [], 'sync_lock': None}
+    return {'members': members, 'devices': [], 'clients': [], 'setups': [], 'events': [], 'sync_lock': None}
 
 
 def board(user):
-    return store.load(user) or {'state': initial(user), 'revision': 0, 'updated_at': None}
+    record = store.load(user) or {'state': initial(user), 'revision': 0, 'updated_at': None}
+    record = copy.deepcopy(record)
+    ensure_clients(record['state'])
+    return record
+
+
+def client_key(section, name):
+    return section+':'+re.sub(r'\s+', ' ', name.strip()).casefold()
+
+
+def ensure_clients(state):
+    # Older flat setup records become stable client groups without touching
+    # their domains, stages, purchase history or published sheet rows.
+    clients = state.setdefault('clients', [])
+    by_key = {client_key(c['section'], c['name']): c for c in clients}
+    by_id = {c['id']: c for c in clients}
+    for job in state['setups']:
+        if job.get('client_id') in by_id:
+            continue
+        section = job['section']
+        name = job.get('client_name', '').strip() or 'Biz Dev'
+        key = client_key(section, name)
+        if key not in by_key:
+            client = {'id': str(uuid5(NAMESPACE_URL, 'gmail-client:'+key)), 'name': name,
+                      'section': section, 'account_manager_id': job['account_manager_id'],
+                      'operator_id': job.get('operator_id'), 'created_at': job.get('created_at', now())}
+            clients.append(client)
+            by_key[key] = client
+        job['client_id'] = by_key[key]['id']
 
 
 def find(state, collection, identifier, active=False):
@@ -84,8 +112,12 @@ def email_domain(raw, domain):
         return ''
     if not re.fullmatch(r'[a-z0-9][a-z0-9.!#$%&\x27*+/=?^_`{|}~-]{0,63}@[a-z0-9.-]+', raw) or raw.count('@') != 1:
         raise HTTPException(400, 'Enter a valid sending email address, such as me@your-domain.com.')
-    if raw.rsplit('@', 1)[1] != domain:
-        raise HTTPException(400, 'The sending email must use the tracked domain exactly.')
+    try:
+        matches = normalize(raw.rsplit('@', 1)[1]) == domain
+    except ValueError:
+        matches = False
+    if not matches:
+        raise HTTPException(400, 'The sending email must use the tracked domain.')
     return raw
 
 
@@ -106,7 +138,20 @@ def mutate(user, expected, action, data):
     state = copy.deepcopy(record['state'])
     unlocked(state)
     state['sync_lock'] = None
-    if action == 'member_save':
+    if action == 'client_save':
+        client_name = re.sub(r'\s+', ' ', text(data['name'], 'Client name'))
+        key = client_key(data['section'], client_name)
+        if any(client_key(c['section'], c['name']) == key for c in state['clients']):
+            raise HTTPException(409, 'This client already exists. Open the client to add another domain.')
+        if len(state['clients']) >= 1000:
+            raise HTTPException(400, 'Client limit reached.')
+        find(state, 'members', data['account_manager_id'], True)
+        if data.get('operator_id'):
+            find(state, 'members', data['operator_id'], True)
+        state['clients'].append({'id': new_id(), 'name': client_name, 'section': data['section'],
+                                 'account_manager_id': data['account_manager_id'], 'operator_id': data.get('operator_id'),
+                                 'created_at': now()})
+    elif action == 'member_save':
         if data.get('id'):
             member = find(state, 'members', data['id'], True)
         else:
@@ -182,12 +227,21 @@ def mutate(user, expected, action, data):
         current = find(state, 'setups', data['id'], True) if data.get('id') else None
         if current and current.get('sync', {}).get('status') == 'synced':
             raise HTTPException(409, 'A published setup is locked to its sheet record. Correct the sheet directly if needed.')
+        if data.get('client_id'):
+            client = find(state, 'clients', data['client_id'])
+            if current and current.get('client_id') != client['id']:
+                raise HTTPException(409, 'Edit this domain within its existing client.')
+            data = {**data, 'client_name': client['name'], 'section': client['section']}
         manager = find(state, 'members', data['account_manager_id'], True)
         operator = find(state, 'members', data['operator_id'], True)
         try:
-            raw_domain = text(data['domain'], 'Domain').lower().rstrip('.')
+            supplied_domain = text(data.get('domain'), 'Domain', False).lower().rstrip('.')
+            raw_email = text(data.get('email'), 'Sending email', False).lower()
+            if not supplied_domain and ('@' not in raw_email or raw_email.count('@') != 1):
+                raise HTTPException(400, 'Enter a valid sending email address.')
+            raw_domain = supplied_domain or raw_email.rsplit('@', 1)[1]
             domain = normalize(raw_domain)
-            if domain != raw_domain:
+            if supplied_domain and domain != raw_domain:
                 raise ValueError()
         except ValueError:
             raise HTTPException(400, 'Enter the root domain only, such as your-company.com.') from None
@@ -217,29 +271,24 @@ def mutate(user, expected, action, data):
             state['setups'].append(current)
         if current['stage'] != STAGES[0] and domain != current['domain']:
             raise HTTPException(409, 'The purchased domain cannot be changed. Create a new setup for a different domain.')
+        client = next((c for c in state['clients'] if c['id'] == data.get('client_id')), None)
+        if client is None:
+            # Compatibility for previously opened forms and legacy API callers.
+            display_name = text(data.get('client_name'), 'Client name', False) or 'Biz Dev'
+            key = client_key(data['section'], display_name)
+            client = next((c for c in state['clients'] if client_key(c['section'], c['name']) == key), None)
+            if client is None:
+                client = {'id': new_id(), 'name': display_name, 'section': data['section'], 'account_manager_id': manager['id'], 'operator_id': operator['id'], 'created_at': now()}
+                state['clients'].append(client)
+        current['client_id'] = client['id']
         current.update(domain=domain, email=email, client_name=text(data.get('client_name'), 'Client name', False),
                        section=data['section'], account_manager_id=manager['id'], operator_id=operator['id'],
                        device_id=device_id, order=data.get('order', 1), notes=text(data.get('notes'), 'Notes', False), updated_at=now())
+        if data.get('stage'):
+            set_stage(state, current, data['stage'])
     elif action == 'setup_stage':
         job = find(state, 'setups', data['id'], True)
-        stage = data['stage']
-        if STAGES.index(stage) != STAGES.index(job['stage'])+1:
-            raise HTTPException(409, 'Move from Not started to Purchase made, then Setup complete. Purchase history cannot be reset.')
-        if stage == STAGES[1]:
-            d = find(state, 'devices', job.get('device_id'), True)
-            if d['status'] == 'Blocked':
-                raise HTTPException(409, 'The allocated purchase device is blocked. Select another device.')
-            if d['member_id'] != job['operator_id']:
-                raise HTTPException(409, 'Allocate the device to the setup owner before recording purchase.')
-            d.update(status='Used', used_at=d.get('used_at') or now())
-            member = find(state, 'members', d['member_id'])
-            job.update(purchase_at=now(), purchase_device={'id': d['id'], 'asset_tag': d['asset_tag'], 'label': d['kind']+' '+str(d['number']), 'member': member['name']})
-        else:
-            if not job['email']:
-                raise HTTPException(400, 'Add the sending email address before completing setup.')
-            job.update(completed_at=now(), sync={'status': 'pending'})
-        job['stage'] = stage
-        job['updated_at'] = now()
+        set_stage(state, job, data['stage'])
     elif action == 'setup_remove':
         job = find(state, 'setups', data['id'], True)
         if job.get('sync', {}).get('status') == 'synced':
@@ -249,6 +298,32 @@ def mutate(user, expected, action, data):
         raise HTTPException(400, 'Unknown tracker action.')
     audit(state, user, action)
     return store.save(user, state, expected)
+
+
+def set_stage(state, job, stage):
+    old = STAGES.index(job['stage'])
+    target = STAGES.index(stage)
+    if target < old:
+        raise HTTPException(409, 'Purchase and Live sheet history cannot be reset. Select the current or a later stage.')
+    if target == old:
+        return
+    if stage == STAGES[2] and not job['email']:
+        raise HTTPException(400, 'Add the sending email address before completing setup.')
+    if old == 0:
+        if not job.get('device_id'):
+            raise HTTPException(400, 'Choose a purchase device in Edit details before setting this stage.')
+        d = find(state, 'devices', job.get('device_id'), True)
+        if d['status'] == 'Blocked':
+            raise HTTPException(409, 'The allocated purchase device is blocked. Select another device.')
+        if d['member_id'] != job['operator_id']:
+            raise HTTPException(409, 'Allocate the device to the setup owner before recording purchase.')
+        d.update(status='Used', used_at=d.get('used_at') or now())
+        member = find(state, 'members', d['member_id'])
+        job.update(purchase_at=now(), purchase_device={'id': d['id'], 'asset_tag': d['asset_tag'], 'label': d['kind']+' '+str(d['number']), 'member': member['name']})
+    if stage == STAGES[2]:
+        job.update(completed_at=now(), sync={'status': 'pending'})
+    job['stage'] = stage
+    job['updated_at'] = now()
 
 
 def sync_completed(user, job_id):

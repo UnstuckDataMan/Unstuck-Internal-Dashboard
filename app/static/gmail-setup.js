@@ -4,7 +4,10 @@
   const $=id=>document.getElementById(id),app=$('gs-app');if(!app)return;
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let board=null,busy=false,submitForm=null;
-  const state=()=>board?.state||{members:[],devices:[],setups:[]};
+  let selectedClient=new URLSearchParams(location.hash.slice(1)).get('client');
+  const stages=['Not started','Purchase made','Setup complete'];
+  const stageOptions=current=>stages.map((stage,index)=>`<option ${stage===current?'selected':''} ${index<stages.indexOf(current)?'disabled':''}>${stage}</option>`).join('');
+  const state=()=>board?.state||{members:[],devices:[],clients:[],setups:[]};
   const member=id=>state().members.find(m=>m.id===id),device=id=>state().devices.find(d=>d.id===id);
   const name=id=>member(id)?.name||'Unallocated';
   const memberOptions=(selected='',pool=false)=>(pool?'<option value="">Unallocated pool</option>':'<option value="">Select team member</option>')+state().members.filter(m=>m.active||m.id===selected).map(m=>`<option value="${esc(m.id)}" ${m.id===selected?'selected':''}>${esc(m.name)}${m.active?'':' (removed)'}</option>`).join('');
@@ -23,7 +26,7 @@
   async function refresh(){accept(await api());}
   async function run(fn){
     if(busy)return;busy=true;app.setAttribute('aria-busy','true');
-    const buttons=[...app.querySelectorAll('button'),...$('gs-dialog').querySelectorAll('button')];const disabled=buttons.map(b=>b.disabled);buttons.forEach(b=>b.disabled=true);
+    const buttons=[...app.querySelectorAll('button, [data-set-stage]'),...$('gs-dialog').querySelectorAll('button')];const disabled=buttons.map(b=>b.disabled);buttons.forEach(b=>b.disabled=true);
     try{await fn();}catch(err){message(err.message,true);if($('gs-dialog').open)$('gs-form-error').textContent=err.message;}
     finally{busy=false;app.removeAttribute('aria-busy');buttons.forEach((b,i)=>{if(b.isConnected)b.disabled=disabled[i];});}
   }
@@ -37,15 +40,43 @@
     const chosen=$('gs-filter-manager').value;$('gs-filter-manager').innerHTML='<option value="">Everyone</option>'+st.members.map(m=>`<option value="${esc(m.id)}">${esc(m.name)}${m.active?'':' (removed)'}</option>`).join('');$('gs-filter-manager').value=chosen;
     renderSetups();renderTeam();$('gs-updated').textContent=board.updated_at?`Updated ${new Date(board.updated_at).toLocaleString('en-GB')}`:'Add your actual device inventory to get started';
   }
+  function openClient(id){
+    selectedClient=id||null;
+    history.pushState(null,'',location.pathname+location.search+(id?'#client='+encodeURIComponent(id):''));
+    renderSetups();
+  }
+  function renderDomain(s){
+    const d=device(s.device_id),p=s.purchase_device,sync=s.sync||{},kind=s.section==='client'?'Client':'Biz Dev';
+    const purchase=p?`${p.label} · ${p.member}`:d?label(d):'Not allocated';
+    const safeLink=sync.url&&/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]+\/edit#gid=\d+&range=A\d+$/.test(sync.url)?sync.url:null;
+    return `<article class="gs-domain" data-setup="${esc(s.id)}"><div class="gs-domain-head"><div><h4>${esc(s.domain)}</h4><small>${esc(s.email||'Sending email not added yet')}</small></div><label class="gs-stage-control">Stage<select data-set-stage="${esc(s.id)}" aria-label="Stage for ${esc(s.domain)}">${stageOptions(s.stage)}</select></label></div><div class="gs-domain-meta"><span>Setup: ${esc(name(s.operator_id))}</span><span>Device: ${esc(purchase)}</span>${d?.status==='Blocked'?`<span class="gs-badge blocked">${esc(condition(d))} · do not use</span>`:''}</div><div class="gs-actions">${sync.status!=='synced'?`<button class="gs-small" data-edit-setup="${esc(s.id)}">Edit details</button>`:''}${s.stage==='Setup complete'&&sync.status!=='synced'?`<button class="gs-small" data-sync="${esc(s.id)}">Retry sheet sync</button>`:''}${sync.status!=='synced'?`<button class="gs-small gs-danger" data-remove-setup="${esc(s.id)}">Archive</button>`:''}</div><details class="gs-domain-details"><summary>Account details</summary><dl class="gs-facts"><div><dt>Account manager</dt><dd>${esc(name(s.account_manager_id))}</dd></div><div><dt>Purchase asset</dt><dd>${esc(p?.asset_tag||d?.asset_tag||'Not allocated')}</dd></div><div><dt>Sheet destination</dt><dd>${kind}</dd></div></dl>${s.notes?`<p class="gs-help">${esc(s.notes)}</p>`:''}</details><div class="gs-sync ${sync.status==='error'?'error':''}">${sync.status==='synced'?`Live in ${esc(sync.tab)} · row ${sync.row}${safeLink?` · <a href="${esc(safeLink)}" target="_blank" rel="noopener noreferrer">Open sheet row ↗</a>`:''}`:sync.status==='error'?`Sheet sync needs attention: ${esc(sync.message)}${safeLink?` · <a href="${esc(safeLink)}" target="_blank" rel="noopener noreferrer">Open affected sheet row ↗</a>`:''}`:s.stage==='Setup complete'?'Saved as complete · sheet sync pending':''}</div></article>`;
+  }
   function renderSetups(){
     const search=$('gs-search').value.toLowerCase(),stage=$('gs-filter-stage').value,manager=$('gs-filter-manager').value,section=$('gs-filter-section').value;
-    const rows=state().setups.filter(s=>!s.archived&&(!stage||s.stage===stage)&&(!manager||s.account_manager_id===manager)&&(!section||s.section===section)&&(!search||[s.domain,s.email,s.client_name].join(' ').toLowerCase().includes(search))).slice().reverse();
-    $('gs-setup-list').innerHTML=rows.length?rows.map(s=>{
-      const d=device(s.device_id),p=s.purchase_device,sync=s.sync||{},kind=s.section==='client'?'Client':'Biz Dev';
-      const purchase=p?`${p.label} · ${p.member}`:d?label(d):'Not allocated';
-      const safeLink=sync.url&&/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]+\/edit#gid=\d+&range=A\d+$/.test(sync.url)?sync.url:null;
-      return `<article class="gs-card" data-setup="${esc(s.id)}"><div class="gs-card-head"><div><h4>${esc(s.domain)}</h4><small>${esc(s.client_name||kind)} · ${esc(s.email||'Sending email not added yet')}</small></div><span class="gs-badge ${s.stage==='Setup complete'?'complete':s.stage==='Purchase made'?'purchased':''}">${esc(s.stage)}</span></div><dl class="gs-facts"><div><dt>Account manager</dt><dd>${esc(name(s.account_manager_id))}</dd></div><div><dt>Setup owner</dt><dd>${esc(name(s.operator_id))}</dd></div><div><dt>Purchase device</dt><dd>${esc(purchase)}${p?`<small> · ${esc(p.asset_tag)}</small>`:''}${d?.status==='Blocked'?`<span class="gs-badge blocked">${esc(condition(d))} · do not use</span>`:''}</dd></div><div><dt>Sheet destination</dt><dd>${kind} · Live on completion</dd></div></dl><div class="gs-actions">${s.stage!=='Setup complete'?`<button class="gs-primary" data-next="${esc(s.id)}" data-stage="${s.stage==='Not started'?'Purchase made':'Setup complete'}">${s.stage==='Not started'?'Mark purchase made':'Mark setup complete'}</button>`:''}${sync.status!=='synced'?`<button data-edit-setup="${esc(s.id)}">Edit details</button>`:''}${s.stage==='Setup complete'&&sync.status!=='synced'?`<button data-sync="${esc(s.id)}">Retry sheet sync</button>`:''}${sync.status!=='synced'?`<button class="gs-small gs-danger" data-remove-setup="${esc(s.id)}">Archive</button>`:''}</div>${s.notes?`<p class="gs-help">${esc(s.notes)}</p>`:''}<div class="gs-sync ${sync.status==='error'?'error':''}">${sync.status==='synced'?`Live in ${esc(sync.tab)} · row ${sync.row}${safeLink?` · <a href="${esc(safeLink)}" target="_blank" rel="noopener noreferrer">Open sheet row ↗</a>`:''}`:sync.status==='error'?`Sheet sync needs attention: ${esc(sync.message)}${safeLink?` · <a href="${esc(safeLink)}" target="_blank" rel="noopener noreferrer">Open affected sheet row ↗</a>`:''}`:s.stage==='Setup complete'?'Saved as complete · sheet sync pending':'The sheet is updated when setup is complete.'}</div></article>`;
-    }).join(''):'<div class="gs-empty"><strong>No setups to show</strong>Add a new setup or change your filters.</div>';
+    const all=state().setups.filter(s=>!s.archived);
+    const matches=s=>(!stage||s.stage===stage)&&(!manager||s.account_manager_id===manager)&&(!section||s.section===section)&&(!search||[s.domain,s.email,s.client_name].join(' ').toLowerCase().includes(search));
+    const clients=state().clients||[];
+    const current=clients.find(c=>c.id===selectedClient);
+    if(!current)selectedClient=null;
+    $('gs-client-list').hidden=Boolean(current);$('gs-client-detail').hidden=!current;
+    $('gs-back-clients').hidden=!current;
+    $('gs-client-heading').textContent=current?current.name:'Clients';
+    $('gs-client-caption').textContent=current?`${name(current.account_manager_id)} · ${current.section==='client'?'Client':'Biz Dev'} · Completed domains move to the bottom`:'Choose a client to view its domains and setup stages.';
+    $('gs-add-setup').textContent=current?'+ Add domain':'+ Client';
+    const visible=clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).filter(c=>{
+      const domains=all.filter(s=>s.client_id===c.id);
+      return domains.length?domains.some(matches):!stage&&(!manager||c.account_manager_id===manager)&&(!section||c.section===section)&&(!search||c.name.toLowerCase().includes(search));
+    });
+    $('gs-client-list').innerHTML=visible.length?visible.map(c=>{
+      const domains=all.filter(s=>s.client_id===c.id),complete=domains.filter(s=>s.stage==='Setup complete').length;
+      return `<button class="gs-client-card" data-open-client="${esc(c.id)}"><div><strong>${esc(c.name)}</strong><small>${esc(name(c.account_manager_id))} · ${c.section==='client'?'Client':'Biz Dev'}</small></div><div class="gs-client-counts"><span>${domains.length} ${domains.length===1?'domain':'domains'}</span><span>${domains.length-complete} to do</span><span class="gs-complete-count">${complete} complete</span><span aria-hidden="true">→</span></div></button>`;
+    }).join(''):'<div class="gs-empty"><strong>No clients to show</strong>Add a client first, then add its domains.</div>';
+    if(current){
+      const domains=all.filter(s=>s.client_id===current.id&&matches(s));
+      const pending=domains.filter(s=>s.stage!=='Setup complete'),complete=domains.filter(s=>s.stage==='Setup complete');
+      const order=(a,b)=>a.domain.localeCompare(b.domain);
+      $('gs-setup-list').innerHTML=domains.length?`${pending.length?`<h4 class="gs-list-heading">In progress <span>${pending.length}</span></h4>${pending.sort(order).map(renderDomain).join('')}`:''}${complete.length?`<h4 class="gs-list-heading gs-complete-heading">Complete <span>${complete.length}</span></h4>${complete.sort(order).map(renderDomain).join('')}`:''}`:'<div class="gs-empty"><strong>No domains to show</strong>Add a domain to this client or change your filters.</div>';
+    }else $('gs-setup-list').innerHTML='';
   }
   function renderTeam(){
     const active=state().members.filter(m=>m.active),pool={id:null,name:'Unallocated pool',email:''};
@@ -60,19 +91,37 @@
   function editMember(id){const m=member(id)||{};dialog(id?'Edit team member':'Add team member',`<div class="gs-form-grid">${field('Name','gs-member-name',m.name,'required maxlength="100"')}${field('Team email (optional)','gs-member-email',m.email,'type="email" maxlength="254"')}</div>`,async()=>{await change('member_save',{...(id?{id}:{}),name:value('gs-member-name'),email:value('gs-member-email')});message('Team member saved.');});}
   function addDevices(owner=''){
     const counts=Array.from({length:11},(_,i)=>`<option value="${i}">${i}</option>`).join('');
-    dialog('Add device inventory',`<div class="gs-form-grid"><label class="gs-wide">Allocate to<select id="gs-device-owner">${memberOptions(owner,true)}</select></label><label>Number of phones<select id="gs-device-phones">${counts}</select></label><label>Number of PCs<select id="gs-device-pcs">${counts}</select></label><label class="gs-wide">Current condition<select id="gs-device-condition">${conditions.map(([v,l])=>`<option value="${esc(v)}">${l}</option>`).join('')}</select></label></div><p>Only add physical devices you already have. Each gets a permanent asset label; only unused stock counts towards the reserve of 20.</p>`,async()=>{await change('devices_add',{member_id:value('gs-device-owner')||null,phones:Number(value('gs-device-phones')),pcs:Number(value('gs-device-pcs')),...conditionData(value('gs-device-condition'))});message('Device inventory added.');});
+    dialog('Add device inventory',`<div class="gs-form-grid"><label class="gs-wide">Allocate to<select id="gs-device-owner">${memberOptions(owner,true)}</select></label><label>Number of phones<select id="gs-device-phones">${counts}</select></label><label>Number of PCs<select id="gs-device-pcs">${counts}</select></label><label class="gs-wide">Current condition<select id="gs-device-condition">${conditions.map(([v,l])=>`<option value="${esc(v)}">${l}</option>`).join('')}</select></label></div>`,async()=>{await change('devices_add',{member_id:value('gs-device-owner')||null,phones:Number(value('gs-device-phones')),pcs:Number(value('gs-device-pcs')),...conditionData(value('gs-device-condition'))});message('Device inventory added.');});
   }
-  function editDevice(id){const d=device(id);dialog(label(d),`<div class="gs-form-grid">${field('Physical asset label','gs-asset-tag',d.asset_tag,'required maxlength="80"')}<label>Allocate to<select id="gs-transfer-owner">${memberOptions(d.member_id,true)}</select></label><label>Condition<select id="gs-asset-status">${conditions.map(([v,l])=>`<option value="${esc(v)}" ${v===(d.status==='Blocked'?'Blocked|'+(d.block_reason||'Other'):d.status)?'selected':''} ${d.status==='Blocked'&&!v.startsWith('Blocked')||d.used_at&&v==='Unused'?'disabled':''}>${l}</option>`).join('')}</select></label></div><p>A used device stays out of the new-device reserve. Blocked devices cannot be used or restored as fresh stock.</p><button type="button" id="gs-remove-device" class="gs-danger">Remove from inventory</button>`,async()=>{await change('device_update',{id,member_id:value('gs-transfer-owner')||null,...conditionData(value('gs-asset-status')),asset_tag:value('gs-asset-tag')});message('Device updated.');});$('gs-remove-device').onclick=()=>{if(confirm('Remove this device from active inventory? Purchase history will be retained.'))run(async()=>{await change('device_remove',{id});$('gs-dialog').close();message('Device removed from active inventory.');});};}
+  function editDevice(id){const d=device(id);dialog(label(d),`<div class="gs-form-grid">${field('Physical asset label','gs-asset-tag',d.asset_tag,'required maxlength="80"')}<label>Allocate to<select id="gs-transfer-owner">${memberOptions(d.member_id,true)}</select></label><label>Condition<select id="gs-asset-status">${conditions.map(([v,l])=>`<option value="${esc(v)}" ${v===(d.status==='Blocked'?'Blocked|'+(d.block_reason||'Other'):d.status)?'selected':''} ${d.status==='Blocked'&&!v.startsWith('Blocked')||d.used_at&&v==='Unused'?'disabled':''}>${l}</option>`).join('')}</select></label></div><button type="button" id="gs-remove-device" class="gs-danger">Remove from inventory</button>`,async()=>{await change('device_update',{id,member_id:value('gs-transfer-owner')||null,...conditionData(value('gs-asset-status')),asset_tag:value('gs-asset-tag')});message('Device updated.');});$('gs-remove-device').onclick=()=>{if(confirm('Remove this device from active inventory? Purchase history will be retained.'))run(async()=>{await change('device_remove',{id});$('gs-dialog').close();message('Device removed from active inventory.');});};}
+  function addClient(){
+    dialog('Add client',`<div class="gs-form-grid">${field('Client / company name','gs-client-name','','required maxlength="150"')}<label>Section<select id="gs-client-section"><option value="client">Client · 1) Emails - entry</option><option value="bizdev">Biz Dev · 1) BD Emails - entry</option></select></label><label>Account manager<select id="gs-client-manager" required>${memberOptions()}</select></label><label>Default setup owner (optional)<select id="gs-client-operator">${memberOptions()}</select></label></div>`,async()=>{
+      const existing=new Set(state().clients.map(c=>c.id));
+      const r=await change('client_save',{name:value('gs-client-name'),section:value('gs-client-section'),account_manager_id:value('gs-client-manager'),operator_id:value('gs-client-operator')||null});
+      openClient(r.state.clients.find(c=>!existing.has(c.id)).id);message('Client added. Add its first domain to get started.');
+    });
+  }
   function editSetup(id){
     const s=state().setups.find(s=>s.id===id)||{};
-    dialog(id?'Edit setup':'New Gmail setup',`<div class="gs-form-grid"><label>Account manager<select id="gs-job-manager" required>${memberOptions(s.account_manager_id)}</select></label><label>Setup owner<select id="gs-job-operator" required>${memberOptions(s.operator_id)}</select></label><label>Sheet section<select id="gs-job-section"><option value="client" ${s.section==='client'?'selected':''}>Client</option><option value="bizdev" ${s.section==='bizdev'?'selected':''}>Biz Dev</option></select></label>${field('Client / company name','gs-job-client',s.client_name,'maxlength="150"')}${field('Domain','gs-job-domain',s.domain,'required maxlength="253" placeholder="your-company.com"')}${field('Sending email','gs-job-email',s.email,'type="email" maxlength="254" placeholder="me@your-company.com"')}<label class="gs-wide">Purchase device<select id="gs-job-device"><option value="">Allocate a device later</option></select></label>${field('Email order in sheet','gs-job-order',s.order||1,'type="number" min="1" max="1000" required')}<label class="gs-wide">Notes (optional)<textarea id="gs-job-notes" maxlength="1000">${esc(s.notes)}</textarea></label></div><p>Record purchase first. When marked Setup complete, the sending email is added to the selected sheet tab as Live.</p>`,async()=>{await change('setup_save',{...(id?{id}:{}),account_manager_id:value('gs-job-manager'),operator_id:value('gs-job-operator'),section:value('gs-job-section'),client_name:value('gs-job-client'),domain:value('gs-job-domain'),email:value('gs-job-email'),device_id:value('gs-job-device')||null,order:Number(value('gs-job-order')),notes:value('gs-job-notes')});message('Setup saved.');});
+    const c=state().clients.find(c=>c.id===(s.client_id||selectedClient));
+    if(!c)return addClient();
+    dialog(id?'Edit domain':`Add domain to ${c.name}`,`<div class="gs-form-grid"><label>Account manager<select id="gs-job-manager" required>${memberOptions(s.account_manager_id||c.account_manager_id)}</select></label><label>Setup owner<select id="gs-job-operator" required>${memberOptions(s.operator_id||c.operator_id)}</select></label>${field('Email','gs-job-email',s.email,'type="email" required maxlength="254"')}<label>Stage<select id="gs-job-stage">${stageOptions(s.stage||'Not started')}</select></label>${field('Email order in sheet','gs-job-order',s.order||1,'type="number" min="1" max="1000" required')}<label class="gs-wide">Purchase device<select id="gs-job-device"><option value="">Allocate a device later</option></select></label><label class="gs-wide">Notes (optional)<textarea id="gs-job-notes" maxlength="1000">${esc(s.notes)}</textarea></label></div>`,async()=>{
+      const r=await change('setup_save',{...(id?{id}:{}),client_id:c.id,stage:value('gs-job-stage'),account_manager_id:value('gs-job-manager'),operator_id:value('gs-job-operator'),section:c.section,client_name:c.name,email:value('gs-job-email'),device_id:value('gs-job-device')||null,order:Number(value('gs-job-order')),notes:value('gs-job-notes')});
+      const job=r.state.setups.find(j=>j.id===id)||r.state.setups.at(-1);
+      message(job.sync.status==='error'?'Domain saved; sheet sync needs attention. See its row.':'Domain saved.',job.sync.status==='error');
+    });
     function options(){const owner=value('gs-job-operator'),reserved=new Set(state().setups.filter(j=>!j.archived&&j.stage==='Not started'&&j.id!==id).map(j=>j.device_id));$('gs-job-device').innerHTML='<option value="">Allocate a device later</option>'+state().devices.filter(d=>d.id===s.device_id||!d.archived&&d.status!=='Blocked'&&d.member_id===owner&&!reserved.has(d.id)).map(d=>`<option value="${esc(d.id)}" ${d.id===s.device_id?'selected':''}>${esc(label(d))} · ${esc(d.status)} · ${esc(d.asset_tag)}</option>`).join('');if(s.stage&&s.stage!=='Not started')$('gs-job-device').disabled=true;}
     $('gs-job-operator').onchange=options;options();
+    $('gs-job-stage').onchange=()=>{$('gs-job-device').required=$('gs-job-stage').value!=='Not started';};
+    $('gs-job-stage').onchange();
   }
   $('gs-form').onsubmit=ev=>{ev.preventDefault();run(async()=>{await submitForm();$('gs-dialog').close();});};
   for(const id of ['gs-dialog-close','gs-dialog-cancel'])$(id).onclick=()=>$('gs-dialog').close();
   $('gs-refresh').onclick=()=>run(async()=>{await refresh();message('Team tracker refreshed.');});
-  $('gs-add-setup').onclick=()=>editSetup();$('gs-add-member').onclick=()=>editMember();$('gs-add-devices').onclick=()=>addDevices();
+  $('gs-add-setup').onclick=()=>selectedClient?editSetup():addClient();
+  $('gs-back-clients').onclick=()=>openClient(null);
+  $('gs-client-list').onclick=e=>{const b=e.target.closest('[data-open-client]');if(b)openClient(b.dataset.openClient);};
+  window.addEventListener('popstate',()=>{selectedClient=new URLSearchParams(location.hash.slice(1)).get('client');if(board)renderSetups();});$('gs-add-member').onclick=()=>editMember();$('gs-add-devices').onclick=()=>addDevices();
   $('gs-tab-setups').onclick=()=>tab('setups');$('gs-tab-devices').onclick=()=>tab('devices');
   for(const id of ['gs-search','gs-filter-stage','gs-filter-manager','gs-filter-section'])$(id).addEventListener('input',renderSetups);
   $('gs-stock').onclick=e=>{if(e.target.closest('[data-stock-add]')){tab('devices');addDevices();}};
@@ -86,9 +135,14 @@
   $('gs-setup-list').onclick=e=>{
     const b=e.target.closest('button');if(!b)return;
     if(b.dataset.editSetup)return editSetup(b.dataset.editSetup);
-    if(b.dataset.next)return run(async()=>{message(b.dataset.stage==='Setup complete'?'Saving completion and syncing the Live sheet row…':'Recording the purchase device…');const r=await change('setup_stage',{id:b.dataset.next,stage:b.dataset.stage});const job=r.state.setups.find(s=>s.id===b.dataset.next);message(job.sync.status==='error'?'Setup complete and saved. Sheet sync needs attention; see the setup card.':'Stage updated'+(job.sync.status==='synced'?' and verified Live in the sheet.':'.'),job.sync.status==='error');});
     if(b.dataset.sync)return run(async()=>{message('Reconciling the sheet row…');const r=await api('/setups/'+b.dataset.sync+'/sync',{});accept(r);const job=r.state.setups.find(s=>s.id===b.dataset.sync);message(job.sync.status==='synced'?'Sending email verified Live in the strategy sheet.':job.sync.message,job.sync.status!=='synced');});
     if(b.dataset.removeSetup&&confirm('Archive this setup? Device usage history will be retained.'))run(async()=>{await change('setup_remove',{id:b.dataset.removeSetup});message('Setup archived.');});
+  };
+  $('gs-setup-list').onchange=e=>{
+    const select=e.target.closest('[data-set-stage]');if(!select)return;
+    const id=select.dataset.setStage,next=select.value,job=state().setups.find(s=>s.id===id);if(next===job.stage)return;
+    if(!job.device_id||next==='Setup complete'&&!job.email){renderSetups();editSetup(id);$('gs-job-stage').value=next;$('gs-job-stage').onchange();return;}
+    run(async()=>{try{message(next==='Setup complete'?'Saving completion and syncing the Live sheet row…':'Recording purchase and device…');const r=await change('setup_stage',{id,stage:next});const updated=r.state.setups.find(s=>s.id===id);message(updated.sync.status==='error'?'Setup complete and saved. Sheet sync needs attention; see its row.':next==='Setup complete'?'Setup complete. The domain is now at the bottom of this client’s list.':'Stage updated.',updated.sync.status==='error');}finally{renderSetups();}});
   };
   $('gs-check-sheet').onclick=()=>run(async()=>{const r=await api('/check-sheet',{});$('gs-sheet-status').textContent=r.message;message(r.ready?'Sheet write access is ready.':'Sheet write access needs attention.',!r.ready);});
   // Refresh shared counts without disturbing an open edit form or active request.

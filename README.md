@@ -18,7 +18,13 @@ no new service, frontend build step or database provider.
 ## Gmail Set / account setup tracker
 
 Open **Operations → Gmail Set** (`/gmail-set`). The main tool tracks the shared
-company setup journey: **Not started → Purchase made → Setup complete**. It starts
+company setup journey: **Not started → Purchase made → Setup complete**.
+Create a client first, click its card, then add accounts by entering only the
+sending email. The server derives the domain automatically. The
+client list shows counts instead of every domain; unfinished domains appear above
+completed ones in each client’s domain list. Each domain has a stage dropdown,
+and the add/edit form also lets you choose its stage. Existing flat records are
+grouped automatically without changing their sheet rows or purchase history. It starts
 with the instruction to use the GPT domain clustering plugin in Notion; clustering
 is no longer the main workflow.
 
@@ -37,10 +43,13 @@ is no longer the main workflow.
 - Both the tool and the Operations card alert when the company has fewer than
   20 unused devices (phones + PCs combined). Counts refresh after every change
   and while visible. No external notifications or purchases are sent.
-- Completion is saved before attempting Google sync. The correct authorised tab
+- Selecting a later stage records purchase/device history as needed; choosing
+  Setup complete also publishes the sending email. Earlier purchase/Live history
+  cannot be erased by moving a stage backwards. Completion is saved before attempting Google sync. The correct authorised tab
   is selected, columns are resolved by headings (including the moved BD Live
   column), existing exact emails/row markers are reconciled, and a native row is
-  inserted atomically with Live checked and checkbox validation. Readback verifies
+  inserted immediately after the last actual email/domain entry (ignoring the
+  blank/formatted tail), atomically with Live checked and checkbox validation. Readback verifies
   the email and Live value. No recovery code or password columns are read/copied.
 - Failed sync remains visibly retryable. Workspace-wide conditional revisions
   and a persistent 180-second write lease prevent overlapping tool writes. A
