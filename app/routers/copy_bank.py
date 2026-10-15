@@ -26,6 +26,7 @@ async def copy_bank(request: Request):
         "supabase_anon_key": os.environ.get("SUPABASE_ANON_KEY", ""),
         "sop_key":           "copy_bank",
         "is_admin":          role == "admin" or not auth.auth_enabled(),
+        "is_approver":       role in {"admin", "reviewer"} or not auth.auth_enabled(),
     })
 
 

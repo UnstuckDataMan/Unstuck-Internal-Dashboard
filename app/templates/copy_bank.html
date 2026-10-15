@@ -2563,6 +2563,7 @@
 // ════════════════════════════════════════════════════════
 const SUPABASE_URL      = "{{ supabase_url }}";
 const SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+const IS_APPROVER       = {{ 'true' if is_approver else 'false' }};
 const SB_TABLE          = "copy_bank_templates";
 const SB_CLIENTS_TABLE  = "clients";
 const PROFILES_KEY      = "__cb_profiles__";
@@ -4323,7 +4324,7 @@ function setPendingApprovalState(createdAt) {
   document.getElementById('view-pending-date').textContent = dateStr;
   document.getElementById('view-pending-banner').style.display = 'flex';
   document.getElementById('request-approval-btn').style.display = 'none';
-  document.getElementById('approve-btn').style.display = '';
+  document.getElementById('approve-btn').style.display = IS_APPROVER ? '' : 'none';
 }
 
 function setNormalApprovalState() {
