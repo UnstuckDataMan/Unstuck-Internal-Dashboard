@@ -101,7 +101,7 @@ def access(request: Request):
     # Even AUTH_DISABLED cannot expose saved private inventories on the internet.
     user = auth.get_session_user(request)
     if not user:
-        raise HTTPException(401, 'Sign in to use Domain Cluster Builder.')
+        raise HTTPException(401, 'Sign in to use Gmail Set.')
     if 'gmail_set' not in user.get('tools', []):
         raise HTTPException(403, 'Gmail Set access required.')
     return user
@@ -143,8 +143,7 @@ def response(state, **extra):
     return {'state': state, 'analysis': e.analyse(state), **extra}
 
 
-@router.get('/gmail-set')
-@router.get('/domain-cluster-builder', include_in_schema=False)
+@router.get('/domain-cluster-builder/legacy', include_in_schema=False)
 def page(request: Request, user=Depends(access)):
     request.session.setdefault('domain_csrf', secrets.token_urlsafe(32))
     return templates.TemplateResponse(request, 'domain_cluster.html', {'csrf': request.session['domain_csrf'], 'families': {k: v[0] for k, v in e.FAMILIES.items()}, 'can_setup':user.get('role')=='admin'})

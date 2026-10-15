@@ -14,7 +14,7 @@ from app.routers import (
     gender, city, dnc, reply_bank, mail_merge, copy_bank, copy_bank_export,
     campaigns, launch_checker, targeting_checker, bd_targeting, profiles,
     auth as auth_router, admin, sops, outbound_pulse, pulse_portal, credit_control,
-    client_benchmarks, domain_cluster,
+    client_benchmarks, domain_cluster, gmail_setup,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ async def _lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Pulse sync scheduler could not start: %s", exc)
 
-    from app.utils.domain_cluster.diagnostics import start_check
+    from app.utils.gmail_setup.diagnostics import start_check
     start_check()
 
     yield  # app runs here
@@ -79,7 +79,7 @@ async def auth_gate(request: Request, call_next):
     if blocked is not None:
         return blocked
     # Bound domain-tool JSON before model parsing, including chunked requests.
-    domain_tool = request.url.path.startswith('/api/domain-cluster')
+    domain_tool = request.url.path.startswith(('/api/domain-cluster', '/api/gmail-setup'))
     if domain_tool and request.method == 'POST':
         chunks, total = [], 0
         async for chunk in request.stream():
@@ -135,6 +135,7 @@ app.include_router(outbound_pulse.router)
 app.include_router(pulse_portal.router)
 app.include_router(credit_control.router)
 app.include_router(client_benchmarks.router)
+app.include_router(gmail_setup.router)
 app.include_router(domain_cluster.router)
 
 

@@ -15,10 +15,51 @@ Render environment variables; the app reads its environment, not a committed `.e
 build (`pip install -r requirements.txt`) and start commands. This feature introduces
 no new service, frontend build step or database provider.
 
-## Gmail Set / Domain Cluster Builder
+## Gmail Set / account setup tracker
 
-Open **Operations → Gmail Set** (`/gmail-set`). Staff and reviewer roles receive the
-`gmail_set` tool by default; viewers need an explicit admin grant. Existing sessions
+Open **Operations → Gmail Set** (`/gmail-set`). The main tool tracks the shared
+company setup journey: **Not started → Purchase made → Setup complete**. It starts
+with the instruction to use the GPT domain clustering plugin in Notion; clustering
+is no longer the main workflow.
+
+- The tracker seeds its member list from active dashboard users in the signed-in
+  workspace. Members can be added, edited or removed within this tool without
+  changing dashboard login access. Open work must be reassigned before removal.
+- Record account manager, setup owner, client/Biz Dev section, root domain,
+  sending email, order and purchase device. Purchase records snapshot the actual
+  device and asset label; removing/transferring equipment preserves that history.
+- Add actual inventory in batches of 0–10 phones and 0–10 PCs per person, with
+  labels Phone 1–10 and PC 1–10 plus stable physical asset IDs. The unallocated pool
+  supports stock awaiting assignment. No imaginary devices are seeded.
+- Unused, Used and Blocked states are separate from allocation. **Block QR code**
+  and **Block Payment** are explicit block reasons. All blocked equipment is red
+  and excluded from purchases; previously used devices never count as new stock.
+- Both the tool and the Operations card alert when the company has fewer than
+  20 unused devices (phones + PCs combined). Counts refresh after every change
+  and while visible. No external notifications or purchases are sent.
+- Completion is saved before attempting Google sync. The correct authorised tab
+  is selected, columns are resolved by headings (including the moved BD Live
+  column), existing exact emails/row markers are reconciled, and a native row is
+  inserted atomically with Live checked and checkbox validation. Readback verifies
+  the email and Live value. No recovery code or password columns are read/copied.
+- Failed sync remains visibly retryable. Workspace-wide conditional revisions
+  and a persistent 180-second write lease prevent overlapping tool writes. A
+  retry reconciles committed external writes after a timeout or process restart.
+- The strategy-sheet service account requires **Editor** access. The tool can
+  check Drive `capabilities.canEdit` without writing a fake setup row.
+- Apply `migrations/gmail_setup_schema.sql` to the existing Supabase project. RLS
+  is enabled with no browser policies/grants; only the server service role can
+  access the workspace-scoped board. Google dashboard sessions, tool access and
+  CSRF protect every tracker mutation. State is shared within the workspace.
+
+The previous domain-planning APIs and private saved portfolios remain intact.
+The old planner UI is available at `/domain-cluster-builder/legacy` for historical
+records. `/domain-cluster-builder` now opens the account setup tracker.
+
+## Legacy Domain Cluster Builder
+
+The legacy planner is at `/domain-cluster-builder/legacy`. Staff and reviewer roles
+receive the `gmail_set` tool by default; viewers need an explicit admin grant. Existing sessions
 must sign out and back in to receive the new tool permission.
 
 The default workflow reads the current Live checkboxes from **both** strategy tabs

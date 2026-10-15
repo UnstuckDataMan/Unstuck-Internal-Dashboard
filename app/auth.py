@@ -43,7 +43,7 @@ TOOLS: tuple[str, ...] = (
     "campaigns",
     "client_profiles",      # central client-profile manager
     "roi_calculator",       # manual monthly ROI projections
-    "gmail_set",            # Domain Cluster Builder
+    "gmail_set",            # Gmail setup and device tracker
     "client_benchmarks",    # monthly lead benchmarks by target company size
     "outbound_pulse",       # Smartlead / Meet Alfred funnel reporting
     "launch_checker",
@@ -65,6 +65,7 @@ ROUTE_TOOL_MAP: tuple[tuple[str, str], ...] = (
     ("/gmail-set", "gmail_set"),
     ("/domain-cluster-builder", "gmail_set"),
     ("/api/domain-cluster", "gmail_set"),
+    ("/api/gmail-setup", "gmail_set"),
     ("/dnc-removal",                      "dnc"),
     ("/api/dnc",                          "dnc"),
     ("/api/merge",                        "mail_merge"),
