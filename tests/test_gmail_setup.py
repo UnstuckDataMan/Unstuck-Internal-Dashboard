@@ -49,7 +49,8 @@ def create_setup(owner,device_id=None,domain='cedarclients.com',email='me@cedarc
 def test_shared_board_roster_scope_and_no_fake_stock(board_db):
     initial=s.board(USER)
     assert len(initial['state']['members'])==3 and initial['state']['devices']==[]
-    assert s.summary(initial['state'])['shortfall']==20
+    assert s.summary(initial['state'])['shortfall']==30
+    change('reserve_set',{'target':20})
     assert not s.result(initial)['state'].get('sync_lock')
     ids=people();devices(ids['Dylan'],phones=10,pcs=10)
     assert len(s.board(OTHER)['state']['devices'])==20
@@ -68,7 +69,7 @@ def test_block_reasons_excluded_red_state_and_reserve(board_db,reason):
     d=record['state']['devices'][0]
     record=change('device_update',{'id':d['id'],'status':'Blocked','block_reason':reason})
     assert record['state']['devices'][0]['block_reason']==reason
-    assert s.summary(record['state'])['unused']==19 and s.summary(record['state'])['shortfall']==1
+    assert s.summary(record['state'])['unused']==19 and s.summary(record['state'])['shortfall']==11
     with pytest.raises(HTTPException):create_setup(owner,d['id'])
     with pytest.raises(HTTPException):change('device_update',{'id':d['id'],'status':'Unused'})
 
@@ -247,7 +248,11 @@ def test_tracker_routes_auth_csrf_schema_and_shared_visibility(client,board_db,m
     assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'device_update','data':{'id':r.json()['state']['devices'][0]['id'],'status':None}}).status_code==400
     assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'devices_add','data':{'member_id':owner,'phones':11}}).status_code==400
     assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'setup_save','data':{'workspace_id':'injected'}}).status_code==400
+    assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'reserve_set','data':{'target':0}}).status_code==400
+    assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'reserve_set','data':{'target':5001}}).status_code==400
+    assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'reserve_set','data':{'target':35}}).status_code==200
     user['email']=OTHER['email'];assert client.get('/api/gmail-setup/summary').json()['unused']==20
+    assert client.get('/api/gmail-setup/summary').json()['target']==35
     assert 'sync_lock' not in client.get('/api/gmail-setup').json()['state']
 
 
@@ -583,13 +588,14 @@ def test_failed_setup_can_reset_and_use_a_replacement_without_erasing_phone_hist
     record=change('setup_stage',{'id':jid,'stage':'Not started'})
     job=record['state']['setups'][0]
     assert job['stage']=='Not started' and job['device_id'] is None
-    assert job['device_failures']==failed['device_failures']
-    assert record['state']['devices'][0]['status']=='Blocked' and record['state']['devices'][0]['use_count']==1
+    assert [f['device'] for f in job['device_failures']]==[f['device'] for f in failed['device_failures']]
+    assert all(f.get('reverted_at') for f in job['device_failures'])
+    assert record['state']['devices'][0]['status']=='Unused' and record['state']['devices'][0]['use_count']==0
     record=change('setup_device',{'id':jid,'operator_id':owner,'device_id':replacement['id']})
     assert record['state']['devices'][1]['use_count']==0 # allocation for a retry is not a new purchase
     record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
     assert record['state']['setups'][0]['order']==1 and record['state']['devices'][1]['use_count']==1
-    assert record['state']['devices'][0]['status']=='Blocked'
+    assert record['state']['devices'][0]['status']=='Unused'
     if purchased:assert record['state']['setups'][0]['purchase_device_history'][0]['id']==phone['id']
 
 
@@ -628,3 +634,76 @@ def test_bulk_sender_name_autofills_bare_domains_and_preserves_explicit_emails(b
     before=s.board(USER)
     with pytest.raises(HTTPException) as exc:change('setup_bulk',{'client_id':client['id'],'domains':'newdomain.com','sender_name':'invalid sender'})
     assert 'sender name' in exc.value.detail and s.board(USER)==before
+
+
+def test_reserve_target_is_shared_editable_and_defaults_to_thirty(board_db):
+    assert s.summary(s.board(USER)['state'])['target']==30
+    record=change('reserve_set',{'target':40})
+    assert s.summary(record['state'])['shortfall']==40
+    record=devices(people()['Dylan'],phones=3)
+    assert s.summary(record['state'])['shortfall']==37
+    assert s.summary(s.board(OTHER)['state'])['target']==40
+    assert s.summary(s.board({'email':'person@separate-workspace.com'})['state'])['target']==30
+    record=change('reserve_set',{'target':2})
+    assert s.summary(record['state'])['shortfall']==0 and not s.summary(record['state'])['low_stock']
+
+
+def test_reset_failure_restores_remaining_phone_capacity_and_can_reuse_same_phone(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,first=create_setup(owner,phone['id']);change('setup_stage',{'id':first,'stage':'Setup complete'})
+    _,second=create_setup(owner,phone['id'],'failedsecond.com','me@failedsecond.com')
+    change('setup_stage',{'id':second,'stage':'Failed at payment'})
+    record=change('setup_stage',{'id':second,'stage':'Not started'})
+    device=record['state']['devices'][0]
+    assert device['status']=='Used' and device['use_count']==1 and device['setup_ids']==[first]
+    assert record['state']['setups'][1]['device_usage_resets'][phone['id']]
+    for _ in range(3):assert s.board(USER)['state']['devices'][0]['use_count']==1
+    change('setup_device',{'id':second,'operator_id':owner,'device_id':phone['id']})
+    record=change('setup_stage',{'id':second,'stage':'Setup complete'})
+    assert record['state']['devices'][0]['use_count']==2
+    assert phone['id'] not in record['state']['setups'][1].get('device_usage_resets',{})
+
+
+def test_legacy_reset_repairs_stale_block_without_erasing_audit_history(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,jid=create_setup(owner,phone['id']);change('setup_stage',{'id':jid,'stage':'Failed at payment'})
+    stored=board_db[store.workspace(USER)]
+    stored['state']['setups'][0].update(stage='Not started',device_id=None)
+    original_revision=stored['revision']
+    migrated=s.board(USER)
+    assert migrated['revision']==original_revision
+    assert migrated['state']['devices'][0]['status']=='Unused' and migrated['state']['devices'][0]['use_count']==0
+    assert migrated['state']['setups'][0]['device_failures'][0]['device']['id']==phone['id']
+    assert migrated['state']['setups'][0]['device_failures'][0]['reverted_at']
+    assert stored['state']['devices'][0]['status']=='Blocked' # read upgrade is not an unleased write
+    saved=change('reserve_set',{'target':30})
+    assert saved['state']['devices'][0]['status']=='Unused'
+    for _ in range(3):assert s.board(USER)['state']['devices'][0]['use_count']==0
+
+
+def test_reset_one_failure_keeps_other_domain_block_and_manual_blocks(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,first=create_setup(owner,phone['id'])
+    _,second=create_setup(owner,phone['id'],'otherfailure.com','me@otherfailure.com')
+    change('setup_stage',{'id':first,'stage':'Failed at QR'})
+    change('setup_stage',{'id':second,'stage':'Failed at payment'})
+    record=change('setup_stage',{'id':first,'stage':'Not started'})
+    assert record['state']['devices'][0]['status']=='Blocked' and record['state']['devices'][0]['use_count']==1
+    record=change('setup_stage',{'id':second,'stage':'Not started'})
+    assert record['state']['devices'][0]['status']=='Unused' and record['state']['devices'][0]['use_count']==0
+    change('setup_device',{'id':first,'operator_id':owner,'device_id':phone['id']})
+    change('setup_stage',{'id':first,'stage':'Failed at QR'})
+    change('device_update',{'id':phone['id'],'status':'Blocked','block_reason':'Other'})
+    record=change('setup_stage',{'id':first,'stage':'Not started'})
+    assert record['state']['devices'][0]['status']=='Blocked' and record['state']['devices'][0]['manual_block']
+    assert record['state']['devices'][0]['block_reason']=='Other'
+
+
+def test_reset_failed_flag_keeps_previous_completed_use(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,jid=create_setup(owner,phone['id']);change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    change('setup_stage',{'id':jid,'stage':'Not started'})
+    change('setup_stage',{'id':jid,'stage':'Failed at QR'})
+    record=change('setup_stage',{'id':jid,'stage':'Not started'})
+    assert record['state']['devices'][0]['status']=='Used' and record['state']['devices'][0]['use_count']==1
+    assert record['state']['setups'][0]['order']==1

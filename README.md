@@ -61,17 +61,24 @@ is no longer the main workflow.
 - Unused, Used and Blocked states are separate from allocation. **Block QR code**
   and **Block Payment** are explicit block reasons. All blocked equipment is red
   and excluded from purchases; previously used devices never count as new stock.
+- Device cards and their detail dialog show linked domains, client names,
+  stages and reset history. Domain links jump to the correct client and row;
+  deleted records remain visible as history.
 - Each phone supports two distinct setups. It is green before use, orange after
   one setup and red after two or any block/failure. Purchases and completion of
   the same setup count once. Red phones cannot be selected for new allocations;
   transfers and edits preserve usage. Known historical uses are recovered on read.
 - Both the tool and the Operations card alert when the company has fewer than
-  20 unused devices (phones + PCs combined). Counts refresh after every change
+  the saved unused-device reserve target (phones + PCs combined), default **30**.
+  Edit the target directly in the large reserve card and choose Save target;
+  the exact shortfall and Operations alert use the same workspace setting. Counts refresh after every change
   and while visible. No external notifications or purchases are sent.
 - Selecting a later stage records purchase/device history as needed; choosing
-  Setup complete also publishes the sending email. Select **Not started** to reopen a completed or failed domain. Blocked devices
-  are released from the current allocation, while phone usage, block history,
-  original completion order and existing sheet rows stay recorded. Re-completing
+  Setup complete also publishes the sending email. Select **Not started** to reopen a completed or failed domain. Resetting a failed attempt removes that attempt’s use and block from its
+  device: it returns to green/Unused if no other use remains, or orange with
+  one other use. Independent manual blocks and other failed domains still apply.
+  Older detached resets are reconciled on read. Failure history, original
+  completion order and existing sheet rows stay recorded. Re-completing
   the same domain reuses its order/row rather than counting another setup. Completion is saved before attempting Google sync. The correct authorised tab
   is selected, columns are resolved by headings (including the moved BD Live
   column), existing exact emails/row markers are reconciled, and a native row is

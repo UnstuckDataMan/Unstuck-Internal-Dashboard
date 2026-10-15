@@ -80,6 +80,10 @@ class Identifier(Strict):
     id: str = Field(max_length=36)
 
 
+class Reserve(Strict):
+    target: int = Field(ge=1, le=5000)
+
+
 class Bulk(Strict):
     client_id: str = Field(max_length=36)
     domains: str = Field(min_length=1, max_length=50000)
@@ -96,7 +100,7 @@ class Assignment(Strict):
 
 class Change(Strict):
     revision: int = Field(ge=0)
-    action: Literal['client_save', 'client_remove', 'setup_bulk', 'setup_assign', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
+    action: Literal['reserve_set', 'client_save', 'client_remove', 'setup_bulk', 'setup_assign', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
     data: dict
 
 
@@ -122,7 +126,7 @@ def get_summary(user=Depends(access)):
 
 @router.post('/api/gmail-setup/change')
 def change(body: Change, user=Depends(mutation_access)):
-    models = {'client_save': Client, 'client_remove': Identifier, 'setup_bulk': Bulk, 'setup_assign': Assignment,
+    models = {'reserve_set': Reserve, 'client_save': Client, 'client_remove': Identifier, 'setup_bulk': Bulk, 'setup_assign': Assignment,
               'member_save': Member, 'member_remove': Identifier, 'devices_add': Devices,
               'device_update': Device, 'device_remove': Identifier, 'setup_save': Setup,
               'setup_stage': Stage, 'setup_device': SetupDevice, 'setup_remove': Identifier}

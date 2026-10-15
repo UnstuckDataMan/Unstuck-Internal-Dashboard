@@ -10,7 +10,7 @@ from . import store
 STAGES = ('Not started', 'Purchase made', 'Setup complete')
 FAILURES = {'Failed at QR': 'QR code', 'Failed at payment': 'Payment'}
 DEVICE_STATUSES = ('Unused', 'Used', 'Blocked')
-RESERVE_TARGET = 20
+RESERVE_TARGET = 30
 LEASE_SECONDS = 180
 
 
@@ -79,17 +79,63 @@ def device_uses(device):
 def ensure_device_usage(state):
     """Recover known historical uses without counting a stage transition twice."""
     known = {}
+    reversed_uses = {}
     for job in state['setups']:
+        for device_id in job.get('device_usage_resets', {}):
+            reversed_uses.setdefault(device_id, set()).add(job['id'])
         snapshots = [job.get('purchase_device') or {}]
         snapshots += job.get('purchase_device_history', [])
         snapshots += [failure.get('device') or {} for failure in job.get('device_failures', [])]
         for snapshot in snapshots:
-            if snapshot.get('id'):
+            if snapshot.get('id') and snapshot['id'] not in job.get('device_usage_resets', {}):
                 known.setdefault(snapshot['id'], set()).add(job['id'])
     for d in state['devices']:
-        setup_ids = set(d.get('setup_ids', [])) | known.get(d['id'], set())
+        previous_ids = set(d.get('setup_ids', []))
+        removed = previous_ids & reversed_uses.get(d['id'], set())
+        setup_ids = (previous_ids | known.get(d['id'], set())) - reversed_uses.get(d['id'], set())
         d['setup_ids'] = sorted(setup_ids)
-        d['use_count'] = max(device_uses(d), len(setup_ids))
+        d['use_count'] = max(device_uses(d)-len(removed), len(setup_ids))
+        if d['use_count'] == 0:
+            d['used_at'] = None
+            if d['status'] == 'Used':
+                d['status'] = 'Unused'
+    # Repair older resets which detached the phone but left its failed state
+    # behind. This is a read-time upgrade; the next CAS mutation persists it.
+    for job in state['setups']:
+        if job['stage'] == STAGES[0] and not job.get('archived') and not job.get('device_id'):
+            failure = next((f for f in reversed(job.get('device_failures', [])) if f.get('device', {}).get('id') and not f.get('reverted_at')), None)
+            if failure:
+                device = next((d for d in state['devices'] if d['id'] == failure['device']['id']), None)
+                if device:
+                    restore_failed_device(state, job, device)
+
+
+def restore_failed_device(state, job, device):
+    failures = [f for f in job.get('device_failures', []) if f.get('device', {}).get('id') == device['id'] and not f.get('reverted_at')]
+    if not failures:
+        return
+    stamp = now()
+    # A previous successful completion remains a real use; otherwise undo
+    # this setup's failed attempt without removing any other domain's use.
+    successful_use = bool(job.get('completed_at') and (job.get('purchase_device') or {}).get('id') == device['id'])
+    if not successful_use:
+        ids = device.get('setup_ids', [])
+        device['use_count'] = max(0, device_uses(device)-int(job['id'] in ids))
+        device['setup_ids'] = [identifier for identifier in ids if identifier != job['id']]
+        job.setdefault('device_usage_resets', {})[device['id']] = stamp
+        if not device['use_count']:
+            device['used_at'] = None
+    others = [s for s in state['setups'] if s['id'] != job['id'] and s['stage'] in FAILURES and s.get('device_id') == device['id'] and device['id'] not in s.get('device_usage_resets', {})]
+    own_block = not device.get('manual_block') and (job['id'] in device.get('block_job_ids', []) or device.get('block_reason') == FAILURES.get(failures[-1]['stage']))
+    device['block_job_ids'] = [identifier for identifier in device.get('block_job_ids', []) if identifier != job['id']]
+    if device['status'] == 'Blocked' and own_block and not others:
+        device.update(status='Used' if device['use_count'] else 'Unused', block_reason=None, blocked_at=None)
+    elif device['status'] == 'Blocked' and others and not device.get('manual_block'):
+        device['block_reason'] = FAILURES[others[-1]['stage']]
+    elif device['status'] == 'Used' and not device['use_count']:
+        device['status'] = 'Unused'
+    for failure in failures:
+        failure['reverted_at'] = stamp
 
 
 def allocation_available(state, device, job_id=None):
@@ -102,7 +148,9 @@ def allocation_available(state, device, job_id=None):
     return reserved == 0
 
 
-def consume_device_use(device, job_id):
+def consume_device_use(device, job):
+    job_id = job['id']
+    job.get('device_usage_resets', {}).pop(device['id'], None)
     if job_id not in device.get('setup_ids', []):
         if device['kind'] == 'Phone' and device_uses(device) >= 2:
             raise HTTPException(409, 'This phone has already been used for two setups. Choose another phone or allocate a device later.')
@@ -125,8 +173,9 @@ def summary(state):
     ensure_device_usage(state)
     devices = [d for d in state['devices'] if not d.get('archived')]
     unused = sum(d['status'] == 'Unused' and not device_uses(d) for d in devices)
-    return {'unused': unused, 'target': RESERVE_TARGET, 'shortfall': max(0, RESERVE_TARGET-unused),
-            'low_stock': unused < RESERVE_TARGET, 'devices': len(devices),
+    target = state.get('reserve_target', RESERVE_TARGET)
+    return {'unused': unused, 'target': target, 'shortfall': max(0, target-unused),
+            'low_stock': unused < target, 'devices': len(devices),
             'blocked': sum(d['status'] == 'Blocked' for d in devices),
             'exhausted_phones': sum(d['kind'] == 'Phone' and device_uses(d) >= 2 for d in devices),
             'not_started': sum(s['stage'] == STAGES[0] or s['stage'] in FAILURES and not s.get('purchase_at') for s in state['setups'] if not s.get('archived')),
@@ -183,7 +232,9 @@ def mutate(user, expected, action, data):
     unlocked(state)
     state['sync_lock'] = None
     outcome = None
-    if action == 'client_save':
+    if action == 'reserve_set':
+        state['reserve_target'] = data['target']
+    elif action == 'client_save':
         current = find(state, 'clients', data['id'], True) if data.get('id') else None
         client_name = re.sub(r'\s+', ' ', text(data['name'], 'Client name'))
         key = client_key(data['section'], client_name)
@@ -300,7 +351,7 @@ def mutate(user, expected, action, data):
                 state['devices'].append({'id': new_id(), 'asset_tag': 'DEV-'+uuid4().hex[:8].upper(), 'kind': kind, 'number': number,
                     'member_id': member_id, 'status': status, 'block_reason': (data.get('block_reason') or 'Other') if status == 'Blocked' else None, 'used_at': now() if status == 'Used' else None,
                     'blocked_at': now() if status == 'Blocked' else None, 'archived': False, 'added_at': now(),
-                    'use_count': 1 if status == 'Used' else 0, 'setup_ids': []})
+                    'use_count': 1 if status == 'Used' else 0, 'setup_ids': [], 'manual_block': status == 'Blocked'})
     elif action == 'device_update':
         d = find(state, 'devices', data['id'], True)
         if 'member_id' in data and data['member_id'] != d['member_id']:
@@ -315,6 +366,8 @@ def mutate(user, expected, action, data):
                 raise HTTPException(409, 'Blocked devices cannot be returned to service. Add a different physical device.')
             if status == 'Unused' and device_uses(d):
                 raise HTTPException(409, 'A used device cannot count as new stock again.')
+            if status == 'Blocked' and (d['status'] != 'Blocked' or data.get('block_reason', d.get('block_reason')) != d.get('block_reason')):
+                d['manual_block'] = True
             d['status'] = status
             if status == 'Blocked':
                 d['blocked_at'] = d['blocked_at'] or now()
@@ -455,7 +508,7 @@ def record_purchase_device(state, job):
         raise HTTPException(409, 'The allocated purchase device is blocked. Select another device.')
     if d['member_id'] != job['operator_id']:
         raise HTTPException(409, 'Allocate the device to the setup owner before recording purchase.')
-    consume_device_use(d, job['id'])
+    consume_device_use(d, job)
     d['status'] = 'Used'
     previous = job.get('purchase_device')
     if previous and previous['id'] != d['id']:
@@ -473,7 +526,10 @@ def set_stage(state, job, stage):
         # The workflow can be reopened independently of recorded purchases,
         # completed sheet writes and the physical phone's usage/block state.
         device = find(state, 'devices', job['device_id']) if job.get('device_id') else None
-        if device and (device['status'] == 'Blocked' or device.get('archived')):
+        was_blocked = device and device['status'] == 'Blocked'
+        if old in FAILURES and device:
+            restore_failed_device(state, job, device)
+        if device and (was_blocked or device.get('archived')):
             job['device_id'] = None
         job.update(stage=stage, updated_at=now())
         return
@@ -487,8 +543,11 @@ def set_stage(state, job, stage):
         if d:
             if d['status'] != 'Blocked' and d['member_id'] != job['operator_id']:
                 raise HTTPException(409, 'Allocate the device to the setup owner before recording failure.')
-            consume_device_use(d, job['id'])
-            d.update(status='Blocked', block_reason=reason, blocked_at=d.get('blocked_at') or now())
+            consume_device_use(d, job)
+            if d['status'] != 'Blocked':
+                d['manual_block'] = False
+            d['block_job_ids'] = sorted(set(d.get('block_job_ids', [])) | {job['id']})
+            d.update(status='Blocked', block_reason=d.get('block_reason') if d.get('manual_block') else reason, blocked_at=d.get('blocked_at') or now())
         # Keep the failed physical asset even when the retry uses a replacement.
         history = job.setdefault('device_failures', [])
         if old != stage or not history or history[-1].get('device', {}).get('id') != job.get('device_id'):
@@ -499,7 +558,7 @@ def set_stage(state, job, stage):
         # zero stock. Only a real recorded device changes reserve counts.
         if old in FAILURES and job.get('device_id') and find(state, 'devices', job['device_id'], True)['status'] == 'Blocked':
             raise HTTPException(409, 'Choose a replacement device or allocate one later before retrying.')
-        if job.get('device_id') and (job.get('purchase_device') or {}).get('id') != job['device_id']:
+        if job.get('device_id') and ((job.get('purchase_device') or {}).get('id') != job['device_id'] or job['device_id'] in job.get('device_usage_resets', {})):
             record_purchase_device(state, job)
         job['purchase_at'] = job.get('purchase_at') or now()
     if stage == STAGES[2] and not job.get('completed_at'):
