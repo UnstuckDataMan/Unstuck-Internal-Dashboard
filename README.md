@@ -64,9 +64,10 @@ is no longer the main workflow.
 - Device cards and their detail dialog show linked domains, client names,
   stages and reset history. Domain links jump to the correct client and row;
   deleted records remain visible as history.
-- Each phone supports two distinct setups. It is green before use, orange after
-  one setup and red after two or any block/failure. Purchases and completion of
-  the same setup count once. Red phones cannot be selected for new allocations;
+- Each phone supports two distinct setups; each PC supports one. Both start green.
+  Phones turn orange after one setup and red after two; PCs turn red after one.
+  Any block/failure also turns the device red. Purchases and completion of
+  the same setup count once. Red devices cannot be selected for new allocations;
   transfers and edits preserve usage. Known historical uses are recovered on read.
 - Both the tool and the Operations card alert when the company has fewer than
   the saved unused-device reserve target (phones + PCs combined), default **30**.

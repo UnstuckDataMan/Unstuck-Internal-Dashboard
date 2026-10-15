@@ -468,6 +468,57 @@ def test_two_phone_slots_can_be_reserved_and_used_without_overbooking(board_db):
     assert record['state']['devices'][0]['use_count']==2
 
 
+def test_pc_allows_one_setup_and_keeps_capacity_after_transfer_and_reopening(board_db):
+    ids=people();pc=devices(ids['Dylan'],phones=0,pcs=1)['state']['devices'][0]
+    _,first=create_setup(ids['Dylan'],pc['id'])
+    # A planned setup reserves the PC's only slot without consuming new stock.
+    assert s.summary(s.board(USER)['state'])['unused']==1
+    with pytest.raises(HTTPException):create_setup(ids['Dylan'],pc['id'],'secondpc.com','me@secondpc.com')
+    change('setup_stage',{'id':first,'stage':'Purchase made'})
+    record=change('setup_stage',{'id':first,'stage':'Setup complete'})
+    assert record['state']['devices'][0]['use_count']==1
+    assert not s.allocation_available(record['state'],record['state']['devices'][0])
+    assert s.summary(record['state'])['unused']==0
+    change('setup_stage',{'id':first,'stage':'Not started'})
+    record=change('setup_stage',{'id':first,'stage':'Setup complete'})
+    assert record['state']['devices'][0]['use_count']==1
+    change('device_update',{'id':pc['id'],'member_id':ids['Matthew']})
+    with pytest.raises(HTTPException):create_setup(ids['Matthew'],pc['id'],'secondpc.com','me@secondpc.com')
+    _,second=create_setup(ids['Matthew'],domain='secondpc.com',email='me@secondpc.com')
+    with pytest.raises(HTTPException):change('setup_device',{'id':second,'operator_id':ids['Matthew'],'device_id':pc['id']})
+    with pytest.raises(HTTPException):change('setup_assign',{'id':second,'device_id':pc['id']})
+
+
+@pytest.mark.parametrize('failure',list(s.FAILURES))
+def test_failed_pc_reset_restores_its_single_slot(board_db,failure):
+    owner=people()['Dylan'];pc=devices(owner,phones=0,pcs=1)['state']['devices'][0]
+    _,first=create_setup(owner,pc['id'])
+    change('setup_stage',{'id':first,'stage':failure})
+    reset=change('setup_stage',{'id':first,'stage':'Not started'})
+    d=reset['state']['devices'][0]
+    assert d['status']=='Unused' and d['use_count']==0
+    assert s.allocation_available(reset['state'],d)
+    _,second=create_setup(owner,pc['id'],'retrypc.com','me@retrypc.com')
+    record=change('setup_stage',{'id':second,'stage':'Setup complete'})
+    assert record['state']['devices'][0]['use_count']==1
+    with pytest.raises(HTTPException):create_setup(owner,pc['id'],'thirdpc.com','me@thirdpc.com')
+
+
+def test_legacy_used_pc_and_overbooked_allocation_cannot_consume_another_use(board_db):
+    owner=people()['Dylan'];pc=devices(owner,phones=0,pcs=1,status='Used')['state']['devices'][0]
+    _,jid=create_setup(owner)
+    stored=board_db[store.workspace(USER)]['state']
+    stored['devices'][0].pop('use_count')
+    # An old pending allocation must not bypass the new capacity at purchase.
+    stored['setups'][0]['device_id']=pc['id']
+    before=s.board(USER)
+    assert before['state']['devices'][0]['use_count']==1
+    assert not s.allocation_available(before['state'],before['state']['devices'][0])
+    with pytest.raises(HTTPException,match='one setup'):
+        change('setup_stage',{'id':jid,'stage':'Purchase made'})
+    assert s.board(USER)==before
+
+
 def test_legacy_phone_usage_recovered_from_history_without_reset(board_db):
     owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
     for i in range(2):

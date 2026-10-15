@@ -128,7 +128,12 @@ require('node:fs').mkdirSync('work',{recursive:true});
  await add();await page.fill('#gs-job-email','me@secondcapacity.com');await page.selectOption('#gs-job-device',capacityPhone.id);await page.selectOption('#gs-job-stage','Setup complete');await save();
  await page.click('#gs-tab-devices');assert.match(await phoneButton().getAttribute('class'),/exhausted phone/);assert.match(await phoneButton().evaluate(e=>getComputedStyle(e).backgroundColor),/248, 113, 113/);assert.match(await phoneButton().textContent(),/2 \/ 2 setups/);
  await phoneButton().screenshot({path:'work/gmail-setup-phone-two-uses.png'});
- await page.click('#gs-tab-setups');await add();assert.equal(await page.locator(`#gs-job-device option[value="${capacityPhone.id}"]`).count(),0);await page.fill('#gs-job-email','me@futureplanning.com');await save();assert.match(await page.locator('[data-setup]').filter({hasText:'futureplanning.com'}).textContent(),/Device not added yet/);
+ // A PC becomes red after its first setup, and cannot be allocated again.
+ const pcButton=page.locator(`[data-device="${pc.id}"]`);
+ assert.match(await pcButton.getAttribute('class'),/exhausted pc/);assert.match(await pcButton.textContent(),/1 \/ 1 setup · do not use/);
+ assert.match(await pcButton.evaluate(e=>getComputedStyle(e).backgroundColor),/248, 113, 113/);
+ assert.equal((await data()).state.devices.find(d=>d.id===pc.id).use_count,1);
+ await page.click('#gs-tab-setups');await add();assert.equal(await page.locator(`#gs-job-device option[value="${pc.id}"]`).count(),0);assert.equal(await page.locator(`#gs-job-device option[value="${capacityPhone.id}"]`).count(),0);await page.fill('#gs-job-email','me@futureplanning.com');await save();assert.match(await page.locator('[data-setup]').filter({hasText:'futureplanning.com'}).textContent(),/Device not added yet/);
  await page.reload();await idle();assert.equal((await data()).state.devices.find(d=>d.id===capacityPhone.id).use_count,2);
  assert.deepEqual(errors,[]);
  await browser.close();console.log('PASS: shared roster, 20-device reserve, add/transfer/remove inventory and members, QR/payment blocks, purchase history, client drill-in/back navigation, visible stage selectors, completed domains sorted last, both sheet destinations, failed sync/retry, filters, Operations alert, device-free planning, exact reported form, green/orange/red two-use phones and mobile layouts.');

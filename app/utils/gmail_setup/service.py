@@ -143,17 +143,18 @@ def allocation_available(state, device, job_id=None):
         return False
     reserved = sum(j['id'] != job_id and not j.get('archived') and j['stage'] == STAGES[0]
         and j.get('device_id') == device['id'] and j['id'] not in device.get('setup_ids', []) for j in state['setups'])
-    if device['kind'] == 'Phone':
-        return device_uses(device) + reserved < 2
-    return reserved == 0
+    capacity = 2 if device['kind'] == 'Phone' else 1
+    return device_uses(device) + reserved < capacity
 
 
 def consume_device_use(device, job):
     job_id = job['id']
     job.get('device_usage_resets', {}).pop(device['id'], None)
     if job_id not in device.get('setup_ids', []):
-        if device['kind'] == 'Phone' and device_uses(device) >= 2:
-            raise HTTPException(409, 'This phone has already been used for two setups. Choose another phone or allocate a device later.')
+        capacity = 2 if device['kind'] == 'Phone' else 1
+        if device_uses(device) >= capacity:
+            usage = 'phone has already been used for two setups' if device['kind'] == 'Phone' else 'PC has already been used for one setup'
+            raise HTTPException(409, f'This {usage}. Choose another device or allocate a device later.')
         device['use_count'] = device_uses(device) + 1
         device.setdefault('setup_ids', []).append(job_id)
     device['used_at'] = device.get('used_at') or now()
