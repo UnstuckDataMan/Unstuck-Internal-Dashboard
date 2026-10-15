@@ -23,8 +23,12 @@ must sign out and back in to receive the new tool permission.
 
 The default workflow reads the current Live checkboxes from **both** strategy tabs
 for every submitted Analyse, Reanalyse or Generate request. It never substitutes a
-cached inventory if Google fails. Review the import preview, apply it, then Save to
-Portfolio. Manual paste / TXT / CSV is also available in the inventory-source selector.
+cached inventory if Google fails. The interface uses the dashboard's dark surfaces,
+purple accents and typography, with three steps: scan live domains, choose ten,
+then set up the new batch. Manual paste / TXT / CSV appears when selected; cluster
+editing, DNS checks, exports and settings are expandable. Planning selections saves
+any unsaved inventory first, then rechecks live capacity before creating the batch.
+Save portfolio remains available for keeping an analysis without a new batch.
 
 ### Storage setup
 
