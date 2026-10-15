@@ -38,12 +38,28 @@ def checked(value):
     return value is True or isinstance(value, str) and value.strip().upper() == 'TRUE'
 
 
+def issue(kind, title, row, column, reason):
+    # Only location and fixed guidance leave this module, never cell contents.
+    cell = chr(ord('A') + column) + str(row)  # Source reads are bounded to A:G.
+    gid = TABS[kind][0]
+    return {'sheet': title, 'sheet_id': gid, 'row': row, 'cell': cell,
+            'url': f'{SOURCE_URL}#gid={gid}&range={cell}', 'reason': reason}
+
+
+def require_valid(source):
+    if source['invalid']:
+        raise HTTPException(409, {'message': f"Fix {len(source['invalid'])} strategy-sheet issues listed below, then retry with a fresh scan.",
+                                  'sheet_issues': source['invalid']})
+
+
 def parse_tab(kind, title, values):
     if not values:
-        raise HTTPException(502, f'The {title} tab has no header. No inventory changes were applied.')
+        raise HTTPException(502, {'message': f'The {title} tab has no header. No inventory changes were applied.',
+                                 'sheet_issues': [issue(kind, title, 1, 0, 'Add the Email and Live column headings in row 1.')]})
     header = next(((i, [str(v).strip().lower() for v in row]) for i, row in enumerate(values[:10]) if any(str(v).strip().lower() == 'live' for v in row) and any(str(v).strip().lower().startswith('email') for v in row)), None)
     if not header:
-        raise HTTPException(502, f'Email and Live columns were not found in {title}. No inventory changes were applied.')
+        raise HTTPException(502, {'message': f'Email and Live columns were not found in {title}. No inventory changes were applied.',
+                                 'sheet_issues': [issue(kind, title, 1, 0, 'Check the header row: Email and Live headings must appear together within rows 1–10 and columns A:G.')]})
     offset, names = header
     email_col = next(i for i,h in enumerate(names) if h.startswith('email'))
     live_col = names.index('live')
@@ -61,7 +77,10 @@ def parse_tab(kind, title, values):
         try:
             domain = e.normalize(str(cell(row, email_col)))
         except ValueError:
-            invalid.append({'sheet': title, 'row': row_number, 'reason': 'Live row has an invalid or missing email/domain. Correct it in the strategy sheet.'})
+            reason = ('Live is checked but Email is empty.' if not str(cell(row, email_col)).strip()
+                      else 'Live is checked but Email contains an invalid email/domain.')
+            invalid.append(issue(kind, title, row_number, email_col,
+                                 reason + ' Enter a valid email or domain, or untick Live if this row is not in use.'))
             continue
         flags = {key: checked(cell(row, names.index(label))) if label in names else False for key, label in [('sheet_at_risk','at risk'), ('sheet_needs_deleting','needs deleting'), ('sheet_replacing','being replaced')]}
         owner = str(cell(row, owner_col)).strip()[:100]
@@ -122,6 +141,7 @@ def refresh(state, source):
     for r in source['records']:
         by_domain.setdefault(r['domain'], []).append(r)
     if not by_domain:
+        require_valid(source)
         raise HTTPException(409, 'No valid Live domains were found. Check the sheet before replacing any inventory.')
     existing = {r['domain']:r for r in state['domains']}
     incoming = set(by_domain)

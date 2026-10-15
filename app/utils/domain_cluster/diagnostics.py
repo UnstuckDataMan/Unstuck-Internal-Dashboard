@@ -30,7 +30,10 @@ def check():
             report['sheets']['issues']=source['invalid']
             report['sheets']['message']='Correct Live rows before generation: '+', '.join(r['sheet']+' row '+str(r['row']) for r in source['invalid'])
     except HTTPException as exc:
-        report['sheets']={'ready':False,'message':str(exc.detail)}
+        detail = exc.detail
+        report['sheets'] = {'ready': False, 'message': detail.get('message', 'Strategy sheet needs attention.') if isinstance(detail, dict) else str(detail)}
+        if isinstance(detail, dict) and detail.get('sheet_issues'):
+            report['sheets']['issues'] = detail['sheet_issues']
     return report
 
 

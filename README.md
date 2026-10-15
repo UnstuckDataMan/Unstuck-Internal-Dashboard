@@ -73,6 +73,11 @@ https://docs.google.com/spreadsheets/d/1PN5Lx-5c4nbouDl-Apw9YJgrYTuoDsBKqzk5Hh6Z
   last saved analysis and rejects stale plans. Google failures or invalid Live
   domains prevent live-mode generation; no cached success or partial inventory is
   treated as current. A zero-domain scan never clears a portfolio automatically.
+- Sheet validation shows the affected tab, row and cell, correction guidance and
+  a direct Google Sheets cell link in Analyse, blocked Generate/Planned saves and
+  Check setup. A fresh successful scan clears the issues; no cell contents or
+  mailbox addresses are included in the feedback. Missing headings point to the
+  tab's header area; access/network failures report the connection problem.
 - Each tab is limited to 10,000 allocated rows; exceeding that fails explicitly.
   Portfolios support 5,000 distinct domains including historical records.
 

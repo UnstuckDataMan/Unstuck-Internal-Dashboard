@@ -6,6 +6,11 @@
 <div id="dc-app" data-csrf="{{ csrf }}">
   <div class="dc-intro"><div><div class="dc-eyebrow">OPERATIONS / GMAIL SET</div><h2>Domain Cluster Builder</h2><p>Analyse your outbound sending domains, identify semantic clustering and plan additional sending infrastructure.</p></div><span class="dc-version">Step 01 · Domain planning</span></div>
   <div id="dc-message" role="status" aria-live="polite"></div>
+  <section id="dc-sheet-issues" class="dc-card" role="alert" hidden>
+    <h3>Fix these strategy-sheet rows</h3>
+    <p>Open each cell below and make the correction in Google Sheets. Then submit Analyse or Generate again for a fresh scan.</p>
+    <div id="dc-sheet-issue-list"></div>
+  </section>
   <section class="dc-card dc-toolbar" aria-label="Portfolio">
     <label>Saved portfolio<select id="dc-portfolios"><option value="">New portfolio</option></select></label>
     <label>Portfolio name<input id="dc-name" maxlength="100" value="My domain portfolio"></label>
@@ -70,4 +75,4 @@
 <script id="dc-family-data" type="application/json">{{ families | tojson }}</script>
 <noscript>Enable JavaScript to analyse and manage domain portfolios.</noscript>
 {% endblock %}
-{% block extra_scripts %}<script src="/static/domain-cluster.js?v=1" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="/static/domain-cluster.js?v=2" defer></script>{% endblock %}

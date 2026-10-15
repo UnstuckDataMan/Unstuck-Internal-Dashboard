@@ -44,6 +44,27 @@ require('node:fs').mkdirSync('work',{recursive:true});
  await page.click('#dc-setup-apply');await page.waitForFunction(()=>document.querySelector('#dc-setup-progress').textContent.includes('Batch finished'),null,{timeout:60000});
  assert.equal((await page.textContent('#dc-setup-domains')).match(/API readback/g).length,2);
  await page.click('#dc-check-setup');await page.waitForFunction(()=>document.querySelector('#dc-integration-results').textContent.includes('Porkbun credentials: Verified'));
- assert.deepEqual(errors,[]);console.log('PASS: import, analysis, save, generate 10, plan, refresh, manual correction, reanalysis, filters, replacement, undo, mobile layout, live sheet import, source filters, fresh-scan generation; selected-domain URL forwarding + DMARC and credential readiness; no browser errors.');
+ // A late sheet error must be actionable even when it first appears during
+ // generation, rather than only in the initial import preview.
+ const issue={sheet:'1) BD Emails - entry',sheet_id:838806676,row:858,cell:'A858',reason:'Live is checked but Email is empty. Enter a valid email or domain, or untick Live if this row is not in use.'};
+ const generatePath='**/api/domain-cluster/generate';
+ await page.route(generatePath,r=>r.fulfill({status:409,json:{detail:{message:'Fix the strategy-sheet rows, then retry.',sheet_issues:[issue]}}}));
+ await page.click('#dc-generate');await page.waitForSelector('#dc-sheet-issues:not([hidden])');
+ assert.match(await page.textContent('#dc-sheet-issues'),/1\) BD Emails - entry · row 858 · A858/);
+ assert.match(await page.textContent('#dc-message'),/Fix the strategy-sheet rows/);
+ assert.equal(await page.locator('#dc-sheet-issues a').getAttribute('href'),'https://docs.google.com/spreadsheets/d/1PN5Lx-5c4nbouDl-Apw9YJgrYTuoDsBKqzk5Hh6Z0po/edit#gid=838806676&range=A858');
+ await page.unroute(generatePath);
+ await page.click('#dc-generate');await page.waitForSelector('#dc-sheet-issues[hidden]',{state:'attached'});
+ // A partial import and the readiness check use the same visible row guidance.
+ const sourcePath='**/api/domain-cluster/strategy-sheet';
+ await page.route(sourcePath,async r=>{const response=await r.fetch();const json=await response.json();json.source.invalid=[issue];await r.fulfill({response,json});});
+ await page.click('#dc-analyse');await page.waitForSelector('#dc-sheet-issues:not([hidden])');
+ await page.click('#dc-cancel-import');await page.unroute(sourcePath);
+ const checkPath='**/api/domain-cluster/integrations/check';
+ await page.route(checkPath,async r=>{const response=await r.fetch();const json=await response.json();json.sheets={ready:false,issues:[issue],message:'Fix the listed row.'};await r.fulfill({response,json});});
+ await page.click('#dc-check-setup');await page.waitForFunction(()=>document.querySelector('#dc-integration-results').textContent.includes('Fix the listed row.'));
+ assert.equal(await page.locator('#dc-sheet-issues a').count(),1);
+ await page.unroute(checkPath);await page.click('#dc-check-setup');await page.waitForSelector('#dc-sheet-issues[hidden]',{state:'attached'});
+ assert.deepEqual(errors,[]);console.log('PASS: full planning/setup journey, mobile layout, sheet row errors and direct cell links on import/generation/setup checks, successful rescan clears errors; no browser errors.');
  await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});

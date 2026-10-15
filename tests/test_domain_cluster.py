@@ -279,6 +279,10 @@ def test_strategy_checkbox_live_flags_and_privacy():
     assert parsed['summary']['live_rows']==3 and parsed['summary']['at_risk_rows']==1
     assert parsed['summary']['needs_deleting_rows']==1
     assert len(parsed['invalid'])==1
+    issue=parsed['invalid'][0]
+    assert (issue['sheet_id'],issue['row'],issue['cell'])==(0,6,'A6')
+    assert issue['url']==sheets.SOURCE_URL+'#gid=0&range=A6'
+    assert 'untick Live' in issue['reason']
     assert '@' not in str(parsed)
     state=state_for(['onegrowth.com','oldgrowth.com','manualgrowth.com'])
     next(r for r in state['domains'] if r['domain']=='onegrowth.com')['override']='sales'
@@ -337,6 +341,44 @@ def test_home_gmail_set_is_in_operations(signed_client):
     page=client.get('/').text
     assert '/gmail-set' in page.split('id="screen-operations"')[1]
     assert 'Gmail Set' in page
+
+
+def test_sheet_errors_include_cell_locations_in_all_blocked_flows(signed_client,portfolio_db,monkeypatch):
+    from app.utils.domain_cluster import sheets
+    client,_=signed_client
+    state=state_for(['cedargrowth.com'])
+    state['domains'][0]['sheet_sources']=['bizdev']
+    saved=client.post('/api/domain-cluster/portfolios',json={'state':api_working(state)}).json()
+    pid=saved['portfolio']['id']
+    # Reordered columns and a header after an introductory row still yield the
+    # real sheet row/cell, without exposing mailbox contents in API feedback.
+    parsed=sheets.parse_tab('bizdev','1) BD Emails - entry',[
+        ['Intro'],['Order','Live','Email'],[1,True,'private@bad_domain.com'],[2,True,'']])
+    assert [(i['row'],i['cell']) for i in parsed['invalid']]==[(3,'C3'),(4,'C4')]
+    assert all(i['sheet_id']==838806676 for i in parsed['invalid'])
+    assert 'empty' in parsed['invalid'][1]['reason']
+    source={'records':[],'invalid':parsed['invalid'],'checked_at':e.now(),'tabs':[]}
+    monkeypatch.setattr(sheets,'read_live',lambda:source)
+    requests=[('/strategy-sheet',{'state':api_working(state)}),
+              ('/generate',{'live_sheet':True}),
+              (f'/portfolios/{pid}/update',{'revision':1,'action':'planned','candidates':[]})]
+    for path,body in requests:
+        result=client.post('/api/domain-cluster'+path,json=body)
+        assert result.status_code==409
+        assert result.json()['detail']['sheet_issues']==parsed['invalid']
+        assert 'private@' not in result.text and 'bad_domain' not in result.text
+    assert client.get(f'/api/domain-cluster/portfolios/{pid}').json()['portfolio']['revision']==1
+
+
+def test_sheet_missing_header_reports_where_to_fix():
+    from app.utils.domain_cluster import sheets
+    from fastapi import HTTPException
+    for values in ([],[['Email','Order','Inactive']]):
+        with pytest.raises(HTTPException) as exc:
+            sheets.parse_tab('client','1) Emails - entry',values)
+        detail=exc.value.detail
+        assert detail['sheet_issues'][0]['cell']=='A1'
+        assert 'heading' in detail['sheet_issues'][0]['reason']
 
 
 def test_live_plans_reject_inventory_changed_since_save(signed_client,portfolio_db,monkeypatch):

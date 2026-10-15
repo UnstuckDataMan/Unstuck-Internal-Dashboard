@@ -12,11 +12,26 @@
   const escape = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const working = () => ({domains:state.domains,clusters:state.clusters,settings:state.settings});
   function message(text, error=false) { $('dc-message').textContent = text; $('dc-message').classList.toggle('error', error); }
+  function showSheetIssues(issues=[], focus=false) {
+    const panel=$('dc-sheet-issues');
+    panel.hidden=!issues.length;
+    $('dc-sheet-issue-list').innerHTML=issues.map(r=>{
+      const location=`${r.sheet} · row ${r.row}${r.cell?` · ${r.cell}`:''}`;
+      // Build links from bounded location metadata, never an arbitrary response URL.
+      const url=Number.isInteger(r.sheet_id)&&/^[A-G][1-9]\d*$/.test(r.cell||'')
+        ?`https://docs.google.com/spreadsheets/d/1PN5Lx-5c4nbouDl-Apw9YJgrYTuoDsBKqzk5Hh6Z0po/edit#gid=${r.sheet_id}&range=${r.cell}`:null;
+      return `<div class="dc-warning"><strong>${escape(location)}</strong><p>${escape(r.reason)}</p>${url?`<a href="${escape(url)}" target="_blank" rel="noopener noreferrer">Open cell ${escape(r.cell)} in Google Sheets</a>`:''}</div>`;
+    }).join('');
+    if(issues.length&&focus)panel.scrollIntoView({behavior:'smooth',block:'start'});
+  }
   async function api(path, data, quiet=false) {
     const res = await fetch('/api/domain-cluster' + path, {method:data === undefined ? 'GET':'POST',headers:{'Content-Type':'application/json','X-Domain-CSRF':csrf},credentials:'same-origin',cache:'no-store',...(data === undefined ? {} : {body:JSON.stringify(data)})});
     if (res.status === 401) throw new Error('Your session expired. Sign in again in another tab, then refresh after copying any unsaved domains.');
     let result; try { result = await res.json(); } catch { throw new Error('Unexpected server response. Retry in a moment.'); }
-    if (!res.ok) throw new Error(typeof result.detail === 'string' ? result.detail : result.error || 'The request could not be completed. Check the input and retry.');
+    if (!res.ok) {
+      if(result.detail?.sheet_issues)showSheetIssues(result.detail.sheet_issues,true);
+      throw new Error(typeof result.detail === 'string' ? result.detail : result.detail?.message || result.error || 'The request could not be completed. Check the input and retry.');
+    }
     return result;
   }
   async function run(fn) {
@@ -121,7 +136,7 @@
       $('dc-setup-progress').textContent='Batch finished. Review each domain result below; DNS propagation may still be pending.';
     });
   }
-  $('dc-check-setup').onclick=()=>run(async()=>{message('Checking server connections…');const result=await api('/integrations/check',{});$('dc-integration-results').innerHTML=`<section class="dc-card"><strong>Setup check</strong><p>Porkbun credentials: ${result.porkbun.credentials_valid?'Verified':'Needs attention'} · Availability reads: ${result.porkbun.read?'Allowed':'Not verified'} · DNS / forwarding: ${result.porkbun.dns?'Allowed':'Needs DNS permission'}</p><p>Portfolio storage: ${result.storage.ready?'Ready':'Needs attention'} · Live strategy sheet: ${result.sheets.ready?'Ready':'Needs attention'}</p>${[result.porkbun,result.storage,result.sheets].filter(r=>r.message).map(r=>`<p class="dc-caption">${escape(r.message)}</p>`).join('')}</section>`;message('Setup check complete.');});
+  $('dc-check-setup').onclick=()=>run(async()=>{message('Checking server connections…');const result=await api('/integrations/check',{});if(result.sheets.issues)showSheetIssues(result.sheets.issues,true);else if(result.sheets.ready)showSheetIssues();$('dc-integration-results').innerHTML=`<section class="dc-card"><strong>Setup check</strong><p>Porkbun credentials: ${result.porkbun.credentials_valid?'Verified':'Needs attention'} · Availability reads: ${result.porkbun.read?'Allowed':'Not verified'} · DNS / forwarding: ${result.porkbun.dns?'Allowed':'Needs DNS permission'}</p><p>Portfolio storage: ${result.storage.ready?'Ready':'Needs attention'} · Live strategy sheet: ${result.sheets.ready?'Ready':'Needs attention'}</p>${[result.porkbun,result.storage,result.sheets].filter(r=>r.message).map(r=>`<p class="dc-caption">${escape(r.message)}</p>`).join('')}</section>`;message('Setup check complete.');});
   function syncSettings() {
     const s=state.settings; for(const key of ['capacity','watch','near','sensitivity']) $('dc-'+key).value=s[key];
     $('dc-dictionary').value=JSON.stringify(s.dictionary,null,2); $('dc-theme').value=s.themes[0]||''; $('dc-default-import').value=s.default_import;
@@ -181,11 +196,11 @@
     const p=result.preview;
     $('dc-preview-body').innerHTML=[['Live domains to add',p.added],['Existing live domains',p.existing],['Previously imported domains no longer Live',p.missing],['Domains becoming Active',p.reactivated]].map(([label,rows])=>`<details><summary>${label}: ${rows.length}</summary><p class="dc-domain">${rows.slice(0,150).map(escape).join(', ')}</p></details>`).join('');
     $('dc-preview-note').textContent='Live sheet rows become Active. Previously imported sheet domains no longer Live become Paused; manual-only domains keep their status. No records are deleted. Apply this preview, then save.';
-    $('dc-invalid-list').innerHTML=result.source.invalid.map(r=>`<p>${escape(r.sheet)}, row ${r.row}: ${escape(r.reason)}</p>`).join('');
+    $('dc-invalid-list').textContent='';
     message(`${result.parsed.unique} unique Live domains found in a fresh scan. Review the preview before applying.${result.source.invalid.length?' Some Live rows need correction; generation will be blocked.':''}`);
-    $('dc-preview').scrollIntoView({behavior:'smooth',block:'nearest'});
+    if(result.source.invalid.length)$('dc-sheet-issues').scrollIntoView({behavior:'smooth',block:'start'});else $('dc-preview').scrollIntoView({behavior:'smooth',block:'nearest'});
   });
-  function showSource(source){$('dc-live-status').textContent=`Fresh scan ${new Date(source.checked_at).toLocaleString('en-GB')} · `+source.tabs.map(t=>`${t.kind==='client'?'Client':'Biz Dev'}: ${t.live_rows} Live rows, ${t.unique_domains} domains`).join(' · ')+`. ${source.tabs.reduce((n,t)=>n+t.at_risk_rows,0)} Live rows flagged At risk; ${source.tabs.reduce((n,t)=>n+t.needs_deleting_rows,0)} flagged Needs deleting. Live controls inclusion; these flags remain visible separately.`;}
+  function showSource(source){showSheetIssues(source.invalid);$('dc-live-status').textContent=`Fresh scan ${new Date(source.checked_at).toLocaleString('en-GB')} · `+source.tabs.map(t=>`${t.kind==='client'?'Client':'Biz Dev'}: ${t.live_rows} Live rows, ${t.unique_domains} domains`).join(' · ')+`. ${source.tabs.reduce((n,t)=>n+t.at_risk_rows,0)} Live rows flagged At risk; ${source.tabs.reduce((n,t)=>n+t.needs_deleting_rows,0)} flagged Needs deleting. Live controls inclusion; these flags remain visible separately.`;}
   $('dc-source').onchange=()=>{pending=null;$('dc-preview').hidden=true;const manual=$('dc-source').value==='manual';$('dc-text').disabled=!manual;$('dc-file').disabled=!manual;$('dc-mode').disabled=!manual;message(manual?'Manual inventory mode. Paste or upload domains to analyse.':'Live mode: each Analyse or Generate fetches the latest sheet data.');};
   $('dc-apply').onclick=()=>run(async()=>{if(!pending)return;accept(pending);pending=null;$('dc-preview').hidden=true;message('Analysis ready. Review Current Tranches and risk warnings below. Save to Portfolio to keep this inventory.');});
   $('dc-cancel-import').onclick=()=>{pending=null;$('dc-preview').hidden=true;};

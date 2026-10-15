@@ -187,8 +187,7 @@ def generate(body: Generate, user=Depends(mutation_access)):
         source = None
         if body.live_sheet:
             source = sheets.read_live()
-            if source['invalid']:
-                raise HTTPException(409, f"{len(source['invalid'])} Live rows have invalid domains. Fix those rows before generating recommendations.")
+            sheets.require_valid(source)
             state, _ = sheets.refresh(state, source)
         extra = response(state, source=source) if source else {}
         enrichment.rate_limit(('generation', store.scope(user)[0]), count=20)
@@ -298,8 +297,7 @@ def update(portfolio_id: UUID, body: Mutation, user=Depends(mutation_access)):
             elif body.action == 'planned':
                 if any(r.get('sheet_sources') for r in state['domains']):
                     source = sheets.read_live()
-                    if source['invalid']:
-                        raise HTTPException(409, 'Live sheet has invalid domain rows. Fix them before saving planned domains.')
+                    sheets.require_valid(source)
                     current, _ = sheets.refresh(state, source)
                     inventory = lambda s: sorted((r['domain'], r['status']) for r in s['domains'])
                     if inventory(current) != inventory(state):
