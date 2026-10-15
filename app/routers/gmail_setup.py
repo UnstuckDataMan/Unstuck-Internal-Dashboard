@@ -46,7 +46,7 @@ class Client(Strict):
 
 class Setup(Strict):
     client_id: str | None = Field(None, max_length=36)
-    stage: Literal['Not started', 'Purchase made', 'Setup complete'] | None = None
+    stage: Literal['Not started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment'] | None = None
     id: str | None = Field(None, max_length=36)
     account_manager_id: str = Field(max_length=36)
     operator_id: str = Field(max_length=36)
@@ -61,7 +61,13 @@ class Setup(Strict):
 
 class Stage(Strict):
     id: str = Field(max_length=36)
-    stage: Literal['Not started', 'Purchase made', 'Setup complete']
+    stage: Literal['Not started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment']
+
+
+class SetupDevice(Strict):
+    id: str = Field(max_length=36)
+    operator_id: str = Field(max_length=36)
+    device_id: str = Field(max_length=36)
 
 
 class Identifier(Strict):
@@ -70,7 +76,7 @@ class Identifier(Strict):
 
 class Change(Strict):
     revision: int = Field(ge=0)
-    action: Literal['client_save', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_remove']
+    action: Literal['client_save', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
     data: dict
 
 
@@ -97,7 +103,7 @@ def get_summary(user=Depends(access)):
 def change(body: Change, user=Depends(mutation_access)):
     models = {'client_save': Client, 'member_save': Member, 'member_remove': Identifier, 'devices_add': Devices,
               'device_update': Device, 'device_remove': Identifier, 'setup_save': Setup,
-              'setup_stage': Stage, 'setup_remove': Identifier}
+              'setup_stage': Stage, 'setup_device': SetupDevice, 'setup_remove': Identifier}
     from pydantic import ValidationError
     from fastapi import HTTPException
     try:

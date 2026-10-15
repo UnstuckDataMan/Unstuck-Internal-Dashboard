@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Gmail Set · Unstuck Agency{% endblock %}
 {% block heading %}Gmail Set{% endblock %}
-{% block extra_head %}<link rel="stylesheet" href="/static/gmail-setup.css?v=2">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/gmail-setup.css?v=3">{% endblock %}
 {% block content %}
 <div id="gs-app" data-csrf="{{ csrf }}">
   <div class="gs-intro"><div><div class="gs-eyebrow">OPERATIONS / GMAIL SET</div><h2>New Gmail setups</h2><p>Track each account from purchase to Live. Keep your team’s devices ready.</p></div><button id="gs-refresh">Refresh</button></div>
@@ -12,7 +12,7 @@
   <div class="gs-tabs" role="tablist" aria-label="Gmail Set views"><button role="tab" id="gs-tab-setups" aria-selected="true" aria-controls="gs-setups">Clients</button><button role="tab" id="gs-tab-devices" aria-selected="false" aria-controls="gs-devices">Team &amp; devices</button></div>
   <section id="gs-setups" role="tabpanel" aria-labelledby="gs-tab-setups">
     <button id="gs-back-clients" class="gs-back" hidden>← Back to clients</button><div class="gs-section-title"><div><h3 id="gs-client-heading">Clients</h3><p id="gs-client-caption">Choose a client to view its domains and setup stages.</p></div><button id="gs-add-setup" class="gs-primary">+ Client</button></div>
-    <div class="gs-filters"><label>Search<input id="gs-search" type="search" placeholder="Client, domain or sending email"></label><label>Filter by stage<select id="gs-filter-stage"><option value="">All stages</option><option>Not started</option><option>Purchase made</option><option>Setup complete</option></select></label><label>Account manager<select id="gs-filter-manager"><option value="">Everyone</option></select></label><label>Section<select id="gs-filter-section"><option value="">Client + Biz Dev</option><option value="client">Client</option><option value="bizdev">Biz Dev</option></select></label></div>
+    <div class="gs-filters"><label>Search<input id="gs-search" type="search" placeholder="Client, domain or sending email"></label><label>Filter by stage<select id="gs-filter-stage"><option value="">All stages</option><option>Not started</option><option>Purchase made</option><option>Setup complete</option><option>Failed at QR</option><option>Failed at payment</option></select></label><label>Account manager<select id="gs-filter-manager"><option value="">Everyone</option></select></label><label>Section<select id="gs-filter-section"><option value="">Client + Biz Dev</option><option value="client">Client</option><option value="bizdev">Biz Dev</option></select></label></div>
     <div id="gs-client-list" class="gs-client-list"></div><div id="gs-client-detail" hidden><div id="gs-setup-list" class="gs-setup-list"></div></div>
     <details class="gs-card"><summary>Google Sheet connection</summary><p>Completing a domain adds its sending email immediately below the last entry in the selected client or Biz Dev tab, with Live checked. The tool checks for an existing email before adding a row.</p><button id="gs-check-sheet">Check sheet write access</button><p id="gs-sheet-status" role="status"></p></details>
   </section>
@@ -26,4 +26,4 @@
 <dialog id="gs-dialog"><form id="gs-form"><div class="gs-section-title"><h3 id="gs-dialog-title"></h3><button id="gs-dialog-close" type="button" aria-label="Close">✕</button></div><div id="gs-form-fields"></div><p id="gs-form-error" role="alert"></p><div class="gs-actions"><button id="gs-dialog-cancel" type="button">Cancel</button><button id="gs-dialog-save" class="gs-primary" type="submit">Save</button></div></form></dialog>
 <noscript>Enable JavaScript to use the setup tracker.</noscript>
 {% endblock %}
-{% block extra_scripts %}<script src="/static/gmail-setup.js?v=2" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="/static/gmail-setup.js?v=3" defer></script>{% endblock %}

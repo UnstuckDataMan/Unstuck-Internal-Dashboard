@@ -341,3 +341,62 @@ def test_email_only_form_derives_domain_and_assigns_client(board_db,email,domain
     job=record['state']['setups'][0]
     assert job['domain']==domain and job['email']==email.strip().lower()
     assert job['client_id']==client['id'] and job['client_name']=='Cedar'
+
+
+@pytest.mark.parametrize('stage',[*s.STAGES, *s.FAILURES])
+def test_zero_inventory_never_blocks_setup_creation_or_stage(board_db,stage):
+    owner=people()['Dylan']
+    record=change('setup_save',{'account_manager_id':people()['Robyn'],'operator_id':owner,
+        'client_name':'No inventory','email':'me@waitingforphones.com','section':'client','stage':stage})
+    job=record['state']['setups'][0]
+    assert job['stage']==stage and job['device_id'] is None and job['purchase_device'] is None
+    assert record['state']['devices']==[] and s.summary(record['state'])['unused']==0
+    assert sum(s.summary(record['state'])[key] for key in ('not_started','purchased','complete'))==1
+
+
+@pytest.mark.parametrize('failure,reason',s.FAILURES.items())
+@pytest.mark.parametrize('purchased',[False,True])
+def test_failure_blocks_real_device_and_retry_retains_failed_asset(board_db,failure,reason,purchased):
+    owner=people()['Dylan'];stock=devices(owner,phones=2)['state']['devices'];first,replacement=stock
+    _,jid=create_setup(owner,first['id'])
+    if purchased:change('setup_stage',{'id':jid,'stage':'Purchase made'})
+    record=change('setup_stage',{'id':jid,'stage':failure})
+    job=record['state']['setups'][0];d=record['state']['devices'][0]
+    assert job['stage']==failure and d['status']=='Blocked' and d['block_reason']==reason
+    assert s.summary(record['state'])['unused']==1
+    assert job['device_failures'][0]['device']['asset_tag']==first['asset_tag']
+    assert job['sync']['status']=='not_ready' # failures never publish a Live row
+    with pytest.raises(HTTPException):change('setup_stage',{'id':jid,'stage':'Purchase made'})
+    with pytest.raises(HTTPException):change('device_update',{'id':first['id'],'status':'Unused'})
+    record=change('setup_save',{'id':jid,'account_manager_id':people()['Robyn'],'operator_id':owner,
+        'client_name':'Cedar client','email':job['email'],'section':'client','device_id':replacement['id'],'stage':'Purchase made'})
+    job=record['state']['setups'][0]
+    assert job['purchase_device']['id']==replacement['id']
+    assert job['device_failures'][0]['device']['id']==first['id']
+    assert s.summary(record['state'])['unused']==0
+    assert record['state']['devices'][0]['status']=='Blocked'
+
+
+def test_add_missing_device_after_sheet_sync_keeps_live_row_and_purchase_time(board_db,sheet_session):
+    session=sheet_session();owner=people()['Dylan']
+    _,jid=create_setup(owner)
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    purchase_at=record['state']['setups'][0]['purchase_at']
+    record=s.sync_completed(USER,jid);sync=record['state']['setups'][0]['sync']
+    d=devices(owner)['state']['devices'][0]
+    with pytest.raises(HTTPException):change('setup_device',{'id':jid,'operator_id':people()['Matthew'],'device_id':d['id']})
+    record=change('setup_device',{'id':jid,'operator_id':owner,'device_id':d['id']})
+    job=record['state']['setups'][0]
+    assert job['sync']==sync and job['purchase_at']==purchase_at and job['purchase_device']['id']==d['id']
+    assert s.summary(record['state'])['unused']==0 and session.inserts==1
+    with pytest.raises(HTTPException):change('setup_device',{'id':jid,'operator_id':owner,'device_id':d['id']})
+    with pytest.raises(HTTPException):change('setup_stage',{'id':jid,'stage':'Failed at QR'})
+
+
+def test_later_device_cannot_take_reserved_or_blocked_stock(board_db):
+    owner=people()['Dylan'];d=devices(owner)['state']['devices'][0]
+    create_setup(owner,d['id'])
+    _,jid=create_setup(owner,domain='laterdevice.com',email='me@laterdevice.com')
+    with pytest.raises(HTTPException):change('setup_device',{'id':jid,'operator_id':owner,'device_id':d['id']})
+    change('device_update',{'id':d['id'],'status':'Blocked','block_reason':'Payment'})
+    with pytest.raises(HTTPException):change('setup_device',{'id':jid,'operator_id':owner,'device_id':d['id']})

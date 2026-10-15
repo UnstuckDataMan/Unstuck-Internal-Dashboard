@@ -32,11 +32,18 @@ is no longer the main workflow.
   workspace. Members can be added, edited or removed within this tool without
   changing dashboard login access. Open work must be reassigned before removal.
 - Record account manager, setup owner, client/Biz Dev section, root domain,
-  sending email, order and purchase device. Purchase records snapshot the actual
+  sending email and order. Device allocation is optional, even with zero inventory;
+  accounts without one show **Device not added yet** and an **Add device** action.
+  A missing device can be recorded after completion without republishing the sheet row.
+  Purchase records snapshot the actual
   device and asset label; removing/transferring equipment preserves that history.
 - Add actual inventory in batches of 0–10 phones and 0–10 PCs per person, with
   labels Phone 1–10 and PC 1–10 plus stable physical asset IDs. The unallocated pool
   supports stock awaiting assignment. No imaginary devices are seeded.
+- Setup stages include **Failed at QR** and **Failed at payment**. Selecting either
+  blocks the linked device in red with the matching reason, without publishing a
+  Live row. Retry with a replacement device or leave it unallocated; the failed
+  asset stays in account history.
 - Unused, Used and Blocked states are separate from allocation. **Block QR code**
   and **Block Payment** are explicit block reasons. All blocked equipment is red
   and excluded from purchases; previously used devices never count as new stock.

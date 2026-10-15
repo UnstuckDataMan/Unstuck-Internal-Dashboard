@@ -8,6 +8,7 @@ from app.utils.domain_cluster.engine import normalize
 from . import store
 
 STAGES = ('Not started', 'Purchase made', 'Setup complete')
+FAILURES = {'Failed at QR': 'QR code', 'Failed at payment': 'Payment'}
 DEVICE_STATUSES = ('Unused', 'Used', 'Blocked')
 RESERVE_TARGET = 20
 LEASE_SECONDS = 180
@@ -86,8 +87,8 @@ def summary(state):
     return {'unused': unused, 'target': RESERVE_TARGET, 'shortfall': max(0, RESERVE_TARGET-unused),
             'low_stock': unused < RESERVE_TARGET, 'devices': len(devices),
             'blocked': sum(d['status'] == 'Blocked' for d in devices),
-            'not_started': sum(s['stage'] == STAGES[0] for s in state['setups'] if not s.get('archived')),
-            'purchased': sum(s['stage'] == STAGES[1] for s in state['setups'] if not s.get('archived')),
+            'not_started': sum(s['stage'] == STAGES[0] or s['stage'] in FAILURES and not s.get('purchase_at') for s in state['setups'] if not s.get('archived')),
+            'purchased': sum(s['stage'] == STAGES[1] or s['stage'] in FAILURES and bool(s.get('purchase_at')) for s in state['setups'] if not s.get('archived')),
             'complete': sum(s['stage'] == STAGES[2] for s in state['setups'] if not s.get('archived')),
             'sync_errors': sum(s.get('sync', {}).get('status') == 'error' for s in state['setups'] if not s.get('archived'))}
 
@@ -251,7 +252,7 @@ def mutate(user, expected, action, data):
         if any(s['id'] != (current or {}).get('id') and not s.get('archived') and (email and s['email'] == email or not email and not s['email'] and s['domain'] == domain) for s in state['setups']):
             raise HTTPException(409, 'This sending email or domain-only draft already has a setup. Update that record instead.')
         device_id = data.get('device_id')
-        if current and current['stage'] != STAGES[0] and device_id != current.get('device_id'):
+        if current and current.get('purchase_device') and current['stage'] not in FAILURES and device_id != current.get('device_id'):
             raise HTTPException(409, 'The purchase device is recorded in history and cannot be changed after purchase.')
         if device_id:
             historical = current and current['stage'] != STAGES[0] and current.get('device_id') == device_id
@@ -284,8 +285,26 @@ def mutate(user, expected, action, data):
         current.update(domain=domain, email=email, client_name=text(data.get('client_name'), 'Client name', False),
                        section=data['section'], account_manager_id=manager['id'], operator_id=operator['id'],
                        device_id=device_id, order=data.get('order', 1), notes=text(data.get('notes'), 'Notes', False), updated_at=now())
-        if data.get('stage'):
-            set_stage(state, current, data['stage'])
+        set_stage(state, current, data.get('stage') or current['stage'])
+    elif action == 'setup_device':
+        # A missing device can be recorded later, including after a sheet sync,
+        # without permitting edits to the published email, owner or sheet row.
+        job = find(state, 'setups', data['id'], True)
+        if job.get('device_id'):
+            raise HTTPException(409, 'This setup already has a device. Use Edit details to change a pending allocation.')
+        if job.get('sync', {}).get('status') == 'synced' and data['operator_id'] != job['operator_id']:
+            raise HTTPException(409, 'Keep the published setup owner. Allocate the device to that team member first.')
+        operator = find(state, 'members', data['operator_id'], True)
+        device = find(state, 'devices', data['device_id'], True)
+        if device['status'] == 'Blocked' or device['member_id'] != operator['id']:
+            raise HTTPException(409, 'Choose an unblocked device allocated to the setup owner.')
+        if any(s['id'] != job['id'] and not s.get('archived') and s['stage'] == STAGES[0] and s.get('device_id') == device['id'] for s in state['setups']):
+            raise HTTPException(409, 'This device is already reserved for another pending setup.')
+        if job['stage'] in FAILURES:
+            raise HTTPException(409, 'Use Edit details to choose a replacement device and retry stage.')
+        job.update(device_id=device['id'], operator_id=operator['id'], updated_at=now())
+        if job.get('purchase_at') or job['stage'] in STAGES[1:]:
+            record_purchase_device(state, job)
     elif action == 'setup_stage':
         job = find(state, 'setups', data['id'], True)
         set_stage(state, job, data['stage'])
@@ -300,27 +319,54 @@ def mutate(user, expected, action, data):
     return store.save(user, state, expected)
 
 
+def device_snapshot(state, device):
+    member = find(state, 'members', device['member_id']) if device.get('member_id') else {'name': 'Unallocated'}
+    return {'id': device['id'], 'asset_tag': device['asset_tag'],
+            'label': device['kind']+' '+str(device['number']), 'member': member['name']}
+
+
+def record_purchase_device(state, job):
+    d = find(state, 'devices', job['device_id'], True)
+    if d['status'] == 'Blocked':
+        raise HTTPException(409, 'The allocated purchase device is blocked. Select another device.')
+    if d['member_id'] != job['operator_id']:
+        raise HTTPException(409, 'Allocate the device to the setup owner before recording purchase.')
+    d.update(status='Used', used_at=d.get('used_at') or now())
+    job['purchase_device'] = device_snapshot(state, d)
+
+
 def set_stage(state, job, stage):
-    old = STAGES.index(job['stage'])
-    target = STAGES.index(stage)
-    if target < old:
+    if stage not in (*STAGES, *FAILURES):
+        raise HTTPException(400, 'Choose a valid setup stage.')
+    old = job['stage']
+    if (old == STAGES[2] and stage != old or
+            stage == STAGES[0] and (job.get('purchase_at') or old == STAGES[1])):
         raise HTTPException(409, 'Purchase and Live sheet history cannot be reset. Select the current or a later stage.')
-    if target == old:
-        return
     if stage == STAGES[2] and not job['email']:
         raise HTTPException(400, 'Add the sending email address before completing setup.')
-    if old == 0:
-        if not job.get('device_id'):
-            raise HTTPException(400, 'Choose a purchase device in Edit details before setting this stage.')
-        d = find(state, 'devices', job.get('device_id'), True)
-        if d['status'] == 'Blocked':
-            raise HTTPException(409, 'The allocated purchase device is blocked. Select another device.')
-        if d['member_id'] != job['operator_id']:
-            raise HTTPException(409, 'Allocate the device to the setup owner before recording purchase.')
-        d.update(status='Used', used_at=d.get('used_at') or now())
-        member = find(state, 'members', d['member_id'])
-        job.update(purchase_at=now(), purchase_device={'id': d['id'], 'asset_tag': d['asset_tag'], 'label': d['kind']+' '+str(d['number']), 'member': member['name']})
-    if stage == STAGES[2]:
+    if stage in FAILURES:
+        reason = FAILURES[stage]
+        d = find(state, 'devices', job['device_id'], True) if job.get('device_id') else None
+        if d:
+            if d['status'] != 'Blocked' and d['member_id'] != job['operator_id']:
+                raise HTTPException(409, 'Allocate the device to the setup owner before recording failure.')
+            d.update(status='Blocked', block_reason=reason, blocked_at=d.get('blocked_at') or now(), used_at=d.get('used_at') or now())
+        # Keep the failed physical asset even when the retry uses a replacement.
+        history = job.setdefault('device_failures', [])
+        if old != stage or not history or history[-1].get('device', {}).get('id') != job.get('device_id'):
+            history.append({'stage': stage, 'at': now(), 'device': device_snapshot(state, d) if d else {}})
+            job['device_failures'] = history[-200:]
+    elif stage in STAGES[1:]:
+        # Inventory is optional: tracking and sheet publishing must work with
+        # zero stock. Only a real recorded device changes reserve counts.
+        if old in FAILURES and job.get('device_id') and find(state, 'devices', job['device_id'], True)['status'] == 'Blocked':
+            raise HTTPException(409, 'Choose a replacement device or allocate one later before retrying.')
+        if job.get('device_id') and (job.get('purchase_device') or {}).get('id') != job['device_id']:
+            record_purchase_device(state, job)
+        job['purchase_at'] = job.get('purchase_at') or now()
+    elif job.get('device_id') and find(state, 'devices', job['device_id'], True)['status'] == 'Blocked':
+        raise HTTPException(409, 'Choose a replacement device or allocate one later before retrying.')
+    if stage == STAGES[2] and old != stage:
         job.update(completed_at=now(), sync={'status': 'pending'})
     job['stage'] = stage
     job['updated_at'] = now()
