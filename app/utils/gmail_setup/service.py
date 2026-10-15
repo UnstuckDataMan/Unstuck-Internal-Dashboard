@@ -138,7 +138,8 @@ def result(record):
     state = copy.deepcopy(record['state'])
     # Lease tokens remain server-side; public state is not accepted as a mutation.
     state.pop('sync_lock', None)
-    return {'state': state, 'revision': record['revision'], 'updated_at': record['updated_at'], 'summary': summary(state)}
+    return {'state': state, 'revision': record['revision'], 'updated_at': record['updated_at'], 'summary': summary(state),
+            **({'import_summary': record['import_summary']} if 'import_summary' in record else {})}
 
 
 def text(value, label, required=True):
@@ -180,19 +181,76 @@ def mutate(user, expected, action, data):
     state = copy.deepcopy(record['state'])
     unlocked(state)
     state['sync_lock'] = None
+    outcome = None
     if action == 'client_save':
+        current = find(state, 'clients', data['id'], True) if data.get('id') else None
         client_name = re.sub(r'\s+', ' ', text(data['name'], 'Client name'))
         key = client_key(data['section'], client_name)
-        if any(client_key(c['section'], c['name']) == key for c in state['clients']):
+        if any(not c.get('archived') and c['id'] != (current or {}).get('id') and client_key(c['section'], c['name']) == key for c in state['clients']):
             raise HTTPException(409, 'This client already exists. Open the client to add another domain.')
-        if len(state['clients']) >= 1000:
+        if current is None and len(state['clients']) >= 1000:
             raise HTTPException(400, 'Client limit reached.')
-        find(state, 'members', data['account_manager_id'], True)
+        find(state, 'members', data['account_manager_id'], data['account_manager_id'] != (current or {}).get('account_manager_id'))
         if data.get('operator_id'):
             find(state, 'members', data['operator_id'], True)
-        state['clients'].append({'id': new_id(), 'name': client_name, 'section': data['section'],
-                                 'account_manager_id': data['account_manager_id'], 'operator_id': data.get('operator_id'),
-                                 'created_at': now()})
+        if current:
+            if current['section'] != data['section']:
+                raise HTTPException(409, 'The sheet section cannot change. Create a separate client for a different section.')
+            for job in state['setups']:
+                if job.get('client_id') == current['id']:
+                    if job['stage'] == STAGES[2]:
+                        job.setdefault('sheet_owner', job['client_name'] if job['section'] == 'client' else find(state, 'members', job['operator_id'])['name'])
+                    else:
+                        job['account_manager_id'] = data['account_manager_id']
+                    job['client_name'] = client_name
+            current.update(name=client_name, account_manager_id=data['account_manager_id'], operator_id=data.get('operator_id'), updated_at=now())
+        else:
+            state['clients'].append({'id': new_id(), 'name': client_name, 'section': data['section'],
+                                     'account_manager_id': data['account_manager_id'], 'operator_id': data.get('operator_id'),
+                                     'created_at': now()})
+    elif action == 'client_remove':
+        client = find(state, 'clients', data['id'], True)
+        client.update(archived=True, deleted_at=now())
+        for job in state['setups']:
+            if job.get('client_id') == client['id']:
+                job.update(archived=True, deleted_at=now())
+    elif action == 'setup_bulk':
+        client = find(state, 'clients', data['client_id'], True)
+        operator_id = data.get('operator_id')
+        if operator_id:
+            find(state, 'members', operator_id, True)
+        parsed = []
+        for line, content in enumerate(data['domains'].splitlines(), 1):
+            for token in re.split(r'[,;\s]+', content.strip()):
+                if not token:
+                    continue
+                token = token.lower().rstrip('.')
+                try:
+                    raw_domain = token.rsplit('@', 1)[-1]
+                    domain = normalize(raw_domain)
+                    if domain != raw_domain:
+                        raise ValueError()
+                    email = email_domain(token, domain) if '@' in token else ''
+                except (ValueError, HTTPException):
+                    raise HTTPException(400, f'Line {line}: enter a valid root domain or email address.') from None
+                parsed.append((domain, email))
+        if not 1 <= len(parsed) <= 500:
+            raise HTTPException(400, 'Paste between 1 and 500 domains or email addresses.')
+        existing = {j['domain'] for j in state['setups'] if not j.get('archived')}
+        added = 0
+        for domain, email in parsed:
+            if domain in existing:
+                continue
+            if len(state['setups']) >= 5000:
+                raise HTTPException(400, 'Setup history limit reached.')
+            state['setups'].append({'id': new_id(), 'client_id': client['id'], 'client_name': client['name'],
+                'section': client['section'], 'account_manager_id': client['account_manager_id'], 'operator_id': operator_id,
+                'domain': domain, 'email': email, 'device_id': None, 'order': None, 'notes': '', 'stage': STAGES[0],
+                'created_at': now(), 'updated_at': now(), 'purchase_at': None, 'purchase_device': None,
+                'completed_at': None, 'sync': {'status': 'not_ready'}, 'archived': False})
+            existing.add(domain)
+            added += 1
+        outcome = {'added': added, 'skipped': len(parsed)-added}
     elif action == 'member_save':
         if data.get('id'):
             member = find(state, 'members', data['id'], True)
@@ -267,13 +325,26 @@ def mutate(user, expected, action, data):
         if any(s['stage'] != STAGES[2] and not s.get('archived') and s.get('device_id') == d['id'] for s in state['setups']):
             raise HTTPException(409, 'This device is linked to an open setup. Reassign or archive that setup first.')
         d['archived'] = True
-    elif action == 'setup_save':
+    elif action in {'setup_save', 'setup_assign'}:
         current = find(state, 'setups', data['id'], True) if data.get('id') else None
+        if action == 'setup_assign':
+            if current is None:
+                raise HTTPException(404, 'Setup not found.')
+            patch = data
+            if 'email' in patch and patch['email'] is None:
+                raise HTTPException(400, 'Enter an email address or leave it blank while planning.')
+            if 'operator_id' in patch and patch['operator_id'] != current.get('operator_id'):
+                if current.get('purchase_device') and current['stage'] not in FAILURES:
+                    raise HTTPException(409, 'The purchase owner is recorded in history. It cannot be reassigned.')
+                patch = {'device_id': None, **patch}
+            data = {**current, **patch}
+            if current['stage'] in FAILURES and data.get('device_id') != current.get('device_id'):
+                data['stage'] = STAGES[1] if current.get('purchase_at') else STAGES[0]
         if current and current.get('sync', {}).get('status') == 'synced':
             raise HTTPException(409, 'A published setup is locked to its sheet record. Correct the sheet directly if needed.')
         client = None
         if data.get('client_id'):
-            client = find(state, 'clients', data['client_id'])
+            client = find(state, 'clients', data['client_id'], True)
             if current and current.get('client_id') != client['id']:
                 raise HTTPException(409, 'Edit this domain within its existing client.')
             data = {**data, 'client_name': client['name'], 'section': client['section']}
@@ -281,7 +352,7 @@ def mutate(user, expected, action, data):
         # New manager assignments and all operators must still be active.
         existing_manager = (client or current or {}).get('account_manager_id')
         manager = find(state, 'members', data['account_manager_id'], data['account_manager_id'] != existing_manager)
-        operator = find(state, 'members', data['operator_id'], True)
+        operator = find(state, 'members', data['operator_id'], True) if data.get('operator_id') else None
         try:
             supplied_domain = text(data.get('domain'), 'Domain', False).lower().rstrip('.')
             raw_email = text(data.get('email'), 'Sending email', False).lower()
@@ -299,6 +370,8 @@ def mutate(user, expected, action, data):
         if any(s['id'] != (current or {}).get('id') and not s.get('archived') and (email and s['email'] == email or not email and not s['email'] and s['domain'] == domain) for s in state['setups']):
             raise HTTPException(409, 'This sending email or domain-only draft already has a setup. Update that record instead.')
         device_id = data.get('device_id')
+        if current and current.get('purchase_device') and current['stage'] not in FAILURES and data.get('operator_id') != current.get('operator_id'):
+            raise HTTPException(409, 'The purchase owner is recorded in history. It cannot be reassigned.')
         if current and current.get('purchase_device') and current['stage'] not in FAILURES and device_id != current.get('device_id'):
             raise HTTPException(409, 'The purchase device is recorded in history and cannot be changed after purchase.')
         if device_id:
@@ -307,13 +380,13 @@ def mutate(user, expected, action, data):
             if not historical:
                 if not allocation_available(state, device, (current or {}).get('id')):
                     raise HTTPException(409, 'This device is blocked, fully used or reserved. Choose another device or allocate one later.')
-                if device['member_id'] != operator['id']:
+                if not operator or device['member_id'] != operator['id']:
                     raise HTTPException(409, 'Allocate the device to the setup owner first.')
         if current is None:
             if len(state['setups']) >= 5000:
                 raise HTTPException(400, 'Setup history limit reached.')
             current = {'id': new_id(), 'stage': STAGES[0], 'created_at': now(), 'purchase_at': None, 'completed_at': None,
-                       'purchase_device': None, 'sync': {'status': 'not_ready'}, 'archived': False}
+                       'purchase_device': None, 'order': None, 'sync': {'status': 'not_ready'}, 'archived': False}
             state['setups'].append(current)
         if current['stage'] != STAGES[0] and domain != current['domain']:
             raise HTTPException(409, 'The purchased domain cannot be changed. Create a new setup for a different domain.')
@@ -322,14 +395,14 @@ def mutate(user, expected, action, data):
             # Compatibility for previously opened forms and legacy API callers.
             display_name = text(data.get('client_name'), 'Client name', False) or 'Biz Dev'
             key = client_key(data['section'], display_name)
-            client = next((c for c in state['clients'] if client_key(c['section'], c['name']) == key), None)
+            client = next((c for c in state['clients'] if not c.get('archived') and client_key(c['section'], c['name']) == key), None)
             if client is None:
-                client = {'id': new_id(), 'name': display_name, 'section': data['section'], 'account_manager_id': manager['id'], 'operator_id': operator['id'], 'created_at': now()}
+                client = {'id': new_id(), 'name': display_name, 'section': data['section'], 'account_manager_id': manager['id'], 'operator_id': operator['id'] if operator else None, 'created_at': now()}
                 state['clients'].append(client)
         current['client_id'] = client['id']
         current.update(domain=domain, email=email, client_name=text(data.get('client_name'), 'Client name', False),
-                       section=data['section'], account_manager_id=manager['id'], operator_id=operator['id'],
-                       device_id=device_id, order=data.get('order', 1), notes=text(data.get('notes'), 'Notes', False), updated_at=now())
+                       section=data['section'], account_manager_id=manager['id'], operator_id=operator['id'] if operator else None,
+                       device_id=device_id, notes=text(data.get('notes'), 'Notes', False), updated_at=now())
         set_stage(state, current, data.get('stage') or current['stage'])
     elif action == 'setup_device':
         # A missing device can be recorded later, including after a sheet sync,
@@ -353,13 +426,14 @@ def mutate(user, expected, action, data):
         set_stage(state, job, data['stage'])
     elif action == 'setup_remove':
         job = find(state, 'setups', data['id'], True)
-        if job.get('sync', {}).get('status') == 'synced':
-            raise HTTPException(409, 'Published setups remain in history. Use the stage filter to hide completed setups.')
-        job['archived'] = True
+        job.update(archived=True, deleted_at=now())
     else:
         raise HTTPException(400, 'Unknown tracker action.')
     audit(state, user, action)
-    return store.save(user, state, expected)
+    saved = store.save(user, state, expected)
+    if outcome is not None:
+        saved['import_summary'] = outcome
+    return saved
 
 
 def device_snapshot(state, device):
@@ -388,6 +462,8 @@ def set_stage(state, job, stage):
         raise HTTPException(409, 'Purchase and Live sheet history cannot be reset. Select the current or a later stage.')
     if stage == STAGES[2] and not job['email']:
         raise HTTPException(400, 'Add the sending email address before completing setup.')
+    if stage == STAGES[2] and not job.get('operator_id'):
+        raise HTTPException(400, 'Choose the setup person before completing setup.')
     if stage in FAILURES:
         reason = FAILURES[stage]
         d = find(state, 'devices', job['device_id'], True) if job.get('device_id') else None
@@ -412,7 +488,12 @@ def set_stage(state, job, stage):
     elif job.get('device_id') and find(state, 'devices', job['device_id'], True)['status'] == 'Blocked':
         raise HTTPException(409, 'Choose a replacement device or allocate one later before retrying.')
     if stage == STAGES[2] and old != stage:
-        job.update(completed_at=now(), sync={'status': 'pending'})
+        client = find(state, 'clients', job['client_id'], True)
+        completed = [j for j in state['setups'] if j.get('client_id') == client['id'] and j.get('completed_at')]
+        number = max(client.get('next_order', 1), len(completed)+1, max((j.get('order') or 0 for j in completed), default=0)+1)
+        client['next_order'] = number+1
+        job.update(completed_at=now(), order=number, sync={'status': 'pending'},
+            sheet_owner=job['client_name'] if job['section'] == 'client' else find(state, 'members', job['operator_id'])['name'])
     job['stage'] = stage
     job['updated_at'] = now()
 
@@ -432,7 +513,7 @@ def sync_completed(user, job_id):
     state['sync_lock'] = {'job_id': job_id, 'token': token, 'at': now()}
     claimed = store.save(user, state, record['revision'])
     try:
-        owner = job['client_name'] if job['section'] == 'client' else find(state, 'members', job['operator_id'])['name']
+        owner = job.get('sheet_owner') or (job['client_name'] if job['section'] == 'client' else find(state, 'members', job['operator_id'])['name'])
         synced = sheets.publish(job, owner)
         status = {'status': 'synced', 'at': now(), **synced}
     except HTTPException as exc:

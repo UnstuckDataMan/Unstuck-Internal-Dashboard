@@ -121,6 +121,8 @@ def publish(job, owner):
         if str(values.get(owner_key, '')).strip().casefold() not in ('', owner.strip().casefold()):
             raise HTTPException(409, f'{title}, row {row}: the owner/client differs from this setup. Correct the sheet or the setup, then Retry sync. '+location(gid, row)['url'])
         updates = []
+        if values.get('order') != job['order']:
+            updates.append({'updateCells': {'range': {'sheetId': gid, 'startRowIndex': row-1, 'endRowIndex': row, 'startColumnIndex': columns['order'], 'endColumnIndex': columns['order']+1}, 'rows': [{'values': [{'userEnteredValue': {'numberValue': job['order']}}]}], 'fields': 'userEnteredValue'}})
         if not checked(values.get('live')):
             updates.append({'updateCells': {'range': {'sheetId': gid, 'startRowIndex': row-1, 'endRowIndex': row, 'startColumnIndex': columns['live'], 'endColumnIndex': columns['live']+1}, 'rows': [{'values': [{'userEnteredValue': {'boolValue': True}}]}], 'fields': 'userEnteredValue'}})
         if not values.get(owner_key):
@@ -152,9 +154,9 @@ def publish(job, owner):
         requests_batch.append({'createDeveloperMetadata': {'developerMetadata': {'metadataId': metadata_id(job['id']), 'metadataKey': 'gmail_setup_id', 'metadataValue': job['id'], 'visibility': 'DOCUMENT', 'location': {'dimensionRange': {'sheetId': gid, 'dimension': 'ROWS', 'startIndex': index, 'endIndex': index+1}}}}})
         write(session, requests_batch, gid, title, row)
     # Check the exact row after the write. A timeout leaves the setup retryable.
-    checks = [a1(title, f'A{row}'), a1(title, f'{col(columns["live"])}{row}')]
+    checks = [a1(title, f'A{row}'), a1(title, f'{col(columns["live"])}{row}'), a1(title, f'{col(columns["order"])}{row}')]
     readback = call(session, 'get', BASE+'/values:batchGet', params=[('ranges', r) for r in checks]+[('valueRenderOption', 'UNFORMATTED_VALUE')]).get('valueRanges', [])
-    if len(readback) != 2 or str(first(readback[0].get('values'))).strip().lower() != job['email'].lower() or not checked(first(readback[1].get('values'), False)):
+    if len(readback) != 3 or str(first(readback[0].get('values'))).strip().lower() != job['email'].lower() or not checked(first(readback[1].get('values'), False)) or first(readback[2].get('values')) != job['order']:
         raise HTTPException(502, f'{title}, row {row}: could not verify the email and Live checkbox. Retry sync before editing other rows.')
     return {'tab': title, **location(gid, row)}
 

@@ -19,8 +19,12 @@ no new service, frontend build step or database provider.
 
 Open **Operations → Gmail Set** (`/gmail-set`). The main tool tracks the shared
 company setup journey: **Not started → Purchase made → Setup complete**.
-Create a client first, click its card, then add accounts by entering only the
-sending email. The server derives the domain automatically. The
+Create a client first, click its card, then paste up to 500 domains or emails.
+One account manager applies to the client. Optionally choose a default setup
+person, then change setup person, sending email, device and stage inline for
+each domain. Bare domains can be planned without an email or setup person;
+completion requires both. Invalid paste lines are identified and duplicates
+are skipped. The
 client list shows counts instead of every domain; unfinished domains appear above
 completed ones in each client’s domain list. Each domain has a stage dropdown,
 and the add/edit form also lets you choose its stage. Existing flat records are
@@ -33,11 +37,18 @@ is no longer the main workflow.
   workspace. Members can be added, edited or removed within this tool without
   changing dashboard login access. Open work must be reassigned before removal.
 - Record account manager, setup owner, client/Biz Dev section, root domain,
-  sending email and order. Device allocation is optional, even with zero inventory;
-  accounts without one show **Device not added yet** and an **Add device** action.
+  sending email. Sheet order is automatic per client: the first completion gets
+  1, the next 2, and so on. The number is stored before sync and stays fixed
+  through retries and deletion; manual order inputs are ignored.
+  Device allocation is optional, even with zero inventory;
+  accounts without one show **Device not added yet** and an inline device selector.
   A missing device can be recorded after completion without republishing the sheet row.
   Purchase records snapshot the actual
   device and asset label; removing/transferring equipment preserves that history.
+- Clients can be renamed and deleted from their detail page; every domain has
+  a Delete action, including published work. Deletion removes tracker entries
+  and preserves existing sheet rows, completion counters and physical device
+  history. Renaming keeps the original sheet-owner snapshot for stable retries.
 - Add actual inventory in batches of 0–10 phones and 0–10 PCs per person, with
   labels Phone 1–10 and PC 1–10 plus stable physical asset IDs. The unallocated pool
   supports stock awaiting assignment. No imaginary devices are seeded.
@@ -62,7 +73,7 @@ is no longer the main workflow.
   column), existing exact emails/row markers are reconciled, and a native row is
   inserted immediately after the last actual email/domain entry (ignoring the
   blank/formatted tail), atomically with Live checked and checkbox validation. Readback verifies
-  the email and Live value. No recovery code or password columns are read/copied.
+  the email, completion order and Live value. No recovery code or password columns are read/copied.
 - Failed sync remains visibly retryable. Workspace-wide conditional revisions
   and a persistent 180-second write lease prevent overlapping tool writes. A
   retry reconciles committed external writes after a timeout or process restart.

@@ -43,6 +43,7 @@ class Device(Strict):
 
 
 class Client(Strict):
+    id: str | None = Field(None, max_length=36)
     name: str = Field(min_length=1, max_length=150)
     section: Literal['client', 'bizdev'] = 'client'
     account_manager_id: str = Field(max_length=36)
@@ -54,7 +55,7 @@ class Setup(Strict):
     stage: Literal['Not started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment'] | None = None
     id: str | None = Field(None, max_length=36)
     account_manager_id: str = Field(max_length=36)
-    operator_id: str = Field(max_length=36)
+    operator_id: str | None = Field(None, max_length=36)
     client_name: str = Field('', max_length=150)
     domain: str = Field('', max_length=253)
     email: str = Field('', max_length=254)
@@ -79,9 +80,22 @@ class Identifier(Strict):
     id: str = Field(max_length=36)
 
 
+class Bulk(Strict):
+    client_id: str = Field(max_length=36)
+    domains: str = Field(min_length=1, max_length=50000)
+    operator_id: str | None = Field(None, max_length=36)
+
+
+class Assignment(Strict):
+    id: str = Field(max_length=36)
+    operator_id: str | None = Field(None, max_length=36)
+    device_id: str | None = Field(None, max_length=36)
+    email: str | None = Field(None, max_length=254)
+
+
 class Change(Strict):
     revision: int = Field(ge=0)
-    action: Literal['client_save', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
+    action: Literal['client_save', 'client_remove', 'setup_bulk', 'setup_assign', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
     data: dict
 
 
@@ -107,19 +121,20 @@ def get_summary(user=Depends(access)):
 
 @router.post('/api/gmail-setup/change')
 def change(body: Change, user=Depends(mutation_access)):
-    models = {'client_save': Client, 'member_save': Member, 'member_remove': Identifier, 'devices_add': Devices,
+    models = {'client_save': Client, 'client_remove': Identifier, 'setup_bulk': Bulk, 'setup_assign': Assignment,
+              'member_save': Member, 'member_remove': Identifier, 'devices_add': Devices,
               'device_update': Device, 'device_remove': Identifier, 'setup_save': Setup,
               'setup_stage': Stage, 'setup_device': SetupDevice, 'setup_remove': Identifier}
     from pydantic import ValidationError
     from fastapi import HTTPException
     try:
-        data = models[body.action].model_validate(body.data).model_dump(exclude_unset=body.action == 'device_update')
+        data = models[body.action].model_validate(body.data).model_dump(exclude_unset=body.action in {'device_update', 'setup_assign'})
         if body.action == 'device_update' and 'status' in data and data['status'] is None:
             raise HTTPException(400, 'Choose a device status.')
     except ValidationError:
         raise HTTPException(400, 'Check the required fields, device counts and selected values.') from None
     record = service.mutate(user, body.revision, body.action, data)
-    if body.action in {'setup_stage', 'setup_save'}:
+    if body.action in {'setup_stage', 'setup_save', 'setup_assign'}:
         job = next((j for j in record['state']['setups'] if j['id'] == data.get('id')), None) if data.get('id') else record['state']['setups'][-1]
         if job and job['stage'] == 'Setup complete' and job.get('sync', {}).get('status') != 'synced':
             record = service.sync_completed(user, job['id'])

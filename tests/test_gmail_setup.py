@@ -191,7 +191,9 @@ def test_complete_publishes_typed_live_to_correct_tab_and_retries_without_duplic
     assert '#gid='+str(session.gid)+'&range=A3' in job['sync']['url']
     assert s.sync_completed(USER,jid)['revision']==second['revision']
     assert second['state']['sync_lock'] is None
-    with pytest.raises(HTTPException):change('setup_remove',{'id':jid})
+    deleted=change('setup_remove',{'id':jid})
+    assert deleted['state']['setups'][0]['archived'] is True
+    assert deleted['state']['devices'][0]['use_count']==1
     # New-row writes contain typed literals, not formula interpretation or secrets.
     body=[data for method,url,data in session.calls if method=='post' and url.endswith(':batchUpdate')][0]
     assert not any('formulaValue' in str(r) for r in body['requests'])
@@ -473,3 +475,95 @@ def test_legacy_phone_usage_recovered_from_history_without_reset(board_db):
     assert s.summary(migrated['state'])['unused']==0
     # Reading old records does not itself modify the persisted workspace.
     assert 'use_count' not in stored['state']['devices'][0]
+
+
+def test_bulk_planning_atomic_line_errors_duplicates_and_shared_manager(board_db):
+    ids=people()
+    client=change('client_save',{'name':'Bulk client','section':'client','account_manager_id':ids['Robyn']})['state']['clients'][0]
+    before=s.board(USER)
+    with pytest.raises(HTTPException) as exc:
+        change('setup_bulk',{'client_id':client['id'],'domains':'validone.com\nnot-a-domain\nvalidtwo.com'})
+    assert 'Line 2' in exc.value.detail and s.board(USER)==before
+    pasted='\n'.join(f'bulk{i}.com' for i in range(12))+'\nme@bulkmixed.com, bulk0.com'
+    record=change('setup_bulk',{'client_id':client['id'],'domains':pasted})
+    assert record['import_summary']=={'added':13,'skipped':1}
+    jobs=record['state']['setups']
+    assert all(j['account_manager_id']==ids['Robyn'] and j['operator_id'] is None and j['device_id'] is None and j['order'] is None for j in jobs)
+    assert jobs[-1]['email']=='me@bulkmixed.com'
+    again=change('setup_bulk',{'client_id':client['id'],'domains':pasted,'operator_id':ids['Dylan']})
+    assert again['import_summary']=={'added':0,'skipped':14} and len(again['state']['setups'])==13
+
+
+@pytest.mark.parametrize('section',['client','bizdev'])
+def test_completion_order_follows_completion_not_creation_and_survives_retry_delete(board_db,sheet_session,section):
+    session=sheet_session(section);ids=people()
+    client=change('client_save',{'name':'Order client','section':section,'account_manager_id':ids['Robyn']})['state']['clients'][0]
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'firstcreated.com\nsecondcreated.com\nthirdcreated.com','operator_id':ids['Dylan']})
+    first,second,third=record['state']['setups']
+    # Completion without a sending email must not consume an order number.
+    with pytest.raises(HTTPException):change('setup_stage',{'id':second['id'],'stage':'Setup complete'})
+    for job in (second,first,third):
+        change('setup_assign',{'id':job['id'],'email':'me@'+job['domain']})
+    change('setup_stage',{'id':second['id'],'stage':'Setup complete'})
+    session.lose_response=True
+    failed=s.sync_completed(USER,second['id'])
+    assert next(j for j in failed['state']['setups'] if j['id']==second['id'])['order']==1
+    change('setup_stage',{'id':first['id'],'stage':'Setup complete'})
+    s.sync_completed(USER,first['id']);s.sync_completed(USER,second['id'])
+    change('setup_remove',{'id':second['id']})
+    record=change('setup_stage',{'id':third['id'],'stage':'Setup complete'})
+    byid={j['id']:j for j in record['state']['setups']}
+    assert [byid[j['id']]['order'] for j in (second,first,third)]==[1,2,3]
+    stable=change('setup_stage',{'id':third['id'],'stage':'Setup complete'})
+    assert stable['state']['clients'][0]['next_order']==4
+    s.sync_completed(USER,third['id'])
+    assert [r[1] for r in session.rows[2:]]==[1,2,3]
+    assert session.inserts==3
+    other=change('client_save',{'name':'Other client','section':section,'account_manager_id':ids['Robyn']})['state']['clients'][-1]
+    record=change('setup_save',{'client_id':other['id'],'account_manager_id':ids['Robyn'],'operator_id':ids['Dylan'],
+        'email':'me@anotherorder.com','section':section,'stage':'Setup complete','order':999})
+    assert record['state']['setups'][-1]['order']==1 # input order is ignored
+
+
+def test_rename_and_delete_client_preserve_sheet_owner_sequence_and_device_history(board_db,sheet_session):
+    session=sheet_session();ids=people();phone=devices(ids['Dylan'])['state']['devices'][0]
+    record,jid=create_setup(ids['Dylan'],phone['id']);client=record['state']['clients'][0]
+    change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    session.lose_response=True;s.sync_completed(USER,jid)
+    record=change('client_save',{**client,'name':'Renamed client','account_manager_id':ids['Robyn']})
+    assert record['state']['setups'][0]['client_name']=='Renamed client'
+    assert record['state']['setups'][0]['sheet_owner']=='Cedar client'
+    synced=s.sync_completed(USER,jid)
+    assert synced['state']['setups'][0]['sync']['status']=='synced' and session.inserts==1
+    assert session.rows[2][-1]=='Cedar client'
+    record=change('client_remove',{'id':client['id']})
+    assert record['state']['clients'][0]['archived'] and record['state']['setups'][0]['archived']
+    assert record['state']['devices'][0]['use_count']==1
+    assert len(session.rows)==3 and session.rows[2][session.headers.index('Live')] is True
+    assert s.summary(record['state'])['complete']==0
+    with pytest.raises(HTTPException):change('setup_bulk',{'client_id':client['id'],'domains':'notallowed.com'})
+    # Reusing a deleted client's name creates a new identity; deleted work stays deleted.
+    replacement=change('client_save',{'name':'Renamed client','section':'client','account_manager_id':ids['Robyn']})
+    assert replacement['state']['clients'][-1]['id']!=client['id']
+
+
+def test_inline_assignment_tracks_owner_and_device_without_resetting_usage(board_db):
+    ids=people();phone=devices(ids['Dylan'])['state']['devices'][0]
+    client=change('client_save',{'name':'Inline','section':'client','account_manager_id':ids['Robyn']})['state']['clients'][0]
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'inlineone.com\ninlinetwo.com'})
+    first,second=record['state']['setups']
+    record=change('setup_assign',{'id':first['id'],'operator_id':ids['Dylan'],'email':'me@inlineone.com'})
+    change('setup_assign',{'id':first['id'],'device_id':phone['id']})
+    record=change('setup_assign',{'id':first['id'],'operator_id':ids['Matthew']})
+    assert record['state']['setups'][0]['device_id'] is None # releases incompatible pending allocation
+    assert record['state']['devices'][0]['use_count']==0
+    change('setup_assign',{'id':second['id'],'operator_id':ids['Dylan'],'device_id':phone['id'],'email':'me@inlinetwo.com'})
+    change('setup_stage',{'id':second['id'],'stage':'Failed at QR'})
+    replacement=devices(ids['Dylan'])['state']['devices'][-1]
+    record=change('setup_assign',{'id':second['id'],'device_id':replacement['id']})
+    assert record['state']['setups'][1]['stage']=='Not started'
+    assert record['state']['setups'][1]['device_failures'][0]['device']['id']==phone['id']
+    assert record['state']['devices'][0]['status']=='Blocked'
+    record=change('setup_stage',{'id':second['id'],'stage':'Setup complete'})
+    assert record['state']['devices'][-1]['use_count']==1
+    with pytest.raises(HTTPException):change('setup_assign',{'id':second['id'],'operator_id':ids['Matthew']})
