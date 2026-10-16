@@ -851,6 +851,66 @@ def test_reported_inventory_has_22_phone_slots_24_total_and_needs_three_phones(b
     assert plan['available_setups']==41 and plan['setup_shortfall']==0 and plan['shortfall']==0
 
 
+def test_client_placeholder_is_replaced_by_actual_count_not_added_or_used_as_minimum(board_db):
+    owner=people()['Dylan']
+    record=change('client_save',{'name':'Future client','account_manager_id':owner,'section':'client','planned_domains':10})
+    client=record['state']['clients'][0]
+    assert not record['state']['setups']
+    plan=s.summary(record['state'])
+    assert plan['todo']==10 and plan['planned_todo']==10 and plan['actual_todo']==0
+    assert plan['not_started']==10 and plan['target']==20 and plan['shortfall']==10
+    assert s.summary(s.board(OTHER)['state'])['planned_todo']==10
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'futureclient{i}.com' for i in range(7)),'operator_id':owner,'sender_name':'me'})
+    assert record['state']['clients'][0]['planned_domains']==0
+    plan=s.summary(record['state'])
+    assert plan['todo']==7 and plan['planned_todo']==0 and plan['actual_todo']==7
+    assert plan['target']==17 and plan['shortfall']==9
+    job=record['state']['setups'][0]
+    record=change('setup_stage',{'id':job['id'],'stage':'Setup complete'})
+    assert s.summary(record['state'])['todo']==6 and s.summary(record['state'])['planned_todo']==0
+    # Removing every actual domain never resurrects the original ten-domain plan.
+    for job in record['state']['setups']:change('setup_remove',{'id':job['id']})
+    assert s.summary(s.board(USER)['state'])['todo']==0
+
+
+def test_empty_client_placeholder_can_be_edited_deleted_and_replaced_by_single_add(board_db):
+    owner=people()['Dylan']
+    data={'name':'Future client','account_manager_id':owner,'section':'bizdev','planned_domains':10}
+    client=change('client_save',data)['state']['clients'][0]
+    record=change('client_save',{**data,'id':client['id'],'planned_domains':12})
+    assert s.summary(record['state'])['planned_todo']==12
+    # Older forms omitting the optional field preserve an existing plan.
+    record=change('client_save',{'id':client['id'],'name':'Renamed future client','account_manager_id':owner,'section':'bizdev'})
+    assert s.summary(record['state'])['planned_todo']==12
+    record=change('setup_save',{'client_id':client['id'],'account_manager_id':owner,'operator_id':owner,'email':'me@firstfuture.com','section':'bizdev'})
+    assert s.summary(record['state'])['todo']==1 and record['state']['clients'][0]['planned_domains']==0
+    record=change('client_remove',{'id':client['id']})
+    assert s.summary(record['state'])['todo']==0
+    second=change('client_save',{**data,'name':'Delete placeholder'})['state']['clients'][-1]
+    assert s.summary(s.board(USER)['state'])['planned_todo']==10
+    record=change('client_remove',{'id':second['id']})
+    assert s.summary(record['state'])['planned_todo']==0
+
+
+def test_failed_and_duplicate_only_imports_keep_placeholder_and_create_no_fake_jobs(board_db):
+    owner=people()['Dylan'];create_setup(owner)
+    client=change('client_save',{'name':'Planned client','account_manager_id':owner,'section':'client','planned_domains':10})['state']['clients'][-1]
+    before=s.board(USER)
+    with pytest.raises(HTTPException):change('setup_bulk',{'client_id':client['id'],'domains':'validfuture.com\nnot-a-domain'})
+    assert s.board(USER)==before
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'cedarclients.com'})
+    assert record['import_summary']=={'added':0,'skipped':1}
+    assert record['state']['clients'][-1]['planned_domains']==10
+    assert s.summary(record['state'])['todo']==11 # one actual + ten planned
+
+
+@pytest.mark.parametrize('value',[-1,5001,1.5,True,'10'])
+def test_client_placeholder_schema_rejects_invalid_counts(value):
+    from app.routers.gmail_setup import Client
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):Client(name='Future client',account_manager_id='owner',planned_domains=value)
+
+
 def test_reset_failure_restores_remaining_phone_capacity_and_can_reuse_same_phone(board_db):
     owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
     _,first=create_setup(owner,phone['id']);change('setup_stage',{'id':first,'stage':'Setup complete'})

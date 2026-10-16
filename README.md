@@ -73,6 +73,14 @@ is no longer the main workflow.
   the saved limit or blocked. Raising/lowering limits updates every card, domain
   picker, allocation check and consumption check without erasing physical history.
   Manually blocked equipment remains blocked even if limits are raised.
+- New or empty clients can have an optional **Planned domains** placeholder (0–5000).
+  It contributes to company to do, Not started and device-order calculations before
+  domains are purchased. The first actual domain added (bulk or single) clears
+  the entire placeholder: 10 planned followed by 7 actual becomes 7, never 17
+  or a minimum of 10. Failed imports and imports containing only duplicates keep
+  the placeholder. Completed/deleted actual domains never revive an old plan.
+  The client list and forecast distinguish planned counts from actual domain rows;
+  placeholders create no sending emails, sheet rows or DMARC targets.
 - Both Gmail Set and Operations compare **setup slots**: required setups are
   **active to do domains + 10 contingency setups**, not ten physical devices.
   Remaining capacity sums max(limit − recorded uses, 0) on active, unblocked

@@ -179,6 +179,10 @@ def audit(state, user, action):
 def reserve_plan(state):
     """Compare setup slots with to do domains plus ten contingency setups."""
     jobs = [j for j in state['setups'] if not j.get('archived') and j['stage'] != STAGES[2]]
+    clients_with_domains = {j.get('client_id') for j in state['setups']}
+    planned = sum(c.get('planned_domains', 0) for c in state.get('clients', [])
+        if not c.get('archived') and c['id'] not in clients_with_domains)
+    todo = len(jobs)+planned
     usable = {d['id']: d for d in state['devices'] if not d.get('archived') and d['status'] != 'Blocked'}
     remaining = {kind: sum(max(0, device_capacity(state, d)-device_uses(d))
         for d in usable.values() if d['kind'] == kind) for kind in DEFAULT_CAPACITY}
@@ -189,10 +193,11 @@ def reserve_plan(state):
         and (j.get('purchase_device') or {}).get('id') == j['device_id'] for j in jobs)
     order_kind = state.get('order_device_kind', 'Phone')
     per_new = device_capacity(state, {'kind': order_kind})
-    target = len(jobs)+RESERVE_CONTINGENCY
+    target = todo+RESERVE_CONTINGENCY
     available = sum(remaining.values())+purchased
     missing = max(0, target-available)
-    return {'todo': len(jobs), 'contingency': RESERVE_CONTINGENCY, 'target': target,
+    return {'todo': todo, 'actual_todo': len(jobs), 'planned_todo': planned,
+            'contingency': RESERVE_CONTINGENCY, 'target': target,
             'available_setups': available, 'setup_shortfall': missing,
             'phone_available': remaining['Phone'], 'pc_available': remaining['PC'],
             'purchased_setups': purchased, 'shortfall': (missing+per_new-1)//per_new,
@@ -210,7 +215,7 @@ def summary(state):
             'low_stock': plan['setup_shortfall'] > 0, 'devices': len(devices),
             'blocked': sum(d['status'] == 'Blocked' for d in devices),
             'exhausted_phones': sum(d['kind'] == 'Phone' and device_uses(d) >= device_capacity(state, d) for d in devices),
-            'not_started': sum(s['stage'] == STAGES[0] or s['stage'] in FAILURES and not s.get('purchase_at') for s in state['setups'] if not s.get('archived')),
+            'not_started': plan['planned_todo']+sum(s['stage'] == STAGES[0] or s['stage'] in FAILURES and not s.get('purchase_at') for s in state['setups'] if not s.get('archived')),
             'purchased': sum(s['stage'] == STAGES[1] or s['stage'] in FAILURES and bool(s.get('purchase_at')) for s in state['setups'] if not s.get('archived')),
             'complete': sum(s['stage'] == STAGES[2] for s in state['setups'] if not s.get('archived')),
             'sync_errors': sum(s.get('sync', {}).get('status') == 'error' for s in state['setups'] if not s.get('archived'))}
@@ -273,6 +278,13 @@ def mutate(user, expected, action, data):
         state.update(device_capacity=limits, order_device_kind=data['order_kind'])
     elif action == 'client_save':
         current = find(state, 'clients', data['id'], True) if data.get('id') else None
+        planned = data.get('planned_domains')
+        if planned is None:
+            planned = (current or {}).get('planned_domains', 0)
+        if type(planned) is not int or not 0 <= planned <= 5000:
+            raise HTTPException(400, 'Enter a planned domain count from 0 to 5000.')
+        if current and any(j.get('client_id') == current['id'] for j in state['setups']):
+            planned = 0
         client_name = re.sub(r'\s+', ' ', text(data['name'], 'Client name'))
         key = client_key(data['section'], client_name)
         if any(not c.get('archived') and c['id'] != (current or {}).get('id') and client_key(c['section'], c['name']) == key for c in state['clients']):
@@ -292,11 +304,11 @@ def mutate(user, expected, action, data):
                     else:
                         job['account_manager_id'] = data['account_manager_id']
                     job['client_name'] = client_name
-            current.update(name=client_name, account_manager_id=data['account_manager_id'], operator_id=data.get('operator_id'), updated_at=now())
+            current.update(name=client_name, account_manager_id=data['account_manager_id'], operator_id=data.get('operator_id'), planned_domains=planned, updated_at=now())
         else:
             state['clients'].append({'id': new_id(), 'name': client_name, 'section': data['section'],
                                      'account_manager_id': data['account_manager_id'], 'operator_id': data.get('operator_id'),
-                                     'created_at': now()})
+                                     'planned_domains': planned, 'created_at': now()})
     elif action == 'client_remove':
         client = find(state, 'clients', data['id'], True)
         client.update(archived=True, deleted_at=now())
@@ -345,6 +357,8 @@ def mutate(user, expected, action, data):
                 'completed_at': None, 'sync': {'status': 'not_ready'}, 'archived': False})
             existing.add(domain)
             added += 1
+        if added:
+            client['planned_domains'] = 0
         outcome = {'added': added, 'skipped': len(parsed)-added}
     elif action == 'member_save':
         if data.get('id'):
@@ -502,6 +516,7 @@ def mutate(user, expected, action, data):
                 client = {'id': new_id(), 'name': display_name, 'section': data['section'], 'account_manager_id': manager['id'], 'operator_id': operator['id'] if operator else None, 'created_at': now()}
                 state['clients'].append(client)
         current['client_id'] = client['id']
+        client['planned_domains'] = 0
         current.update(domain=domain, email=email, client_name=text(data.get('client_name'), 'Client name', False),
                        section=data['section'], account_manager_id=manager['id'], operator_id=operator['id'] if operator else None,
                        device_id=device_id, notes=text(data.get('notes'), 'Notes', False), updated_at=now())

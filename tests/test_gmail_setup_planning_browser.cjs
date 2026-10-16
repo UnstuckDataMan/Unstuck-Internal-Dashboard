@@ -1,0 +1,32 @@
+// Synthetic preview only: placeholder counts never create DNS or Sheet entries.
+const {chromium}=require('playwright'),assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
+ const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
+ await page.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:8766')?r.continue():r.abort());
+ const idle=()=>page.waitForFunction(()=>!document.querySelector('#gs-app').hasAttribute('aria-busy'));
+ const data=()=>page.evaluate(()=>fetch('/api/gmail-setup').then(r=>r.json()));
+ const save=async()=>{await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();};
+ await page.goto('http://127.0.0.1:8766/gmail-set');await idle();
+ const initial=(await data()).summary.todo,owner=(await data()).state.members.find(m=>m.name==='Dylan').id;
+ await page.click('#gs-add-setup');await page.fill('#gs-client-name','Future planning client');await page.selectOption('#gs-client-manager',owner);await page.fill('#gs-client-planned','10');await save();
+ let model=await data();const client=model.state.clients.find(c=>c.name==='Future planning client');
+ assert.equal(model.summary.todo,initial+10);assert.equal(model.summary.planned_todo,10);assert.equal(model.state.setups.filter(j=>j.client_id===client.id).length,0);
+ assert.match(await page.textContent('#gs-client-caption'),/10 planned domains included/);assert.equal(await page.locator('#gs-dmarc').isDisabled(),true);
+ await page.click('#gs-back-clients');const card=page.locator(`[data-open-client="${client.id}"]`);assert.match(await card.textContent(),/10 planned domains/);assert.match(await card.textContent(),/10 to do/);
+ await page.selectOption('#gs-filter-stage','Not started');assert.equal(await card.isVisible(),true);await page.selectOption('#gs-filter-stage','');
+ await card.click();await page.reload();await idle();assert.match(await page.textContent('.gs-reserve-calculation'),/10 planned/);
+ await page.click('#gs-edit-client');assert.equal(await page.inputValue('#gs-client-planned'),'10');await page.fill('#gs-client-planned','12');await save();assert.equal((await data()).summary.todo,initial+12);
+ await page.click('#gs-edit-client');await page.fill('#gs-client-planned','10');await save();
+ await page.fill('#gs-bulk-domains','validfuture.com\nnot-a-domain');await page.locator('#gs-bulk-panel button[type="submit"]').click();await idle();assert.equal((await data()).summary.planned_todo,10);
+ await page.fill('#gs-bulk-domains',Array.from({length:7},(_,i)=>`futureplanning${i}.com`).join('\n'));await page.locator('#gs-bulk-panel button[type="submit"]').click();await idle();
+ model=await data();assert.equal(model.summary.todo,initial+7);assert.equal(model.summary.planned_todo,0);assert.equal(model.state.clients.find(c=>c.id===client.id).planned_domains,0);
+ assert.equal(await page.locator('[data-setup]').count(),7);assert.doesNotMatch(await page.textContent('#gs-client-caption'),/planned domains/);
+ await page.click('#gs-edit-client');assert.equal(await page.locator('#gs-client-planned').count(),0);await page.click('#gs-dialog-cancel');
+ await page.click('#gs-back-clients');assert.match(await card.textContent(),/7 domains/);assert.match(await card.textContent(),/7 to do/);assert.doesNotMatch(await card.textContent(),/planned/);
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'work/gmail-planned-domain-count-mobile.png',fullPage:true});
+ await card.click();await page.click('#gs-delete-client');await idle();assert.equal((await data()).summary.todo,initial);
+ await page.goto('http://127.0.0.1:8766/');await page.waitForFunction(()=>document.querySelector('#gs-home-stock')?.textContent.includes('contingency'));assert.deepEqual(errors,[]);
+ await browser.close();console.log('PASS: editable placeholder counts persist, include empty clients in forecasting and filters, 10 planned becomes 7 actual, invalid imports preserve the plan, actual domains hide the placeholder and client deletion removes demand.');
+})().catch(e=>{console.error(e);process.exit(1)});

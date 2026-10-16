@@ -49,6 +49,7 @@ class Client(Strict):
     section: Literal['client', 'bizdev'] = 'client'
     account_manager_id: str = Field(max_length=36)
     operator_id: str | None = Field(None, max_length=36)
+    planned_domains: int | None = Field(None, ge=0, le=5000, strict=True)
 
 
 class Setup(Strict):
