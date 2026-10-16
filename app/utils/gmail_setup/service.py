@@ -175,6 +175,8 @@ def consume_device_use(state, device, job):
 def unlocked(state):
     lock = state.get('sync_lock')
     if lock and (datetime.now(timezone.utc)-datetime.fromisoformat(lock['at'])).total_seconds() < LEASE_SECONDS:
+        if lock.get('kind') == 'dns_setup':
+            raise HTTPException(409, 'DNS records are being configured. Retry in a moment.')
         if lock.get('kind') == 'dmarc':
             raise HTTPException(409, 'A DMARC record is being configured. Retry in a moment.')
         raise HTTPException(409, 'A completed setup is syncing to Google Sheets. Retry in a moment.')

@@ -84,3 +84,4 @@
 
 .gs-domain-dmarc{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:10px;margin-top:12px}.gs-domain-dmarc .gs-badge{margin:0}
 .gs-burned-heading{color:#fdba74;margin-top:28px;border-top:1px solid var(--border);padding-top:22px}.gs-burned-count{color:#fdba74}.gs-domain-burned{border-color:rgba(251,146,60,.25);background:rgba(251,146,60,.035)}.gs-badge.burned{color:#fdba74;background:rgba(251,146,60,.12)}
+.gs-cleanup-preview small{white-space:normal;overflow-wrap:anywhere}

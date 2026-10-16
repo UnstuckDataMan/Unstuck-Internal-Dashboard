@@ -186,3 +186,25 @@ def start_dmarc(client_id: UUID, body: DmarcStart, user=Depends(mutation_access)
 def apply_dmarc(client_id: UUID, batch_id: UUID, job_id: UUID, body: DmarcApply, user=Depends(mutation_access)):
     from app.utils.gmail_setup import dmarc
     return service.result(dmarc.apply(user, str(client_id), str(batch_id), str(job_id), body.revision))
+
+
+class DnsSetupPreview(Strict):
+    revision: int = Field(ge=0)
+
+
+class DnsSetupApply(DnsSetupPreview):
+    preview_id: UUID
+    confirmed_purchased: Literal[True]
+    destination: str = Field(min_length=1, max_length=2048)
+
+
+@router.post('/api/gmail-setup/setups/{job_id}/dns-setup/preview')
+def preview_dns_setup(job_id: UUID, body: DnsSetupPreview, user=Depends(mutation_access)):
+    from app.utils.gmail_setup import dns_setup
+    return service.result(dns_setup.preview(user, str(job_id), body.revision))
+
+
+@router.post('/api/gmail-setup/setups/{job_id}/dns-setup/apply')
+def apply_dns_setup(job_id: UUID, body: DnsSetupApply, user=Depends(mutation_access)):
+    from app.utils.gmail_setup import dns_setup
+    return service.result(dns_setup.apply(user, str(job_id), str(body.preview_id), body.revision, body.confirmed_purchased, body.destination))

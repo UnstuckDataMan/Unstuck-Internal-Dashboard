@@ -93,8 +93,16 @@ is no longer the main workflow.
   24/29 coverage: 5 slots short, requiring **3 phones** at two setups each.
   The same saved limits control ordering, device colours and allocations.
   No external orders or notifications are sent.
-- Administrators can select **Set up DMARC** for a whole client or on an individual
-  domain row after confirming domain
+- Each domain has an administrator-only **One-click setup** button. After the
+  purchase warning, enter the client website URL and select **Proceed**. It removes
+  only reviewed Porkbun forwarding MX, default Porkbun SPF and ACME challenge TXT
+  records; adds/verifies `t` CNAME → `open.sleadtrack.com` (TTL 600) and the domain's
+  sending-email DMARC policy; and creates/verifies root wildcard website forwarding
+  (302, no appended path). The URL is remembered for the client's next domain.
+  **Cancel** makes no external changes. Conflicting records or forwarding require
+  review. Exact deletion snapshots, expiring confirmations, shared write claims,
+  readback and idempotent retries protect unrelated records and domains.
+- Administrators can also select **Set up DMARC** for a whole client after confirming domain
   purchases with **Proceed / Cancel**. Only the selected active domains within that client are used;
   the server fixes each domain/report-email snapshot before any external write.
   Both rua/ruf use the domain's sending email, with

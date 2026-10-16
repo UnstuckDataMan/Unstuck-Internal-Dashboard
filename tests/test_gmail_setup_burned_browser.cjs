@@ -19,7 +19,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  model=await data();assert.equal(model.summary.todo,baseline+1);assert.equal(model.summary.target,baseline+11);assert.equal(model.summary.planned_todo,0);assert.equal(model.summary.burned,1);
  assert.deepEqual(await page.locator('.gs-list-heading').allTextContents(),['In progress 1','Complete 1','Burned 1']);
  assert.deepEqual(await page.locator('[data-setup]').evaluateAll(els=>els.map(el=>el.dataset.setup)),[pending.id,complete.id,burned.id]);
- assert.equal(await page.locator(`[data-setup="${burned.id}"] [data-setup-dmarc]`).count(),0);
+ assert.equal(await page.locator(`[data-setup="${burned.id}"] [data-setup-dns]`).count(),0);
  await page.click('#gs-dmarc');assert.doesNotMatch(await page.textContent('.gs-dmarc-preview'),/abandonedburnedtest/);await page.click('#gs-dialog-cancel');
  await page.click('#gs-back-clients');let card=page.locator(`[data-open-client="${client.id}"]`);assert.match(await card.textContent(),/1 to do/);assert.match(await card.textContent(),/1 complete/);assert.match(await card.textContent(),/1 burned/);
  await page.selectOption('#gs-filter-stage','Burned');await card.click();assert.equal(await page.locator('[data-setup]').count(),1);assert.match(await page.textContent('#gs-setup-list'),/abandonedburnedtest.com/);await page.selectOption('#gs-filter-stage','');
