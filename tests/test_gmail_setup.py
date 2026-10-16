@@ -981,6 +981,43 @@ def test_burned_draft_releases_reservation_and_does_not_restore_placeholder(boar
     change('member_remove',{'id':owner}) # Burned work is no longer an open setup.
 
 
+def test_started_counts_as_work_without_consuming_a_device_or_publishing(board_db):
+    from app.routers.gmail_setup import Stage, Setup
+    owner=people()['Dylan'];pc=devices(owner,phones=0,pcs=1)['state']['devices'][0]
+    _,jid=create_setup(owner,pc['id'])
+    Stage(id=jid,stage='Started');Setup(account_manager_id=owner,stage='Started')
+    record=change('setup_stage',{'id':jid,'stage':'Started'})
+    job=record['state']['setups'][0];summary=s.summary(record['state'])
+    assert job['stage']=='Started' and job['purchase_at'] is None and job['completed_at'] is None
+    assert job['sync']['status']=='not_ready' and record['state']['devices'][0]['use_count']==0
+    assert summary['not_started']==0 and summary['started']==1 and summary['purchased']==0
+    assert summary['todo']==1 and summary['target']==11
+    with pytest.raises(HTTPException):create_setup(owner,pc['id'],'reservedstarted.com','me@reservedstarted.com')
+    with pytest.raises(HTTPException,match='pending setup'):change('device_update',{'id':pc['id'],'member_id':people()['Matthew']})
+    record=change('setup_stage',{'id':jid,'stage':'Purchase made'})
+    assert s.summary(record['state'])['started']==0 and s.summary(record['state'])['purchased']==1
+    assert record['state']['devices'][0]['use_count']==1
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    assert s.summary(record['state'])['todo']==0 and s.summary(record['state'])['complete']==1
+
+
+def test_started_is_available_for_device_free_planning_and_reopening_a_failure(board_db):
+    owner=people()['Dylan']
+    record,jid=create_setup(owner,email='')
+    record=change('setup_stage',{'id':jid,'stage':'Started'})
+    assert record['state']['setups'][0]['email']=='' and s.summary(record['state'])['started']==1
+    change('setup_stage',{'id':jid,'stage':'Not started'})
+    phone=devices(owner)['state']['devices'][0]
+    change('setup_assign',{'id':jid,'device_id':phone['id']})
+    change('setup_stage',{'id':jid,'stage':'Failed at QR'})
+    record=change('setup_stage',{'id':jid,'stage':'Started'})
+    assert record['state']['setups'][0]['device_id'] is None
+    assert record['state']['devices'][0]['status']=='Unused' and record['state']['devices'][0]['use_count']==0
+    assert s.summary(record['state'])['started']==1 and s.summary(record['state'])['todo']==1
+    record=change('setup_stage',{'id':jid,'stage':'Burned'})
+    assert s.summary(record['state'])['started']==0 and s.summary(record['state'])['todo']==0
+
+
 def test_resetting_other_failure_does_not_unblock_a_burned_domain_failure(board_db):
     owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
     _,first=create_setup(owner,phone['id'])

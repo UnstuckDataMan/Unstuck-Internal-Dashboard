@@ -21,7 +21,7 @@ require('node:fs').mkdirSync('work',{recursive:true});
  // No device inventory exists: both pending and purchased accounts can be added.
  await add();assert.equal(await page.locator('#gs-job-domain').count(),0);await page.fill('#gs-job-email','me@retryclients.com');await save();
  let job=(await data()).state.setups[0];const card=()=>page.locator(`[data-setup="${job.id}"]`);
- assert.equal(await card().locator('[data-set-stage] option').count(),6);
+ assert.equal(await card().locator('[data-set-stage] option').count(),7);
  assert.match(await card().textContent(),/Device not added yet/);
  await add();await page.fill('#gs-job-email','me@unfinishedcedar.com');await page.selectOption('#gs-job-stage','Purchase made');await save();
  assert.equal((await data()).state.clients.length,1);assert.equal((await data()).state.devices.length,0);

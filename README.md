@@ -60,6 +60,11 @@ is no longer the main workflow.
   blocks the linked device in red with the matching reason, without publishing a
   Live row. Retry with a replacement device or leave it unallocated; the failed
   asset stays in account history.
+- Domain stages include **Started**, which tracks active work without consuming a
+  device use or publishing a sheet row. Started and Purchase made cards have a
+  subtle amber tint; Setup complete is green; Burned and QR/payment failures are
+  red. Button styles remain unchanged. Started stays in setup-demand calculations
+  and has its own overview count and stage filter.
 - Unused, Used and Blocked states are separate from allocation. **Block QR code**
   and **Block Payment** are explicit block reasons. All blocked equipment is red
   and excluded from purchases; previously used devices never count as new stock.

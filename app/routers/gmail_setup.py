@@ -54,7 +54,7 @@ class Client(Strict):
 
 class Setup(Strict):
     client_id: str | None = Field(None, max_length=36)
-    stage: Literal['Not started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment', 'Burned'] | None = None
+    stage: Literal['Not started', 'Started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment', 'Burned'] | None = None
     id: str | None = Field(None, max_length=36)
     account_manager_id: str = Field(max_length=36)
     operator_id: str | None = Field(None, max_length=36)
@@ -69,7 +69,7 @@ class Setup(Strict):
 
 class Stage(Strict):
     id: str = Field(max_length=36)
-    stage: Literal['Not started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment', 'Burned']
+    stage: Literal['Not started', 'Started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment', 'Burned']
 
 
 class SetupDevice(Strict):

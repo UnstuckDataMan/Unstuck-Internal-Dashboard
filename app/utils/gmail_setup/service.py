@@ -8,6 +8,8 @@ from app.utils.domain_cluster.engine import normalize
 from . import store
 
 STAGES = ('Not started', 'Purchase made', 'Setup complete')
+STARTED = 'Started'
+PLANNING_STAGES = (STAGES[0], STARTED)
 BURNED = 'Burned'
 CLOSED_STAGES = (STAGES[2], BURNED)
 FAILURES = {'Failed at QR': 'QR code', 'Failed at payment': 'Payment'}
@@ -115,7 +117,7 @@ def ensure_device_usage(state):
     # Repair older resets which detached the phone but left its failed state
     # behind. This is a read-time upgrade; the next CAS mutation persists it.
     for job in state['setups']:
-        if job['stage'] == STAGES[0] and not job.get('archived') and not job.get('device_id'):
+        if job['stage'] in PLANNING_STAGES and not job.get('archived') and not job.get('device_id'):
             failure = next((f for f in reversed(job.get('device_failures', [])) if f.get('device', {}).get('id') and not f.get('reverted_at')), None)
             if failure:
                 device = next((d for d in state['devices'] if d['id'] == failure['device']['id']), None)
@@ -154,7 +156,7 @@ def restore_failed_device(state, job, device):
 def allocation_available(state, device, job_id=None):
     if device.get('archived') or device['status'] == 'Blocked':
         return False
-    reserved = sum(j['id'] != job_id and not j.get('archived') and j['stage'] == STAGES[0]
+    reserved = sum(j['id'] != job_id and not j.get('archived') and j['stage'] in PLANNING_STAGES
         and j.get('device_id') == device['id'] and j['id'] not in device.get('setup_ids', []) for j in state['setups'])
     return device_uses(device) + reserved < device_capacity(state, device)
 
@@ -229,6 +231,7 @@ def summary(state):
             'blocked': sum(d['status'] == 'Blocked' for d in devices),
             'exhausted_phones': sum(d['kind'] == 'Phone' and device_uses(d) >= device_capacity(state, d) for d in devices),
             'not_started': plan['planned_todo']+sum(s['stage'] == STAGES[0] or s['stage'] in FAILURES and not s.get('purchase_at') for s in state['setups'] if not s.get('archived')),
+            'started': sum(s['stage'] == STARTED for s in state['setups'] if not s.get('archived')),
             'purchased': sum(s['stage'] == STAGES[1] or s['stage'] in FAILURES and bool(s.get('purchase_at')) for s in state['setups'] if not s.get('archived')),
             'complete': sum(s['stage'] == STAGES[2] for s in state['setups'] if not s.get('archived')),
             'burned': sum(s['stage'] == BURNED for s in state['setups'] if not s.get('archived')),
@@ -425,7 +428,7 @@ def mutate(user, expected, action, data):
     elif action == 'device_update':
         d = find(state, 'devices', data['id'], True)
         if 'member_id' in data and data['member_id'] != d['member_id']:
-            if any(s['stage'] == STAGES[0] and not s.get('archived') and s.get('device_id') == d['id'] for s in state['setups']):
+            if any(s['stage'] in PLANNING_STAGES and not s.get('archived') and s.get('device_id') == d['id'] for s in state['setups']):
                 raise HTTPException(409, 'Reassign this device on its pending setup before transferring it.')
             member_id = data['member_id']
             number = device_slot(state, member_id, d['kind'], d['id']) if member_id else 1+max((x['number'] for x in state['devices'] if x['member_id'] is None and x['kind'] == d['kind']), default=0)
@@ -507,7 +510,7 @@ def mutate(user, expected, action, data):
         if current and current.get('purchase_device') and current['stage'] in STAGES[1:] and device_id != current.get('device_id'):
             raise HTTPException(409, 'The purchase device is recorded in history and cannot be changed after purchase.')
         if device_id:
-            historical = current and current.get('device_id') == device_id and (current['stage'] != STAGES[0] or (current.get('purchase_device') or {}).get('id') == device_id)
+            historical = current and current.get('device_id') == device_id and (current['stage'] not in PLANNING_STAGES or (current.get('purchase_device') or {}).get('id') == device_id)
             device = find(state, 'devices', device_id, not historical)
             if not historical:
                 if not allocation_available(state, device, (current or {}).get('id')):
@@ -520,7 +523,7 @@ def mutate(user, expected, action, data):
             current = {'id': new_id(), 'stage': STAGES[0], 'created_at': now(), 'purchase_at': None, 'completed_at': None,
                        'purchase_device': None, 'order': None, 'sync': {'status': 'not_ready'}, 'archived': False}
             state['setups'].append(current)
-        if (current['stage'] != STAGES[0] or current.get('purchase_at')) and domain != current['domain']:
+        if (current['stage'] not in PLANNING_STAGES or current.get('purchase_at')) and domain != current['domain']:
             raise HTTPException(409, 'The purchased domain cannot be changed. Create a new setup for a different domain.')
         client = next((c for c in state['clients'] if c['id'] == data.get('client_id')), None)
         if client is None:
@@ -592,7 +595,7 @@ def record_purchase_device(state, job):
 
 
 def set_stage(state, job, stage):
-    if stage not in (*STAGES, *FAILURES, BURNED):
+    if stage not in (*STAGES, *FAILURES, STARTED, BURNED):
         raise HTTPException(400, 'Choose a valid setup stage.')
     old = job['stage']
     if old in CLOSED_STAGES and stage not in {old, STAGES[0], BURNED}:
@@ -603,7 +606,7 @@ def set_stage(state, job, stage):
         job.update(stage=stage, burned_from=job.get('burned_from') if old == BURNED else old,
                    burned_at=job.get('burned_at') if old == BURNED else now(), updated_at=now())
         return
-    if stage == STAGES[0]:
+    if stage in PLANNING_STAGES:
         # The workflow can be reopened independently of recorded purchases,
         # completed sheet writes and the physical phone's usage/block state.
         device = find(state, 'devices', job['device_id']) if job.get('device_id') else None
