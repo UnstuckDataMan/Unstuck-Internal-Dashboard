@@ -131,6 +131,19 @@ def test_selected_dmarc_domains_cannot_include_deleted_or_foreign_rows(board_db,
     assert not registrar.calls
 
 
+def test_burned_domains_are_excluded_from_dmarc_and_cannot_resume_an_old_batch(board_db,registrar):
+    owner=people()['Dylan'];record,first=create_setup(owner)
+    client_id=record['state']['setups'][0]['client_id']
+    _,neighbor=create_setup(owner,domain='neighborclient.com',email='me@neighborclient.com')
+    old=start(client_id);batch=old['state']['clients'][0]['dmarc_batch']['id']
+    record=change('setup_stage',{'id':first,'stage':'Burned'})
+    with pytest.raises(HTTPException,match='burned'):d.apply(USER,client_id,batch,first,record['revision'])
+    with pytest.raises(HTTPException):d.start(USER,client_id,record['revision'],True,[first])
+    record=start(client_id)
+    assert [i['id'] for i in record['state']['clients'][0]['dmarc_batch']['items']]==[neighbor]
+    assert not registrar.calls
+
+
 def test_dns_claim_serializes_mutations_and_provider_errors_release_it(board_db,monkeypatch):
     owner=people()['Dylan'];record,jid=create_setup(owner)
     client_id=record['state']['setups'][0]['client_id'];record=start(client_id)

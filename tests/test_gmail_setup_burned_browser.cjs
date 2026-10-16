@@ -1,0 +1,34 @@
+// Local synthetic journey: no production sheet, registrar or inventory writes.
+const {chromium}=require('playwright'),assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
+ const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:8766')?r.continue():r.abort());
+ const idle=()=>page.waitForFunction(()=>!document.querySelector('#gs-app').hasAttribute('aria-busy'));
+ const data=()=>page.evaluate(()=>fetch('/api/gmail-setup').then(r=>r.json()));
+ const stage=async(id,value)=>{await page.selectOption(`[data-set-stage="${id}"]`,value);await idle();};
+ await page.goto('http://127.0.0.1:8766/gmail-set');await idle();
+ const owner=(await data()).state.members.find(m=>m.name==='Dylan').id;
+ await page.click('#gs-add-setup');await page.fill('#gs-client-name','Burned journey');await page.selectOption('#gs-client-manager',owner);await page.selectOption('#gs-client-operator',owner);await page.fill('#gs-client-planned','10');
+ await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();
+ await page.fill('#gs-bulk-sender','me');await page.fill('#gs-bulk-domains','workingburnedtest.com\ncompleteburnedtest.com\nabandonedburnedtest.com');await page.locator('#gs-bulk-panel button[type="submit"]').click();await idle();
+ let model=await data();const client=model.state.clients.find(c=>c.name==='Burned journey'),jobs=model.state.setups.filter(j=>j.client_id===client.id),[pending,complete,burned]=jobs;
+ const baseline=model.summary.todo-3;
+ await stage(complete.id,'Setup complete');await stage(burned.id,'Burned');
+ model=await data();assert.equal(model.summary.todo,baseline+1);assert.equal(model.summary.target,baseline+11);assert.equal(model.summary.planned_todo,0);assert.equal(model.summary.burned,1);
+ assert.deepEqual(await page.locator('.gs-list-heading').allTextContents(),['In progress 1','Complete 1','Burned 1']);
+ assert.deepEqual(await page.locator('[data-setup]').evaluateAll(els=>els.map(el=>el.dataset.setup)),[pending.id,complete.id,burned.id]);
+ assert.equal(await page.locator(`[data-setup="${burned.id}"] [data-setup-dmarc]`).count(),0);
+ await page.click('#gs-dmarc');assert.doesNotMatch(await page.textContent('.gs-dmarc-preview'),/abandonedburnedtest/);await page.click('#gs-dialog-cancel');
+ await page.click('#gs-back-clients');let card=page.locator(`[data-open-client="${client.id}"]`);assert.match(await card.textContent(),/1 to do/);assert.match(await card.textContent(),/1 complete/);assert.match(await card.textContent(),/1 burned/);
+ await page.selectOption('#gs-filter-stage','Burned');await card.click();assert.equal(await page.locator('[data-setup]').count(),1);assert.match(await page.textContent('#gs-setup-list'),/abandonedburnedtest.com/);await page.selectOption('#gs-filter-stage','');
+ await stage(pending.id,'Failed at payment');await stage(pending.id,'Burned');model=await data();assert.equal(model.summary.todo,baseline);assert.equal(model.summary.target,baseline+10);assert.equal(model.summary.not_started,0);assert.equal(model.summary.purchased,0);
+ assert.deepEqual(await page.locator('.gs-list-heading').allTextContents(),['Complete 1','Burned 2']);
+ await stage(complete.id,'Burned');model=await data();const savedComplete=model.state.setups.find(j=>j.id===complete.id);assert.equal(savedComplete.sync.status,'synced');assert.equal(model.summary.todo,baseline);assert.equal(model.summary.complete,0);assert.equal(await page.locator('#gs-dmarc').isDisabled(),true);
+ await stage(burned.id,'Not started');model=await data();assert.equal(model.summary.todo,baseline+1);assert.equal(model.summary.burned,2);assert.equal(await page.locator('#gs-dmarc').isDisabled(),false);
+ await page.reload();await idle();assert.deepEqual(await page.locator('.gs-list-heading').allTextContents(),['In progress 1','Burned 2']);
+ assert.deepEqual(await page.evaluate(()=>fetch('/api/gmail-setup/summary').then(r=>r.json())),(await data()).summary);
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'work/gmail-burned-mobile.png',fullPage:true});
+ assert.deepEqual(errors,[]);await browser.close();console.log('PASS: burned stage, grouping below complete, client counts, device demand, planned-count replacement, filter, DMARC exclusion, reopening and reload.');
+})().catch(e=>{console.error(e);process.exit(1)});

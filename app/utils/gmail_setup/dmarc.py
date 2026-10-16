@@ -40,7 +40,7 @@ def start(user, client_id, revision, confirmed_purchased, setup_ids=None):
     state = copy.deepcopy(record['state'])
     s.unlocked(state)
     client = s.find(state, 'clients', client_id, True)
-    jobs = [j for j in state['setups'] if j.get('client_id') == client_id and not j.get('archived')]
+    jobs = [j for j in state['setups'] if j.get('client_id') == client_id and not j.get('archived') and j['stage'] != s.BURNED]
     if setup_ids is not None:
         selected = set(setup_ids)
         if not selected or selected - {j['id'] for j in jobs}:
@@ -77,6 +77,8 @@ def apply(user, client_id, batch_id, job_id, revision):
         raise HTTPException(409, 'Confirm domain purchases again to start a current DMARC request.')
     item = next((i for i in batch['items'] if i['id'] == job_id), None)
     job = s.find(state, 'setups', job_id, True)
+    if job['stage'] == s.BURNED:
+        raise HTTPException(409, 'This domain is burned. Reopen it before setting up DMARC.')
     if not item or job.get('client_id') != client_id:
         raise HTTPException(400, 'Only domains belonging to this client can be configured.')
     if job['domain'] != item['domain'] or job['email'] != item['email']:

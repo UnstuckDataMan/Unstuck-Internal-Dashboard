@@ -8,6 +8,8 @@ from app.utils.domain_cluster.engine import normalize
 from . import store
 
 STAGES = ('Not started', 'Purchase made', 'Setup complete')
+BURNED = 'Burned'
+CLOSED_STAGES = (STAGES[2], BURNED)
 FAILURES = {'Failed at QR': 'QR code', 'Failed at payment': 'Payment'}
 DEVICE_STATUSES = ('Unused', 'Used', 'Blocked')
 RESERVE_CONTINGENCY = 10
@@ -136,13 +138,13 @@ def restore_failed_device(state, job, device):
         job.setdefault('device_usage_resets', {})[device['id']] = stamp
         if not device['use_count']:
             device['used_at'] = None
-    others = [s for s in state['setups'] if s['id'] != job['id'] and s['stage'] in FAILURES and s.get('device_id') == device['id'] and device['id'] not in s.get('device_usage_resets', {})]
+    others = [s for s in state['setups'] if s['id'] != job['id'] and (s['stage'] in FAILURES or s['stage'] == BURNED and s.get('burned_from') in FAILURES) and s.get('device_id') == device['id'] and device['id'] not in s.get('device_usage_resets', {})]
     own_block = not device.get('manual_block') and (job['id'] in device.get('block_job_ids', []) or device.get('block_reason') == FAILURES.get(failures[-1]['stage']))
     device['block_job_ids'] = [identifier for identifier in device.get('block_job_ids', []) if identifier != job['id']]
     if device['status'] == 'Blocked' and own_block and not others:
         device.update(status='Used' if device['use_count'] else 'Unused', block_reason=None, blocked_at=None)
     elif device['status'] == 'Blocked' and others and not device.get('manual_block'):
-        device['block_reason'] = FAILURES[others[-1]['stage']]
+        device['block_reason'] = FAILURES[others[-1].get('burned_from') if others[-1]['stage'] == BURNED else others[-1]['stage']]
     elif device['status'] == 'Used' and not device['use_count']:
         device['status'] = 'Unused'
     for failure in failures:
@@ -187,7 +189,7 @@ def reserve_plan(state):
     # Operations reads the stored board directly. Resolve legacy client links
     # before forecasting so it agrees with the client view and never adds both.
     ensure_clients(state)
-    jobs = [j for j in state['setups'] if not j.get('archived') and j['stage'] != STAGES[2]]
+    jobs = [j for j in state['setups'] if not j.get('archived') and j['stage'] not in CLOSED_STAGES]
     clients_with_domains = {j.get('client_id') for j in state['setups']}
     planned = sum(c.get('planned_domains', 0) for c in state.get('clients', [])
         if not c.get('archived') and c['id'] not in clients_with_domains)
@@ -227,7 +229,8 @@ def summary(state):
             'not_started': plan['planned_todo']+sum(s['stage'] == STAGES[0] or s['stage'] in FAILURES and not s.get('purchase_at') for s in state['setups'] if not s.get('archived')),
             'purchased': sum(s['stage'] == STAGES[1] or s['stage'] in FAILURES and bool(s.get('purchase_at')) for s in state['setups'] if not s.get('archived')),
             'complete': sum(s['stage'] == STAGES[2] for s in state['setups'] if not s.get('archived')),
-            'sync_errors': sum(s.get('sync', {}).get('status') == 'error' for s in state['setups'] if not s.get('archived'))}
+            'burned': sum(s['stage'] == BURNED for s in state['setups'] if not s.get('archived')),
+            'sync_errors': sum(s.get('sync', {}).get('status') == 'error' for s in state['setups'] if not s.get('archived') and s['stage'] != BURNED)}
 
 
 def result(record):
@@ -386,7 +389,7 @@ def mutate(user, expected, action, data):
         member.update(name=name, email=email)
     elif action == 'member_remove':
         member = find(state, 'members', data['id'], True)
-        if any(s['stage'] != STAGES[2] and not s.get('archived') and member['id'] in (s['account_manager_id'], s['operator_id']) for s in state['setups']):
+        if any(s['stage'] not in CLOSED_STAGES and not s.get('archived') and member['id'] in (s['account_manager_id'], s['operator_id']) for s in state['setups']):
             raise HTTPException(409, 'Reassign this member’s open setups before removing them.')
         member['active'] = False
         for d in state['devices']:
@@ -447,11 +450,13 @@ def mutate(user, expected, action, data):
             d['asset_tag'] = tag
     elif action == 'device_remove':
         d = find(state, 'devices', data['id'], True)
-        if any(s['stage'] != STAGES[2] and not s.get('archived') and s.get('device_id') == d['id'] for s in state['setups']):
+        if any(s['stage'] not in CLOSED_STAGES and not s.get('archived') and s.get('device_id') == d['id'] for s in state['setups']):
             raise HTTPException(409, 'This device is linked to an open setup. Reassign or archive that setup first.')
         d['archived'] = True
     elif action in {'setup_save', 'setup_assign'}:
         current = find(state, 'setups', data['id'], True) if data.get('id') else None
+        if current and current['stage'] == BURNED and data.get('stage') != STAGES[0]:
+            raise HTTPException(409, 'Choose Not started to reopen this burned domain before editing it.')
         if action == 'setup_assign':
             if current is None:
                 raise HTTPException(404, 'Setup not found.')
@@ -534,6 +539,8 @@ def mutate(user, expected, action, data):
         # A missing device can be recorded later, including after a sheet sync,
         # without permitting edits to the published email, owner or sheet row.
         job = find(state, 'setups', data['id'], True)
+        if job['stage'] == BURNED:
+            raise HTTPException(409, 'Choose Not started to reopen this burned domain before allocating a device.')
         if job.get('device_id'):
             raise HTTPException(409, 'This setup already has a device. Use Edit details to change a pending allocation.')
         if job.get('sync', {}).get('status') == 'synced' and data['operator_id'] != job['operator_id']:
@@ -583,17 +590,23 @@ def record_purchase_device(state, job):
 
 
 def set_stage(state, job, stage):
-    if stage not in (*STAGES, *FAILURES):
+    if stage not in (*STAGES, *FAILURES, BURNED):
         raise HTTPException(400, 'Choose a valid setup stage.')
     old = job['stage']
-    if old == STAGES[2] and stage not in {old, STAGES[0]}:
+    if old in CLOSED_STAGES and stage not in {old, STAGES[0], BURNED}:
         raise HTTPException(409, 'Choose Not started to reopen this setup before changing its stage.')
+    if stage == BURNED:
+        # Retain real purchase, failure and sheet history without consuming a
+        # new device slot or treating the abandoned domain as unfinished work.
+        job.update(stage=stage, burned_from=job.get('burned_from') if old == BURNED else old,
+                   burned_at=job.get('burned_at') if old == BURNED else now(), updated_at=now())
+        return
     if stage == STAGES[0]:
         # The workflow can be reopened independently of recorded purchases,
         # completed sheet writes and the physical phone's usage/block state.
         device = find(state, 'devices', job['device_id']) if job.get('device_id') else None
         was_blocked = device and device['status'] == 'Blocked'
-        if old in FAILURES and device:
+        if (old in FAILURES or old == BURNED and job.get('burned_from') in FAILURES) and device:
             restore_failed_device(state, job, device)
         if device and (was_blocked or device.get('archived')):
             job['device_id'] = None

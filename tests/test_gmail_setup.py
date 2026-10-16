@@ -939,6 +939,61 @@ def test_client_placeholder_schema_rejects_invalid_counts(value):
     with pytest.raises(ValidationError):Client(name='Future client',account_manager_id='owner',planned_domains=value)
 
 
+@pytest.mark.parametrize('stage',['Not started','Purchase made','Setup complete','Failed at QR','Failed at payment'])
+def test_burned_domain_excluded_from_demand_without_erasing_device_or_sheet_history(board_db,stage):
+    from app.routers.gmail_setup import Stage, Setup
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    record,jid=create_setup(owner,phone['id'])
+    record=change('setup_stage',{'id':jid,'stage':stage})
+    if stage=='Setup complete':
+        record=store.save(USER,{**record['state'],'setups':[{**record['state']['setups'][0],'sync':{'status':'synced','row':42}}]},record['revision'])
+    original=copy.deepcopy(record['state']['setups'][0])
+    inventory=copy.deepcopy(record['state']['devices'])
+    Stage(id=jid,stage='Burned');Setup(account_manager_id=owner,stage='Burned')
+    record=change('setup_stage',{'id':jid,'stage':'Burned'})
+    burned=record['state']['setups'][0]
+    for field in ('purchase_at','purchase_device','completed_at','order','sync','device_failures'):
+        assert burned.get(field)==original.get(field)
+    assert record['state']['devices']==inventory
+    assert burned['burned_from']==stage and burned['burned_at']
+    plan=s.summary(record['state'])
+    assert plan['todo']==0 and plan['planned_todo']==0 and plan['target']==10
+    assert plan['not_started']==plan['purchased']==plan['complete']==0 and plan['burned']==1
+    assert plan['purchased_setups']==0
+    repeated=change('setup_stage',{'id':jid,'stage':'Burned'})
+    assert repeated['state']['setups'][0]['burned_at']==burned['burned_at']
+    assert repeated['state']['devices']==inventory
+    with pytest.raises(HTTPException,match='Not started'):change('setup_stage',{'id':jid,'stage':'Purchase made'})
+    record=change('setup_stage',{'id':jid,'stage':'Not started'})
+    assert s.summary(record['state'])['todo']==1 and s.summary(record['state'])['burned']==0
+    assert record['state']['setups'][0]['sync']==original['sync']
+
+
+def test_burned_draft_releases_reservation_and_does_not_restore_placeholder(board_db):
+    owner=people()['Dylan'];phone=devices(owner,phones=1,pcs=1)['state']['devices'][1]
+    _,jid=create_setup(owner,phone['id'])
+    with pytest.raises(HTTPException):create_setup(owner,phone['id'],'reservation.com','me@reservation.com')
+    record=change('setup_stage',{'id':jid,'stage':'Burned'})
+    assert s.allocation_available(record['state'],record['state']['devices'][1])
+    assert record['state']['clients'][0]['planned_domains']==0
+    with pytest.raises(HTTPException,match='reopen'):change('setup_assign',{'id':jid,'email':'other@cedarclients.com'})
+    change('device_remove',{'id':phone['id']})
+    change('member_remove',{'id':owner}) # Burned work is no longer an open setup.
+
+
+def test_resetting_other_failure_does_not_unblock_a_burned_domain_failure(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,first=create_setup(owner,phone['id'])
+    _,second=create_setup(owner,phone['id'],'secondblocked.com','me@secondblocked.com')
+    change('setup_stage',{'id':first,'stage':'Failed at QR'})
+    change('setup_stage',{'id':first,'stage':'Burned'})
+    change('setup_stage',{'id':second,'stage':'Failed at payment'})
+    record=change('setup_stage',{'id':second,'stage':'Not started'})
+    assert record['state']['devices'][0]['status']=='Blocked'
+    assert record['state']['devices'][0]['block_reason']=='QR code'
+    assert record['state']['devices'][0]['use_count']==1
+
+
 def test_reset_failure_restores_remaining_phone_capacity_and_can_reuse_same_phone(board_db):
     owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
     _,first=create_setup(owner,phone['id']);change('setup_stage',{'id':first,'stage':'Setup complete'})
