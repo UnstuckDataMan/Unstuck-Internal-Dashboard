@@ -622,6 +622,57 @@
     .adm-format-btn.active { border-color: var(--purple); color: #f0eeff;
                              background: rgba(139,92,246,.18); }
     .adm-export-generate   { margin-top: 6px; }
+
+    /* ── AI Reply mode ── */
+    .ai-mode-btn {
+      padding: 7px 14px; border: 1px solid rgba(139,92,246,.5);
+      background: transparent; color: #a78bfa; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      font-family: var(--font); transition: background .15s, color .15s, border-color .15s;
+    }
+    .ai-mode-btn:hover, .ai-mode-btn.active {
+      background: rgba(139,92,246,.85); color: white; border-color: transparent;
+      box-shadow: 0 2px 10px rgba(124,58,237,.35);
+    }
+    .ai-input-panel {
+      display: none; flex-direction: column; gap: 10px;
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
+      background: rgba(8,8,18,.4); flex-shrink: 0;
+    }
+    .ai-input-panel.visible { display: flex; }
+    .ai-chain-input {
+      width: 100%; height: 130px; resize: vertical; padding: 10px 12px;
+      border: 1px solid var(--border); border-radius: 8px; font-size: 13px;
+      line-height: 1.55; color: var(--text); background: rgba(255,255,255,.05);
+      font-family: var(--font); outline: none; box-sizing: border-box;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .ai-chain-input:focus {
+      border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(139,92,246,.18);
+    }
+    .ai-chain-input::placeholder { color: var(--text-3); }
+    .ai-input-row { display: flex; align-items: center; gap: 10px; }
+    .ai-status { font-size: 12px; color: var(--text-3); flex: 1; }
+    .generate-btn {
+      padding: 8px 22px; background: rgba(139,92,246,.85); color: white;
+      border: none; border-radius: 8px; font-size: 13px; font-weight: 600;
+      cursor: pointer; font-family: var(--font); transition: opacity .15s;
+      box-shadow: 0 2px 10px rgba(124,58,237,.25); flex-shrink: 0;
+    }
+    .generate-btn:hover { opacity: .85; }
+    .generate-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .ai-key-row { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+    .ai-key-label { font-size: 12px; color: var(--text-3); }
+    .ai-key-input {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 13px; color: var(--text); background: rgba(255,255,255,.05);
+      font-family: var(--font); outline: none; box-sizing: border-box;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .ai-key-input:focus {
+      border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(139,92,246,.18);
+    }
+    .ai-key-hint { font-size: 11px; color: var(--text-3); }
   </style>
   {% include "partials/_skeleton.html" %}
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -727,7 +778,21 @@
   <div class="right-panel">
     <div class="output-header">
       <span class="output-title">Message Preview</span>
-      <button class="copy-btn" id="copy-btn">Copy</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="ai-mode-btn" id="ai-mode-btn">✦ AI Reply</button>
+        <button class="copy-btn" id="copy-btn">Copy</button>
+      </div>
+    </div>
+    <div class="ai-input-panel" id="ai-input-panel">
+      <textarea class="ai-chain-input" id="email-chain-input" placeholder="Paste the full email chain here…"></textarea>
+      <div class="ai-input-row">
+        <span class="ai-status" id="ai-status"></span>
+        <button class="generate-btn" id="analyse-btn">Analyse chain →</button>
+      </div>
+      <div class="ai-input-row" id="ai-generate-row" style="display:none">
+        <span class="ai-status" id="ai-status-2"></span>
+        <button class="generate-btn" id="generate-btn">Generate reply</button>
+      </div>
     </div>
     <div class="message-box placeholder" id="message-box">Select options to generate a message…</div>
   </div>
@@ -744,6 +809,7 @@
     <button class="admin-tab-btn active" data-tab="copy">Copy</button>
     <button class="admin-tab-btn" data-tab="snippets">Snippets</button>
     <button class="admin-tab-btn" data-tab="options">Options</button>
+    <button class="admin-tab-btn" data-tab="ai">AI</button>
     <button class="admin-tab-btn" data-tab="export">Export</button>
   </div>
   <div class="admin-body">
@@ -855,6 +921,31 @@
     </div>
 
     </div><!-- /admin-tab-options -->
+
+    <!-- ── AI tab ── -->
+    <div class="admin-tab-pane" id="admin-tab-ai">
+
+    <div class="admin-card">
+      <div class="admin-card-title">AI Reply Settings</div>
+      <div class="ai-key-row">
+        <label class="ai-key-label" for="ai-api-key-input">OpenAI API key</label>
+        <input type="password" class="ai-key-input" id="ai-api-key-input"
+               placeholder="sk-…  (stored in browser only, never sent anywhere else)"
+               autocomplete="off">
+        <span class="ai-key-hint">Paste your key once — it is saved in your browser's local storage and used only to call OpenAI directly from this page.</span>
+      </div>
+      <div class="ai-key-row" style="margin-top:16px">
+        <label class="ai-key-label" for="ai-prompt-textarea">Adaptation prompt</label>
+        <textarea class="admin-textarea" id="ai-prompt-textarea" rows="14" style="min-height:220px;resize:vertical;font-size:12px;line-height:1.6"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+          <button class="admin-action-btn" id="ai-prompt-reset">Reset to default</button>
+          <button class="admin-save-btn" id="ai-prompt-save">Save prompt</button>
+        </div>
+        <span class="ai-key-hint">This tells GPT how to adapt the reply template. Saved in your browser — changes take effect on the next Generate.</span>
+      </div>
+    </div>
+
+    </div><!-- /admin-tab-ai -->
 
     <!-- ── Export tab ── -->
     <div class="admin-tab-pane" id="admin-tab-export">
@@ -2977,6 +3068,219 @@ document.getElementById('adm-export').addEventListener('click', () => {
   a.click();
   URL.revokeObjectURL(a.href);
 });
+
+// ════════════════════════════════════════════════════════
+//  AI REPLY MODE
+// ════════════════════════════════════════════════════════
+const _AI_KEY_STORE    = 'rb_openai_key';
+const _AI_PROMPT_STORE = 'rb_adapt_prompt';
+
+const _AI_ADAPT_PROMPT_DEFAULT =
+`You are making light, targeted edits to an approved reply email template to address the specific questions or objections in a prospect's reply.
+
+The template IS the approved, correct reply — personalise it minimally, do not rewrite it.
+
+What to change:
+- Use the recipient's first name in the opening greeting
+- Add a direct, specific response to each question or objection raised — slot it in naturally before the template's context/overview section
+- Close with: blank line → "Best," → blank line → sender's first name
+
+What to keep exactly:
+- All commercial claims, proof points, case study links, pricing, and testimonials in the template
+- The overall structure and tone
+- The suggested meeting times and next-step language
+
+Formatting — critical:
+- One blank line between every paragraph — never one block of continuous text
+- UK English spelling
+
+Output: the adapted email only, ready to send.`;
+
+function getAdaptPrompt() {
+  try { return (localStorage.getItem(_AI_PROMPT_STORE) || '').trim() || _AI_ADAPT_PROMPT_DEFAULT; }
+  catch (_) { return _AI_ADAPT_PROMPT_DEFAULT; }
+}
+
+(function () {
+  const modeBtn        = document.getElementById('ai-mode-btn');
+  const panel          = document.getElementById('ai-input-panel');
+  const chainEl        = document.getElementById('email-chain-input');
+  const statusEl       = document.getElementById('ai-status');
+  const status2El      = document.getElementById('ai-status-2');
+  const analyseBtn     = document.getElementById('analyse-btn');
+  const genBtn         = document.getElementById('generate-btn');
+  const genRow         = document.getElementById('ai-generate-row');
+  const keyInput       = document.getElementById('ai-api-key-input');
+  const promptTextarea = document.getElementById('ai-prompt-textarea');
+  const promptSaveBtn  = document.getElementById('ai-prompt-save');
+  const promptResetBtn = document.getElementById('ai-prompt-reset');
+
+  // ── API key persistence ───────────────────────────────
+  try {
+    const saved = localStorage.getItem(_AI_KEY_STORE);
+    if (saved && keyInput) keyInput.value = saved;
+  } catch (_) {}
+  if (keyInput) {
+    keyInput.addEventListener('change', () => {
+      try { localStorage.setItem(_AI_KEY_STORE, keyInput.value.trim()); } catch (_) {}
+    });
+  }
+
+  // ── Adaptation prompt editing ─────────────────────────
+  if (promptTextarea) {
+    try {
+      promptTextarea.value = localStorage.getItem(_AI_PROMPT_STORE) || _AI_ADAPT_PROMPT_DEFAULT;
+    } catch (_) { promptTextarea.value = _AI_ADAPT_PROMPT_DEFAULT; }
+  }
+  if (promptSaveBtn) {
+    promptSaveBtn.addEventListener('click', () => {
+      try {
+        const val = (promptTextarea.value || '').trim();
+        if (val) localStorage.setItem(_AI_PROMPT_STORE, val);
+        else localStorage.removeItem(_AI_PROMPT_STORE);
+        promptSaveBtn.textContent = 'Saved ✓';
+        promptSaveBtn.classList.add('success');
+        setTimeout(() => { promptSaveBtn.textContent = 'Save prompt'; promptSaveBtn.classList.remove('success'); }, 1800);
+      } catch (_) {}
+    });
+  }
+  if (promptResetBtn) {
+    promptResetBtn.addEventListener('click', () => {
+      if (promptTextarea) promptTextarea.value = _AI_ADAPT_PROMPT_DEFAULT;
+      try { localStorage.removeItem(_AI_PROMPT_STORE); } catch (_) {}
+      promptResetBtn.textContent = 'Reset ✓';
+      setTimeout(() => { promptResetBtn.textContent = 'Reset to default'; }, 1800);
+    });
+  }
+
+  function getApiKey() {
+    try { return (localStorage.getItem(_AI_KEY_STORE) || '').trim(); } catch (_) { return ''; }
+  }
+
+  async function callGPT(systemPrompt, userMsg, maxTokens) {
+    const key = getApiKey();
+    if (!key) throw new Error('No API key — add it in Admin → AI tab.');
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        temperature: 0.3,
+        max_tokens: maxTokens,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: userMsg },
+        ],
+      }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.error?.message || `Error ${resp.status}`);
+    return data?.choices?.[0]?.message?.content || '';
+  }
+
+  // ── Mode toggle ───────────────────────────────────────
+  modeBtn.addEventListener('click', () => {
+    const active = modeBtn.classList.toggle('active');
+    panel.classList.toggle('visible', active);
+    if (active) chainEl.focus();
+  });
+
+  // ── Step 1: analyse chain → update left panel filters ─
+  analyseBtn.addEventListener('click', async () => {
+    const chain = chainEl.value.trim();
+    if (!chain) { statusEl.textContent = 'Paste an email chain first.'; return; }
+    if (!getApiKey()) { statusEl.textContent = 'Add your OpenAI API key in Admin → AI tab first.'; return; }
+
+    analyseBtn.disabled = true;
+    statusEl.textContent = 'Analysing chain…';
+    genRow.style.display = 'none';
+
+    const extractPrompt =
+      `Analyse this email chain and return ONLY valid JSON — no other text, no markdown.
+
+Keys:
+- "sender": Unstuck Agency team member who sent the FIRST email. Must be one of: ${JSON.stringify(OPTIONS.senders)}.
+- "recipient": first name only of the prospect. Sender of the SECOND email — unless the first two emails share the same sender name (second was a chaser), in which case use the sender of the THIRD email.
+- "industry": prospect's industry. Must be one of: ${JSON.stringify(OPTIONS.industries)}.
+- "territory": "US" or "UK".
+- "channel": "Email" or "LinkedIn".
+
+Return exactly: {"sender":"...","recipient":"...","industry":"...","territory":"...","channel":"..."}`;
+
+    try {
+      const raw     = await callGPT(extractPrompt, chain, 150);
+      const jsonStr = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      const vars    = JSON.parse(jsonStr);
+
+      const recipEl = document.getElementById('recipient-name');
+      if (recipEl && vars.recipient) {
+        recipEl.value = vars.recipient;
+        recipEl.dispatchEvent(new Event('input'));
+      }
+      const senderEl = document.getElementById('sender');
+      if (senderEl && vars.sender) {
+        senderEl.value = vars.sender;
+        senderEl.dispatchEvent(new Event('change'));
+      }
+      const industryEl = document.getElementById('industry');
+      if (industryEl && vars.industry) {
+        industryEl.value = vars.industry;
+        industryEl.dispatchEvent(new Event('change'));
+      }
+      const terrBtn = document.querySelector(`[data-territory="${vars.territory}"]`);
+      if (terrBtn) terrBtn.click();
+      const chanBtn = document.querySelector(`[data-channel="${vars.channel}"]`);
+      if (chanBtn) chanBtn.click();
+
+      statusEl.textContent = 'Filters set — correct any on the left, then generate.';
+      status2El.textContent = '';
+      genRow.style.display = '';
+    } catch (e) {
+      statusEl.textContent = 'Could not read chain — ' + e.message;
+    } finally {
+      analyseBtn.disabled = false;
+    }
+  });
+
+  // ── Step 2: look up template → adapt → show ──────────
+  genBtn.addEventListener('click', async () => {
+    const chain      = chainEl.value.trim();
+    const senderName = (document.getElementById('sender').value || '').trim();
+    const recipient  = (document.getElementById('recipient-name').value || '').trim();
+    const ind        = (document.getElementById('industry').value || '').trim();
+
+    const templateKey = `${territory}_${style}_${channel}_${ind}`;
+    const template    = TEMPLATES[templateKey] || '';
+
+    genBtn.disabled = true;
+    status2El.textContent = template ? 'Generating reply…' : 'No template for this combination — writing from tone rules…';
+
+    try {
+      let userMsg = `Sender: ${senderName || 'unknown'}\nRecipient first name: ${recipient || 'unknown'}\n\nEmail chain:\n${chain}`;
+      if (template) {
+        userMsg += `\n\n---\nApproved reply template (${territory} / ${style} / ${channel} / ${ind}):\n${template}`;
+      } else {
+        userMsg += `\n\n(No approved template found for ${templateKey}.)`;
+      }
+
+      const reply = await callGPT(getAdaptPrompt(), userMsg, 900);
+
+      if (reply) {
+        _lastMsg = reply;
+        const box = document.getElementById('message-box');
+        box.className = 'message-box';
+        box.innerHTML = sanitizeHtml(reply);
+        status2El.textContent = 'Done — review and copy above.';
+      } else {
+        status2El.textContent = 'No reply returned. Try again.';
+      }
+    } catch (e) {
+      status2El.textContent = 'Error: ' + e.message;
+    } finally {
+      genBtn.disabled = false;
+    }
+  });
+})();
 </script>
 {% include "partials/_sop_widget.html" %}
 <script src="/static/nav-history.js"></script>
