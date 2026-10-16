@@ -107,6 +107,30 @@ def test_email_change_after_confirmation_prevents_old_recipient_write(board_db,r
     assert not registrar.calls
 
 
+def test_individual_dmarc_snapshot_and_write_exclude_neighboring_domains(board_db,registrar):
+    owner=people()['Dylan'];record,first=create_setup(owner)
+    client_id=record['state']['setups'][0]['client_id']
+    _,neighbor=create_setup(owner,domain='neighborclient.com',email='me@neighborclient.com')
+    record=d.start(USER,client_id,s.board(USER)['revision'],True,[first])
+    assert [i['id'] for i in record['state']['clients'][0]['dmarc_batch']['items']]==[first]
+    record=apply(record,client_id,first)
+    assert [c[1] for c in writes(registrar)]==['/dns/create/cedarclients.com']
+    assert 'dmarc' not in next(j for j in record['state']['setups'] if j['id']==neighbor)
+    with pytest.raises(HTTPException):apply(record,client_id,neighbor)
+
+
+def test_selected_dmarc_domains_cannot_include_deleted_or_foreign_rows(board_db,registrar):
+    owner=people()['Dylan'];record,first=create_setup(owner)
+    client_id=record['state']['setups'][0]['client_id']
+    other=change('client_save',{'name':'Another client','account_manager_id':owner,'section':'client'})['state']['clients'][-1]
+    record=change('setup_bulk',{'client_id':other['id'],'domains':'foreignclient.com','sender_name':'me'})
+    foreign=record['state']['setups'][-1]['id']
+    with pytest.raises(HTTPException):d.start(USER,client_id,record['revision'],True,[first,foreign])
+    record=change('setup_remove',{'id':first})
+    with pytest.raises(HTTPException):d.start(USER,client_id,record['revision'],True,[first])
+    assert not registrar.calls
+
+
 def test_dns_claim_serializes_mutations_and_provider_errors_release_it(board_db,monkeypatch):
     owner=people()['Dylan'];record,jid=create_setup(owner)
     client_id=record['state']['setups'][0]['client_id'];record=start(client_id)

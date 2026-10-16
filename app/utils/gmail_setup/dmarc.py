@@ -30,7 +30,7 @@ def apply_record(domain, email, key, client=None):
                         if result['status'] == 'verified' else result['message'])}
 
 
-def start(user, client_id, revision, confirmed_purchased):
+def start(user, client_id, revision, confirmed_purchased, setup_ids=None):
     require_admin(user)
     if confirmed_purchased is not True:
         raise HTTPException(400, 'Confirm that domain purchases are complete before proceeding.')
@@ -41,6 +41,11 @@ def start(user, client_id, revision, confirmed_purchased):
     s.unlocked(state)
     client = s.find(state, 'clients', client_id, True)
     jobs = [j for j in state['setups'] if j.get('client_id') == client_id and not j.get('archived')]
+    if setup_ids is not None:
+        selected = set(setup_ids)
+        if not selected or selected - {j['id'] for j in jobs}:
+            raise HTTPException(400, 'Select active domains belonging to this client only.')
+        jobs = [j for j in jobs if j['id'] in selected]
     if not jobs:
         raise HTTPException(400, 'Add domains to this client first.')
     batch = {'id': s.new_id(), 'created_at': s.now(), 'items': [], 'results': {}}

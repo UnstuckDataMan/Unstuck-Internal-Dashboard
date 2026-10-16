@@ -41,7 +41,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  assert.match(await card(phone).getAttribute('class'),/used phone/);assert.match(await card(pc).getAttribute('class'),/used pc/);
  await page.click('#gs-add-devices');assert.equal(await page.locator('#gs-device-condition option').filter({hasText:'Used 4 times'}).count(),1);await page.click('#gs-dialog-cancel');
  model=await data();assert.equal(model.summary.order_kind,'PC');assert.equal(model.summary.order_capacity,3);
- assert.match(await page.textContent('.gs-reserve-calculation'),/New laptops \/ PCs: 3 setups each/);
+ assert.match(await page.textContent('.gs-reserve-calculation'),/laptops \/ PCs|cover 3 setups/);
  await page.locator('#gs-stats').screenshot({path:'work/gmail-capacity-auto-target-desktop.png'});
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.locator('.gs-capacity-settings').screenshot({path:'work/gmail-capacity-settings-mobile.png'});

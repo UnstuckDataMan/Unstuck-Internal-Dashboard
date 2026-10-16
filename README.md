@@ -73,19 +73,21 @@ is no longer the main workflow.
   the saved limit or blocked. Raising/lowering limits updates every card, domain
   picker, allocation check and consumption check without erasing physical history.
   Manually blocked equipment remains blocked even if limits are raised.
-- Both Gmail Set and Operations calculate required inventory automatically from
-  all active to do domains and saved limits. Purchased/failed domains remain to do;
-  completed and deleted domains are excluded. Capacity left on used equipment and
-  already recorded purchases cover work first. The planner uses available unused
-  equipment (including mixed phone/PC capacity) and the selected new-device type,
-  rounds up whole devices, and adds **10 unused contingency devices** for SDRs or
-  client replacement. The card explains the calculation and exact order shortfall.
-  Existing manual targets are ignored. With no stock, 19 domains at 2 setups per
-  phone require 10 work phones + 10 contingency = 20 devices; at 3 setups, 17.
-  Settings and counts update across the team and Operations. No external orders
-  or notifications are sent.
-- Administrators can select **Set up DMARC** in a client after confirming domain
-  purchases with **Proceed / Cancel**. Only that client's active domains are used;
+- Both Gmail Set and Operations compare **setup slots**: required setups are
+  **active to do domains + 10 contingency setups**, not ten physical devices.
+  Remaining capacity sums max(limit − recorded uses, 0) on active, unblocked
+  phones and PCs. Purchase-stage jobs already paid for on a recorded device also
+  count as covered; jobs reset to Not started require fresh capacity. Completed
+  and deleted domains leave the demand count. New orders are
+  ceil(max(0, required − available setup slots) / setups per new device).
+  The card shows phone/PC capacity separately, demand, setup shortfall and whole
+  devices to order. For 19 to do + 10 contingency, 22 phone + 2 PC slots give
+  24/29 coverage: 5 slots short, requiring **3 phones** at two setups each.
+  The same saved limits control ordering, device colours and allocations.
+  No external orders or notifications are sent.
+- Administrators can select **Set up DMARC** for a whole client or on an individual
+  domain row after confirming domain
+  purchases with **Proceed / Cancel**. Only the selected active domains within that client are used;
   the server fixes each domain/report-email snapshot before any external write.
   Both rua/ruf use the domain's sending email, with
   `v=DMARC1; p=none; pct=100; rua=mailto:<email>; ruf=mailto:<email>; fo=1`,

@@ -49,7 +49,7 @@ def create_setup(owner,device_id=None,domain='cedarclients.com',email='me@cedarc
 def test_shared_board_roster_scope_and_no_fake_stock(board_db):
     initial=s.board(USER)
     assert len(initial['state']['members'])==3 and initial['state']['devices']==[]
-    assert s.summary(initial['state'])['shortfall']==10
+    assert s.summary(initial['state'])['shortfall']==5
     assert not s.result(initial)['state'].get('sync_lock')
     ids=people();devices(ids['Dylan'],phones=10,pcs=10)
     assert len(s.board(OTHER)['state']['devices'])==20
@@ -730,14 +730,14 @@ def test_automatic_target_ignores_legacy_manual_value_and_limits_are_shared(boar
     assert s.summary(s.board(USER)['state'])['target']==10
     client=change('client_save',{'name':'Planning','section':'client','account_manager_id':owner})['state']['clients'][0]
     record=change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'planning{i}.com' for i in range(19))})
-    assert s.summary(record['state'])['target']==20 # ceil(19 / 2) + 10
+    assert s.summary(record['state'])['target']==29 and s.summary(record['state'])['shortfall']==15 # ceil((19+10)/2)
     board_db[store.workspace(USER)]['state']['reserve_target']=999
     record=change('capacity_set',{'phone_setups':3,'pc_setups':2,'order_kind':'Phone'})
-    assert s.summary(record['state'])['target']==17 # ceil(19 / 3) + 10
+    assert s.summary(record['state'])['target']==29 and s.summary(record['state'])['shortfall']==10 # ceil((19+10)/3)
     assert s.summary(s.board(OTHER)['state'])['phone_setups']==3
     assert s.summary(s.board(OTHER)['state'])['pc_setups']==2
     record=change('capacity_set',{'phone_setups':3,'pc_setups':2,'order_kind':'PC'})
-    assert s.summary(record['state'])['target']==20
+    assert s.summary(record['state'])['target']==29 and s.summary(record['state'])['shortfall']==15
     assert s.summary(s.board({'email':'person@separate-workspace.com'})['state'])['target']==10
     before=s.board(USER)
     with pytest.raises(HTTPException,match='automatic'):change('reserve_set',{'target':30})
@@ -752,48 +752,48 @@ def test_target_tracks_all_to_do_stages_completion_reset_and_deletion(board_db):
     change('setup_stage',{'id':jobs[1]['id'],'stage':'Failed at QR'})
     change('setup_stage',{'id':jobs[2]['id'],'stage':'Failed at payment'})
     plan=s.summary(s.board(USER)['state'])
-    assert plan['todo']==5 and plan['target']==13 and plan['shortfall']==13
+    assert plan['todo']==5 and plan['target']==15 and plan['shortfall']==8
     change('setup_stage',{'id':jobs[3]['id'],'stage':'Setup complete'})
-    plan=s.summary(s.board(USER)['state']);assert plan['todo']==4 and plan['target']==12
+    plan=s.summary(s.board(USER)['state']);assert plan['todo']==4 and plan['target']==14
     change('setup_stage',{'id':jobs[3]['id'],'stage':'Not started'})
-    assert s.summary(s.board(USER)['state'])['target']==13
+    assert s.summary(s.board(USER)['state'])['target']==15
     change('setup_remove',{'id':jobs[4]['id']})
     assert s.summary(s.board(USER)['state'])['todo']==4
     record=change('client_remove',{'id':client['id']})
     assert s.summary(record['state'])['todo']==0 and s.summary(record['state'])['target']==10
 
 
-def test_purchase_capacity_not_counted_twice_and_reserve_is_always_unused(board_db):
+def test_purchase_capacity_is_not_counted_twice_and_resets_require_new_capacity(board_db):
     owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
     client=change('client_save',{'name':'Purchase plan','section':'client','account_manager_id':owner})['state']['clients'][0]
     jobs=change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'purchaseplan{i}.com' for i in range(9)),'operator_id':owner,'sender_name':'me'})['state']['setups']
     change('setup_assign',{'id':jobs[0]['id'],'device_id':phone['id']})
     before=s.summary(s.board(USER)['state'])
-    assert before['target']==15 and before['unused']==1 and before['shortfall']==14
+    assert before['target']==19 and before['available_setups']==2 and before['shortfall']==9
     record=change('setup_stage',{'id':jobs[0]['id'],'stage':'Purchase made'})
     plan=s.summary(record['state'])
-    assert plan['covered_setups']==2 # this purchase + the phone's remaining slot
-    assert plan['target']==14 and plan['unused']==0 and plan['shortfall']==14
+    assert plan['available_setups']==2 and plan['purchased_setups']==1 # purchase + remaining slot
+    assert plan['target']==19 and plan['unused']==0 and plan['shortfall']==9
     change('setup_stage',{'id':jobs[0]['id'],'stage':'Setup complete'})
     plan=s.summary(s.board(USER)['state'])
-    assert plan['todo']==8 and plan['covered_setups']==1 and plan['shortfall']==14
+    assert plan['todo']==8 and plan['available_setups']==1 and plan['shortfall']==9
 
 
-def test_planner_uses_mixed_inventory_capacity_and_maintains_ten_physical_spares(board_db):
+def test_planner_uses_mixed_setup_capacity_and_ten_contingency_setups(board_db):
     owner=people()['Dylan']
     client=change('client_save',{'name':'Mixed stock','section':'client','account_manager_id':owner})['state']['clients'][0]
     change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'mixedstock{i}.com' for i in range(20))})
     devices(None,phones=0,pcs=10);devices(None,phones=0,pcs=2)
     record=change('capacity_set',{'phone_setups':2,'pc_setups':5,'order_kind':'Phone'})
     plan=s.summary(record['state'])
-    # Four existing PCs cover 20 setups. Two new phones bring eight spares to ten.
-    assert plan['unused']==12 and plan['work_devices']==4 and plan['target']==14 and plan['shortfall']==2
+    # Existing PCs cover all 20 domains and ten contingency setups.
+    assert plan['unused']==12 and plan['available_setups']==60 and plan['target']==30 and plan['shortfall']==0
     record=change('capacity_set',{'phone_setups':2,'pc_setups':10,'order_kind':'Phone'})
     plan=s.summary(record['state'])
-    assert plan['work_devices']==2 and plan['target']==12 and plan['shortfall']==0
-    # A manual block loses that physical spare even after the limit increases.
+    assert plan['available_setups']==120 and plan['target']==30 and plan['shortfall']==0
+    # A manual block removes its remaining setup capacity despite the raised limit.
     change('device_update',{'id':record['state']['devices'][0]['id'],'status':'Blocked','block_reason':'Payment'})
-    assert s.summary(s.board(USER)['state'])['shortfall']==1
+    assert s.summary(s.board(USER)['state'])['available_setups']==110
 
 
 def test_capacity_change_updates_consumption_allocation_and_partial_device_planning(board_db):
@@ -827,6 +827,28 @@ def test_capacity_schema_rejects_invalid_limits(value):
     from pydantic import ValidationError
     with pytest.raises(ValidationError):Capacity(phone_setups=value,pc_setups=2)
     with pytest.raises(ValidationError):Capacity(phone_setups=3,pc_setups=value)
+
+
+def test_reported_inventory_has_22_phone_slots_24_total_and_needs_three_phones(board_db):
+    owner=people()['Dylan']
+    client=change('client_save',{'name':'Capacity check','section':'client','account_manager_id':owner})['state']['clients'][0]
+    change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'capacitycheck{i}.com' for i in range(19))})
+    devices(None,phones=10)
+    devices(None,phones=2,status='Used')
+    devices(None,phones=0,pcs=2)
+    change('devices_add',{'phones':3,'pcs':0,'status':'Used','use_count':2})
+    plan=s.summary(s.board(USER)['state'])
+    assert plan['phone_available']==22 and plan['pc_available']==2
+    assert plan['available_setups']==24 and plan['todo']==19 and plan['contingency']==10
+    assert plan['target']==29 and plan['setup_shortfall']==5 and plan['shortfall']==3
+    # The same inventory at two setups per PC closes two of the five missing slots.
+    record=change('capacity_set',{'phone_setups':2,'pc_setups':2,'order_kind':'Phone'})
+    plan=s.summary(record['state'])
+    assert plan['available_setups']==26 and plan['setup_shortfall']==3 and plan['shortfall']==2
+    # Surplus capacity produces zero orders, and historical uses stay recorded.
+    record=change('capacity_set',{'phone_setups':3,'pc_setups':2,'order_kind':'Phone'})
+    plan=s.summary(record['state'])
+    assert plan['available_setups']==41 and plan['setup_shortfall']==0 and plan['shortfall']==0
 
 
 def test_reset_failure_restores_remaining_phone_capacity_and_can_reuse_same_phone(board_db):

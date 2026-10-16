@@ -167,6 +167,7 @@ def check_sheet(user=Depends(mutation_access)):
 class DmarcStart(Strict):
     revision: int = Field(ge=0)
     confirmed_purchased: Literal[True]
+    setup_ids: list[UUID] | None = Field(None, min_length=1, max_length=5000)
 
 
 class DmarcApply(Strict):
@@ -176,7 +177,8 @@ class DmarcApply(Strict):
 @router.post('/api/gmail-setup/clients/{client_id}/dmarc/start')
 def start_dmarc(client_id: UUID, body: DmarcStart, user=Depends(mutation_access)):
     from app.utils.gmail_setup import dmarc
-    return service.result(dmarc.start(user, str(client_id), body.revision, body.confirmed_purchased))
+    return service.result(dmarc.start(user, str(client_id), body.revision, body.confirmed_purchased,
+        [str(identifier) for identifier in body.setup_ids] if body.setup_ids is not None else None))
 
 
 @router.post('/api/gmail-setup/clients/{client_id}/dmarc/{batch_id}/{job_id}')

@@ -81,3 +81,5 @@
 @media(max-width:700px){.gs-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.gs-reserve-ratio strong{font-size:38px}#gs-app #gs-reserve-target{font-size:38px}.gs-reserve-ratio>span{font-size:24px}.gs-shortfall{font-size:16px}}
 
 .gs-dmarc-results{margin-bottom:20px}.gs-dmarc-results ul,.gs-dmarc-preview{list-style:none;padding:0;margin:12px 0}.gs-dmarc-results li,.gs-dmarc-preview li{padding:10px 0;border-bottom:1px solid var(--border);overflow-wrap:anywhere}.gs-dmarc-results li>strong{margin-right:10px}.gs-dmarc-results small,.gs-dmarc-preview small{display:block;color:var(--text-2);font-size:12px;margin-top:5px}.gs-dmarc-preview{max-height:240px;overflow:auto}.gs-dmarc-warning{padding:12px 14px;background:rgba(251,146,60,.12);border:1px solid rgba(251,146,60,.4);border-radius:8px;color:#fed7aa}#gs-dialog code{font-size:12px;overflow-wrap:anywhere;white-space:normal}
+
+.gs-domain-dmarc{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:10px;margin-top:12px}.gs-domain-dmarc .gs-badge{margin:0}

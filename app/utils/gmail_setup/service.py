@@ -177,32 +177,25 @@ def audit(state, user, action):
 
 
 def reserve_plan(state):
-    """Plan work and ten unused spares, ordering the selected device type.
-
-    Use capacity remaining on used devices first. A recorded purchase already
-    pays for that job's slot, so progressing it cannot create artificial demand.
-    Of unused inventory, use the highest-capacity devices first. Evaluate each
-    prefix against new orders to avoid assuming all physical devices are equal.
-    """
+    """Compare setup slots with to do domains plus ten contingency setups."""
     jobs = [j for j in state['setups'] if not j.get('archived') and j['stage'] != STAGES[2]]
     usable = {d['id']: d for d in state['devices'] if not d.get('archived') and d['status'] != 'Blocked'}
-    fresh = [device_capacity(state, d) for d in usable.values() if not device_uses(d)]
-    remaining_used = sum(max(0, device_capacity(state, d)-device_uses(d)) for d in usable.values() if device_uses(d))
-    purchased = sum(j['stage'] not in FAILURES and j.get('device_id') in usable
+    remaining = {kind: sum(max(0, device_capacity(state, d)-device_uses(d))
+        for d in usable.values() if d['kind'] == kind) for kind in DEFAULT_CAPACITY}
+    # A purchase-stage domain can finish on its already-consumed slot. A domain
+    # explicitly reset to Not started is conservatively treated as new work.
+    purchased = sum(j['stage'] == STAGES[1] and j.get('device_id') in usable
         and j['id'] in usable[j['device_id']].get('setup_ids', [])
         and (j.get('purchase_device') or {}).get('id') == j['device_id'] for j in jobs)
-    covered = min(len(jobs), remaining_used+purchased)
-    demand = len(jobs)-covered
     order_kind = state.get('order_device_kind', 'Phone')
     per_new = device_capacity(state, {'kind': order_kind})
-    work_devices = (demand+per_new-1)//per_new
-    prefix = 0
-    for count, capacity in enumerate(sorted(fresh, reverse=True), 1):
-        prefix += capacity
-        needed = max(0, demand-prefix)
-        work_devices = min(work_devices, count+(needed+per_new-1)//per_new)
-    return {'todo': len(jobs), 'covered_setups': covered, 'work_devices': work_devices,
-            'contingency': RESERVE_CONTINGENCY, 'target': work_devices+RESERVE_CONTINGENCY,
+    target = len(jobs)+RESERVE_CONTINGENCY
+    available = sum(remaining.values())+purchased
+    missing = max(0, target-available)
+    return {'todo': len(jobs), 'contingency': RESERVE_CONTINGENCY, 'target': target,
+            'available_setups': available, 'setup_shortfall': missing,
+            'phone_available': remaining['Phone'], 'pc_available': remaining['PC'],
+            'purchased_setups': purchased, 'shortfall': (missing+per_new-1)//per_new,
             'phone_setups': device_capacity(state, {'kind': 'Phone'}),
             'pc_setups': device_capacity(state, {'kind': 'PC'}),
             'order_kind': order_kind, 'order_capacity': per_new}
@@ -213,9 +206,8 @@ def summary(state):
     devices = [d for d in state['devices'] if not d.get('archived')]
     unused = sum(d['status'] == 'Unused' and not device_uses(d) for d in devices)
     plan = reserve_plan(state)
-    target = plan['target']
-    return {**plan, 'unused': unused, 'shortfall': max(0, target-unused),
-            'low_stock': unused < target, 'devices': len(devices),
+    return {**plan, 'unused': unused,
+            'low_stock': plan['setup_shortfall'] > 0, 'devices': len(devices),
             'blocked': sum(d['status'] == 'Blocked' for d in devices),
             'exhausted_phones': sum(d['kind'] == 'Phone' and device_uses(d) >= device_capacity(state, d) for d in devices),
             'not_started': sum(s['stage'] == STAGES[0] or s['stage'] in FAILURES and not s.get('purchase_at') for s in state['setups'] if not s.get('archived')),
