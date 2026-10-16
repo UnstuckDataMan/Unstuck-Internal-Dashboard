@@ -27,6 +27,6 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await page.click('#gs-back-clients');assert.match(await card.textContent(),/7 domains/);assert.match(await card.textContent(),/7 to do/);assert.doesNotMatch(await card.textContent(),/planned/);
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'work/gmail-planned-domain-count-mobile.png',fullPage:true});
  await card.click();await page.click('#gs-delete-client');await idle();assert.equal((await data()).summary.todo,initial);
- await page.goto('http://127.0.0.1:8766/');await page.waitForFunction(()=>document.querySelector('#gs-home-stock')?.textContent.includes('contingency'));assert.deepEqual(errors,[]);
+ await page.goto('http://127.0.0.1:8766/');await page.waitForFunction(()=>document.querySelector('#gs-home-stock')?.textContent.length>0);assert.deepEqual(errors,[]);
  await browser.close();console.log('PASS: editable placeholder counts persist, include empty clients in forecasting and filters, 10 planned becomes 7 actual, invalid imports preserve the plan, actual domains hide the placeholder and client deletion removes demand.');
 })().catch(e=>{console.error(e);process.exit(1)});

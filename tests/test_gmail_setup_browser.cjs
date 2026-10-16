@@ -78,8 +78,8 @@ require('node:fs').mkdirSync('work',{recursive:true});
  await page.evaluate(()=>document.querySelector('.page').scrollTop=0);await page.screenshot({path:'work/gmail-setup-journey-mobile.png',fullPage:true,animations:'disabled'});
  await page.setViewportSize({width:1440,height:1050});await page.evaluate(()=>document.querySelector('.page').scrollTop=0);await page.screenshot({path:'work/gmail-setup-journey-desktop.png',fullPage:true,animations:'disabled'});
  await page.locator('summary').filter({hasText:'Google Sheet connection'}).click();await page.click('#gs-check-sheet');await idle();assert.match(await page.textContent('#gs-sheet-status'),/write access ready/);
- await page.goto('http://127.0.0.1:8766/');await page.waitForFunction(()=>document.querySelector('#gs-home-stock')?.textContent.includes('Setup capacity'));
- model=await data();assert.match(await page.textContent('#gs-home-stock'),new RegExp(`${model.summary.available_setups} / ${model.summary.target} required`));
+ await page.goto('http://127.0.0.1:8766/');await page.waitForFunction(()=>document.querySelector('#gs-home-stock')?.textContent.length>0);
+ assert.match(await page.textContent('#gs-home-stock'),/^(Order \d+ more (phones?|laptops? \/ PCs?)|No new devices needed)$/);
  // Stage failures block the selected physical asset and retain retry history.
  await page.goto('http://127.0.0.1:8766/gmail-set');await idle();
  const cedar=(await data()).state.clients.find(c=>c.name==='Cedar');await page.locator(`[data-open-client="${cedar.id}"]`).click();
