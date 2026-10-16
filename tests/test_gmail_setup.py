@@ -904,6 +904,34 @@ def test_failed_and_duplicate_only_imports_keep_placeholder_and_create_no_fake_j
     assert s.summary(record['state'])['todo']==11 # one actual + ten planned
 
 
+@pytest.mark.parametrize('link',['linked','missing','outdated'])
+def test_existing_domains_clear_stale_plans_in_board_and_operations_summary(board_db,link):
+    from app.routers.gmail_setup import get_summary
+    owner=people()['Dylan']
+    client=change('client_save',{'name':'Existing client','account_manager_id':owner,'section':'client','planned_domains':10})['state']['clients'][0]
+    change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'existingclient{i}.com' for i in range(7))})
+    stored=board_db[store.workspace(USER)]
+    # Reproduce old records with a leftover plan and pre-grouping domain links.
+    stored['state']['clients'][0]['planned_domains']=10
+    for job in stored['state']['setups']:
+        if link=='missing':job.pop('client_id')
+        elif link=='outdated':job['client_id']='old-client-id'
+    revision=stored['revision']
+    plan=get_summary(user=USER)
+    assert plan['actual_todo']==7 and plan['planned_todo']==0 and plan['todo']==7
+    assert plan['target']==17 and plan['shortfall']==9
+    record=s.result(s.board(USER))
+    assert record['summary']==plan
+    assert record['state']['clients'][0]['planned_domains']==0
+    assert all(j['client_id']==client['id'] for j in record['state']['setups'])
+    # A read repairs its response; it must not bypass CAS or an external-write lease.
+    assert stored['revision']==revision and stored['state']['clients'][0]['planned_domains']==10
+    saved=change('capacity_set',{'phone_setups':2,'pc_setups':1,'order_kind':'Phone'})
+    assert saved['state']['clients'][0]['planned_domains']==0
+    assert board_db[store.workspace(USER)]['state']['clients'][0]['planned_domains']==0
+    assert get_summary(user=OTHER)==plan
+
+
 @pytest.mark.parametrize('value',[-1,5001,1.5,True,'10'])
 def test_client_placeholder_schema_rejects_invalid_counts(value):
     from app.routers.gmail_setup import Client

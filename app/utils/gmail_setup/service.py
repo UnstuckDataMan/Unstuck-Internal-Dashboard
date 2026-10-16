@@ -64,6 +64,12 @@ def ensure_clients(state):
             clients.append(client)
             by_key[key] = client
         job['client_id'] = by_key[key]['id']
+    # A placeholder belongs only to a client with no actual domain history.
+    # Repair older saved boards too; the next CAS mutation persists this cleanup.
+    clients_with_domains = {j.get('client_id') for j in state['setups']}
+    for client in clients:
+        if client['id'] in clients_with_domains:
+            client['planned_domains'] = 0
 
 
 def find(state, collection, identifier, active=False):
@@ -178,6 +184,9 @@ def audit(state, user, action):
 
 def reserve_plan(state):
     """Compare setup slots with to do domains plus ten contingency setups."""
+    # Operations reads the stored board directly. Resolve legacy client links
+    # before forecasting so it agrees with the client view and never adds both.
+    ensure_clients(state)
     jobs = [j for j in state['setups'] if not j.get('archived') and j['stage'] != STAGES[2]]
     clients_with_domains = {j.get('client_id') for j in state['setups']}
     planned = sum(c.get('planned_domains', 0) for c in state.get('clients', [])

@@ -22,6 +22,8 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await page.fill('#gs-bulk-domains','validfuture.com\nnot-a-domain');await page.locator('#gs-bulk-panel button[type="submit"]').click();await idle();assert.equal((await data()).summary.planned_todo,10);
  await page.fill('#gs-bulk-domains',Array.from({length:7},(_,i)=>`futureplanning${i}.com`).join('\n'));await page.locator('#gs-bulk-panel button[type="submit"]').click();await idle();
  model=await data();assert.equal(model.summary.todo,initial+7);assert.equal(model.summary.planned_todo,0);assert.equal(model.state.clients.find(c=>c.id===client.id).planned_domains,0);
+ assert.deepEqual(await page.evaluate(()=>fetch('/api/gmail-setup/summary').then(r=>r.json())),model.summary);
+ await page.reload();await idle();assert.equal((await data()).summary.todo,initial+7);
  assert.equal(await page.locator('[data-setup]').count(),7);assert.doesNotMatch(await page.textContent('#gs-client-caption'),/planned domains/);
  await page.click('#gs-edit-client');assert.equal(await page.locator('#gs-client-planned').count(),0);await page.click('#gs-dialog-cancel');
  await page.click('#gs-back-clients');assert.match(await card.textContent(),/7 domains/);assert.match(await card.textContent(),/7 to do/);assert.doesNotMatch(await card.textContent(),/planned/);
