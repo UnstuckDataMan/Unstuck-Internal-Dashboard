@@ -66,16 +66,35 @@ is no longer the main workflow.
 - Device cards and their detail dialog show linked domains, client names,
   stages and reset history. Domain links jump to the correct client and row;
   deleted records remain visible as history.
-- Each phone supports two distinct setups; each PC supports one. Both start green.
-  Phones turn orange after one setup and red after two; PCs turn red after one.
-  Any block/failure also turns the device red. Purchases and completion of
-  the same setup count once. Red devices cannot be selected for new allocations;
-  transfers and edits preserve usage. Known historical uses are recovered on read.
-- Both the tool and the Operations card alert when the company has fewer than
-  the saved unused-device reserve target (phones + PCs combined), default **30**.
-  Edit the target directly in the large reserve card and choose Save target;
-  the exact shortfall and Operations alert use the same workspace setting. Counts refresh after every change
-  and while visible. No external notifications or purchases are sent.
+- Setup limits are shared workspace settings: defaults are **2 per phone** and
+  **1 per laptop/PC**. Change them in **Setup limits & order calculation**, along
+  with the type of new equipment to order (phones by default). Limits accept 1–100.
+  Green means zero uses; amber means used with capacity left; red means at/above
+  the saved limit or blocked. Raising/lowering limits updates every card, domain
+  picker, allocation check and consumption check without erasing physical history.
+  Manually blocked equipment remains blocked even if limits are raised.
+- Both Gmail Set and Operations calculate required inventory automatically from
+  all active to do domains and saved limits. Purchased/failed domains remain to do;
+  completed and deleted domains are excluded. Capacity left on used equipment and
+  already recorded purchases cover work first. The planner uses available unused
+  equipment (including mixed phone/PC capacity) and the selected new-device type,
+  rounds up whole devices, and adds **10 unused contingency devices** for SDRs or
+  client replacement. The card explains the calculation and exact order shortfall.
+  Existing manual targets are ignored. With no stock, 19 domains at 2 setups per
+  phone require 10 work phones + 10 contingency = 20 devices; at 3 setups, 17.
+  Settings and counts update across the team and Operations. No external orders
+  or notifications are sent.
+- Administrators can select **Set up DMARC** in a client after confirming domain
+  purchases with **Proceed / Cancel**. Only that client's active domains are used;
+  the server fixes each domain/report-email snapshot before any external write.
+  Both rua/ruf use the domain's sending email, with
+  `v=DMARC1; p=none; pct=100; rua=mailto:<email>; ruf=mailto:<email>; fo=1`,
+  TXT `_dmarc` and TTL 600. Missing sending emails are skipped with a clear result.
+  Existing Porkbun credentials remain server-side. Each domain checks ownership,
+  API access and Porkbun nameservers; missing records are created and read back.
+  Matching records are verified without another write; conflicting records are
+  reported without duplication or overwrite. Persistent CAS claims serialize DNS
+  and sheet writes; per-domain results survive refresh and safe retries.
 - Selecting a later stage records purchase/device history as needed; choosing
   Setup complete also publishes the sending email. Select **Not started** to reopen a completed or failed domain. Resetting a failed attempt removes that attempt’s use and block from its
   device: it returns to green/Unused if no other use remains, or orange with

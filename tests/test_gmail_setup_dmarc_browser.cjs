@@ -1,0 +1,35 @@
+// Local synthetic registrar only; no live Porkbun writes are possible.
+const {chromium}=require('playwright'),assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
+ const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[],requests=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ page.on('request',r=>{if(r.method()==='POST'&&r.url().includes('/dmarc/'))requests.push(r.url());});
+ await page.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:8766')?r.continue():r.abort());
+ const idle=()=>page.waitForFunction(()=>!document.querySelector('#gs-app').hasAttribute('aria-busy'));
+ const data=()=>page.evaluate(()=>fetch('/api/gmail-setup').then(r=>r.json()));
+ const save=async()=>{await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();};
+ await page.goto('http://127.0.0.1:8766/gmail-set');await idle();
+ assert.equal(await page.locator('#gs-dmarc').isVisible(),false);
+ const owner=(await data()).state.members.find(m=>m.name==='Dylan').id;
+ await page.click('#gs-add-setup');await page.fill('#gs-client-name','DMARC client QA');await page.selectOption('#gs-client-manager',owner);await page.selectOption('#gs-client-operator',owner);await save();
+ await page.fill('#gs-bulk-sender','ashley');await page.fill('#gs-bulk-domains','dmarcfirst.com\ndmarcsecond.com\nconflictdmarc.com\nmissingdmarc.com');await page.locator('#gs-bulk-panel button[type="submit"]').click();await idle();
+ const missing=page.locator('[data-setup]').filter({has:page.locator('h4',{hasText:'missingdmarc.com'})});
+ await missing.locator('[data-set-email]').fill('');await missing.locator('[data-set-email]').press('Tab');await idle();
+ let model=await data();const client=model.state.clients.find(c=>c.name==='DMARC client QA');
+ const unrelated=model.state.setups.filter(j=>j.client_id!==client.id).map(j=>({id:j.id,dmarc:j.dmarc}));
+ await page.click('#gs-dmarc');assert.match(await page.textContent('#gs-form-fields'),/Only proceed if you’ve completed purchase/);assert.equal(await page.textContent('#gs-dialog-save'),'Proceed');
+ assert.match(await page.textContent('#gs-form-fields'),/ashley@dmarcfirst.com/);assert.match(await page.textContent('#gs-form-fields'),/TTL: 600/);assert.match(await page.textContent('#gs-form-fields'),/p=none; pct=100/);
+ await page.click('#gs-dialog-cancel');assert.equal(requests.length,0);assert.ok(!(await data()).state.clients.find(c=>c.id===client.id).dmarc_batch);
+ await page.click('#gs-dmarc');await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();
+ assert.equal(requests.length,4);assert.match(await page.textContent('#gs-dmarc-results'),/2 \/ 4 verified/);assert.match(await page.textContent('#gs-dmarc-results'),/Existing DMARC differs/);assert.match(await page.textContent('#gs-dmarc-results'),/Sending email missing/);
+ model=await data();assert.equal(model.state.setups.find(j=>j.domain==='dmarcfirst.com').dmarc.content,'v=DMARC1; p=none; pct=100; rua=mailto:ashley@dmarcfirst.com; ruf=mailto:ashley@dmarcfirst.com; fo=1');
+ assert.deepEqual(model.state.setups.filter(j=>j.client_id!==client.id).map(j=>({id:j.id,dmarc:j.dmarc})),unrelated);
+ await page.reload();await idle();assert.match(await page.textContent('#gs-dmarc-results'),/2 \/ 4 verified/);
+ await missing.locator('[data-set-email]').fill('ashley@missingdmarc.com');await missing.locator('[data-set-email]').press('Tab');await idle();
+ await page.click('#gs-dmarc');await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();
+ assert.match(await page.textContent('#gs-dmarc-results'),/3 \/ 4 verified/);
+ await page.locator('#gs-dmarc-results').screenshot({path:'work/gmail-client-dmarc-results.png'});
+ await page.setViewportSize({width:390,height:844});await page.click('#gs-dmarc');assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'work/gmail-client-dmarc-confirm-mobile.png',fullPage:true});await page.click('#gs-dialog-cancel');
+ assert.deepEqual(errors,[]);await browser.close();console.log('PASS: per-client DMARC button, purchase Proceed/Cancel, cancel has zero writes, correct report email/policy, missing email/conflict results, persistence, safe retries and mobile confirmation.');
+})().catch(e=>{console.error(e);process.exit(1)});

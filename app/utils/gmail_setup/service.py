@@ -10,7 +10,8 @@ from . import store
 STAGES = ('Not started', 'Purchase made', 'Setup complete')
 FAILURES = {'Failed at QR': 'QR code', 'Failed at payment': 'Payment'}
 DEVICE_STATUSES = ('Unused', 'Used', 'Blocked')
-RESERVE_TARGET = 30
+RESERVE_CONTINGENCY = 10
+DEFAULT_CAPACITY = {'Phone': 2, 'PC': 1}
 LEASE_SECONDS = 180
 
 
@@ -74,6 +75,10 @@ def find(state, collection, identifier, active=False):
 
 def device_uses(device):
     return max(device.get('use_count', 0), int(bool(device.get('used_at') or device['status'] == 'Used')))
+
+
+def device_capacity(state, device):
+    return state.get('device_capacity', {}).get(device['kind'], DEFAULT_CAPACITY[device['kind']])
 
 
 def ensure_device_usage(state):
@@ -143,18 +148,17 @@ def allocation_available(state, device, job_id=None):
         return False
     reserved = sum(j['id'] != job_id and not j.get('archived') and j['stage'] == STAGES[0]
         and j.get('device_id') == device['id'] and j['id'] not in device.get('setup_ids', []) for j in state['setups'])
-    capacity = 2 if device['kind'] == 'Phone' else 1
-    return device_uses(device) + reserved < capacity
+    return device_uses(device) + reserved < device_capacity(state, device)
 
 
-def consume_device_use(device, job):
+def consume_device_use(state, device, job):
     job_id = job['id']
     job.get('device_usage_resets', {}).pop(device['id'], None)
     if job_id not in device.get('setup_ids', []):
-        capacity = 2 if device['kind'] == 'Phone' else 1
+        capacity = device_capacity(state, device)
         if device_uses(device) >= capacity:
-            usage = 'phone has already been used for two setups' if device['kind'] == 'Phone' else 'PC has already been used for one setup'
-            raise HTTPException(409, f'This {usage}. Choose another device or allocate a device later.')
+            count = {1: 'one', 2: 'two'}.get(capacity, str(capacity))
+            raise HTTPException(409, f'This {device["kind"]} has already reached its limit of {count} {"setup" if capacity == 1 else "setups"}. Choose another device or allocate a device later.')
         device['use_count'] = device_uses(device) + 1
         device.setdefault('setup_ids', []).append(job_id)
     device['used_at'] = device.get('used_at') or now()
@@ -163,6 +167,8 @@ def consume_device_use(device, job):
 def unlocked(state):
     lock = state.get('sync_lock')
     if lock and (datetime.now(timezone.utc)-datetime.fromisoformat(lock['at'])).total_seconds() < LEASE_SECONDS:
+        if lock.get('kind') == 'dmarc':
+            raise HTTPException(409, 'A DMARC record is being configured. Retry in a moment.')
         raise HTTPException(409, 'A completed setup is syncing to Google Sheets. Retry in a moment.')
 
 
@@ -170,15 +176,48 @@ def audit(state, user, action):
     state['events'] = (state['events']+[{'at': now(), 'by': user['email'], 'action': action}])[-200:]
 
 
+def reserve_plan(state):
+    """Plan work and ten unused spares, ordering the selected device type.
+
+    Use capacity remaining on used devices first. A recorded purchase already
+    pays for that job's slot, so progressing it cannot create artificial demand.
+    Of unused inventory, use the highest-capacity devices first. Evaluate each
+    prefix against new orders to avoid assuming all physical devices are equal.
+    """
+    jobs = [j for j in state['setups'] if not j.get('archived') and j['stage'] != STAGES[2]]
+    usable = {d['id']: d for d in state['devices'] if not d.get('archived') and d['status'] != 'Blocked'}
+    fresh = [device_capacity(state, d) for d in usable.values() if not device_uses(d)]
+    remaining_used = sum(max(0, device_capacity(state, d)-device_uses(d)) for d in usable.values() if device_uses(d))
+    purchased = sum(j['stage'] not in FAILURES and j.get('device_id') in usable
+        and j['id'] in usable[j['device_id']].get('setup_ids', [])
+        and (j.get('purchase_device') or {}).get('id') == j['device_id'] for j in jobs)
+    covered = min(len(jobs), remaining_used+purchased)
+    demand = len(jobs)-covered
+    order_kind = state.get('order_device_kind', 'Phone')
+    per_new = device_capacity(state, {'kind': order_kind})
+    work_devices = (demand+per_new-1)//per_new
+    prefix = 0
+    for count, capacity in enumerate(sorted(fresh, reverse=True), 1):
+        prefix += capacity
+        needed = max(0, demand-prefix)
+        work_devices = min(work_devices, count+(needed+per_new-1)//per_new)
+    return {'todo': len(jobs), 'covered_setups': covered, 'work_devices': work_devices,
+            'contingency': RESERVE_CONTINGENCY, 'target': work_devices+RESERVE_CONTINGENCY,
+            'phone_setups': device_capacity(state, {'kind': 'Phone'}),
+            'pc_setups': device_capacity(state, {'kind': 'PC'}),
+            'order_kind': order_kind, 'order_capacity': per_new}
+
+
 def summary(state):
     ensure_device_usage(state)
     devices = [d for d in state['devices'] if not d.get('archived')]
     unused = sum(d['status'] == 'Unused' and not device_uses(d) for d in devices)
-    target = state.get('reserve_target', RESERVE_TARGET)
-    return {'unused': unused, 'target': target, 'shortfall': max(0, target-unused),
+    plan = reserve_plan(state)
+    target = plan['target']
+    return {**plan, 'unused': unused, 'shortfall': max(0, target-unused),
             'low_stock': unused < target, 'devices': len(devices),
             'blocked': sum(d['status'] == 'Blocked' for d in devices),
-            'exhausted_phones': sum(d['kind'] == 'Phone' and device_uses(d) >= 2 for d in devices),
+            'exhausted_phones': sum(d['kind'] == 'Phone' and device_uses(d) >= device_capacity(state, d) for d in devices),
             'not_started': sum(s['stage'] == STAGES[0] or s['stage'] in FAILURES and not s.get('purchase_at') for s in state['setups'] if not s.get('archived')),
             'purchased': sum(s['stage'] == STAGES[1] or s['stage'] in FAILURES and bool(s.get('purchase_at')) for s in state['setups'] if not s.get('archived')),
             'complete': sum(s['stage'] == STAGES[2] for s in state['setups'] if not s.get('archived')),
@@ -234,7 +273,12 @@ def mutate(user, expected, action, data):
     state['sync_lock'] = None
     outcome = None
     if action == 'reserve_set':
-        state['reserve_target'] = data['target']
+        raise HTTPException(409, 'The device target is automatic. Change the phone or laptop setup limits instead, then refresh.')
+    elif action == 'capacity_set':
+        limits = {'Phone': data['phone_setups'], 'PC': data['pc_setups']}
+        if any(type(v) is not int or not 1 <= v <= 100 for v in limits.values()) or data['order_kind'] not in limits:
+            raise HTTPException(400, 'Choose setup limits from 1 to 100 and a device type to order.')
+        state.update(device_capacity=limits, order_device_kind=data['order_kind'])
     elif action == 'client_save':
         current = find(state, 'clients', data['id'], True) if data.get('id') else None
         client_name = re.sub(r'\s+', ' ', text(data['name'], 'Client name'))
@@ -349,8 +393,8 @@ def mutate(user, expected, action, data):
         use_count = data.get('use_count')
         if use_count is None:
             use_count = 1 if status == 'Used' else 0
-        if type(use_count) is not int or not 0 <= use_count <= 2 or status == 'Unused' and use_count or status == 'Used' and not use_count:
-            raise HTTPException(400, 'Choose Unused, Used once or Used twice to match the device usage.')
+        if type(use_count) is not int or not 0 <= use_count <= 100 or status == 'Unused' and use_count or status == 'Used' and not use_count:
+            raise HTTPException(400, 'Choose a usage count that matches the device condition.')
         for kind, amount in [('Phone', data['phones']), ('PC', data['pcs'])]:
             for _ in range(amount):
                 number = device_slot(state, member_id, kind) if member_id else 1+max((d['number'] for d in state['devices'] if d['member_id'] is None and d['kind'] == kind), default=0)
@@ -514,7 +558,7 @@ def record_purchase_device(state, job):
         raise HTTPException(409, 'The allocated purchase device is blocked. Select another device.')
     if d['member_id'] != job['operator_id']:
         raise HTTPException(409, 'Allocate the device to the setup owner before recording purchase.')
-    consume_device_use(d, job)
+    consume_device_use(state, d, job)
     d['status'] = 'Used'
     previous = job.get('purchase_device')
     if previous and previous['id'] != d['id']:
@@ -549,7 +593,7 @@ def set_stage(state, job, stage):
         if d:
             if d['status'] != 'Blocked' and d['member_id'] != job['operator_id']:
                 raise HTTPException(409, 'Allocate the device to the setup owner before recording failure.')
-            consume_device_use(d, job)
+            consume_device_use(state, d, job)
             if d['status'] != 'Blocked':
                 d['manual_block'] = False
             d['block_job_ids'] = sorted(set(d.get('block_job_ids', [])) | {job['id']})

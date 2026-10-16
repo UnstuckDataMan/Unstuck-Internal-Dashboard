@@ -32,7 +32,7 @@ class Devices(Strict):
     pcs: int = Field(0, ge=0, le=10)
     status: Literal['Unused', 'Used', 'Blocked'] = 'Unused'
     block_reason: Literal['QR code', 'Payment', 'Other'] | None = None
-    use_count: int | None = Field(None, ge=0, le=2, strict=True)
+    use_count: int | None = Field(None, ge=0, le=100, strict=True)
 
 
 class Device(Strict):
@@ -85,6 +85,12 @@ class Reserve(Strict):
     target: int = Field(ge=1, le=5000)
 
 
+class Capacity(Strict):
+    phone_setups: int = Field(ge=1, le=100, strict=True)
+    pc_setups: int = Field(ge=1, le=100, strict=True)
+    order_kind: Literal['Phone', 'PC'] = 'Phone'
+
+
 class Bulk(Strict):
     client_id: str = Field(max_length=36)
     domains: str = Field(min_length=1, max_length=50000)
@@ -101,7 +107,7 @@ class Assignment(Strict):
 
 class Change(Strict):
     revision: int = Field(ge=0)
-    action: Literal['reserve_set', 'client_save', 'client_remove', 'setup_bulk', 'setup_assign', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
+    action: Literal['reserve_set', 'capacity_set', 'client_save', 'client_remove', 'setup_bulk', 'setup_assign', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
     data: dict
 
 
@@ -110,7 +116,8 @@ class Change(Strict):
 def page(request: Request, user=Depends(access)):
     request.session.setdefault('domain_csrf', secrets.token_urlsafe(32))
     return templates.TemplateResponse(request, 'gmail_setup.html', {
-        'csrf': request.session['domain_csrf'], 'gmail_asset_version': ASSET_VERSION})
+        'csrf': request.session['domain_csrf'], 'gmail_asset_version': ASSET_VERSION,
+        'gmail_can_manage_dns': user.get('role') == 'admin'})
 
 
 @router.get('/api/gmail-setup')
@@ -127,7 +134,7 @@ def get_summary(user=Depends(access)):
 
 @router.post('/api/gmail-setup/change')
 def change(body: Change, user=Depends(mutation_access)):
-    models = {'reserve_set': Reserve, 'client_save': Client, 'client_remove': Identifier, 'setup_bulk': Bulk, 'setup_assign': Assignment,
+    models = {'reserve_set': Reserve, 'capacity_set': Capacity, 'client_save': Client, 'client_remove': Identifier, 'setup_bulk': Bulk, 'setup_assign': Assignment,
               'member_save': Member, 'member_remove': Identifier, 'devices_add': Devices,
               'device_update': Device, 'device_remove': Identifier, 'setup_save': Setup,
               'setup_stage': Stage, 'setup_device': SetupDevice, 'setup_remove': Identifier}
@@ -155,3 +162,24 @@ def sync(job_id: UUID, user=Depends(mutation_access)):
 @router.post('/api/gmail-setup/check-sheet')
 def check_sheet(user=Depends(mutation_access)):
     return sheets.readiness()
+
+
+class DmarcStart(Strict):
+    revision: int = Field(ge=0)
+    confirmed_purchased: Literal[True]
+
+
+class DmarcApply(Strict):
+    revision: int = Field(ge=1)
+
+
+@router.post('/api/gmail-setup/clients/{client_id}/dmarc/start')
+def start_dmarc(client_id: UUID, body: DmarcStart, user=Depends(mutation_access)):
+    from app.utils.gmail_setup import dmarc
+    return service.result(dmarc.start(user, str(client_id), body.revision, body.confirmed_purchased))
+
+
+@router.post('/api/gmail-setup/clients/{client_id}/dmarc/{batch_id}/{job_id}')
+def apply_dmarc(client_id: UUID, batch_id: UUID, job_id: UUID, body: DmarcApply, user=Depends(mutation_access)):
+    from app.utils.gmail_setup import dmarc
+    return service.result(dmarc.apply(user, str(client_id), str(batch_id), str(job_id), body.revision))

@@ -12,14 +12,14 @@
   const name=id=>member(id)?.name||'Unallocated';
   const memberOptions=(selected='',pool=false)=>(pool?'<option value="">Unallocated pool</option>':'<option value="">Select team member</option>')+state().members.filter(m=>m.active||m.id===selected).map(m=>`<option value="${esc(m.id)}" ${m.id===selected?'selected':''}>${esc(m.name)}${m.active?'':' (removed)'}</option>`).join('');
   const uses=d=>Math.max(d.use_count||0,d.used_at||d.status==='Used'?1:0);
-  const capacity=d=>d.kind==='Phone'?2:1;
+  const capacity=d=>d.kind==='Phone'?(board?.summary.phone_setups??2):(board?.summary.pc_setups??1);
   const exhausted=d=>uses(d)>=capacity(d);
   const available=(d,jobId)=>{const reserved=state().setups.filter(j=>!j.archived&&j.stage==='Not started'&&j.id!==jobId&&j.device_id===d.id&&!(d.setup_ids||[]).includes(j.id)).length;return !d.archived&&d.status!=='Blocked'&&uses(d)+reserved<capacity(d);};
   const editing=()=>app.contains(document.activeElement)&&document.activeElement.matches('input,select,textarea');
-  const deviceClass=d=>d.status==='Blocked'?'blocked':exhausted(d)?'exhausted '+d.kind.toLowerCase():d.kind==='Phone'?(uses(d)?'used phone':'unused phone'):d.status.toLowerCase();
+  const deviceClass=d=>d.status==='Blocked'?'blocked':exhausted(d)?'exhausted '+d.kind.toLowerCase():(uses(d)?'used ':'unused ')+d.kind.toLowerCase();
   const condition=d=>d.status==='Blocked'&&d.block_reason&&d.block_reason!=='Other'?'Block '+d.block_reason:d.status==='Blocked'?'Blocked':`${uses(d)} / ${capacity(d)} ${capacity(d)===1?'setup':'setups'}${exhausted(d)?' · do not use':''}`;
   const conditions=[['Unused','Unused'],['Used','Used'],['Blocked|QR code','Block QR code'],['Blocked|Payment','Block Payment'],['Blocked|Other','Blocked (other)']];
-  const inventoryConditions=conditions.flatMap(option=>option[0]==='Used'?[['Used|1','Used once'],['Used|2','Used twice']]:[option]);
+  const inventoryConditions=()=>conditions.flatMap(option=>option[0]==='Used'?Array.from({length:Math.max(2,capacity({kind:'Phone'}),capacity({kind:'PC'}))},(_,i)=>['Used|'+(i+1),i===0?'Used once':i===1?'Used twice':`Used ${i+1} times`]):[option]);
   const conditionData=v=>({status:v.split('|')[0],block_reason:v.startsWith('Blocked|')?v.split('|')[1]:null,...(v.startsWith('Used|')?{use_count:Number(v.split('|')[1])}:{})});
   const label=d=>`${d.kind} ${d.number} · ${name(d.member_id)}`;
   function message(text,error=false){$('gs-message').textContent=text;$('gs-message').classList.toggle('error',error);}
@@ -41,9 +41,11 @@
   function tab(which){for(const view of ['setups','devices']){$('gs-'+view).hidden=view!==which;$('gs-tab-'+view).setAttribute('aria-selected',String(view===which));}}
   function render(){
     const s=board.summary,st=state();
-    $('gs-stats').innerHTML=[['not_started','Not started'],['purchased','Purchase made'],['complete','Setup complete']].map(([key,title])=>`<div class="gs-stat"><strong>${s[key]}</strong><span>${title}</span></div>`).join('')+`<form class="gs-stat gs-reserve-stat" id="gs-reserve-form"><span>Unused devices / reserve target</span><div class="gs-reserve-ratio"><strong>${s.unused}</strong><span>/</span><input id="gs-reserve-target" type="number" inputmode="numeric" min="1" max="5000" required value="${s.target}" aria-label="Reserve target"></div><b class="gs-shortfall ${s.low_stock?'low':'ready'}">${s.low_stock?`${s.shortfall} more devices needed`:'Reserve target met'}</b><button type="submit" class="gs-small">Save target</button></form>`;
+    $('gs-stats').innerHTML=[['not_started','Not started'],['purchased','Purchase made'],['complete','Setup complete']].map(([key,title])=>`<div class="gs-stat"><strong>${s[key]}</strong><span>${title}</span></div>`).join('')+`<div class="gs-stat gs-reserve-stat"><span>Unused devices / required</span><div class="gs-reserve-ratio"><strong>${s.unused}</strong><span>/</span><strong id="gs-reserve-target">${s.target}</strong></div><b class="gs-shortfall ${s.low_stock?'low':'ready'}">${s.low_stock?`Order ${s.shortfall} more ${s.order_kind==='Phone'?'phones':'laptops / PCs'}`:'Device target met'}</b><p class="gs-reserve-calculation">${s.todo} to do · ${s.covered_setups} covered by used devices.<br>${s.work_devices} work devices + ${s.contingency} contingency.<br>New ${s.order_kind==='Phone'?'phones':'laptops / PCs'}: ${s.order_capacity} setups each.</p></div>`;
+    $('gs-phone-capacity').value=s.phone_setups;$('gs-pc-capacity').value=s.pc_setups;$('gs-order-kind').value=s.order_kind;
+    $('gs-device-rules').textContent=`Phones: ${s.phone_setups} setups each · Laptops / PCs: ${s.pc_setups} setups each.`;
     $('gs-stock').hidden=!s.low_stock;
-    $('gs-stock').innerHTML=`<div><strong>Order ${s.shortfall} more devices</strong><small>${s.unused} unused / ${s.target} required across the company.</small></div><button data-stock-add>Add inventory</button>`;
+    $('gs-stock').innerHTML=`<div><strong>Order ${s.shortfall} more ${s.order_kind==='Phone'?'phones':'laptops / PCs'}</strong><small>${s.unused} unused / ${s.target} required · ${s.todo} to do domains + ${s.contingency} contingency devices, allowing for setup capacity.</small></div><button data-stock-add>Add inventory</button>`;
     const chosen=$('gs-filter-manager').value;$('gs-filter-manager').innerHTML='<option value="">Everyone</option>'+st.members.map(m=>`<option value="${esc(m.id)}">${esc(m.name)}${m.active?'':' (removed)'}</option>`).join('');$('gs-filter-manager').value=chosen;
     renderSetups();renderTeam();$('gs-updated').textContent=board.updated_at?`Updated ${new Date(board.updated_at).toLocaleString('en-GB')}`:'Add your actual device inventory to get started';
   }
@@ -76,6 +78,7 @@
     $('gs-client-caption').textContent=current?`${name(current.account_manager_id)} · ${current.section==='client'?'Client':'Biz Dev'} · Completed domains move to the bottom`:'Choose a client to view its domains and setup stages.';
     $('gs-add-setup').textContent=current?'+ Add domains':'+ Client';
     $('gs-edit-client').hidden=!current;$('gs-delete-client').hidden=!current;
+    $('gs-dmarc').hidden=!current||app.dataset.dnsAdmin!=='true';$('gs-dmarc').disabled=!current||!all.some(j=>j.client_id===current.id);renderDmarc(current);
     if(current&&bulkClient!==current.id){bulkClient=current.id;bulkOpen=!all.some(s=>s.client_id===current.id);$('gs-bulk-domains').value='';$('gs-bulk-sender').value='';$('gs-bulk-operator').innerHTML=memberOptions(member(current.operator_id)?.active?current.operator_id:'');}
     $('gs-bulk-panel').hidden=!current||!bulkOpen;
     const visible=clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).filter(c=>{
@@ -94,6 +97,27 @@
       $('gs-setup-list').innerHTML=domains.length?`${pending.length?`<h4 class="gs-list-heading">In progress <span>${pending.length}</span></h4>${pending.sort(pendingOrder).map(renderDomain).join('')}`:''}${complete.length?`<h4 class="gs-list-heading gs-complete-heading">Complete <span>${complete.length}</span></h4>${complete.sort(order).map(renderDomain).join('')}`:''}`:'<div class="gs-empty"><strong>No domains to show</strong>Add a domain to this client or change your filters.</div>';
     }else $('gs-setup-list').innerHTML='';
   }
+  function renderDmarc(client){
+    const batch=client?.dmarc_batch,el=$('gs-dmarc-results');el.hidden=!batch;
+    if(!batch){el.innerHTML='';return;}
+    const verified=Object.values(batch.results).filter(r=>r.status==='verified').length;
+    el.innerHTML=`<details class="gs-card gs-dmarc-results" open><summary>DMARC: ${verified} / ${batch.items.length} verified</summary><ul>${batch.items.map(item=>{const r=batch.results[item.id]||{},ok=r.status==='verified';return `<li><strong>${esc(item.domain)}</strong><span class="gs-badge ${ok?'complete':r.status==='needs review'?'blocked':'purchased'}">${ok?'Verified':r.status==='running'?'Configuring':r.status==='needs review'?'Needs attention':'Pending'}</span><small>${esc(item.email?'Reports: '+item.email:'Sending email missing')}${r.message?' · '+esc(r.message):''}</small></li>`;}).join('')}</ul></details>`;
+  }
+  function setupDmarc(){
+    const client=state().clients.find(c=>c.id===selectedClient);if(!client)return;
+    const id=client.id,items=state().setups.filter(j=>j.client_id===id&&!j.archived);
+    dialog('Set up DMARC for '+client.name,`<p class="gs-dmarc-warning"><strong>Only proceed if you’ve completed purchase.</strong></p><p>This adds DMARC to these ${items.length} domains in Porkbun. Both aggregate and failure reports go to each domain’s sending email.</p><ul class="gs-dmarc-preview">${items.map(j=>`<li><strong>${esc(j.domain)}</strong><small>${esc(j.email||'Sending email missing — will be skipped')}</small></li>`).join('')}</ul><p><code>v=DMARC1; p=none; pct=100; rua=mailto:[sending email]; ruf=mailto:[sending email]; fo=1</code></p><p>TXT host: <strong>_dmarc</strong> · TTL: <strong>600</strong>. Existing matching records are checked; conflicting records are left for review.</p>`,async()=>{
+      accept(await api('/clients/'+id+'/dmarc/start',{revision:board.revision,confirmed_purchased:true}));$('gs-dialog').close();
+      const batch=state().clients.find(c=>c.id===id).dmarc_batch;
+      for(const [index,item] of batch.items.entries()){
+        if(!item.email||batch.results[item.id]?.status==='needs review')continue;
+        message(`Configuring DMARC ${index+1} / ${batch.items.length}: ${item.domain}…`);
+        accept(await api('/clients/'+id+'/dmarc/'+batch.id+'/'+item.id,{revision:board.revision}));
+      }
+      const finished=state().clients.find(c=>c.id===id).dmarc_batch,verified=Object.values(finished.results).filter(r=>r.status==='verified').length;
+      message(`DMARC: ${verified} verified · ${finished.items.length-verified} need attention.`,verified!==finished.items.length);
+    });$('gs-dialog-save').textContent='Proceed';
+  }
   function deviceDomains(d){
     return state().setups.filter(j=>j.device_id===d.id||(d.setup_ids||[]).includes(j.id)||j.purchase_device?.id===d.id||(j.purchase_device_history||[]).some(p=>p.id===d.id)||(j.device_failures||[]).some(f=>f.device?.id===d.id)).map(j=>{
       const failure=(j.device_failures||[]).filter(f=>f.device?.id===d.id&&!f.reverted_at).at(-1);
@@ -111,13 +135,13 @@
       return `<article class="gs-card" data-member="${esc(m.id||'pool')}"><div class="gs-card-head"><div><h4>${esc(m.name)}</h4><small>${esc(m.email)}</small></div><div class="gs-actions">${m.id?`<button class="gs-small" data-edit-member="${esc(m.id)}">Edit</button><button class="gs-small gs-danger" data-remove-member="${esc(m.id)}">Remove</button>`:''}<button class="gs-small" data-add-for="${esc(m.id||'')}">+ Devices</button></div></div><div class="gs-device-counts"><span><strong>${ds.filter(d=>d.kind==='Phone').length}</strong> phones${m.id?' / 10':''}</span><span><strong>${ds.filter(d=>d.kind==='PC').length}</strong> PCs${m.id?' / 10':''}</span><span><strong>${ds.filter(d=>d.status==='Unused'&&!uses(d)).length}</strong> unused</span><span><strong>${ds.filter(d=>d.status==='Blocked'||exhausted(d)).length}</strong> unavailable</span></div>${ds.length?`<div class="gs-device-grid">${ds.map(d=>`<button class="gs-device ${deviceClass(d)}" data-device="${esc(d.id)}" aria-label="${esc(label(d)+' · '+condition(d)+' · '+d.asset_tag)}"><strong class="gs-device-number">${esc(d.kind+' '+d.number)}</strong><span>${esc(condition(d))}</span><small>${esc(d.asset_tag)}</small>${deviceDomainPreview(d)}</button>`).join('')}</div>`:'<p class="gs-help">No devices allocated.</p>'}</article>`;
     }).join('');
   }
-  function dialog(title,html,onSubmit){$('gs-dialog-title').textContent=title;$('gs-form-fields').innerHTML=html;$('gs-form-error').textContent='';submitForm=onSubmit;$('gs-dialog').showModal();}
+  function dialog(title,html,onSubmit){$('gs-dialog-save').textContent='Save';$('gs-dialog-title').textContent=title;$('gs-form-fields').innerHTML=html;$('gs-form-error').textContent='';submitForm=onSubmit;$('gs-dialog').showModal();}
   const value=id=>$(id).value.trim();
   const field=(title,id,val='',extra='')=>`<label>${title}<input id="${id}" value="${esc(val)}" ${extra}></label>`;
   function editMember(id){const m=member(id)||{};dialog(id?'Edit team member':'Add team member',`<div class="gs-form-grid">${field('Name','gs-member-name',m.name,'required maxlength="100"')}${field('Team email (optional)','gs-member-email',m.email,'type="email" maxlength="254"')}</div>`,async()=>{await change('member_save',{...(id?{id}:{}),name:value('gs-member-name'),email:value('gs-member-email')});message('Team member saved.');});}
   function addDevices(owner=''){
     const counts=Array.from({length:11},(_,i)=>`<option value="${i}">${i}</option>`).join('');
-    dialog('Add device inventory',`<div class="gs-form-grid"><label class="gs-wide">Allocate to<select id="gs-device-owner">${memberOptions(owner,true)}</select></label><label>Number of phones<select id="gs-device-phones">${counts}</select></label><label>Number of PCs<select id="gs-device-pcs">${counts}</select></label><label class="gs-wide">Current condition<select id="gs-device-condition">${inventoryConditions.map(([v,l])=>`<option value="${esc(v)}">${l}</option>`).join('')}</select></label></div>`,async()=>{await change('devices_add',{member_id:value('gs-device-owner')||null,phones:Number(value('gs-device-phones')),pcs:Number(value('gs-device-pcs')),...conditionData(value('gs-device-condition'))});message('Device inventory added.');});
+    dialog('Add device inventory',`<div class="gs-form-grid"><label class="gs-wide">Allocate to<select id="gs-device-owner">${memberOptions(owner,true)}</select></label><label>Number of phones<select id="gs-device-phones">${counts}</select></label><label>Number of PCs<select id="gs-device-pcs">${counts}</select></label><label class="gs-wide">Current condition<select id="gs-device-condition">${inventoryConditions().map(([v,l])=>`<option value="${esc(v)}">${l}</option>`).join('')}</select></label></div>`,async()=>{await change('devices_add',{member_id:value('gs-device-owner')||null,phones:Number(value('gs-device-phones')),pcs:Number(value('gs-device-pcs')),...conditionData(value('gs-device-condition'))});message('Device inventory added.');});
   }
   function editDevice(id){const d=device(id);dialog(label(d),`<div class="gs-form-grid">${field('Physical asset label','gs-asset-tag',d.asset_tag,'required maxlength="80"')}<label>Allocate to<select id="gs-transfer-owner">${memberOptions(d.member_id,true)}</select></label><label>Condition<select id="gs-asset-status">${conditions.map(([v,l])=>`<option value="${esc(v)}" ${v===(d.status==='Blocked'?'Blocked|'+(d.block_reason||'Other'):d.status)?'selected':''} ${d.status==='Blocked'&&!v.startsWith('Blocked')||d.used_at&&v==='Unused'?'disabled':''}>${l}</option>`).join('')}</select></label></div>${deviceDomainDetails(d)}<button type="button" id="gs-remove-device" class="gs-danger">Remove from inventory</button>`,async()=>{await change('device_update',{id,member_id:value('gs-transfer-owner')||null,...conditionData(value('gs-asset-status')),asset_tag:value('gs-asset-tag')});message('Device updated.');});for(const b of $('gs-form-fields').querySelectorAll('[data-device-domain]'))b.onclick=()=>{const job=state().setups.find(j=>j.id===b.dataset.deviceDomain);$('gs-dialog').close();tab('setups');$('gs-search').value='';$('gs-filter-stage').value='';$('gs-filter-manager').value='';$('gs-filter-section').value='';openClient(job.client_id);const row=$('gs-setup-list').querySelector(`[data-setup="${job.id}"]`);row?.scrollIntoView({block:'center',behavior:'smooth'});row?.classList.add('gs-domain-highlight');setTimeout(()=>row?.classList.remove('gs-domain-highlight'),2500);};$('gs-remove-device').onclick=()=>{if(confirm('Remove this device from active inventory? Purchase history will be retained.'))run(async()=>{await change('device_remove',{id});$('gs-dialog').close();message('Device removed from active inventory.');});};}
   function addClient(id){
@@ -151,13 +175,14 @@
     $('gs-link-operator').onchange=options;options();
     if(job.sync?.status==='synced')$('gs-link-operator').disabled=true;
   }
-  $('gs-stats').onsubmit=ev=>{if(ev.target.id!=='gs-reserve-form')return;ev.preventDefault();const target=Number(value('gs-reserve-target'));run(async()=>{await change('reserve_set',{target});message('Reserve target saved for the company.');});};
+  $('gs-capacity-form').onsubmit=ev=>{ev.preventDefault();const data={phone_setups:Number(value('gs-phone-capacity')),pc_setups:Number(value('gs-pc-capacity')),order_kind:value('gs-order-kind')};run(async()=>{await change('capacity_set',data);message('Setup limits saved. Device target and availability updated for the team.');});};
   $('gs-form').onsubmit=ev=>{ev.preventDefault();run(async()=>{await submitForm();$('gs-dialog').close();});};
   for(const id of ['gs-dialog-close','gs-dialog-cancel'])$(id).onclick=()=>$('gs-dialog').close();
   $('gs-refresh').onclick=()=>run(async()=>{await refresh();message('Team tracker refreshed.');});
   $('gs-add-setup').onclick=()=>{if(!selectedClient)return addClient();bulkOpen=true;renderSetups();$('gs-bulk-domains').focus();};
   $('gs-add-single').onclick=()=>editSetup();
   $('gs-edit-client').onclick=()=>addClient(selectedClient);
+  $('gs-dmarc').onclick=setupDmarc;
   $('gs-delete-client').onclick=()=>{const c=state().clients.find(c=>c.id===selectedClient);if(c&&confirm(`Delete ${c.name} and its domains from Gmail Set? Google Sheet rows and device usage history will be retained.`))run(async()=>{await change('client_remove',{id:c.id});openClient(null);message('Client deleted.');});};
   $('gs-bulk-panel').onsubmit=ev=>{ev.preventDefault();run(async()=>{try{const r=await change('setup_bulk',{client_id:selectedClient,domains:value('gs-bulk-domains'),sender_name:value('gs-bulk-sender'),operator_id:value('gs-bulk-operator')||null});$('gs-bulk-domains').value='';bulkOpen=false;renderSetups();message(`${r.import_summary.added} domains added${r.import_summary.skipped?' · '+r.import_summary.skipped+' duplicates skipped':''}.`);$('gs-bulk-error').textContent='';}catch(err){$('gs-bulk-error').textContent=err.message;throw err;}});};
   $('gs-back-clients').onclick=()=>openClient(null);

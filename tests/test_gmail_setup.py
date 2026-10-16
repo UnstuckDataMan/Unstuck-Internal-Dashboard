@@ -49,8 +49,7 @@ def create_setup(owner,device_id=None,domain='cedarclients.com',email='me@cedarc
 def test_shared_board_roster_scope_and_no_fake_stock(board_db):
     initial=s.board(USER)
     assert len(initial['state']['members'])==3 and initial['state']['devices']==[]
-    assert s.summary(initial['state'])['shortfall']==30
-    change('reserve_set',{'target':20})
+    assert s.summary(initial['state'])['shortfall']==10
     assert not s.result(initial)['state'].get('sync_lock')
     ids=people();devices(ids['Dylan'],phones=10,pcs=10)
     assert len(s.board(OTHER)['state']['devices'])==20
@@ -69,7 +68,7 @@ def test_block_reasons_excluded_red_state_and_reserve(board_db,reason):
     d=record['state']['devices'][0]
     record=change('device_update',{'id':d['id'],'status':'Blocked','block_reason':reason})
     assert record['state']['devices'][0]['block_reason']==reason
-    assert s.summary(record['state'])['unused']==19 and s.summary(record['state'])['shortfall']==11
+    assert s.summary(record['state'])['unused']==19 and s.summary(record['state'])['shortfall']==0
     with pytest.raises(HTTPException):create_setup(owner,d['id'])
     with pytest.raises(HTTPException):change('device_update',{'id':d['id'],'status':'Unused'})
 
@@ -250,9 +249,9 @@ def test_tracker_routes_auth_csrf_schema_and_shared_visibility(client,board_db,m
     assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'setup_save','data':{'workspace_id':'injected'}}).status_code==400
     assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'reserve_set','data':{'target':0}}).status_code==400
     assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'reserve_set','data':{'target':5001}}).status_code==400
-    assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'reserve_set','data':{'target':35}}).status_code==200
+    assert client.post('/api/gmail-setup/change',json={'revision':1,'action':'reserve_set','data':{'target':35}}).status_code==409
     user['email']=OTHER['email'];assert client.get('/api/gmail-setup/summary').json()['unused']==20
-    assert client.get('/api/gmail-setup/summary').json()['target']==35
+    assert client.get('/api/gmail-setup/summary').json()['target']==10
     assert 'sync_lock' not in client.get('/api/gmail-setup').json()['state']
 
 
@@ -514,7 +513,7 @@ def test_added_inventory_usage_counts_towards_capacity_and_survives_edits(board_
     with pytest.raises(HTTPException):create_setup(owner,phone['id'],'fullphone.com','me@fullphone.com')
 
 
-@pytest.mark.parametrize('count',[-1,3,1.5,True,'2'])
+@pytest.mark.parametrize('count',[-1,101,1.5,True,'2'])
 def test_inventory_usage_schema_rejects_invalid_counts(count):
     from app.routers.gmail_setup import Devices
     from pydantic import ValidationError
@@ -726,16 +725,108 @@ def test_bulk_sender_name_autofills_bare_domains_and_preserves_explicit_emails(b
     assert 'sender name' in exc.value.detail and s.board(USER)==before
 
 
-def test_reserve_target_is_shared_editable_and_defaults_to_thirty(board_db):
-    assert s.summary(s.board(USER)['state'])['target']==30
-    record=change('reserve_set',{'target':40})
-    assert s.summary(record['state'])['shortfall']==40
-    record=devices(people()['Dylan'],phones=3)
-    assert s.summary(record['state'])['shortfall']==37
-    assert s.summary(s.board(OTHER)['state'])['target']==40
-    assert s.summary(s.board({'email':'person@separate-workspace.com'})['state'])['target']==30
-    record=change('reserve_set',{'target':2})
-    assert s.summary(record['state'])['shortfall']==0 and not s.summary(record['state'])['low_stock']
+def test_automatic_target_ignores_legacy_manual_value_and_limits_are_shared(board_db):
+    owner=people()['Dylan']
+    assert s.summary(s.board(USER)['state'])['target']==10
+    client=change('client_save',{'name':'Planning','section':'client','account_manager_id':owner})['state']['clients'][0]
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'planning{i}.com' for i in range(19))})
+    assert s.summary(record['state'])['target']==20 # ceil(19 / 2) + 10
+    board_db[store.workspace(USER)]['state']['reserve_target']=999
+    record=change('capacity_set',{'phone_setups':3,'pc_setups':2,'order_kind':'Phone'})
+    assert s.summary(record['state'])['target']==17 # ceil(19 / 3) + 10
+    assert s.summary(s.board(OTHER)['state'])['phone_setups']==3
+    assert s.summary(s.board(OTHER)['state'])['pc_setups']==2
+    record=change('capacity_set',{'phone_setups':3,'pc_setups':2,'order_kind':'PC'})
+    assert s.summary(record['state'])['target']==20
+    assert s.summary(s.board({'email':'person@separate-workspace.com'})['state'])['target']==10
+    before=s.board(USER)
+    with pytest.raises(HTTPException,match='automatic'):change('reserve_set',{'target':30})
+    assert s.board(USER)==before
+
+
+def test_target_tracks_all_to_do_stages_completion_reset_and_deletion(board_db):
+    owner=people()['Dylan']
+    client=change('client_save',{'name':'Pipeline','section':'bizdev','account_manager_id':owner,'operator_id':owner})['state']['clients'][0]
+    jobs=change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'pipeline{i}.com' for i in range(5)),'operator_id':owner,'sender_name':'me'})['state']['setups']
+    change('setup_stage',{'id':jobs[0]['id'],'stage':'Purchase made'})
+    change('setup_stage',{'id':jobs[1]['id'],'stage':'Failed at QR'})
+    change('setup_stage',{'id':jobs[2]['id'],'stage':'Failed at payment'})
+    plan=s.summary(s.board(USER)['state'])
+    assert plan['todo']==5 and plan['target']==13 and plan['shortfall']==13
+    change('setup_stage',{'id':jobs[3]['id'],'stage':'Setup complete'})
+    plan=s.summary(s.board(USER)['state']);assert plan['todo']==4 and plan['target']==12
+    change('setup_stage',{'id':jobs[3]['id'],'stage':'Not started'})
+    assert s.summary(s.board(USER)['state'])['target']==13
+    change('setup_remove',{'id':jobs[4]['id']})
+    assert s.summary(s.board(USER)['state'])['todo']==4
+    record=change('client_remove',{'id':client['id']})
+    assert s.summary(record['state'])['todo']==0 and s.summary(record['state'])['target']==10
+
+
+def test_purchase_capacity_not_counted_twice_and_reserve_is_always_unused(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    client=change('client_save',{'name':'Purchase plan','section':'client','account_manager_id':owner})['state']['clients'][0]
+    jobs=change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'purchaseplan{i}.com' for i in range(9)),'operator_id':owner,'sender_name':'me'})['state']['setups']
+    change('setup_assign',{'id':jobs[0]['id'],'device_id':phone['id']})
+    before=s.summary(s.board(USER)['state'])
+    assert before['target']==15 and before['unused']==1 and before['shortfall']==14
+    record=change('setup_stage',{'id':jobs[0]['id'],'stage':'Purchase made'})
+    plan=s.summary(record['state'])
+    assert plan['covered_setups']==2 # this purchase + the phone's remaining slot
+    assert plan['target']==14 and plan['unused']==0 and plan['shortfall']==14
+    change('setup_stage',{'id':jobs[0]['id'],'stage':'Setup complete'})
+    plan=s.summary(s.board(USER)['state'])
+    assert plan['todo']==8 and plan['covered_setups']==1 and plan['shortfall']==14
+
+
+def test_planner_uses_mixed_inventory_capacity_and_maintains_ten_physical_spares(board_db):
+    owner=people()['Dylan']
+    client=change('client_save',{'name':'Mixed stock','section':'client','account_manager_id':owner})['state']['clients'][0]
+    change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'mixedstock{i}.com' for i in range(20))})
+    devices(None,phones=0,pcs=10);devices(None,phones=0,pcs=2)
+    record=change('capacity_set',{'phone_setups':2,'pc_setups':5,'order_kind':'Phone'})
+    plan=s.summary(record['state'])
+    # Four existing PCs cover 20 setups. Two new phones bring eight spares to ten.
+    assert plan['unused']==12 and plan['work_devices']==4 and plan['target']==14 and plan['shortfall']==2
+    record=change('capacity_set',{'phone_setups':2,'pc_setups':10,'order_kind':'Phone'})
+    plan=s.summary(record['state'])
+    assert plan['work_devices']==2 and plan['target']==12 and plan['shortfall']==0
+    # A manual block loses that physical spare even after the limit increases.
+    change('device_update',{'id':record['state']['devices'][0]['id'],'status':'Blocked','block_reason':'Payment'})
+    assert s.summary(s.board(USER)['state'])['shortfall']==1
+
+
+def test_capacity_change_updates_consumption_allocation_and_partial_device_planning(board_db):
+    owner=people()['Dylan']
+    stock=change('devices_add',{'member_id':owner,'phones':1,'pcs':1,'status':'Used','use_count':1})['state']['devices']
+    phone,pc=stock
+    assert not s.allocation_available(s.board(USER)['state'],pc)
+    record=change('capacity_set',{'phone_setups':3,'pc_setups':2,'order_kind':'Phone'})
+    assert all(s.allocation_available(record['state'],d) for d in record['state']['devices'])
+    _,first=create_setup(owner,pc['id'])
+    change('setup_stage',{'id':first,'stage':'Purchase made'})
+    record=change('setup_stage',{'id':first,'stage':'Setup complete'})
+    assert record['state']['devices'][1]['use_count']==2
+    assert not s.allocation_available(record['state'],record['state']['devices'][1])
+    for i in range(2):
+        _,jid=create_setup(owner,phone['id'],f'threephone{i}.com',f'me@threephone{i}.com')
+        change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    with pytest.raises(HTTPException):create_setup(owner,phone['id'],'fullphone.com','me@fullphone.com')
+    # A lower setting keeps recorded uses and idempotent completion of that account.
+    record=change('capacity_set',{'phone_setups':1,'pc_setups':1,'order_kind':'Phone'})
+    assert record['state']['devices'][0]['use_count']==3
+    assert record['state']['devices'][1]['use_count']==2
+    change('setup_stage',{'id':jid,'stage':'Not started'})
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    assert record['state']['devices'][0]['use_count']==3
+
+
+@pytest.mark.parametrize('value',[0,-1,101,1.5,True,'3'])
+def test_capacity_schema_rejects_invalid_limits(value):
+    from app.routers.gmail_setup import Capacity
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):Capacity(phone_setups=value,pc_setups=2)
+    with pytest.raises(ValidationError):Capacity(phone_setups=3,pc_setups=value)
 
 
 def test_reset_failure_restores_remaining_phone_capacity_and_can_reuse_same_phone(board_db):
@@ -766,7 +857,7 @@ def test_legacy_reset_repairs_stale_block_without_erasing_audit_history(board_db
     assert migrated['state']['setups'][0]['device_failures'][0]['device']['id']==phone['id']
     assert migrated['state']['setups'][0]['device_failures'][0]['reverted_at']
     assert stored['state']['devices'][0]['status']=='Blocked' # read upgrade is not an unleased write
-    saved=change('reserve_set',{'target':30})
+    saved=change('capacity_set',{'phone_setups':2,'pc_setups':1,'order_kind':'Phone'})
     assert saved['state']['devices'][0]['status']=='Unused'
     for _ in range(3):assert s.board(USER)['state']['devices'][0]['use_count']==0
 

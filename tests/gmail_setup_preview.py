@@ -7,7 +7,7 @@ os.environ['AUTH_DISABLED']='1';os.environ['SESSION_SECRET']='gmail-local-qa'
 from fastapi import HTTPException
 from app.main import app
 from app import auth
-from app.utils.gmail_setup import store,sheets
+from app.utils.gmail_setup import store,sheets,dmarc
 user={'email':'dylan@unstuck-agency.com','name':'Dylan','role':'admin','tools':['gmail_set']}
 auth.get_session_user=lambda request:user
 rows={}
@@ -29,3 +29,12 @@ def publish(job,owner):
     return {'tab':title,'sheet_id':gid,'row':23,'url':sheets.SOURCE_URL+f'#gid={gid}&range=A23'}
 sheets.publish=publish
 sheets.readiness=lambda:{'ready':True,'message':'Sheet write access ready.'}
+
+# Synthetic DMARC provider: browser QA cannot call or mutate live registrar DNS.
+dmarc_calls=[]
+def apply_dmarc(domain,email,key):
+    dmarc_calls.append({'domain':domain,'email':email})
+    if domain=='conflictdmarc.com':
+        raise HTTPException(409,'Existing DMARC differs. Review the record in Porkbun.')
+    return {'domain':domain,'email':email,'status':'verified','message':'DMARC verified in synthetic Porkbun readback.','content':f'v=DMARC1; p=none; pct=100; rua=mailto:{email}; ruf=mailto:{email}; fo=1','ttl':600}
+dmarc.apply_record=apply_dmarc
