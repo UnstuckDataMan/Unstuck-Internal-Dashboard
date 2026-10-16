@@ -20,8 +20,7 @@ def defaults(domain):
 
 def retained(domain):
     return [dict(id=str(i+50),name=name,type=kind,content=value,ttl='600',prio='0') for i,(name,kind,value) in enumerate([
-        (domain,'MX','smtp.google.com'),(domain,'TXT','v=spf1 include:_spf.google.com ~all'),
-        (domain,'TXT','v=spf1 include:_spf.porkbun.com include:_spf.google.com ~all'),
+        (domain,'TXT','google-site-verification=extra'),
         (domain,'TXT','google-site-verification=keep'),('_dmarc.'+domain,'TXT',p.dmarc_value(domain,{'rua':'me@'+domain,'ruf':'me@'+domain})),
         ('google._domainkey.'+domain,'TXT','v=DKIM1; p=keep'),(domain,'A','1.2.3.4'),
         ('www.'+domain,'CNAME','example.org'),('other.'+domain,'MX','fwd1.porkbun.com'),
@@ -33,8 +32,19 @@ class SetupRegistrar(Registrar):
         if path.startswith('/dns/create/'):
             self.calls.append((method,path,copy.deepcopy(data),idempotency))
             domain=path.split('/')[-1];identifier=str(1000+len(self.calls))
-            self.records.setdefault(domain,[]).append({**data,'name':data['name']+'.'+domain,'id':identifier,'ttl':str(data['ttl']),'prio':'0'})
+            self.records.setdefault(domain,[]).append({**data,'name':(data['name']+'.' if data['name'] else '')+domain,'id':identifier,'ttl':str(data['ttl']),'prio':str(data.get('prio',0))})
             return {'status':'SUCCESS','id':identifier}
+        if path.startswith('/dns/edit/'):
+            self.calls.append((method,path,copy.deepcopy(data),idempotency))
+            domain,identifier=path.split('/')[-2:]
+            row=next(r for r in self.records[domain] if r['id']==identifier)
+            row.update({**data,'name':(data['name']+'.' if data['name'] else '')+domain,'ttl':str(data['ttl']),'prio':str(data.get('prio',0))})
+            return {'status':'SUCCESS'}
+        if path.startswith('/domain/deleteUrlForward/'):
+            self.calls.append((method,path,copy.deepcopy(data),idempotency))
+            domain,identifier=path.split('/')[-2:]
+            self.forwards[domain]=[r for r in self.forwards[domain] if str(r['id'])!=identifier]
+            return {'status':'SUCCESS'}
         if path.startswith('/dns/delete/'):
             self.calls.append((method,path,copy.deepcopy(data),idempotency))
             assert method=='post'
@@ -72,7 +82,7 @@ def test_preview_and_confirm_remove_only_the_five_reviewed_records(board_db,regi
     result=apply(record,jid)
     assert len(deletes(registrar))==5
     assert all(c[1].startswith('/dns/delete/cedarclients.com/') and c[3] for c in deletes(registrar))
-    assert [r for r in registrar.records['cedarclients.com'] if r['type']!='CNAME' or r['name']!='t.cedarclients.com']==retained('cedarclients.com')
+    assert [r for r in registrar.records['cedarclients.com'] if not (r['name']=='t.cedarclients.com' or r['type']=='MX' and r['name']=='cedarclients.com' or r['type']=='TXT' and r['content'].startswith('v=spf1 include:_spf.google.com'))]==retained('cedarclients.com')
     assert registrar.records['neighbor.com']==original_neighbor
     job=result['state']['setups'][0]
     assert job['dns_setup']['status']=='verified' and job['dns_setup']['removed']==5
@@ -119,7 +129,7 @@ def test_partial_lost_response_is_reconciled_from_current_records(board_db,regis
     second=apply(first,jid)
     assert second['state']['setups'][0]['dns_setup']['status']=='verified'
     assert len(deletes(registrar))==5
-    assert [r for r in registrar.records['cedarclients.com'] if r['type']!='CNAME' or r['name']!='t.cedarclients.com']==retained('cedarclients.com')
+    assert [r for r in registrar.records['cedarclients.com'] if not (r['name']=='t.cedarclients.com' or r['type']=='MX' and r['name']=='cedarclients.com' or r['type']=='TXT' and r['content'].startswith('v=spf1 include:_spf.google.com'))]==retained('cedarclients.com')
 
 
 def test_unconfirmed_expired_foreign_burned_and_archived_requests_never_delete(board_db,registrar):
@@ -161,6 +171,17 @@ def test_claim_blocks_other_mutations_and_missing_readback_is_not_success(board_
     owner=people()['Dylan'];_,jid=create_setup(owner);record=preview(jid)
     original=registrar.call
     def call(method,path,*args,**kwargs):
+        if path.startswith('/dns/edit/'):
+            self.calls.append((method,path,copy.deepcopy(data),idempotency))
+            domain,identifier=path.split('/')[-2:]
+            row=next(r for r in self.records[domain] if r['id']==identifier)
+            row.update({**data,'name':(data['name']+'.' if data['name'] else '')+domain,'ttl':str(data['ttl']),'prio':str(data.get('prio',0))})
+            return {'status':'SUCCESS'}
+        if path.startswith('/domain/deleteUrlForward/'):
+            self.calls.append((method,path,copy.deepcopy(data),idempotency))
+            domain,identifier=path.split('/')[-2:]
+            self.forwards[domain]=[r for r in self.forwards[domain] if str(r['id'])!=identifier]
+            return {'status':'SUCCESS'}
         if path.startswith('/dns/delete/'):
             lock=board_db[store.workspace(USER)]['state']['sync_lock']
             assert lock['kind']=='dns_setup'
@@ -199,31 +220,28 @@ def test_missing_tracking_and_dmarc_created_with_exact_policy_then_wildcard_forw
     registrar.records['cedarclients.com']=[r for r in registrar.records['cedarclients.com'] if r['name']!='_dmarc.cedarclients.com']
     result=apply(preview(jid),jid)
     creates=[c for c in registrar.calls if c[1].startswith('/dns/create/')]
-    assert [c[2]['name'] for c in creates]==['t','_dmarc']
+    assert [c[2]['name'] for c in creates]==['t','_dmarc','','']
     assert creates[0][2]=={'name':'t','type':'CNAME','content':'open.sleadtrack.com','ttl':600}
     assert creates[1][2]=={'name':'_dmarc','type':'TXT','content':'v=DMARC1; p=none; pct=100; rua=mailto:me@cedarclients.com; ruf=mailto:me@cedarclients.com; fo=1','ttl':600}
+    assert creates[2][2]=={'name':'','type':'MX','content':'smtp.google.com','ttl':600,'prio':1}
+    assert creates[3][2]=={'name':'','type':'TXT','content':'v=spf1 include:_spf.google.com ~all','ttl':600}
     forwards=[c for c in registrar.calls if c[1].startswith('/domain/addUrlForward/')]
     assert len(forwards)==1 and forwards[0][2]=={'subdomain':'','location':'https://clientwebsite.com','type':'temporary','redirectType':'302','includePath':'no','wildcard':'yes'}
     assert max(registrar.calls.index(c) for c in deletes(registrar)) < min(registrar.calls.index(c) for c in creates)
     assert result['state']['setups'][0]['dmarc']['status']=='verified'
     assert result['state']['clients'][0]['website_url']=='https://clientwebsite.com'
     apply(result,jid)
-    assert len([c for c in registrar.calls if c[1].startswith('/dns/create/')])==2
+    assert len([c for c in registrar.calls if c[1].startswith('/dns/create/')])==4
     assert len([c for c in registrar.calls if c[1].startswith('/domain/addUrlForward/')])==1
 
 
-@pytest.mark.parametrize('conflict',['tracking','dmarc','forwarding'])
+@pytest.mark.parametrize('conflict',['tracking','dmarc'])
 def test_conflicts_at_any_destination_stop_all_deletion(board_db,registrar,conflict):
     _,jid=create_setup(people()['Dylan'])
     if conflict=='tracking':registrar.records['cedarclients.com'].append({'id':'444','name':'t.cedarclients.com','type':'CNAME','content':'other-tracker.com','ttl':'600'})
     if conflict=='dmarc':
         next(r for r in registrar.records['cedarclients.com'] if r['name']=='_dmarc.cedarclients.com')['content']='v=DMARC1; p=reject;'
-    if conflict=='forwarding':registrar.forwards['cedarclients.com']=[{'subdomain':'','location':'https://differentclient.com','type':'temporary','includePath':'no','wildcard':'yes'}]
-    if conflict=='forwarding':
-        result=apply(preview(jid),jid)
-        assert result['state']['setups'][0]['dns_setup']['status']=='needs review'
-    else:
-        with pytest.raises(HTTPException,match='differs'):preview(jid)
+    with pytest.raises(HTTPException,match='differs'):preview(jid)
     assert not any(c[0]=='post' for c in registrar.calls)
 
 
@@ -251,4 +269,96 @@ def test_lost_creation_or_forward_response_reconciles_without_duplicates(board_d
     assert len([r for r in registrar.records['cedarclients.com'] if r['name']=='t.cedarclients.com'])==1
     assert len(registrar.forwards['cedarclients.com'])==1
     assert len(deletes(registrar))==5
+
+
+def root_forward(identifier='901',location='https://default-website.com'):
+    return {'id':identifier,'subdomain':'','location':location,'type':'temporary','redirectType':'302','includePath':'no','wildcard':'yes'}
+
+
+def test_default_root_forward_is_deleted_before_new_one_and_neighbors_are_retained(board_db,registrar):
+    _,jid=create_setup(people()['Dylan'])
+    extra={**root_forward('903','https://blog.example.com'),'subdomain':'blog'}
+    registrar.forwards={'cedarclients.com':[root_forward(),root_forward('902'),extra],'neighbor.com':[root_forward('904')]}
+    before_neighbor=copy.deepcopy(registrar.forwards['neighbor.com'])
+    record=preview(jid)
+    assert len(record['state']['setups'][0]['dns_setup_preview']['forwarding_records'])==2
+    result=apply(record,jid)
+    removed=[c for c in registrar.calls if '/deleteUrlForward/' in c[1]]
+    added=[c for c in registrar.calls if '/addUrlForward/' in c[1]]
+    assert [c[1] for c in removed]==['/domain/deleteUrlForward/cedarclients.com/901','/domain/deleteUrlForward/cedarclients.com/902']
+    assert all(c[3] for c in removed) and len(added)==1
+    assert max(registrar.calls.index(c) for c in removed)<registrar.calls.index(added[0])
+    assert registrar.forwards['cedarclients.com'][0]==extra
+    assert registrar.forwards['cedarclients.com'][1]['location']=='https://clientwebsite.com'
+    assert registrar.forwards['neighbor.com']==before_neighbor
+    assert result['state']['setups'][0]['dns_setup']['status']=='verified'
+    writes=len([c for c in registrar.calls if c[0]=='post'])
+    apply(result,jid)
+    assert len([c for c in registrar.calls if c[0]=='post'])==writes
+
+
+@pytest.mark.parametrize('failure',['lost-response','not-deleted'])
+def test_forward_removal_failure_never_adds_a_duplicate_and_retry_recovers(board_db,registrar,failure):
+    _,jid=create_setup(people()['Dylan']);registrar.forwards['cedarclients.com']=[root_forward()]
+    record=preview(jid);original=registrar.call;failed=False
+    def call(method,path,*args,**kwargs):
+        nonlocal failed
+        if '/deleteUrlForward/' in path and not failed:
+            failed=True
+            if failure=='lost-response':
+                original(method,path,*args,**kwargs)
+                raise HTTPException(502,'Delete response lost.')
+            return {'status':'SUCCESS'}
+        return original(method,path,*args,**kwargs)
+    registrar.call=call
+    first=apply(record,jid)
+    assert first['state']['setups'][0]['dns_setup']['status']=='needs review'
+    assert not any('/addUrlForward/' in c[1] for c in registrar.calls)
+    second=apply(first,jid)
+    assert second['state']['setups'][0]['dns_setup']['status']=='verified'
+    assert len(registrar.forwards['cedarclients.com'])==1
+    assert registrar.forwards['cedarclients.com'][0]['location']=='https://clientwebsite.com'
+
+
+def test_forward_changed_after_review_stops_before_any_dns_or_forward_writes(board_db,registrar):
+    _,jid=create_setup(people()['Dylan']);registrar.forwards['cedarclients.com']=[root_forward()]
+    record=preview(jid)
+    registrar.forwards['cedarclients.com'][0]['location']='https://someone-changed-this.com'
+    result=apply(record,jid)
+    assert result['state']['setups'][0]['dns_setup']['status']=='needs review'
+    assert not any(c[0]=='post' for c in registrar.calls)
+
+
+def test_google_mail_missing_then_existing_is_single_correct_mx_and_spf(board_db,registrar):
+    _,jid=create_setup(people()['Dylan']);result=apply(preview(jid),jid)
+    zone=registrar.records['cedarclients.com']
+    mx=[r for r in zone if r['type']=='MX' and r['name']=='cedarclients.com']
+    spf=[r for r in zone if r['type']=='TXT' and r['name']=='cedarclients.com' and r['content'].startswith('v=spf1')]
+    assert len(mx)==len(spf)==1
+    assert (mx[0]['content'],mx[0]['ttl'],mx[0]['prio'])==('smtp.google.com','600','1')
+    assert (spf[0]['content'],spf[0]['ttl'])==('v=spf1 include:_spf.google.com ~all','600')
+    assert any(r['content']=='google-site-verification=keep' for r in zone)
+    writes=len([c for c in registrar.calls if c[0]=='post']);apply(result,jid)
+    assert len([c for c in registrar.calls if c[0]=='post'])==writes
+
+
+def test_existing_google_mail_metadata_is_corrected_without_duplicate_records(board_db,registrar):
+    _,jid=create_setup(people()['Dylan'])
+    registrar.records['cedarclients.com'] += [
+        {'id':'301','name':'cedarclients.com','type':'MX','content':'smtp.google.com','ttl':'3600','prio':'0'},
+        {'id':'302','name':'cedarclients.com','type':'TXT','content':'v=spf1 include:_spf.google.com ~all','ttl':'3600','prio':'0'}]
+    result=apply(preview(jid),jid)
+    assert result['state']['setups'][0]['dns_setup']['status']=='verified'
+    assert [c[1] for c in registrar.calls if '/dns/edit/' in c[1]]==['/dns/edit/cedarclients.com/301','/dns/edit/cedarclients.com/302']
+    assert next(r for r in registrar.records['cedarclients.com'] if r['id']=='301')['prio']=='1'
+    assert not any(c[2]['name']=='' for c in registrar.calls if '/dns/create/' in c[1])
+
+
+def test_custom_spf_policy_is_not_duplicated_or_overwritten(board_db,registrar):
+    _,jid=create_setup(people()['Dylan'])
+    custom={'id':'303','name':'cedarclients.com','type':'TXT','content':'v=spf1 include:_spf.google.com include:other-sender.com ~all','ttl':'600'}
+    registrar.records['cedarclients.com'].append(custom)
+    with pytest.raises(HTTPException,match='differs'):preview(jid)
+    assert not any(c[0]=='post' for c in registrar.calls)
+    assert registrar.records['cedarclients.com'][-1]==custom
 

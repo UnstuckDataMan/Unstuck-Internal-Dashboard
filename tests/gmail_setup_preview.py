@@ -58,16 +58,20 @@ class SyntheticDNS:
                     (domain,'MX','fwd1.porkbun.com'),(domain,'MX','fwd2.porkbun.com'),
                     (domain,'TXT','v=spf1 include:_spf.porkbun.com ~all'),
                     ('_acme-challenge.'+domain,'TXT','challenge-one'),('_acme-challenge.'+domain,'TXT','challenge-two'),
-                    (domain,'MX','smtp.google.com'),('_dmarc.'+domain,'TXT',provisioning.dmarc_value(domain,{'rua':'me@'+domain,'ruf':'me@'+domain}))])]
+                    (domain,'TXT','google-site-verification=keep'),('_dmarc.'+domain,'TXT',provisioning.dmarc_value(domain,{'rua':'me@'+domain,'ruf':'me@'+domain}))])]
             return {'records':copy.deepcopy(dns_zones[domain])}
         if path.startswith('/domain/getUrlForwarding/'):
-            return {'forwards':copy.deepcopy(dns_forwards.get(path.split('/')[-1],[]))}
+            return {'forwards':copy.deepcopy(dns_forwards.setdefault(path.split('/')[-1],[{'id':'900','subdomain':'','location':'https://default.example.com','type':'temporary','redirectType':'302','includePath':'no','wildcard':'yes'}]))}
         if path.startswith('/domain/addUrlForward/'):
-            domain=path.split('/')[-1];dns_forwards.setdefault(domain,[]).append(copy.deepcopy(data))
+            domain=path.split('/')[-1];dns_forwards.setdefault(domain,[]).append({**copy.deepcopy(data),'id':str(1000+len(dns_forwards.get(domain,[])))})
+            return {'status':'SUCCESS'}
+        if path.startswith('/domain/deleteUrlForward/'):
+            domain,identifier=path.split('/')[-2:]
+            dns_forwards[domain]=[r for r in dns_forwards[domain] if r['id']!=identifier]
             return {'status':'SUCCESS'}
         if path.startswith('/dns/create/'):
             domain=path.split('/')[-1];identifier=str(100+len(dns_zones[domain]))
-            dns_zones[domain].append({**data,'id':identifier,'name':data['name']+'.'+domain,'ttl':str(data['ttl']),'prio':'0'})
+            dns_zones[domain].append({**data,'id':identifier,'name':(data['name']+'.' if data['name'] else '')+domain,'ttl':str(data['ttl']),'prio':str(data.get('prio',0))})
             return {'status':'SUCCESS','id':identifier}
         if path.startswith('/dns/delete/'):
             assert method=='post' and idempotency

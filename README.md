@@ -96,11 +96,16 @@ is no longer the main workflow.
 - Each domain has an administrator-only **One-click setup** button. After the
   purchase warning, enter the client website URL and select **Proceed**. It removes
   only reviewed Porkbun forwarding MX, default Porkbun SPF and ACME challenge TXT
-  records; adds/verifies `t` CNAME → `open.sleadtrack.com` (TTL 600) and the domain's
-  sending-email DMARC policy; and creates/verifies root wildcard website forwarding
-  (302, no appended path). The URL is remembered for the client's next domain.
-  **Cancel** makes no external changes. Conflicting records or forwarding require
-  review. Exact deletion snapshots, expiring confirmations, shared write claims,
+  records; adds/verifies `t` CNAME → `open.sleadtrack.com`, the domain's sending-email
+  DMARC policy, root MX `smtp.google.com` (priority 1) and root SPF TXT
+  `v=spf1 include:_spf.google.com ~all`, all with TTL 600. Existing Google mail
+  TTL/priority is corrected without duplicates; custom mail policies require review.
+  It removes the reviewed root forwarding before adding the client's URL (302,
+  wildcard enabled, no appended path); unrelated subdomain forwards are retained.
+  The URL is remembered for the client's next domain.
+  **Cancel** makes no external changes. Conflicting mail, tracking or DMARC records
+  require review; forwarding changed since preview requires fresh confirmation.
+  Exact deletion snapshots, expiring confirmations, shared write claims,
   readback and idempotent retries protect unrelated records and domains.
 - Administrators can also select **Set up DMARC** for a whole client after confirming domain
   purchases with **Proceed / Cancel**. Only the selected active domains within that client are used;
