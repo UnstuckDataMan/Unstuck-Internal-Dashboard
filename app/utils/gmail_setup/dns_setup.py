@@ -264,6 +264,8 @@ def apply(user, job_id, preview_id, revision, confirmed_purchased, destination):
         result = configure_records(job['domain'], job['email'], destination, approved['records'], approved['forwarding_records'], preview_id, guard)
     except HTTPException as exc:
         result = {'domain': job['domain'], 'email': job['email'], 'status': 'needs review', 'message': str(exc.detail), 'checked_at': s.now()}
+        if exc.status_code == 429:
+            result['rate_limited'] = True
     except Exception:
         result = {'domain': job['domain'], 'email': job['email'], 'status': 'needs review', 'message': 'DNS setup could not be verified. Review the current records before retrying.', 'checked_at': s.now()}
     # Keep the exact reviewed values alongside the outcome for later reference,

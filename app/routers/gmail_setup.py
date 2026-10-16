@@ -208,3 +208,20 @@ def preview_dns_setup(job_id: UUID, body: DnsSetupPreview, user=Depends(mutation
 def apply_dns_setup(job_id: UUID, body: DnsSetupApply, user=Depends(mutation_access)):
     from app.utils.gmail_setup import dns_setup
     return service.result(dns_setup.apply(user, str(job_id), str(body.preview_id), body.revision, body.confirmed_purchased, body.destination))
+
+
+class DnsBatchStart(DnsSetupPreview):
+    confirmed_purchased: Literal[True]
+    destination: str = Field(min_length=1, max_length=2048)
+
+
+@router.post('/api/gmail-setup/clients/{client_id}/dns-setup/start')
+def start_dns_batch(client_id: UUID, body: DnsBatchStart, user=Depends(mutation_access)):
+    from app.utils.gmail_setup import dns_batch
+    return service.result(dns_batch.start(user, str(client_id), body.revision, body.confirmed_purchased, body.destination))
+
+
+@router.post('/api/gmail-setup/clients/{client_id}/dns-setup/{batch_id}/{job_id}')
+def step_dns_batch(client_id: UUID, batch_id: UUID, job_id: UUID, body: DmarcApply, user=Depends(mutation_access)):
+    from app.utils.gmail_setup import dns_batch
+    return service.result(dns_batch.step(user, str(client_id), str(batch_id), str(job_id), body.revision))

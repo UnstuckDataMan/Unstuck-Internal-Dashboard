@@ -4,6 +4,7 @@
   const $=id=>document.getElementById(id),app=$('gs-app');if(!app)return;
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let board=null,busy=false,submitForm=null,bulkOpen=false,bulkClient=null;
+  let processingBatch=null,batchCurrent='',stopBatch=false;
   let selectedClient=new URLSearchParams(location.hash.slice(1)).get('client');
   const stages=['Not started','Purchase made','Setup complete','Failed at QR','Failed at payment','Burned'];
   const closed=stage=>['Setup complete','Burned'].includes(stage);
@@ -24,7 +25,7 @@
   const inventoryConditions=()=>conditions.flatMap(option=>option[0]==='Used'?Array.from({length:Math.max(2,capacity({kind:'Phone'}),capacity({kind:'PC'}))},(_,i)=>['Used|'+(i+1),i===0?'Used once':i===1?'Used twice':`Used ${i+1} times`]):[option]);
   const conditionData=v=>({status:v.split('|')[0],block_reason:v.startsWith('Blocked|')?v.split('|')[1]:null,...(v.startsWith('Used|')?{use_count:Number(v.split('|')[1])}:{})});
   const label=d=>`${d.kind} ${d.number} · ${name(d.member_id)}`;
-  function updateDmarcButton(){const c=state().clients.find(c=>c.id===selectedClient&&!c.archived);$('gs-dmarc').hidden=!c||app.dataset.dnsAdmin!=='true';$('gs-dmarc').disabled=!c||!state().setups.some(j=>j.client_id===c.id&&!j.archived&&j.stage!=='Burned');}
+  function updateDmarcButton(){const c=state().clients.find(c=>c.id===selectedClient&&!c.archived);for(const id of ['gs-dmarc','gs-client-dns']){$(id).hidden=!c||app.dataset.dnsAdmin!=='true';$(id).disabled=busy||!c||!state().setups.some(j=>j.client_id===c.id&&!j.archived&&j.stage!=='Burned');}}
   function message(text,error=false){$('gs-message').textContent=text;$('gs-message').classList.toggle('error',error);}
   async function api(path='',data){
     const r=await fetch('/api/gmail-setup'+path,{method:data===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Domain-CSRF':app.dataset.csrf},...(data===undefined?{}:{body:JSON.stringify(data)})});
@@ -38,7 +39,7 @@
     if(busy)return;busy=true;app.setAttribute('aria-busy','true');
     const buttons=[...app.querySelectorAll('button, input, select, textarea'),...$('gs-dialog').querySelectorAll('button')];const disabled=buttons.map(b=>b.disabled);buttons.forEach(b=>b.disabled=true);
     try{await fn();}catch(err){message(err.message,true);if($('gs-dialog').open)$('gs-form-error').textContent=err.message;}
-    finally{busy=false;app.removeAttribute('aria-busy');buttons.forEach((b,i)=>{if(b.isConnected)b.disabled=disabled[i];});updateDmarcButton();}
+    finally{busy=false;app.removeAttribute('aria-busy');buttons.forEach((b,i)=>{if(b.isConnected)b.disabled=disabled[i];});updateDmarcButton();renderDnsBatch(state().clients.find(c=>c.id===selectedClient));}
   }
   async function change(action,data){const result=await api('/change',{revision:board.revision,action,data});accept(result);return result;}
   function tab(which){for(const view of ['setups','devices']){$('gs-'+view).hidden=view!==which;$('gs-tab-'+view).setAttribute('aria-selected',String(view===which));}}
@@ -85,7 +86,7 @@
     $('gs-client-caption').textContent=current?`${name(current.account_manager_id)} · ${current.section==='client'?'Client':'Biz Dev'} · ${plannedCount(current)?`${plannedCount(current)} planned domains included in the forecast`:'Completed domains move below in-progress work; burned domains appear last'}`:'Choose a client to view its domains and setup stages.';
     $('gs-add-setup').textContent=current?'+ Add domains':'+ Client';
     $('gs-edit-client').hidden=!current;$('gs-delete-client').hidden=!current;
-    updateDmarcButton();renderDmarc(current);
+    updateDmarcButton();renderDmarc(current);renderDnsBatch(current);
     if(current&&bulkClient!==current.id){bulkClient=current.id;bulkOpen=!all.some(s=>s.client_id===current.id);$('gs-bulk-domains').value='';$('gs-bulk-sender').value='';$('gs-bulk-operator').innerHTML=memberOptions(member(current.operator_id)?.active?current.operator_id:'');}
     $('gs-bulk-panel').hidden=!current||!bulkOpen;
     const visible=clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).filter(c=>{
@@ -125,6 +126,47 @@
       message(`DMARC: ${verified} verified · ${finished.items.length-verified} need attention.`,verified!==finished.items.length);
     });$('gs-dialog-save').textContent='Proceed';
   }
+  function renderDnsBatch(client){
+    const batch=client?.dns_setup_batch,el=$('gs-dns-batch');el.hidden=!batch;
+    if(!batch){el.innerHTML='';return;}
+    const results=batch.results||{},ready=batch.items.filter(i=>results[i.id]?.status==='verified').length,attention=batch.items.filter(i=>results[i.id]?.status==='needs review').length,done=ready+attention,total=batch.items.length;
+    const active=processingBatch===client.id,pending=done<total;
+    const status=active?(stopBatch?'Pausing after the current domain…':`Setting up ${batchCurrent||'next domain'}…`):pending?(batch.paused_reason||'Paused. Resume to continue the waiting domains.'):'Finished';
+    el.innerHTML=`<section class="gs-card gs-batch-card"><div class="gs-batch-header"><h4>All-domain setup</h4><strong>${done} / ${total} processed</strong></div><progress max="${total}" value="${done}" aria-label="Domain setup progress"></progress><p class="gs-batch-counts"><span>${ready} ready</span><span>${attention} need attention</span><span>${total-done} waiting</span></p><p class="gs-batch-status" role="status">${esc(status)}</p>${active?'<p class="gs-help">Keep this page open while setup runs. You can resume after a refresh.</p>':''}<div class="gs-actions">${app.dataset.dnsAdmin==='true'?(active?`<button data-pause-dns ${stopBatch?'disabled':''}>${stopBatch?'Pausing…':'Pause after this domain'}</button>`:pending?'<button data-resume-dns class="gs-primary">Resume setup</button>':''):''}</div><details><summary>Domain results</summary><ul class="gs-batch-results">${batch.items.map(i=>{const r=results[i.id]||{},ok=r.status==='verified',failed=r.status==='needs review';return `<li><strong>${esc(i.domain)}</strong><span class="gs-badge ${ok?'complete':failed?'blocked':'purchased'}">${ok?'Ready':failed?'Needs attention':active&&batchCurrent===i.domain||r.status==='running'?'In progress':'Waiting'}</span>${r.message?`<small>${esc(r.message)}</small>`:''}</li>`;}).join('')}</ul></details></section>`;
+  }
+  async function processDnsBatch(clientId,batchId){
+    processingBatch=clientId;stopBatch=false;
+    try{
+      while(!stopBatch){
+        const client=state().clients.find(c=>c.id===clientId),batch=client?.dns_setup_batch;
+        if(!batch||batch.id!==batchId)throw Error('The batch changed. Refresh to see its results.');
+        const next=batch.items.find(i=>!['verified','needs review'].includes(batch.results[i.id]?.status));
+        if(!next)break;
+        batchCurrent=next.domain;renderDnsBatch(client);
+        accept(await api('/clients/'+clientId+'/dns-setup/'+batchId+'/'+next.id,{revision:board.revision}));
+        if(state().clients.find(c=>c.id===clientId).dns_setup_batch.paused_reason)break;
+      }
+      const batch=state().clients.find(c=>c.id===clientId).dns_setup_batch,ready=Object.values(batch.results).filter(r=>r.status==='verified').length,attention=Object.values(batch.results).filter(r=>r.status==='needs review').length;
+      message(`${ready} / ${batch.items.length} domains ready${attention?` · ${attention} need attention`:''}${ready+attention<batch.items.length?' · setup paused; resume when ready':''}.`,attention>0);
+    }catch(err){
+      // A lost response may still have completed on the server. Read saved
+      // results before offering Resume; do not blindly repeat an active write.
+      try{await refresh();}catch{}
+      throw err;
+    }finally{processingBatch=null;batchCurrent='';renderDnsBatch(state().clients.find(c=>c.id===selectedClient));}
+  }
+  function setupAllDomains(){
+    const client=state().clients.find(c=>c.id===selectedClient);if(!client)return;
+    const items=state().setups.filter(j=>j.client_id===client.id&&!j.archived&&j.stage!=='Burned');if(!items.length)return;
+    dialog('Set up all domains for '+client.name,`<p class="gs-dmarc-warning"><strong>Only proceed if you’ve completed purchase for all ${items.length} domains.</strong></p><label>Client website URL<input id="gs-batch-destination" inputmode="url" placeholder="https://clientwebsite.com" value="${esc(client.website_url||'')}" maxlength="2048" required></label><p>Set up all ${items.length} active domains for this client: remove default DNS, add Google MX/SPF, tracking CNAME and DMARC, then replace root forwarding with the URL above.</p><p>Domains run one at a time. Burned and deleted domains are excluded. Keep this page open; saved progress can be resumed after a refresh.</p><details><summary>View ${items.length} domains</summary><ul class="gs-dmarc-preview">${items.map(i=>`<li><strong>${esc(i.domain)}</strong><small>${esc(i.email||'Sending email missing — needs attention')}</small></li>`).join('')}</ul></details>`,async()=>{
+      const result=await api('/clients/'+client.id+'/dns-setup/start',{revision:board.revision,confirmed_purchased:true,destination:value('gs-batch-destination')});
+      accept(result);$('gs-dialog').close();await processDnsBatch(client.id,state().clients.find(c=>c.id===client.id).dns_setup_batch.id);
+    });$('gs-dialog-save').textContent='Proceed';
+  }
+  $('gs-dns-batch').onclick=e=>{
+    if(e.target.closest('[data-pause-dns]')){stopBatch=true;renderDnsBatch(state().clients.find(c=>c.id===selectedClient));}
+    if(e.target.closest('[data-resume-dns]')){const c=state().clients.find(c=>c.id===selectedClient);if(c)run(()=>processDnsBatch(c.id,c.dns_setup_batch.id));}
+  };
   function previewDnsSetup(jobId){
     return run(async()=>{
       message('Checking the default DNS records for this domain…');
@@ -209,6 +251,7 @@
   $('gs-add-single').onclick=()=>editSetup();
   $('gs-edit-client').onclick=()=>addClient(selectedClient);
   $('gs-dmarc').onclick=()=>setupDmarc();
+  $('gs-client-dns').onclick=()=>setupAllDomains();
   $('gs-delete-client').onclick=()=>{const c=state().clients.find(c=>c.id===selectedClient);if(c&&confirm(`Delete ${c.name} and its domains from Gmail Set? Google Sheet rows and device usage history will be retained.`))run(async()=>{await change('client_remove',{id:c.id});openClient(null);message('Client deleted.');});};
   $('gs-bulk-panel').onsubmit=ev=>{ev.preventDefault();run(async()=>{try{const r=await change('setup_bulk',{client_id:selectedClient,domains:value('gs-bulk-domains'),sender_name:value('gs-bulk-sender'),operator_id:value('gs-bulk-operator')||null});$('gs-bulk-domains').value='';bulkOpen=false;renderSetups();message(`${r.import_summary.added} domains added${r.import_summary.skipped?' · '+r.import_summary.skipped+' duplicates skipped':''}.`);$('gs-bulk-error').textContent='';}catch(err){$('gs-bulk-error').textContent=err.message;throw err;}});};
   $('gs-back-clients').onclick=()=>openClient(null);

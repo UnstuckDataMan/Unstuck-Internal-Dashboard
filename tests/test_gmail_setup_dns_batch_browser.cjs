@@ -1,0 +1,41 @@
+// Synthetic DNS only. A held second request makes intermediate progress testable.
+const {chromium}=require('playwright'),assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
+ const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[],stepRequests=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:8766')?r.continue():r.abort());
+ let releaseSecond,holdSecond=true;
+ const secondGate=new Promise(resolve=>releaseSecond=resolve);
+ await page.route('**/api/gmail-setup/clients/*/dns-setup/*/*',async route=>{
+   stepRequests.push(route.request().url());
+   if(holdSecond&&stepRequests.length===2)await secondGate;
+   await route.continue();
+ });
+ const idle=()=>page.waitForFunction(()=>!document.querySelector('#gs-app').hasAttribute('aria-busy'));
+ const data=()=>page.evaluate(()=>fetch('/api/gmail-setup').then(r=>r.json()));
+ const save=async()=>{await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();};
+ await page.goto('http://127.0.0.1:8766/gmail-set');await idle();
+ const owner=(await data()).state.members.find(m=>m.name==='Dylan').id;
+ await page.click('#gs-add-setup');await page.fill('#gs-client-name','All domain batch client');await page.selectOption('#gs-client-manager',owner);await save();
+ assert.equal(await page.locator('#gs-client-dns').isDisabled(),true);
+ assert.equal(await page.locator('#gs-client-dns').evaluate(el=>el.previousElementSibling.id),'gs-dmarc');
+ await page.fill('#gs-bulk-sender','me');await page.fill('#gs-bulk-domains','clientbatchone.com\nclientbatchtwo.com\nclientbatchmissing.com\nclientbatchburned.com');await page.locator('#gs-bulk-panel button[type="submit"]').click();await idle();
+ let model=await data();const client=model.state.clients.find(c=>c.name==='All domain batch client'),jobs=model.state.setups.filter(j=>j.client_id===client.id),missing=jobs.find(j=>j.domain==='clientbatchmissing.com'),burned=jobs.find(j=>j.domain==='clientbatchburned.com');
+ await page.selectOption(`[data-set-stage="${burned.id}"]`,'Burned');await idle();await page.fill(`[data-set-email="${missing.id}"]`,'');await page.locator(`[data-set-email="${missing.id}"]`).press('Tab');await idle();const summary=(await data()).summary;
+ await page.click('#gs-client-dns');assert.match(await page.textContent('#gs-dialog'),/purchase for all 3 domains/);assert.match(await page.textContent('#gs-dialog'),/Google MX\/SPF/);assert.doesNotMatch(await page.textContent('#gs-dialog'),/clientbatchburned.com/);
+ await page.click('#gs-dialog-cancel');assert.equal(stepRequests.length,0);assert.equal((await data()).state.clients.find(c=>c.id===client.id).dns_setup_batch,undefined);
+ await page.click('#gs-client-dns');await page.fill('#gs-batch-destination','clientwebsite.com');await page.click('#gs-dialog-save');await page.waitForFunction(()=>document.querySelector('#gs-dns-batch progress')?.value===1);
+ assert.match(await page.textContent('.gs-batch-header'),/1 \/ 3 processed/);assert.match(await page.textContent('.gs-batch-status'),/clientbatchtwo.com/);
+ await page.locator('#gs-dns-batch').screenshot({path:'work/gmail-client-batch-progress.png',animations:'disabled'});
+ await page.click('[data-pause-dns]');releaseSecond();holdSecond=false;await idle();assert.equal(stepRequests.length,2);assert.equal(await page.locator('#gs-dns-batch progress').getAttribute('value'),'2');
+ await page.reload();await idle();assert.match(await page.textContent('.gs-batch-header'),/2 \/ 3 processed/);assert.equal(await page.locator('[data-resume-dns]').isVisible(),true);
+ await page.click('[data-resume-dns]');await idle();assert.equal(stepRequests.length,3);assert.equal(await page.locator('#gs-dns-batch progress').getAttribute('value'),'3');assert.match(await page.textContent('.gs-batch-counts'),/2 ready/);assert.match(await page.textContent('.gs-batch-counts'),/1 need attention/);
+ await page.locator('#gs-dns-batch summary').click();assert.match(await page.textContent('.gs-batch-results'),/Add the sending email/);assert.deepEqual((await data()).summary,summary);
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.locator('#gs-dns-batch').screenshot({path:'work/gmail-client-batch-mobile.png',animations:'disabled'});
+ await page.fill(`[data-set-email="${missing.id}"]`,'me@clientbatchmissing.com');await page.locator(`[data-set-email="${missing.id}"]`).press('Tab');await idle();
+ await page.click('#gs-client-dns');assert.equal(await page.inputValue('#gs-batch-destination'),'https://clientwebsite.com');await page.click('#gs-dialog-save');await idle();
+ assert.match(await page.textContent('.gs-batch-counts'),/3 ready/);assert.match(await page.textContent('.gs-batch-counts'),/0 need attention/);assert.equal(await page.locator('[data-resume-dns]').count(),0);assert.equal(await page.locator('#gs-dns-batch progress').getAttribute('value'),'3');
+ model=await data();assert.equal(model.state.setups.find(j=>j.id===burned.id).dns_setup,undefined);assert.deepEqual(model.summary,summary);assert.deepEqual(errors,[]);
+ await browser.close();console.log('PASS: client-wide button beside DMARC, one confirmation/URL, burned exclusion, live progress, pause after current domain, saved progress after reload, resume, per-domain failure, retry and mobile layout.');
+})().catch(e=>{console.error(e);process.exit(1)});

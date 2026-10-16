@@ -107,6 +107,14 @@ is no longer the main workflow.
   require review; forwarding changed since preview requires fresh confirmation.
   Exact deletion snapshots, expiring confirmations, shared write claims,
   readback and idempotent retries protect unrelated records and domains.
+- **Set up all domains**, next to **Set up DMARC** in the client header, runs the
+  same full setup for every actual, active domain in that client. One purchase
+  confirmation and website URL cover the batch. Domains run sequentially, with a
+  progress bar and saved Ready / Needs attention / Waiting results. Burned and
+  deleted domains are excluded. One domain's failure does not stop the others;
+  a provider rate limit pauses the batch. Keep the page open, or use **Pause after
+  this domain** and **Resume setup** after a refresh. Each waiting domain receives
+  a fresh DNS preview; interrupted writes are reconciled before retrying.
 - Administrators can also select **Set up DMARC** for a whole client after confirming domain
   purchases with **Proceed / Cancel**. Only the selected active domains within that client are used;
   the server fixes each domain/report-email snapshot before any external write.
