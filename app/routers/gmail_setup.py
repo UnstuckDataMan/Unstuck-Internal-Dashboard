@@ -106,10 +106,16 @@ class Assignment(Strict):
     email: str | None = Field(None, max_length=254)
 
 
+class Notes(Strict):
+    id: str = Field(max_length=36)
+    notes: str = Field('', max_length=1000)
+
+
 class Change(Strict):
     revision: int = Field(ge=0)
-    action: Literal['reserve_set', 'capacity_set', 'client_save', 'client_remove', 'setup_bulk', 'setup_assign', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
+    action: Literal['reserve_set', 'capacity_set', 'client_save', 'client_remove', 'client_complete', 'setup_bulk', 'setup_assign', 'setup_notes', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
     data: dict
+    defer_sync: bool = False
 
 
 @router.get('/gmail-set')
@@ -135,7 +141,7 @@ def get_summary(user=Depends(access)):
 
 @router.post('/api/gmail-setup/change')
 def change(body: Change, user=Depends(mutation_access)):
-    models = {'reserve_set': Reserve, 'capacity_set': Capacity, 'client_save': Client, 'client_remove': Identifier, 'setup_bulk': Bulk, 'setup_assign': Assignment,
+    models = {'reserve_set': Reserve, 'capacity_set': Capacity, 'client_save': Client, 'client_remove': Identifier, 'client_complete': Identifier, 'setup_bulk': Bulk, 'setup_assign': Assignment, 'setup_notes': Notes,
               'member_save': Member, 'member_remove': Identifier, 'devices_add': Devices,
               'device_update': Device, 'device_remove': Identifier, 'setup_save': Setup,
               'setup_stage': Stage, 'setup_device': SetupDevice, 'setup_remove': Identifier}
@@ -148,7 +154,7 @@ def change(body: Change, user=Depends(mutation_access)):
     except ValidationError:
         raise HTTPException(400, 'Check the required fields, device counts and selected values.') from None
     record = service.mutate(user, body.revision, body.action, data)
-    if body.action in {'setup_stage', 'setup_save', 'setup_assign'}:
+    if not body.defer_sync and body.action in {'setup_stage', 'setup_save', 'setup_assign'}:
         job = next((j for j in record['state']['setups'] if j['id'] == data.get('id')), None) if data.get('id') else record['state']['setups'][-1]
         if job and job['stage'] == 'Setup complete' and job.get('sync', {}).get('status') != 'synced':
             record = service.sync_completed(user, job['id'])

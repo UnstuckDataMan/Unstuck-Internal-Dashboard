@@ -4,6 +4,8 @@
   const $=id=>document.getElementById(id),app=$('gs-app');if(!app)return;
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let board=null,busy=false,submitForm=null,bulkOpen=false,bulkClient=null;
+  let lockedControls=null;
+  const noteDrafts=new Map();
   let processingBatch=null,batchCurrent='',stopBatch=false;
   let selectedClient=new URLSearchParams(location.hash.slice(1)).get('client');
   const stages=['Not started','Started','Purchase made','Setup complete','Failed at QR','Failed at payment','Burned'];
@@ -25,7 +27,7 @@
   const inventoryConditions=()=>conditions.flatMap(option=>option[0]==='Used'?Array.from({length:Math.max(2,capacity({kind:'Phone'}),capacity({kind:'PC'}))},(_,i)=>['Used|'+(i+1),i===0?'Used once':i===1?'Used twice':`Used ${i+1} times`]):[option]);
   const conditionData=v=>({status:v.split('|')[0],block_reason:v.startsWith('Blocked|')?v.split('|')[1]:null,...(v.startsWith('Used|')?{use_count:Number(v.split('|')[1])}:{})});
   const label=d=>`${d.kind} ${d.number} · ${name(d.member_id)}`;
-  function updateDmarcButton(){const c=state().clients.find(c=>c.id===selectedClient&&!c.archived);for(const id of ['gs-dmarc','gs-client-dns']){$(id).hidden=!c||app.dataset.dnsAdmin!=='true';$(id).disabled=busy||!c||!state().setups.some(j=>j.client_id===c.id&&!j.archived&&j.stage!=='Burned');}}
+  function updateClientButtons(){const c=state().clients.find(c=>c.id===selectedClient&&!c.archived),jobs=state().setups.filter(j=>j.client_id===c?.id&&!j.archived&&j.stage!=='Burned');$('gs-client-dns').hidden=!c||app.dataset.dnsAdmin!=='true';$('gs-client-dns').disabled=busy||!jobs.length;$('gs-complete-client').hidden=!c;$('gs-complete-client').disabled=busy||!jobs.some(j=>j.stage!=='Setup complete');}
   function message(text,error=false){$('gs-message').textContent=text;$('gs-message').classList.toggle('error',error);}
   async function api(path='',data){
     const r=await fetch('/api/gmail-setup'+path,{method:data===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Domain-CSRF':app.dataset.csrf},...(data===undefined?{}:{body:JSON.stringify(data)})});
@@ -35,13 +37,40 @@
   }
   function accept(result){if(board&&result.revision<board.revision)return;board=result;render();}
   async function refresh(){accept(await api());}
+  function lockControls(){
+    if(!lockedControls)return;
+    for(const el of lockedControls.keys())if(!el.isConnected)lockedControls.delete(el);
+    for(const el of [...app.querySelectorAll('button, input, select, textarea'),...$('gs-dialog').querySelectorAll('button')]){
+      if(el.matches('[data-pause-dns]'))continue;
+      // A redraw creates new controls while a sheet write is still running.
+      if(!lockedControls.has(el))lockedControls.set(el,el.disabled);
+      el.disabled=true;
+    }
+  }
   async function run(fn){
     if(busy)return;busy=true;app.setAttribute('aria-busy','true');
-    const buttons=[...app.querySelectorAll('button, input, select, textarea'),...$('gs-dialog').querySelectorAll('button')];const disabled=buttons.map(b=>b.disabled);buttons.forEach(b=>b.disabled=true);
+    lockedControls=new Map();lockControls();
     try{await fn();}catch(err){message(err.message,true);if($('gs-dialog').open)$('gs-form-error').textContent=err.message;}
-    finally{busy=false;app.removeAttribute('aria-busy');buttons.forEach((b,i)=>{if(b.isConnected)b.disabled=disabled[i];});updateDmarcButton();renderDnsBatch(state().clients.find(c=>c.id===selectedClient));}
+    finally{busy=false;app.removeAttribute('aria-busy');lockedControls.forEach((disabled,el)=>{if(el.isConnected)el.disabled=disabled;});lockedControls=null;updateClientButtons();renderDnsBatch(state().clients.find(c=>c.id===selectedClient));}
   }
-  async function change(action,data){const result=await api('/change',{revision:board.revision,action,data});accept(result);return result;}
+  async function change(action,data){const result=await api('/change',{revision:board.revision,action,data,defer_sync:true});accept(result);return result;}
+  async function syncCompleted(ids){
+    const pending=ids.filter(id=>{const j=state().setups.find(j=>j.id===id);return j?.stage==='Setup complete'&&j.sync?.status!=='synced';});
+    let errors=0;
+    for(const [index,id] of pending.entries()){
+      const job=state().setups.find(j=>j.id===id);
+      message(`Saved as complete · syncing sheet ${index+1} / ${pending.length}: ${job.domain}…`);
+      try{const r=await api('/setups/'+id+'/sync',{});accept(r);if(r.state.setups.find(j=>j.id===id).sync.status!=='synced')errors++;}
+      catch(err){
+        // Completion is already saved. A lost response can be reconciled by
+        // reading the board; never undo completion because Sheets is slow.
+        try{await refresh();}catch{}
+        message(`Completion saved. ${err.message} Use Retry sheet sync on any pending domain.`,true);
+        return;
+      }
+    }
+    message(errors?`Completion saved · ${errors} sheet ${errors===1?'row needs':'rows need'} attention. See the affected domains.`:ids.length===1?'Setup complete · email marked Live in the strategy sheet.':`${ids.length} domains marked complete · sheet sync finished.`,errors>0);
+  }
   function tab(which){for(const view of ['setups','devices']){$('gs-'+view).hidden=view!==which;$('gs-tab-'+view).setAttribute('aria-selected',String(view===which));}}
   function render(){
     const s=board.summary,st=state();
@@ -51,7 +80,7 @@
     $('gs-stock').hidden=!s.low_stock;
     $('gs-stock').innerHTML=`<div><strong>Order ${s.shortfall} more ${s.order_kind==='Phone'?'phones':'laptops / PCs'}</strong><small>${s.available_setups} setup capacity / ${s.target} required · ${s.todo} to do${s.planned_todo?` including ${s.planned_todo} planned`:""} + ${s.contingency} contingency setups. ${s.setup_shortfall} setups short; ${s.order_capacity} per new ${s.order_kind==='Phone'?'phone':'laptop / PC'}, rounded up.</small></div><button data-stock-add>Add inventory</button>`;
     const chosen=$('gs-filter-manager').value;$('gs-filter-manager').innerHTML='<option value="">Everyone</option>'+st.members.map(m=>`<option value="${esc(m.id)}">${esc(m.name)}${m.active?'':' (removed)'}</option>`).join('');$('gs-filter-manager').value=chosen;
-    renderSetups();renderTeam();$('gs-updated').textContent=board.updated_at?`Updated ${new Date(board.updated_at).toLocaleString('en-GB')}`:'Add your actual device inventory to get started';
+    renderSetups();renderTeam();$('gs-updated').textContent=board.updated_at?`Updated ${new Date(board.updated_at).toLocaleString('en-GB')}`:'Add your actual device inventory to get started';lockControls();
   }
   function openClient(id){
     selectedClient=id||null;
@@ -65,14 +94,16 @@
     const dns=s.dmarc&&s.dmarc.email===s.email&&s.dmarc.domain===s.domain?s.dmarc:null;
     const setup=s.dns_setup?.domain===s.domain&&s.dns_setup?.email===s.email?s.dns_setup:null;
     const setupReady=setup?.status==='verified'&&setup.configuration_version===2;
-    const ownerLocked=burned||published||s.stage==='Setup complete'||Boolean(p&&s.stage==='Purchase made'),deviceLocked=burned||Boolean(d&&(published||p&&['Purchase made','Setup complete'].includes(s.stage)));
+    const planning=['Not started','Started'].includes(s.stage);
+    const ownerLocked=burned||!planning&&(published||s.stage==='Setup complete'||Boolean(p&&s.stage==='Purchase made')),deviceLocked=burned||!planning&&Boolean(d&&(published||p&&['Purchase made','Setup complete'].includes(s.stage)));
     const options='<option value="">Device not added yet</option>'+state().devices.filter(x=>x.id===s.device_id||available(x,s.id)&&x.member_id===s.operator_id).map(x=>`<option value="${esc(x.id)}" ${x.id===s.device_id?'selected':''}>${esc(label(x)+' · '+condition(x))}</option>`).join('');
     const safeLink=sync.url&&/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]+\/edit#gid=\d+&range=A\d+$/.test(sync.url)?sync.url:null;
     return `<article class="gs-domain${cardStage}" data-setup="${esc(s.id)}"><div class="gs-domain-head"><div><h4>${esc(s.domain)}</h4>${s.order&&s.stage==='Setup complete'?`<small class="gs-order">Sheet #${s.order}</small>`:''}</div><div class="gs-domain-buttons">${!published&&!burned?`<button class="gs-small" data-edit-setup="${esc(s.id)}">Details</button>`:''}<button class="gs-small gs-danger" data-remove-setup="${esc(s.id)}">Delete</button></div></div>
       <div class="gs-domain-controls"><label>Email<input type="email" data-set-email="${esc(s.id)}" value="${esc(s.email)}" placeholder="Add sending email" maxlength="254" ${burned||published||s.stage==='Setup complete'?'disabled':''}></label><label>Setup person<select data-set-operator="${esc(s.id)}" ${ownerLocked?'disabled':''}>${memberOptions(s.operator_id)}</select></label><label class="gs-device-choice">${d?`<strong class="gs-phone-number ${deviceClass(d)}">${esc((p?.id===d.id?p.label:d.kind+' '+d.number))}</strong>`:'Device'}<select data-set-device="${esc(s.id)}" aria-label="Device for ${esc(s.domain)}" ${deviceLocked?'disabled':''}>${options}</select></label><label class="gs-stage-control">Stage<select data-set-stage="${esc(s.id)}" aria-label="Stage for ${esc(s.domain)}">${stageOptions(s.stage,Boolean(s.purchase_at))}</select></label></div>
       ${burned||!d||failure||d?.status==='Blocked'||d&&exhausted(d)?`<div class="gs-domain-meta">${burned?'<span class="gs-badge burned">Burned</span>':''}${!d?'<span class="gs-badge purchased">Device not added yet</span>':''}${failure?`<span class="gs-badge blocked">${esc(s.stage)}</span>`:''}${d?.status==='Blocked'?`<span class="gs-badge blocked">${esc(condition(d))} · do not use</span>`:d&&exhausted(d)?`<span class="gs-badge exhausted">${esc(condition(d))}</span>`:''}</div>`:''}
       ${!burned&&(app.dataset.dnsAdmin==='true'||dns||setup)?`<div class="gs-domain-dmarc">${dns?`<span class="gs-badge ${dns.status==='verified'?'complete':'blocked'}" title="${esc(dns.message)}">DMARC ${dns.status==='verified'?'verified':'needs attention'}</span>`:''}${app.dataset.dnsAdmin==='true'?`<button class="gs-small" data-setup-dns="${esc(s.id)}">${setupReady?'Recheck setup':'One-click setup'}</button>`:''}${setup?`<span class="gs-badge ${setupReady?'complete':'blocked'}" title="${esc(setup.message)}">${setupReady?'DNS ready':setup.status==='verified'?'Google mail setup needed':'DNS setup needs attention'}</span>`:''}</div>`:''}
-      <details class="gs-domain-details"><summary>Account details</summary><dl class="gs-facts"><div><dt>Account manager</dt><dd>${esc(name(s.account_manager_id))}</dd></div><div><dt>Purchase asset</dt><dd>${esc(p?.asset_tag||d?.asset_tag||'Not allocated')}</dd></div><div><dt>Sheet destination</dt><dd>${kind}</dd></div></dl>${(s.device_failures||[]).length?`<p class="gs-help">${s.device_failures.map(f=>esc(`${f.stage} · ${f.device.label?f.device.label+' · '+f.device.member+' · '+f.device.asset_tag:'Device not recorded'}`)).join('<br>')}</p>`:''}${s.notes?`<p class="gs-help">${esc(s.notes)}</p>`:''}</details><div class="gs-sync ${sync.status==='error'?'error':''}">${published?`${s.stage==='Setup complete'?'Live in':'Previously synced in'} ${esc(sync.tab)} · row ${sync.row}${safeLink?` · <a href="${esc(safeLink)}" target="_blank" rel="noopener noreferrer">Open sheet row ↗</a>`:''}`:sync.status==='error'&&!burned?`Sheet sync needs attention: ${esc(sync.message)}${safeLink?` · <a href="${esc(safeLink)}" target="_blank" rel="noopener noreferrer">Open affected sheet row ↗</a>`:''}`:s.stage==='Setup complete'?'Saved as complete · sheet sync pending':''}</div>${s.stage==='Setup complete'&&!published?`<button class="gs-small gs-retry" data-sync="${esc(s.id)}">Retry sheet sync</button>`:''}</article>`;
+      <div class="gs-domain-notes"><label>Notes<textarea rows="2" maxlength="1000" data-set-notes="${esc(s.id)}" aria-label="Notes for ${esc(s.domain)}" placeholder="Add a note…">${esc(noteDrafts.has(s.id)?noteDrafts.get(s.id):s.notes)}</textarea></label><button class="gs-small" data-save-notes="${esc(s.id)}">Save notes</button><small data-notes-status="${esc(s.id)}" role="status">${noteDrafts.has(s.id)?'Unsaved changes':''}</small></div>
+      <details class="gs-domain-details"><summary>Account details</summary><dl class="gs-facts"><div><dt>Account manager</dt><dd>${esc(name(s.account_manager_id))}</dd></div><div><dt>Purchase asset</dt><dd>${esc(p?.asset_tag||d?.asset_tag||'Not allocated')}</dd></div><div><dt>Sheet destination</dt><dd>${kind}</dd></div></dl>${(s.device_failures||[]).length?`<p class="gs-help">${s.device_failures.map(f=>esc(`${f.stage} · ${f.device.label?f.device.label+' · '+f.device.member+' · '+f.device.asset_tag:'Device not recorded'}`)).join('<br>')}</p>`:''}</details><div class="gs-sync ${sync.status==='error'?'error':''}">${published?`${s.stage==='Setup complete'?'Live in':'Previously synced in'} ${esc(sync.tab)} · row ${sync.row}${safeLink?` · <a href="${esc(safeLink)}" target="_blank" rel="noopener noreferrer">Open sheet row ↗</a>`:''}`:sync.status==='error'&&!burned?`Sheet sync needs attention: ${esc(sync.message)}${safeLink?` · <a href="${esc(safeLink)}" target="_blank" rel="noopener noreferrer">Open affected sheet row ↗</a>`:''}`:s.stage==='Setup complete'?'Saved as complete · sheet sync pending':''}</div>${s.stage==='Setup complete'&&!published?`<button class="gs-small gs-retry" data-sync="${esc(s.id)}">Retry sheet sync</button>`:''}</article>`;
   }
   function renderSetups(){
     const search=$('gs-search').value.toLowerCase(),stage=$('gs-filter-stage').value,manager=$('gs-filter-manager').value,section=$('gs-filter-section').value;
@@ -87,7 +118,7 @@
     $('gs-client-caption').textContent=current?`${name(current.account_manager_id)} · ${current.section==='client'?'Client':'Biz Dev'} · ${plannedCount(current)?`${plannedCount(current)} planned domains included in the forecast`:'Completed domains move below in-progress work; burned domains appear last'}`:'Choose a client to view its domains and setup stages.';
     $('gs-add-setup').textContent=current?'+ Add domains':'+ Client';
     $('gs-edit-client').hidden=!current;$('gs-delete-client').hidden=!current;
-    updateDmarcButton();renderDmarc(current);renderDnsBatch(current);
+    updateClientButtons();renderDnsBatch(current);
     if(current&&bulkClient!==current.id){bulkClient=current.id;bulkOpen=!all.some(s=>s.client_id===current.id);$('gs-bulk-domains').value='';$('gs-bulk-sender').value='';$('gs-bulk-operator').innerHTML=memberOptions(member(current.operator_id)?.active?current.operator_id:'');}
     $('gs-bulk-panel').hidden=!current||!bulkOpen;
     const visible=clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).filter(c=>{
@@ -105,27 +136,16 @@
       const pendingOrder=(a,b)=>(a.created_at||'').localeCompare(b.created_at||'');
       $('gs-setup-list').innerHTML=domains.length?`${pending.length?`<h4 class="gs-list-heading">In progress <span>${pending.length}</span></h4>${pending.sort(pendingOrder).map(renderDomain).join('')}`:''}${complete.length?`<h4 class="gs-list-heading gs-complete-heading">Complete <span>${complete.length}</span></h4>${complete.sort(order).map(renderDomain).join('')}`:''}${burned.length?`<h4 class="gs-list-heading gs-burned-heading">Burned <span>${burned.length}</span></h4>${burned.sort((a,b)=>(a.burned_at||'').localeCompare(b.burned_at||'')).map(renderDomain).join('')}`:''}`:`<div class="gs-empty"><strong>No domains to show</strong>${plannedCount(current)?`${plannedCount(current)} planned domains are included in the forecast. Add actual domains to replace this placeholder.`:'Add a domain to this client or change your filters.'}</div>`;
     }else $('gs-setup-list').innerHTML='';
+    lockControls();
   }
-  function renderDmarc(client){
-    const batch=client?.dmarc_batch,el=$('gs-dmarc-results');el.hidden=!batch;
-    if(!batch){el.innerHTML='';return;}
-    const verified=Object.values(batch.results).filter(r=>r.status==='verified').length;
-    el.innerHTML=`<details class="gs-card gs-dmarc-results" open><summary>Latest DMARC run: ${verified} / ${batch.items.length} verified</summary><ul>${batch.items.map(item=>{const r=batch.results[item.id]||{},ok=r.status==='verified';return `<li><strong>${esc(item.domain)}</strong><span class="gs-badge ${ok?'complete':r.status==='needs review'?'blocked':'purchased'}">${ok?'Verified':r.status==='running'?'Configuring':r.status==='needs review'?'Needs attention':'Pending'}</span><small>${esc(item.email?'Reports: '+item.email:'Sending email missing')}${r.message?' · '+esc(r.message):''}</small></li>`;}).join('')}</ul></details>`;
-  }
-  function setupDmarc(jobId){
+  function completeClient(){
     const client=state().clients.find(c=>c.id===selectedClient);if(!client)return;
-    const id=client.id,items=state().setups.filter(j=>j.client_id===id&&!j.archived&&j.stage!=='Burned'&&(!jobId||j.id===jobId));if(!items.length)return;
-    dialog('Set up DMARC for '+(jobId?items[0].domain:client.name),`<p class="gs-dmarc-warning"><strong>Only proceed if you’ve completed purchase.</strong></p><p>This adds DMARC to ${items.length===1?'this domain':'these '+items.length+' domains'} in Porkbun. Both aggregate and failure reports go to each domain’s sending email.</p><ul class="gs-dmarc-preview">${items.map(j=>`<li><strong>${esc(j.domain)}</strong><small>${esc(j.email||'Sending email missing — will be skipped')}</small></li>`).join('')}</ul><p><code>v=DMARC1; p=none; pct=100; rua=mailto:[sending email]; ruf=mailto:[sending email]; fo=1</code></p><p>TXT host: <strong>_dmarc</strong> · TTL: <strong>600</strong>. Existing matching records are checked; conflicting records are left for review.</p>`,async()=>{
-      accept(await api('/clients/'+id+'/dmarc/start',{revision:board.revision,confirmed_purchased:true,setup_ids:items.map(j=>j.id)}));$('gs-dialog').close();
-      const batch=state().clients.find(c=>c.id===id).dmarc_batch;
-      for(const [index,item] of batch.items.entries()){
-        if(!item.email||batch.results[item.id]?.status==='needs review')continue;
-        message(`Configuring DMARC ${index+1} / ${batch.items.length}: ${item.domain}…`);
-        accept(await api('/clients/'+id+'/dmarc/'+batch.id+'/'+item.id,{revision:board.revision}));
-      }
-      const finished=state().clients.find(c=>c.id===id).dmarc_batch,verified=Object.values(finished.results).filter(r=>r.status==='verified').length;
-      message(`DMARC: ${verified} verified · ${finished.items.length-verified} need attention.`,verified!==finished.items.length);
-    });$('gs-dialog-save').textContent='Proceed';
+    const items=state().setups.filter(j=>j.client_id===client.id&&!j.archived&&!closed(j.stage));if(!items.length)return;
+    dialog('Mark all as complete',`<p>Mark all <strong>${items.length} unfinished ${items.length===1?'domain':'domains'}</strong> for <strong>${esc(client.name)}</strong> as complete?</p><p>This moves them to Complete and marks their sending emails Live in the strategy sheet. Burned domains stay burned. Only continue when their Gmail setups are finished.</p>`,async()=>{
+      await change('client_complete',{id:client.id});
+      $('gs-filter-stage').value='';renderSetups();$('gs-dialog').close();
+      await syncCompleted(items.map(j=>j.id));
+    });$('gs-dialog-save').textContent='Mark all as complete';
   }
   function renderDnsBatch(client){
     const batch=client?.dns_setup_batch,el=$('gs-dns-batch');el.hidden=!batch;
@@ -225,10 +245,12 @@
     const s=state().setups.find(s=>s.id===id)||{};
     const c=state().clients.find(c=>c.id===(s.client_id||selectedClient));
     if(!c)return addClient();
-    dialog(id?'Edit domain':`Add domain to ${c.name}`,`<div class="gs-form-grid"><label>Setup owner<select id="gs-job-operator">${memberOptions(s.operator_id||c.operator_id)}</select></label>${field('Email','gs-job-email',s.email,'type="email" maxlength="254"')}<label>Stage<select id="gs-job-stage">${stageOptions(s.stage||'Not started',Boolean(s.purchase_at))}</select></label><label class="gs-wide">Device (optional)<select id="gs-job-device"><option value="">Allocate a device later</option></select></label><label class="gs-wide">Notes (optional)<textarea id="gs-job-notes" maxlength="1000">${esc(s.notes)}</textarea></label></div>`,async()=>{
+    dialog(id?'Edit domain':`Add domain to ${c.name}`,`<div class="gs-form-grid"><label>Setup owner<select id="gs-job-operator">${memberOptions(s.operator_id||c.operator_id)}</select></label>${field('Email','gs-job-email',s.email,'type="email" maxlength="254"')}<label>Stage<select id="gs-job-stage">${stageOptions(s.stage||'Not started',Boolean(s.purchase_at))}</select></label><label class="gs-wide">Device (optional)<select id="gs-job-device"><option value="">Allocate a device later</option></select></label><label class="gs-wide">Notes (optional)<textarea id="gs-job-notes" maxlength="1000">${esc(noteDrafts.has(id)?noteDrafts.get(id):s.notes)}</textarea></label></div>`,async()=>{
       const r=await change('setup_save',{...(id?{id}:{}),client_id:c.id,stage:value('gs-job-stage'),account_manager_id:c.account_manager_id,operator_id:value('gs-job-operator')||null,section:c.section,client_name:c.name,...(s.domain?{domain:s.domain}:{}),email:value('gs-job-email'),device_id:value('gs-job-device')||null,notes:value('gs-job-notes')});
       const job=r.state.setups.find(j=>j.id===id)||r.state.setups.at(-1);
-      message(job.sync.status==='error'?'Domain saved; sheet sync needs attention. See its row.':'Domain saved.',job.sync.status==='error');
+      noteDrafts.delete(job.id);renderSetups();
+      if(job.stage==='Setup complete'){$('gs-dialog').close();await syncCompleted([job.id]);}
+      else message('Domain saved.');
     });
     function options(){const owner=value('gs-job-operator');$('gs-job-device').innerHTML='<option value="">Allocate a device later</option>'+state().devices.filter(d=>d.id===s.device_id||available(d,id)&&d.member_id===owner).map(d=>`<option value="${esc(d.id)}" ${d.id===s.device_id?'selected':''}>${esc(label(d))} · ${esc(condition(d))} · ${esc(d.asset_tag)}</option>`).join('');if(s.purchase_device&&['Purchase made','Setup complete'].includes(s.stage))$('gs-job-device').disabled=true;}
     $('gs-job-operator').onchange=options;options();
@@ -242,7 +264,7 @@
     });
     function options(){const owner=value('gs-link-operator');$('gs-link-device').innerHTML='<option value="">Select device</option>'+state().devices.filter(d=>available(d,id)&&d.member_id===owner).map(d=>`<option value="${esc(d.id)}">${esc(label(d))} · ${esc(condition(d))} · ${esc(d.asset_tag)}</option>`).join('');}
     $('gs-link-operator').onchange=options;options();
-    if(job.sync?.status==='synced')$('gs-link-operator').disabled=true;
+    if(job.sync?.status==='synced'&&!['Not started','Started'].includes(job.stage))$('gs-link-operator').disabled=true;
   }
   $('gs-capacity-form').onsubmit=ev=>{ev.preventDefault();const data={phone_setups:Number(value('gs-phone-capacity')),pc_setups:Number(value('gs-pc-capacity')),order_kind:value('gs-order-kind')};run(async()=>{await change('capacity_set',data);message('Setup limits saved. Device target and availability updated for the team.');});};
   $('gs-form').onsubmit=ev=>{ev.preventDefault();run(async()=>{await submitForm();$('gs-dialog').close();});};
@@ -251,8 +273,8 @@
   $('gs-add-setup').onclick=()=>{if(!selectedClient)return addClient();bulkOpen=true;renderSetups();$('gs-bulk-domains').focus();};
   $('gs-add-single').onclick=()=>editSetup();
   $('gs-edit-client').onclick=()=>addClient(selectedClient);
-  $('gs-dmarc').onclick=()=>setupDmarc();
   $('gs-client-dns').onclick=()=>setupAllDomains();
+  $('gs-complete-client').onclick=completeClient;
   $('gs-delete-client').onclick=()=>{const c=state().clients.find(c=>c.id===selectedClient);if(c&&confirm(`Delete ${c.name} and its domains from Gmail Set? Google Sheet rows and device usage history will be retained.`))run(async()=>{await change('client_remove',{id:c.id});openClient(null);message('Client deleted.');});};
   $('gs-bulk-panel').onsubmit=ev=>{ev.preventDefault();run(async()=>{try{const r=await change('setup_bulk',{client_id:selectedClient,domains:value('gs-bulk-domains'),sender_name:value('gs-bulk-sender'),operator_id:value('gs-bulk-operator')||null});$('gs-bulk-domains').value='';bulkOpen=false;renderSetups();message(`${r.import_summary.added} domains added${r.import_summary.skipped?' · '+r.import_summary.skipped+' duplicates skipped':''}.`);$('gs-bulk-error').textContent='';}catch(err){$('gs-bulk-error').textContent=err.message;throw err;}});};
   $('gs-back-clients').onclick=()=>openClient(null);
@@ -273,20 +295,22 @@
     if(b.dataset.addSetupDevice)return addSetupDevice(b.dataset.addSetupDevice);
     if(b.dataset.editSetup)return editSetup(b.dataset.editSetup);
     if(b.dataset.setupDns)return previewDnsSetup(b.dataset.setupDns);
+    if(b.dataset.saveNotes)return run(async()=>{const id=b.dataset.saveNotes,notes=$('gs-setup-list').querySelector(`[data-set-notes="${id}"]`).value;await change('setup_notes',{id,notes});noteDrafts.delete(id);renderSetups();$('gs-setup-list').querySelector(`[data-notes-status="${id}"]`).textContent='Saved';message('Notes saved.');});
     if(b.dataset.sync)return run(async()=>{message('Reconciling the sheet row…');const r=await api('/setups/'+b.dataset.sync+'/sync',{});accept(r);const job=r.state.setups.find(s=>s.id===b.dataset.sync);message(job.sync.status==='synced'?'Sending email verified Live in the strategy sheet.':job.sync.message,job.sync.status!=='synced');});
     if(b.dataset.removeSetup&&confirm('Delete this domain from Gmail Set? Google Sheet rows and device usage history will be retained.'))run(async()=>{await change('setup_remove',{id:b.dataset.removeSetup});message('Domain deleted.');});
   };
+  $('gs-setup-list').oninput=e=>{const id=e.target.dataset.setNotes;if(!id)return;noteDrafts.set(id,e.target.value);$('gs-setup-list').querySelector(`[data-notes-status="${id}"]`).textContent='Unsaved changes';};
   $('gs-setup-list').onchange=e=>{
     const input=e.target,id=input.dataset.setOperator||input.dataset.setDevice||input.dataset.setEmail||input.dataset.setStage;if(!id)return;
     const job=state().setups.find(s=>s.id===id);
     if(input.dataset.setStage){
       const next=input.value;if(next===job.stage)return;
       if(next==='Setup complete'&&(!job.email||!job.operator_id)){message(!job.email?'Add the sending email on this domain before completing setup.':'Select the setup person on this domain before completing setup.',true);renderSetups();const field=$('gs-setup-list').querySelector(`[data-set-${!job.email?'email':'operator'}="${id}"]`);field?.focus();return;}
-      return run(async()=>{try{message(next==='Setup complete'?'Saving completion and syncing the Live sheet row…':'Saving setup stage…');const r=await change('setup_stage',{id,stage:next});const updated=r.state.setups.find(s=>s.id===id);message(next==='Setup complete'&&updated.sync.status==='error'?'Setup complete and saved. Sheet sync needs attention; see its row.':next==='Setup complete'?`Setup complete · sheet order ${updated.order}.`:'Stage updated.',next==='Setup complete'&&updated.sync.status==='error');}finally{renderSetups();}});
+      return run(async()=>{try{message('Saving setup stage…');await change('setup_stage',{id,stage:next});if(next==='Setup complete')await syncCompleted([id]);else message('Stage updated.');}finally{renderSetups();}});
     }
     if(input.dataset.setEmail&&!input.checkValidity()){input.reportValidity();return;}
     const patch=input.dataset.setOperator?{operator_id:input.value||null}:input.dataset.setDevice?{device_id:input.value||null}:{email:input.value.trim()};
-    run(async()=>{try{if(job.sync?.status==='synced'&&input.dataset.setDevice)await change('setup_device',{id,operator_id:job.operator_id,device_id:input.value});else await change('setup_assign',{id,...patch});message('Domain updated.');}finally{renderSetups();}});
+    run(async()=>{try{if(job.sync?.status==='synced'&&!['Not started','Started'].includes(job.stage)&&input.dataset.setDevice)await change('setup_device',{id,operator_id:job.operator_id,device_id:input.value});else await change('setup_assign',{id,...patch});message('Domain updated.');}finally{renderSetups();}});
   };
   $('gs-check-sheet').onclick=()=>run(async()=>{const r=await api('/check-sheet',{});$('gs-sheet-status').textContent=r.message;message(r.ready?'Sheet write access is ready.':'Sheet write access needs attention.',!r.ready);});
   // Refresh shared counts without disturbing an open edit form or active request.

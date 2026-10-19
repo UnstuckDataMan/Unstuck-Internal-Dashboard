@@ -255,6 +255,62 @@ def test_tracker_routes_auth_csrf_schema_and_shared_visibility(client,board_db,m
     assert 'sync_lock' not in client.get('/api/gmail-setup').json()['state']
 
 
+def test_completion_routes_save_pending_before_sheet_sync_and_keep_legacy_inline_contract(client,board_db,monkeypatch):
+    import re
+    monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
+    page=client.get('/gmail-set')
+    client.headers['X-Domain-CSRF']=re.search('data-csrf="([^"]+)"',page.text)[1]
+    calls=[]
+    def publish(job,owner):
+        calls.append((job['id'],owner))
+        return {'row':len(calls)+2,'url':'https://docs.google.com/spreadsheets/d/test/edit#gid=0&range=A3'}
+    monkeypatch.setattr(sheets,'publish',publish)
+    owner=people()['Dylan']
+    record,first=create_setup(owner)
+    _,second=create_setup(owner,domain='legacyinline.com',email='me@legacyinline.com')
+    _,third=create_setup(owner,domain='batchpending.com',email='me@batchpending.com')
+    response=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'setup_stage',
+        'data':{'id':first,'stage':'Setup complete'},'defer_sync':True})
+    assert response.status_code==200 and calls==[]
+    assert response.json()['state']['setups'][0]['sync']['status']=='pending'
+    assert response.json()['summary']['complete']==1
+    synced=client.post(f'/api/gmail-setup/setups/{first}/sync')
+    assert synced.status_code==200 and synced.json()['state']['setups'][0]['sync']['status']=='synced'
+    assert calls==[(first,'Cedar client')]
+    legacy=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'setup_stage',
+        'data':{'id':second,'stage':'Setup complete'}})
+    assert legacy.status_code==200 and legacy.json()['state']['setups'][1]['sync']['status']=='synced'
+    assert len(calls)==2 and calls[-1][0]==second
+    completed=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'client_complete',
+        'data':{'id':record['state']['setups'][0]['client_id']}})
+    assert completed.status_code==200 and completed.json()['summary']['complete']==3
+    assert completed.json()['state']['setups'][2]['sync']['status']=='pending' and len(calls)==2
+    assert client.post(f'/api/gmail-setup/setups/{third}/sync').status_code==200 and calls[-1][0]==third
+
+
+def test_notes_route_remains_editable_after_complete_and_burned_with_csrf_revision_and_field_validation(client,board_db,monkeypatch):
+    import re
+    monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
+    monkeypatch.setattr(sheets,'publish',lambda *args:pytest.fail('Saving notes must not write to Google Sheets'))
+    _,jid=create_setup(people()['Dylan'])
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    payload={'revision':record['revision'],'action':'setup_notes','data':{'id':jid,'notes':'Waiting for client'}}
+    assert client.post('/api/gmail-setup/change',json=payload).status_code==403
+    page=client.get('/gmail-set');client.headers['X-Domain-CSRF']=re.search('data-csrf="([^"]+)"',page.text)[1]
+    saved=client.post('/api/gmail-setup/change',json=payload)
+    assert saved.status_code==200 and saved.json()['state']['setups'][0]['notes']=='Waiting for client'
+    assert saved.json()['state']['setups'][0]['stage']=='Setup complete'
+    assert client.post('/api/gmail-setup/change',json=payload).status_code==409
+    for data in ({'id':jid,'notes':'x'*1001},{'id':jid,'notes':'note','operator_id':'injected'}):
+        assert client.post('/api/gmail-setup/change',json={'revision':saved.json()['revision'],'action':'setup_notes','data':data}).status_code==400
+    burned=change('setup_stage',{'id':jid,'stage':'Burned'})
+    payload.update(revision=burned['revision'],data={'id':jid,'notes':'Retained burned-domain note'})
+    response=client.post('/api/gmail-setup/change',json=payload)
+    assert response.status_code==200
+    job=response.json()['state']['setups'][0]
+    assert job['stage']=='Burned' and job['notes']=='Retained burned-domain note' and job['sync']['status']=='pending'
+
+
 def test_store_filters_workspace_and_uses_revision_lease(monkeypatch):
     calls=[];monkeypatch.setattr(sb,'SUPABASE_URL','https://example.supabase.co');monkeypatch.setattr(sb,'SUPABASE_SERVICE_ROLE_KEY','server-key')
     def request(method,url,**kw):calls.append((method,url,kw));return FakeResponse(200,[{'state':{},'revision':3}])
@@ -711,6 +767,155 @@ def test_completed_setup_can_reopen_without_renumbering_or_duplicate_sheet_write
     result=s.sync_completed(USER,jid)
     assert result['state']['setups'][0]['sync']['status']=='synced' and session.inserts==1
     assert session.rows[2][1]==1
+
+
+@pytest.mark.parametrize('burned',[False,True])
+@pytest.mark.parametrize('planning_stage',list(s.PLANNING_STAGES))
+def test_published_reopened_setup_can_reassign_owner_and_device_without_rewriting_sheet_history(board_db,sheet_session,burned,planning_stage):
+    session=sheet_session('bizdev');ids=people()
+    original_phone=devices(ids['Dylan'])['state']['devices'][0]
+    replacement=devices(ids['Matthew'])['state']['devices'][-1]
+    _,jid=create_setup(ids['Dylan'],original_phone['id'],section='bizdev')
+    change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    original=s.sync_completed(USER,jid)['state']['setups'][0]
+    assert original['sync']['status']=='synced'
+    if burned:change('setup_stage',{'id':jid,'stage':'Burned'})
+    change('setup_stage',{'id':jid,'stage':'Not started'})
+    if planning_stage=='Started':change('setup_stage',{'id':jid,'stage':'Started'})
+    record=change('setup_assign',{'id':jid,'operator_id':ids['Matthew']})
+    assert record['state']['setups'][0]['operator_id']==ids['Matthew']
+    assert record['state']['setups'][0]['device_id'] is None
+    record=change('setup_assign',{'id':jid,'device_id':replacement['id']})
+    record=change('setup_assign',{'id':jid,'device_id':None})
+    assert record['state']['setups'][0]['device_id'] is None
+    record=change('setup_assign',{'id':jid,'device_id':replacement['id']})
+    job=record['state']['setups'][0]
+    for field in ('domain','email','order','completed_at','purchase_at','purchase_device','sheet_owner','sync'):
+        assert job[field]==original[field]
+    assert [d['use_count'] for d in record['state']['devices']]==[1,0]
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    job=record['state']['setups'][0]
+    assert job['purchase_device']['id']==replacement['id']
+    assert job['purchase_device_history']==[original['purchase_device']]
+    assert [d['use_count'] for d in record['state']['devices']]==[1,1]
+    assert s.sync_completed(USER,jid)['state']['setups'][0]['sync']==original['sync']
+    assert session.inserts==1 and job['sheet_owner']=='Dylan' and job['order']==1
+    # Repeated completion cannot consume the new phone twice.
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    assert [d['use_count'] for d in record['state']['devices']]==[1,1]
+
+
+def test_published_reopened_setup_rejects_identity_edits_and_unavailable_devices(board_db,sheet_session):
+    sheet_session();ids=people()
+    original_phone=devices(ids['Dylan'])['state']['devices'][0]
+    other_phone=devices(ids['Matthew'])['state']['devices'][-1]
+    _,jid=create_setup(ids['Dylan'],original_phone['id'])
+    change('setup_stage',{'id':jid,'stage':'Setup complete'});s.sync_completed(USER,jid)
+    change('setup_stage',{'id':jid,'stage':'Not started'})
+    before=s.board(USER)
+    for patch in ({'email':'changed@cedarclients.com'},{'domain':'changed.com'},{'device_id':other_phone['id']}):
+        with pytest.raises(HTTPException):change('setup_assign',{'id':jid,**patch})
+        assert s.board(USER)==before
+    change('device_update',{'id':other_phone['id'],'status':'Blocked','block_reason':'Payment'})
+    with pytest.raises(HTTPException,match='blocked'):
+        change('setup_assign',{'id':jid,'operator_id':ids['Matthew'],'device_id':other_phone['id']})
+
+
+def test_published_reopened_setup_can_record_missing_device_for_new_owner(board_db,sheet_session):
+    session=sheet_session();ids=people()
+    phone=devices(ids['Matthew'])['state']['devices'][0]
+    _,jid=create_setup(ids['Dylan'])
+    change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    original=s.sync_completed(USER,jid)['state']['setups'][0]
+    change('setup_stage',{'id':jid,'stage':'Burned'})
+    change('setup_stage',{'id':jid,'stage':'Not started'})
+    record=change('setup_device',{'id':jid,'operator_id':ids['Matthew'],'device_id':phone['id']})
+    job=record['state']['setups'][0]
+    assert job['operator_id']==ids['Matthew'] and job['device_id']==phone['id']
+    assert job['sync']==original['sync'] and job['completed_at']==original['completed_at']
+    assert record['state']['devices'][0]['use_count']==0 and session.inserts==1
+
+
+@pytest.mark.parametrize('stage',['Not started','Started','Setup complete','Burned'])
+def test_domain_notes_save_for_every_workflow_state_and_survive_later_transitions(board_db,sheet_session,stage):
+    sheet_session();owner=people()['Dylan']
+    _,jid=create_setup(owner)
+    if stage=='Started':change('setup_stage',{'id':jid,'stage':stage})
+    if stage in s.CLOSED_STAGES:
+        change('setup_stage',{'id':jid,'stage':'Setup complete'});s.sync_completed(USER,jid)
+        if stage=='Burned':change('setup_stage',{'id':jid,'stage':stage})
+    original=s.board(USER)['state']['setups'][0]
+    note='  Waiting for client approval.\nKeep this after completion.  '
+    record=change('setup_notes',{'id':jid,'notes':note})
+    job=record['state']['setups'][0]
+    assert job['notes']==note
+    assert {k:v for k,v in job.items() if k not in {'notes','updated_at'}}=={k:v for k,v in original.items() if k not in {'notes','updated_at'}}
+    change('setup_stage',{'id':jid,'stage':'Burned'})
+    assert s.board(OTHER)['state']['setups'][0]['notes']==note
+    change('setup_stage',{'id':jid,'stage':'Not started'})
+    assert change('setup_stage',{'id':jid,'stage':'Setup complete'})['state']['setups'][0]['notes']==note
+    assert change('setup_notes',{'id':jid,'notes':''})['state']['setups'][0]['notes']==''
+    before=s.board(USER)
+    with pytest.raises(HTTPException):change('setup_notes',{'id':jid,'notes':'x'*1001})
+    assert s.board(USER)==before
+    change('setup_remove',{'id':jid})
+    with pytest.raises(HTTPException):change('setup_notes',{'id':jid,'notes':'Cannot edit deleted work'})
+
+
+def test_complete_client_is_atomic_ordered_and_excludes_burned_completed_deleted_and_other_clients(board_db):
+    ids=people();client=change('client_save',{'name':'Batch complete','section':'client','account_manager_id':ids['Robyn']})['state']['clients'][0]
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'firstbatch.com\nsecondbatch.com\nburnedbatch.com\ndeletedbatch.com','sender_name':'me','operator_id':ids['Dylan']})
+    first,second,burned,deleted=record['state']['setups']
+    change('setup_stage',{'id':second['id'],'stage':'Setup complete'})
+    change('setup_stage',{'id':burned['id'],'stage':'Burned'})
+    change('setup_remove',{'id':deleted['id']})
+    _,other=create_setup(ids['Dylan'])
+    before=s.board(USER)
+    record=change('client_complete',{'id':client['id']})
+    jobs={job['id']:job for job in record['state']['setups']}
+    assert jobs[first['id']]['stage']=='Setup complete' and jobs[first['id']]['order']==2
+    assert jobs[second['id']]['stage']=='Setup complete' and jobs[second['id']]['order']==1
+    assert jobs[burned['id']]['stage']=='Burned' and jobs[burned['id']]['completed_at'] is None
+    assert jobs[deleted['id']]['archived'] and jobs[deleted['id']]['completed_at'] is None
+    assert jobs[other]==next(job for job in before['state']['setups'] if job['id']==other)
+    assert record['import_summary']=={'completed':1}
+    assert s.summary(record['state'])['complete']==2 and s.summary(record['state'])['todo']==1
+    repeated=change('client_complete',{'id':client['id']})
+    assert repeated['state']['setups']==record['state']['setups'] and repeated['import_summary']=={'completed':0}
+
+
+@pytest.mark.parametrize('missing',['email','operator_id'])
+def test_complete_client_missing_data_reports_domain_and_rolls_back_every_job(board_db,missing):
+    ids=people();client=change('client_save',{'name':'Missing complete','section':'client','account_manager_id':ids['Robyn']})['state']['clients'][0]
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'validbatch.com\nmissingbatch.com','sender_name':'me','operator_id':ids['Dylan']})
+    change('setup_assign',{'id':record['state']['setups'][1]['id'],missing:'' if missing=='email' else None})
+    before=s.board(USER)
+    with pytest.raises(HTTPException,match='missingbatch.com'):
+        change('client_complete',{'id':client['id']})
+    assert s.board(USER)==before
+
+
+def test_complete_client_reopened_domain_requires_an_active_setup_person(board_db):
+    ids=people();record,jid=create_setup(ids['Dylan'])
+    change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    change('member_remove',{'id':ids['Dylan']})
+    change('setup_stage',{'id':jid,'stage':'Not started'})
+    before=s.board(USER)
+    with pytest.raises(HTTPException,match='cedarclients.com: Choose an active setup person'):
+        change('client_complete',{'id':record['state']['setups'][0]['client_id']})
+    assert s.board(USER)==before
+
+
+def test_complete_client_device_capacity_failure_rolls_back_earlier_device_uses(board_db):
+    ids=people();phone=devices(ids['Dylan'])['state']['devices'][0]
+    record,first=create_setup(ids['Dylan'],phone['id'])
+    create_setup(ids['Dylan'],phone['id'],'secondcapacity.com','me@secondcapacity.com')
+    change('capacity_set',{'phone_setups':1,'pc_setups':1,'order_kind':'Phone'})
+    before=s.board(USER)
+    with pytest.raises(HTTPException,match='secondcapacity.com'):
+        change('client_complete',{'id':record['state']['setups'][0]['client_id']})
+    assert s.board(USER)==before
+    assert before['state']['devices'][0]['use_count']==0
 
 
 @pytest.mark.parametrize('sender',[' Ashley ','ashley@','ashley.smith'])

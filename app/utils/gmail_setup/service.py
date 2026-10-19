@@ -332,6 +332,18 @@ def mutate(user, expected, action, data):
         for job in state['setups']:
             if job.get('client_id') == client['id']:
                 job.update(archived=True, deleted_at=now())
+    elif action == 'client_complete':
+        client = find(state, 'clients', data['id'], True)
+        jobs = [job for job in state['setups'] if job.get('client_id') == client['id']
+                and not job.get('archived') and job['stage'] not in CLOSED_STAGES]
+        # Validate the entire client before the single CAS save. A missing
+        # email, owner or valid purchase device must never partially complete it.
+        for job in jobs:
+            try:
+                set_stage(state, job, STAGES[2])
+            except HTTPException as exc:
+                raise HTTPException(exc.status_code, f'{job["domain"]}: {exc.detail}') from None
+        outcome = {'completed': len(jobs)}
     elif action == 'setup_bulk':
         client = find(state, 'clients', data['client_id'], True)
         sender = text(data.get('sender_name'), 'Sender name', False).lower().rstrip('@')
@@ -462,6 +474,26 @@ def mutate(user, expected, action, data):
         current = find(state, 'setups', data['id'], True) if data.get('id') else None
         if current and current['stage'] == BURNED and data.get('stage') != STAGES[0]:
             raise HTTPException(409, 'Choose Not started to reopen this burned domain before editing it.')
+        if current and current.get('sync', {}).get('status') == 'synced':
+            if action != 'setup_assign' or current['stage'] not in PLANNING_STAGES:
+                raise HTTPException(409, 'A published setup is locked to its sheet record. Correct the sheet directly if needed.')
+            # Reopening releases the workflow assignment, not its published
+            # identity. Only a new setup person or pending device can change.
+            if set(data) - {'id', 'operator_id', 'device_id', 'email'} or 'email' in data and data['email'] != current['email']:
+                raise HTTPException(409, 'The published sending email and sheet record cannot be changed. Only the setup person and device can be reassigned after reopening.')
+            operator_id = data.get('operator_id', current.get('operator_id'))
+            operator = find(state, 'members', operator_id, True) if operator_id else None
+            device_id = data.get('device_id', None if operator_id != current.get('operator_id') else current.get('device_id'))
+            if device_id:
+                device = find(state, 'devices', device_id, True)
+                historical = current.get('device_id') == device_id and (current.get('purchase_device') or {}).get('id') == device_id
+                if device['status'] == 'Blocked' or not historical and not allocation_available(state, device, current['id']):
+                    raise HTTPException(409, 'This device is blocked, fully used or reserved. Choose another device or allocate one later.')
+                if not operator or device['member_id'] != operator['id']:
+                    raise HTTPException(409, 'Allocate the device to the setup owner first.')
+            current.update(operator_id=operator_id, device_id=device_id, updated_at=now())
+            audit(state, user, action)
+            return store.save(user, state, expected)
         if action == 'setup_assign':
             if current is None:
                 raise HTTPException(404, 'Setup not found.')
@@ -475,8 +507,6 @@ def mutate(user, expected, action, data):
             data = {**current, **patch}
             if current['stage'] in FAILURES and data.get('device_id') != current.get('device_id'):
                 data['stage'] = STAGES[1] if current.get('purchase_at') else STAGES[0]
-        if current and current.get('sync', {}).get('status') == 'synced':
-            raise HTTPException(409, 'A published setup is locked to its sheet record. Correct the sheet directly if needed.')
         client = None
         if data.get('client_id'):
             client = find(state, 'clients', data['client_id'], True)
@@ -548,7 +578,7 @@ def mutate(user, expected, action, data):
             raise HTTPException(409, 'Choose Not started to reopen this burned domain before allocating a device.')
         if job.get('device_id'):
             raise HTTPException(409, 'This setup already has a device. Use Edit details to change a pending allocation.')
-        if job.get('sync', {}).get('status') == 'synced' and data['operator_id'] != job['operator_id']:
+        if job.get('sync', {}).get('status') == 'synced' and job['stage'] not in PLANNING_STAGES and data['operator_id'] != job['operator_id']:
             raise HTTPException(409, 'Keep the published setup owner. Allocate the device to that team member first.')
         operator = find(state, 'members', data['operator_id'], True)
         device = find(state, 'devices', data['device_id'], True)
@@ -562,6 +592,11 @@ def mutate(user, expected, action, data):
     elif action == 'setup_stage':
         job = find(state, 'setups', data['id'], True)
         set_stage(state, job, data['stage'])
+    elif action == 'setup_notes':
+        job = find(state, 'setups', data['id'], True)
+        if not isinstance(data.get('notes'), str) or len(data['notes']) > 1000:
+            raise HTTPException(400, 'Keep notes to 1,000 characters or fewer.')
+        job.update(notes=data['notes'], updated_at=now())
     elif action == 'setup_remove':
         job = find(state, 'setups', data['id'], True)
         job.update(archived=True, deleted_at=now())
@@ -621,6 +656,11 @@ def set_stage(state, job, stage):
         raise HTTPException(400, 'Add the sending email address before completing setup.')
     if stage == STAGES[2] and not job.get('operator_id'):
         raise HTTPException(400, 'Choose the setup person before completing setup.')
+    if stage == STAGES[2] and old != stage:
+        try:
+            find(state, 'members', job['operator_id'], True)
+        except HTTPException:
+            raise HTTPException(400, 'Choose an active setup person before completing setup.') from None
     if stage in FAILURES:
         reason = FAILURES[stage]
         d = find(state, 'devices', job['device_id'], True) if job.get('device_id') else None
