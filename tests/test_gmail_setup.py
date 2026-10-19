@@ -310,6 +310,33 @@ def test_release_version_changes_page_and_session_without_changing_asset_cache_v
     assert f'/static/gmail-setup.css?v={gmail_setup.ASSET_VERSION}' in page.text
 
 
+def test_homepage_and_stock_script_use_current_content_hash_and_no_store_even_for_old_query(client,monkeypatch):
+    import hashlib
+    from pathlib import Path
+    from app.main import GMAIL_HOME_ASSET_VERSION
+    monkeypatch.setattr(auth,'get_session_user',lambda request:OTHER)
+    expected=hashlib.sha256((Path(__file__).resolve().parents[1]/'app/static/gmail-setup-home.js').read_bytes()).hexdigest()[:12]
+    assert GMAIL_HOME_ASSET_VERSION==expected
+    page=client.get('/')
+    assert page.status_code==200 and page.headers['cache-control']=='no-store'
+    assert f'/static/gmail-setup-home.js?v={expected}' in page.text
+    script=client.get('/static/gmail-setup-home.js?v=older-dashboard')
+    assert script.status_code==200 and script.headers['cache-control']=='no-store'
+    assert script.headers['x-content-type-options']=='nosniff'
+
+
+def test_legacy_gmail_url_serves_the_same_current_layout_version_and_cache_headers(client,monkeypatch):
+    from app.routers.gmail_setup import APP_VERSION, ASSET_VERSION
+    monkeypatch.setattr(auth,'get_session_user',lambda request:OTHER)
+    current=client.get('/gmail-set')
+    legacy=client.get('/domain-cluster-builder?older-bookmark=1')
+    assert current.status_code==legacy.status_code==200
+    assert legacy.headers['cache-control']==current.headers['cache-control']=='no-store'
+    assert current.text==legacy.text
+    assert f'data-app-version="{APP_VERSION}"' in legacy.text
+    assert f'/static/gmail-setup.js?v={ASSET_VERSION}' in legacy.text
+
+
 def test_recovery_session_does_not_grant_removed_tool_access_or_bypass_csrf(client,board_db,monkeypatch):
     user={**OTHER}
     monkeypatch.setattr(auth,'get_session_user',lambda request:user)

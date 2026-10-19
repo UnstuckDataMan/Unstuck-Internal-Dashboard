@@ -1,6 +1,7 @@
 import logging
 import os
 import secrets
+import hashlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -90,8 +91,8 @@ async def auth_gate(request: Request, call_next):
             chunks.append(chunk)
         request._body = b''.join(chunks)
     response = await call_next(request)
-    if domain_tool or request.url.path in {'/gmail-set', '/domain-cluster-builder',
-            '/static/gmail-setup.js', '/static/gmail-setup.css'}:
+    if domain_tool or request.url.path in {'/', '/gmail-set', '/domain-cluster-builder',
+            '/static/gmail-setup.js', '/static/gmail-setup.css', '/static/gmail-setup-home.js'}:
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
@@ -115,6 +116,7 @@ app.add_middleware(
 )
 
 _BASE = Path(__file__).resolve().parent
+GMAIL_HOME_ASSET_VERSION = hashlib.sha256((_BASE / 'static/gmail-setup-home.js').read_bytes()).hexdigest()[:12]
 app.mount("/static", StaticFiles(directory=str(_BASE / "static")), name="static")
 
 app.include_router(auth_router.router)
@@ -173,4 +175,5 @@ async def index(request: Request):
         "sop_key": "home",
         "user":    user,
         "tools":   tools,
+        "gmail_home_asset_version": GMAIL_HOME_ASSET_VERSION,
     })

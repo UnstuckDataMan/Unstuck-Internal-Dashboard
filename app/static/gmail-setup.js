@@ -377,5 +377,6 @@
   }
   setInterval(poll,30000);
   document.addEventListener('visibilitychange',poll);
+  window.addEventListener('pageshow',event=>{if(event.persisted)poll();});
   run(async()=>{await refresh();await checkSessionVersion();});
 })();

@@ -47,6 +47,10 @@ Render's commit ID identifies releases; local previews use the asset hash.
 If an open tab has an older CSRF token after sign-in, only the server's explicit
 pre-mutation session rejection triggers a current-token fetch and one retry.
 Ordinary permission failures and uncertain writes are never replayed this way.
+The Operations card also uses an asset content hash and no-store responses,
+refreshes every 30 seconds and on returning to the page, and clears a stale
+figure if the latest summary cannot be read. Browser Back restoration rechecks
+the tracker version without reloading over drafts.
 
 - The tracker seeds its member list from active dashboard users in the signed-in
   workspace. Members can be added, edited or removed within this tool without
