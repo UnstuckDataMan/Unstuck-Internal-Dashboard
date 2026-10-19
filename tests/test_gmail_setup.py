@@ -349,6 +349,40 @@ def test_store_filters_workspace_and_uses_revision_lease(monkeypatch):
     assert 'owner_id' not in calls[1][2]['params'] # explicitly shared within workspace
 
 
+@pytest.mark.parametrize('status',[200,409])
+@pytest.mark.parametrize('revision',[0,2])
+def test_store_cas_failures_are_identified_as_revision_conflicts(monkeypatch,status,revision):
+    monkeypatch.setattr(sb,'sb_service_configured',lambda:True)
+    monkeypatch.setattr(sb,'sb_service_headers',lambda *args:{})
+    monkeypatch.setattr(store.requests,'request',lambda *args,**kwargs:FakeResponse(status,[]))
+    with pytest.raises(HTTPException) as exc:store.save(USER,{},revision)
+    assert exc.value.status_code==409 and exc.value.headers=={'X-Gmail-Conflict':'revision'}
+
+
+@pytest.mark.parametrize('business_guard',['blocked_device','sheet_lease'])
+def test_api_marks_only_stale_revisions_for_retry_not_business_conflicts(client,board_db,monkeypatch,business_guard):
+    import re
+    monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
+    page=client.get('/gmail-set');client.headers['X-Domain-CSRF']=re.search('data-csrf="([^"]+)"',page.text)[1]
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,jid=create_setup(owner,phone['id'])
+    if business_guard=='blocked_device':
+        change('device_update',{'id':phone['id'],'status':'Blocked','block_reason':'Payment'})
+    else:
+        current=s.board(USER)
+        current['state']['sync_lock']={'token':'other_writer','job_id':jid,'at':s.now()}
+        store.save(USER,current['state'],current['revision'])
+    before=s.board(USER)
+    payload={'revision':before['revision']-1,'action':'setup_stage','data':{'id':jid,'stage':'Setup complete'}}
+    stale=client.post('/api/gmail-setup/change',json=payload)
+    assert stale.status_code==409 and stale.headers['X-Gmail-Conflict']=='revision'
+    assert s.board(USER)==before
+    payload['revision']=before['revision']
+    blocked=client.post('/api/gmail-setup/change',json=payload)
+    assert blocked.status_code==409 and 'X-Gmail-Conflict' not in blocked.headers
+    assert s.board(USER)==before
+
+
 def test_missing_header_and_write_denial_point_to_exact_tab_and_row(board_db,sheet_session):
     session=sheet_session('bizdev');job={'id':str(uuid4()),'section':'bizdev','email':'me@cedarclients.com','order':1}
     session.headers[3]='Not Live'
@@ -906,7 +940,7 @@ def test_complete_client_is_atomic_ordered_and_excludes_burned_completed_deleted
     assert jobs[deleted['id']]['archived'] and jobs[deleted['id']]['completed_at'] is None
     assert jobs[other]==next(job for job in before['state']['setups'] if job['id']==other)
     assert record['import_summary']=={'completed':1}
-    assert s.summary(record['state'])['complete']==2 and s.summary(record['state'])['todo']==1
+    assert s.summary(record['state'])['complete']==2 and s.summary(record['state'])['todo']==3 # two replacements and the other client
     repeated=change('client_complete',{'id':client['id']})
     assert repeated['state']['setups']==record['state']['setups'] and repeated['import_summary']=={'completed':0}
 
@@ -990,7 +1024,7 @@ def test_target_tracks_all_to_do_stages_completion_reset_and_deletion(board_db):
     change('setup_stage',{'id':jobs[3]['id'],'stage':'Not started'})
     assert s.summary(s.board(USER)['state'])['target']==15
     change('setup_remove',{'id':jobs[4]['id']})
-    assert s.summary(s.board(USER)['state'])['todo']==4
+    assert s.summary(s.board(USER)['state'])['todo']==5 # deletion leaves one replacement needed
     record=change('client_remove',{'id':client['id']})
     assert s.summary(record['state'])['todo']==0 and s.summary(record['state'])['target']==10
 
@@ -1083,7 +1117,7 @@ def test_reported_inventory_has_22_phone_slots_24_total_and_needs_three_phones(b
     assert plan['available_setups']==41 and plan['setup_shortfall']==0 and plan['shortfall']==0
 
 
-def test_client_placeholder_is_replaced_by_actual_count_not_added_or_used_as_minimum(board_db):
+def test_client_target_remains_after_partial_import_completion_and_deletion(board_db):
     owner=people()['Dylan']
     record=change('client_save',{'name':'Future client','account_manager_id':owner,'section':'client','planned_domains':10})
     client=record['state']['clients'][0]
@@ -1095,17 +1129,18 @@ def test_client_placeholder_is_replaced_by_actual_count_not_added_or_used_as_min
     record=change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'futureclient{i}.com' for i in range(7)),'operator_id':owner,'sender_name':'me'})
     assert record['state']['clients'][0]['planned_domains']==0
     plan=s.summary(record['state'])
-    assert plan['todo']==7 and plan['planned_todo']==0 and plan['actual_todo']==7
-    assert plan['target']==17 and plan['shortfall']==9
+    assert plan['todo']==10 and plan['planned_todo']==3 and plan['actual_todo']==7
+    assert plan['target']==20 and plan['shortfall']==10
+    assert record['state']['clients'][0]['domain_target']==10
     job=record['state']['setups'][0]
     record=change('setup_stage',{'id':job['id'],'stage':'Setup complete'})
-    assert s.summary(record['state'])['todo']==6 and s.summary(record['state'])['planned_todo']==0
-    # Removing every actual domain never resurrects the original ten-domain plan.
+    assert s.summary(record['state'])['todo']==9 and s.summary(record['state'])['planned_todo']==3
+    # Removing every actual domain leaves the original demand outstanding.
     for job in record['state']['setups']:change('setup_remove',{'id':job['id']})
-    assert s.summary(s.board(USER)['state'])['todo']==0
+    assert s.summary(s.board(USER)['state'])['todo']==10
 
 
-def test_empty_client_placeholder_can_be_edited_deleted_and_replaced_by_single_add(board_db):
+def test_empty_client_target_can_be_edited_deleted_and_partially_filled_by_single_add(board_db):
     owner=people()['Dylan']
     data={'name':'Future client','account_manager_id':owner,'section':'bizdev','planned_domains':10}
     client=change('client_save',data)['state']['clients'][0]
@@ -1115,7 +1150,8 @@ def test_empty_client_placeholder_can_be_edited_deleted_and_replaced_by_single_a
     record=change('client_save',{'id':client['id'],'name':'Renamed future client','account_manager_id':owner,'section':'bizdev'})
     assert s.summary(record['state'])['planned_todo']==12
     record=change('setup_save',{'client_id':client['id'],'account_manager_id':owner,'operator_id':owner,'email':'me@firstfuture.com','section':'bizdev'})
-    assert s.summary(record['state'])['todo']==1 and record['state']['clients'][0]['planned_domains']==0
+    assert s.summary(record['state'])['todo']==12 and record['state']['clients'][0]['domain_target']==12
+    assert s.summary(record['state'])['planned_todo']==11
     record=change('client_remove',{'id':client['id']})
     assert s.summary(record['state'])['todo']==0
     second=change('client_save',{**data,'name':'Delete placeholder'})['state']['clients'][-1]
@@ -1137,7 +1173,7 @@ def test_failed_and_duplicate_only_imports_keep_placeholder_and_create_no_fake_j
 
 
 @pytest.mark.parametrize('link',['linked','missing','outdated'])
-def test_existing_domains_clear_stale_plans_in_board_and_operations_summary(board_db,link):
+def test_existing_domains_migrate_target_and_avoid_double_counting_legacy_plans(board_db,link):
     from app.routers.gmail_setup import get_summary
     owner=people()['Dylan']
     client=change('client_save',{'name':'Existing client','account_manager_id':owner,'section':'client','planned_domains':10})['state']['clients'][0]
@@ -1145,16 +1181,18 @@ def test_existing_domains_clear_stale_plans_in_board_and_operations_summary(boar
     stored=board_db[store.workspace(USER)]
     # Reproduce old records with a leftover plan and pre-grouping domain links.
     stored['state']['clients'][0]['planned_domains']=10
+    stored['state']['clients'][0].pop('domain_target')
     for job in stored['state']['setups']:
         if link=='missing':job.pop('client_id')
         elif link=='outdated':job['client_id']='old-client-id'
     revision=stored['revision']
     plan=get_summary(user=USER)
-    assert plan['actual_todo']==7 and plan['planned_todo']==0 and plan['todo']==7
-    assert plan['target']==17 and plan['shortfall']==9
+    assert plan['actual_todo']==7 and plan['planned_todo']==3 and plan['todo']==10
+    assert plan['target']==20 and plan['shortfall']==10
     record=s.result(s.board(USER))
     assert record['summary']==plan
     assert record['state']['clients'][0]['planned_domains']==0
+    assert record['state']['clients'][0]['domain_target']==10
     assert all(j['client_id']==client['id'] for j in record['state']['setups'])
     # A read repairs its response; it must not bypass CAS or an external-write lease.
     assert stored['revision']==revision and stored['state']['clients'][0]['planned_domains']==10
@@ -1169,6 +1207,120 @@ def test_client_placeholder_schema_rejects_invalid_counts(value):
     from app.routers.gmail_setup import Client
     from pydantic import ValidationError
     with pytest.raises(ValidationError):Client(name='Future client',account_manager_id='owner',planned_domains=value)
+    with pytest.raises(ValidationError):Client(name='Future client',account_manager_id='owner',domain_target=value)
+
+
+def test_persistent_target_counts_replacements_and_only_grows_for_genuine_extra_domains(board_db):
+    owner=people()['Dylan']
+    client=change('client_save',{'name':'Ten-domain target','account_manager_id':owner,'domain_target':10})['state']['clients'][0]
+    jobs=change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'targetdomain{i}.com' for i in range(10)),
+        'operator_id':owner,'sender_name':'me'})['state']['setups']
+    for job in jobs[:3]:change('setup_stage',{'id':job['id'],'stage':'Setup complete'})
+    for job in jobs[3:5]:change('setup_stage',{'id':job['id'],'stage':'Burned'})
+    record=s.result(s.board(USER));progress=record['client_progress'][client['id']]
+    assert progress=={'target':10,'complete':3,'actual_todo':5,'todo':7,'remaining':7,'replacements_needed':2}
+    assert record['summary']['todo']==7 and record['summary']['actual_todo']==5 and record['summary']['planned_todo']==2
+    assert record['summary']['target']==17 # seven outstanding plus ten contingency
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'replacementone.com\nreplacementtwo.com','operator_id':owner,'sender_name':'me'})
+    assert record['state']['clients'][0]['domain_target']==10
+    assert s.result(record)['client_progress'][client['id']]['replacements_needed']==0
+    # Retrying the same paste and deleting burned history do not raise the target.
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'replacementone.com\nreplacementtwo.com'})
+    assert record['import_summary']['added']==0 and record['state']['clients'][0]['domain_target']==10
+    change('setup_remove',{'id':jobs[3]['id']})
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'genuineextra.com','operator_id':owner,'sender_name':'me'})
+    assert record['state']['clients'][0]['domain_target']==11
+    assert s.result(record)['client_progress'][client['id']]['remaining']==8
+
+
+def test_target_edit_minimum_and_burned_restoration_keep_demand_consistent(board_db):
+    owner=people()['Dylan']
+    client=change('client_save',{'name':'Editable target','account_manager_id':owner,'domain_target':2})['state']['clients'][0]
+    jobs=change('setup_bulk',{'client_id':client['id'],'domains':'editableone.com\neditabletwo.com','operator_id':owner,'sender_name':'me'})['state']['setups']
+    before=s.board(USER)
+    data={'id':client['id'],'name':client['name'],'account_manager_id':owner}
+    with pytest.raises(HTTPException,match='Target must cover 2 current domains'):
+        change('client_save',{**data,'domain_target':1})
+    assert s.board(USER)==before
+    for job in jobs:change('setup_stage',{'id':job['id'],'stage':'Burned'})
+    record=change('client_save',{**data,'domain_target':0})
+    assert s.result(record)['client_progress'][client['id']]['remaining']==0
+    assert s.board(USER)['state']['clients'][0]['domain_target']==0 # a deliberate zero is not re-migrated
+    record=change('setup_stage',{'id':jobs[0]['id'],'stage':'Not started'})
+    assert record['state']['clients'][0]['domain_target']==1
+    assert s.result(record)['client_progress'][client['id']]['remaining']==1
+    # Deleting a completed row leaves a replacement outstanding.
+    change('setup_stage',{'id':jobs[0]['id'],'stage':'Setup complete'})
+    record=change('setup_remove',{'id':jobs[0]['id']})
+    assert s.result(record)['client_progress'][client['id']]['replacements_needed']==1
+
+
+def test_legacy_target_backfill_counts_burned_and_archived_history_once(board_db):
+    owner=people()['Dylan']
+    client=change('client_save',{'name':'Legacy target','account_manager_id':owner})['state']['clients'][0]
+    jobs=change('setup_bulk',{'client_id':client['id'],'domains':'legacytargetone.com\nlegacytargettwo.com\nlegacytargetthree.com'})['state']['setups']
+    change('setup_stage',{'id':jobs[0]['id'],'stage':'Burned'})
+    change('setup_remove',{'id':jobs[1]['id']})
+    stored=board_db[store.workspace(USER)]
+    stored['state']['clients'][0].pop('domain_target')
+    stored['state']['clients'][0]['planned_domains']=1
+    record=s.board(USER)
+    assert record['state']['clients'][0]['domain_target']==3
+    assert s.result(record)['client_progress'][client['id']]['replacements_needed']==2
+    assert 'domain_target' not in stored['state']['clients'][0] # read repair obeys CAS
+    change('capacity_set',{'phone_setups':2,'pc_setups':1,'order_kind':'Phone'})
+    assert board_db[store.workspace(USER)]['state']['clients'][0]['domain_target']==3
+    record=change('client_remove',{'id':client['id']})
+    assert s.result(record)['client_progress']=={} and s.summary(record['state'])['todo']==0
+
+
+def test_bulk_completion_keeps_missing_target_domains_outstanding(board_db):
+    owner=people()['Dylan']
+    client=change('client_save',{'name':'Partial completion','account_manager_id':owner,'domain_target':10})['state']['clients'][0]
+    change('setup_bulk',{'client_id':client['id'],'domains':'partialone.com\npartialtwo.com','operator_id':owner,'sender_name':'me'})
+    record=change('client_complete',{'id':client['id']})
+    assert s.result(record)['client_progress'][client['id']]=={'target':10,'complete':2,'actual_todo':0,'todo':8,'remaining':8,'replacements_needed':8}
+    assert s.summary(record['state'])['todo']==8 and s.summary(record['state'])['target']==18
+
+
+def test_client_metadata_routes_preserve_omitted_values_and_allow_explicit_clear(client,board_db,monkeypatch):
+    import re
+    monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
+    page=client.get('/gmail-set');client.headers['X-Domain-CSRF']=re.search('data-csrf="([^"]+)"',page.text)[1]
+    owner=people()['Dylan']
+    data={'name':'Client details','account_manager_id':owner,'operator_id':owner,'domain_target':10,
+          'sender_full_name':'  Marie-Claire O’Connor  ','website_url':'example.com/about','account_manager_email':'  Manager+client@Example.com  '}
+    response=client.post('/api/gmail-setup/change',json={'revision':0,'action':'client_save','data':data})
+    assert response.status_code==200
+    record=response.json();saved=record['state']['clients'][0]
+    assert saved['sender_full_name']=='Marie-Claire O’Connor' and saved['website_url']=='https://example.com/about'
+    assert saved['account_manager_email']=='manager+client@example.com' and saved['domain_target']==10
+    minimal={'id':saved['id'],'name':'Renamed details','account_manager_id':owner}
+    response=client.post('/api/gmail-setup/change',json={'revision':record['revision'],'action':'client_save','data':minimal})
+    assert response.status_code==200
+    changed=response.json()['state']['clients'][0]
+    for field in ('sender_full_name','website_url','account_manager_email','domain_target','operator_id'):
+        assert changed[field]==saved[field]
+    cleared=client.post('/api/gmail-setup/change',json={'revision':response.json()['revision'],'action':'client_save',
+        'data':{**minimal,'sender_full_name':'','website_url':'','account_manager_email':''}})
+    assert cleared.status_code==200
+    assert all(cleared.json()['state']['clients'][0][field]=='' for field in ('sender_full_name','website_url','account_manager_email'))
+    assert cleared.json()['client_progress'][saved['id']]['target']==10
+
+
+@pytest.mark.parametrize('patch',[{'website_url':'javascript:alert(1)'},{'website_url':'https://user:password@example.com'},
+    {'website_url':'https://example.com/with space'},{'account_manager_email':'not an email'},{'sender_full_name':'x'*151},
+    {'website_url':'x'*2049},{'account_manager_email':'x'*255},{'domain_target':True}])
+def test_client_metadata_invalid_requests_leave_saved_client_unchanged(client,board_db,monkeypatch,patch):
+    import re
+    monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
+    page=client.get('/gmail-set');client.headers['X-Domain-CSRF']=re.search('data-csrf="([^"]+)"',page.text)[1]
+    owner=people()['Dylan']
+    record=change('client_save',{'name':'Validated details','account_manager_id':owner,'website_url':'https://example.com'})
+    saved=record['state']['clients'][0]
+    response=client.post('/api/gmail-setup/change',json={'revision':record['revision'],'action':'client_save',
+        'data':{'id':saved['id'],'name':saved['name'],'account_manager_id':owner,**patch}})
+    assert response.status_code==400 and s.board(USER)==record
 
 
 @pytest.mark.parametrize('stage',['Not started','Purchase made','Setup complete','Failed at QR','Failed at payment'])
@@ -1189,8 +1341,8 @@ def test_burned_domain_excluded_from_demand_without_erasing_device_or_sheet_hist
     assert record['state']['devices']==inventory
     assert burned['burned_from']==stage and burned['burned_at']
     plan=s.summary(record['state'])
-    assert plan['todo']==0 and plan['planned_todo']==0 and plan['target']==10
-    assert plan['not_started']==plan['purchased']==plan['complete']==0 and plan['burned']==1
+    assert plan['todo']==1 and plan['planned_todo']==1 and plan['target']==11
+    assert plan['not_started']==1 and plan['purchased']==plan['complete']==0 and plan['burned']==1
     assert plan['purchased_setups']==0
     repeated=change('setup_stage',{'id':jid,'stage':'Burned'})
     assert repeated['state']['setups'][0]['burned_at']==burned['burned_at']
@@ -1247,7 +1399,7 @@ def test_started_is_available_for_device_free_planning_and_reopening_a_failure(b
     assert record['state']['devices'][0]['status']=='Unused' and record['state']['devices'][0]['use_count']==0
     assert s.summary(record['state'])['started']==1 and s.summary(record['state'])['todo']==1
     record=change('setup_stage',{'id':jid,'stage':'Burned'})
-    assert s.summary(record['state'])['started']==0 and s.summary(record['state'])['todo']==0
+    assert s.summary(record['state'])['started']==0 and s.summary(record['state'])['todo']==1
 
 
 def test_resetting_other_failure_does_not_unblock_a_burned_domain_failure(board_db):

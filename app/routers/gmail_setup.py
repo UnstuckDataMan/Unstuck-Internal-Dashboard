@@ -50,6 +50,10 @@ class Client(Strict):
     account_manager_id: str = Field(max_length=36)
     operator_id: str | None = Field(None, max_length=36)
     planned_domains: int | None = Field(None, ge=0, le=5000, strict=True)
+    domain_target: int | None = Field(None, ge=0, le=5000, strict=True)
+    sender_full_name: str | None = Field(None, max_length=150)
+    website_url: str | None = Field(None, max_length=2048)
+    account_manager_email: str | None = Field(None, max_length=254)
 
 
 class Setup(Strict):
@@ -148,7 +152,7 @@ def change(body: Change, user=Depends(mutation_access)):
     from pydantic import ValidationError
     from fastapi import HTTPException
     try:
-        data = models[body.action].model_validate(body.data).model_dump(exclude_unset=body.action in {'device_update', 'setup_assign'})
+        data = models[body.action].model_validate(body.data).model_dump(exclude_unset=body.action in {'device_update', 'setup_assign', 'client_save'})
         if body.action == 'device_update' and 'status' in data and data['status'] is None:
             raise HTTPException(400, 'Choose a device status.')
     except ValidationError:

@@ -1,0 +1,58 @@
+// Local synthetic board only: this journey never applies DNS or writes Sheets.
+const {chromium}=require('playwright'),assert=require('node:assert/strict');
+require('node:fs').mkdirSync('work',{recursive:true});
+(async()=>{
+ const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
+ const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[],sheetWrites=[];
+ const stamp=Date.now().toString(36),clientName='Sender and targets '+stamp,otherName='Partial target '+stamp;
+ page.on('pageerror',e=>errors.push(e.message));
+ page.on('dialog',d=>d.accept());
+ page.on('request',r=>{if(r.method()==='POST'&&/\/api\/gmail-setup\/(?:check-sheet|setups\/[^/]+\/sync)(?:\?|$)/.test(r.url()))sheetWrites.push(r.url());});
+ await page.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:8766')?r.continue():r.abort());
+ const idle=()=>page.waitForFunction(()=>!document.querySelector('#gs-app').hasAttribute('aria-busy'));
+ const data=()=>page.evaluate(()=>fetch('/api/gmail-setup').then(r=>r.json()));
+ const save=async()=>{await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();};
+ const paste=async text=>{if(!await page.locator('#gs-bulk-panel').isVisible())await page.click('#gs-add-setup');await page.fill('#gs-bulk-sender','me');await page.fill('#gs-bulk-domains',text);await page.locator('#gs-bulk-panel button[type="submit"]').click();await idle();};
+ const stage=async(id,value)=>{await page.selectOption(`[data-set-stage="${id}"]`,value);await idle();assert.equal(await page.inputValue(`[data-set-stage="${id}"]`),value);};
+ const expectProgress=(model,id,expected)=>{const p=model.client_progress[id];assert.ok(p,'Client progress is supplied independently of visible filters');for(const[key,value]of Object.entries(expected))assert.equal(p[key],value,`${key} for client ${id}`);};
+ const card=id=>page.locator(`[data-open-client="${id}"]`);
+ await page.goto('http://127.0.0.1:8766/gmail-set');await idle();
+ let model=await data();const baseline=model.summary.todo,owner=(model.state.members.find(m=>m.active&&m.name==='Dylan')||model.state.members.find(m=>m.active)).id;
+ await page.click('#gs-add-setup');await page.fill('#gs-client-name',clientName);await page.selectOption('#gs-client-manager',owner);await page.selectOption('#gs-client-operator',owner);
+ await page.fill('#gs-client-sender-full-name','Jamie Client');await page.fill('#gs-client-url','clienttarget.example.com');await page.fill('#gs-client-manager-email','account.manager@example.com');await page.fill('#gs-client-target','10');await save();
+ model=await data();const client=model.state.clients.find(c=>c.name===clientName),id=client.id;
+ assert.equal(client.sender_full_name,'Jamie Client');assert.equal(client.website_url,'https://clienttarget.example.com');assert.equal(client.account_manager_email,'account.manager@example.com');assert.equal(client.domain_target,10);
+ assert.equal(model.summary.todo,baseline+10);expectProgress(model,id,{target:10,complete:0,actual_todo:0,remaining:10,replacements_needed:10});
+ assert.match(await page.textContent('#gs-client-info'),/Jamie Client/);assert.match(await page.textContent('#gs-client-info'),/account\.manager@example\.com/);assert.match(await page.textContent('#gs-client-info'),/clienttarget\.example\.com/);
+ await page.reload();await idle();await page.click('#gs-edit-client');
+ assert.equal(await page.inputValue('#gs-client-sender-full-name'),'Jamie Client');assert.equal(await page.inputValue('#gs-client-url'),'https://clienttarget.example.com');assert.equal(await page.inputValue('#gs-client-manager-email'),'account.manager@example.com');assert.equal(await page.inputValue('#gs-client-target'),'10');await page.click('#gs-dialog-cancel');
+ await paste(Array.from({length:10},(_,i)=>`target${stamp}${i}.com`).join('\n'));
+ model=await data();let jobs=model.state.setups.filter(j=>j.client_id===id&&!j.archived);assert.equal(jobs.length,10);expectProgress(model,id,{target:10,complete:0,actual_todo:10,remaining:10,replacements_needed:0});assert.equal(model.summary.todo,baseline+10);
+ // The saved URL is available for individual and whole-client forwarding.
+ await page.locator(`[data-setup-dns="${jobs[0].id}"]`).click();await page.waitForFunction(()=>document.querySelector('#gs-dns-destination'));
+ assert.equal(await page.inputValue('#gs-dns-destination'),'https://clienttarget.example.com');await page.click('#gs-dialog-cancel');await idle();
+ await page.click('#gs-client-dns');assert.equal(await page.inputValue('#gs-batch-destination'),'https://clienttarget.example.com');await page.click('#gs-dialog-cancel');
+ for(const job of jobs.slice(0,3))await stage(job.id,'Setup complete');for(const job of jobs.slice(3,5))await stage(job.id,'Burned');
+ model=await data();expectProgress(model,id,{target:10,complete:3,actual_todo:5,remaining:7,replacements_needed:2});assert.equal(model.summary.todo,baseline+7);assert.equal(model.state.clients.find(c=>c.id===id).domain_target,10);
+ assert.match(await page.textContent('#gs-client-info'),/7 still needed/);
+ await page.locator('#gs-client-info').screenshot({path:'work/gmail-client-target-details-desktop.png',animations:'disabled'});await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.locator('#gs-client-info').screenshot({path:'work/gmail-client-target-details-mobile.png',animations:'disabled'});await page.setViewportSize({width:1440,height:1050});
+ await stage(jobs[5].id,'Started');await page.selectOption('#gs-filter-stage','Started');assert.equal(await page.locator('[data-setup]').count(),1);assert.match(await page.textContent('#gs-client-info'),/7 still needed/);expectProgress(await data(),id,{remaining:7,replacements_needed:2});await page.selectOption('#gs-filter-stage','');
+ await page.click('#gs-back-clients');assert.match(await card(id).textContent(),/10 target/);assert.match(await card(id).textContent(),/3 complete/);assert.match(await card(id).textContent(),/7 to complete/);assert.match(await card(id).locator(`[data-client-replacements="${id}"]`).textContent(),/2 need replacing/);assert.equal(await page.locator(`[data-client-group="active"] [data-open-client="${id}"]`).count(),1);
+ await card(id).screenshot({path:'work/gmail-client-target-replacements-desktop.png',animations:'disabled'});
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await card(id).screenshot({path:'work/gmail-client-target-replacements-mobile.png',animations:'disabled'});await page.setViewportSize({width:1440,height:1050});
+ await card(id).click();await paste(`replacement${stamp}a.com\nreplacement${stamp}b.com`);
+ model=await data();jobs=model.state.setups.filter(j=>j.client_id===id&&!j.archived);assert.equal(jobs.length,12);expectProgress(model,id,{target:10,complete:3,actual_todo:7,remaining:7,replacements_needed:0});assert.equal(model.summary.todo,baseline+7);
+ await page.click('#gs-edit-client');assert.equal(await page.inputValue('#gs-client-target'),'10');await page.click('#gs-dialog-cancel');
+ await page.click('#gs-complete-client');await save();model=await data();expectProgress(model,id,{target:10,complete:10,actual_todo:0,remaining:0,replacements_needed:0});assert.equal(model.summary.todo,baseline);
+ await page.click('#gs-back-clients');assert.equal(await page.locator(`[data-client-group="complete"] [data-open-client="${id}"]`).count(),1);
+ await card(id).click();await stage(jobs[0].id,'Burned');model=await data();expectProgress(model,id,{target:10,complete:9,actual_todo:0,remaining:1,replacements_needed:1});assert.equal(model.summary.todo,baseline+1);
+ await page.click('#gs-back-clients');assert.equal(await page.locator(`[data-client-group="active"] [data-open-client="${id}"]`).count(),1);assert.match(await card(id).locator(`[data-client-replacements="${id}"]`).textContent(),/1 need replacing/);
+ // A manual target remains after a partial paste; it does not double count.
+ await page.click('#gs-add-setup');await page.fill('#gs-client-name',otherName);await page.selectOption('#gs-client-manager',owner);await page.selectOption('#gs-client-operator',owner);await page.fill('#gs-client-target','12');await save();
+ model=await data();const other=model.state.clients.find(c=>c.name===otherName);await paste(Array.from({length:7},(_,i)=>`partial${stamp}${i}.com`).join('\n'));
+ model=await data();expectProgress(model,other.id,{target:12,complete:0,actual_todo:7,remaining:12,replacements_needed:5});assert.equal(model.summary.todo,baseline+13);assert.equal(model.state.clients.find(c=>c.id===other.id).domain_target,12);
+ await page.reload();await idle();expectProgress(await data(),other.id,{target:12,remaining:12,replacements_needed:5});
+ await page.click('#gs-back-clients');assert.match(await card(other.id).textContent(),/12 target/);assert.match(await card(other.id).textContent(),/12 to complete/);assert.match(await card(other.id).textContent(),/5.*(?:to add|need replacing)/);
+ assert.equal(sheetWrites.length,0);assert.deepEqual(errors,[]);await browser.close();
+ console.log('PASS: sender/forwarding/account manager details persist, forwarding URLs prefill, fixed targets survive burned domains and partial imports, replacement counts do not inflate targets, progress ignores filters, completed clients reactivate, manual Sheets only, mobile layout.');
+})().catch(e=>{console.error(e);process.exit(1)});

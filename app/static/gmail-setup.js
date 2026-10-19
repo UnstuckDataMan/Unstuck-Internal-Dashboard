@@ -5,6 +5,7 @@
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let board=null,busy=false,submitForm=null,bulkOpen=false,bulkClient=null;
   let lockedControls=null;
+  let activityVersion=0;
   const noteDrafts=new Map();
   let processingBatch=null,batchCurrent='',stopBatch=false;
   let selectedClient=new URLSearchParams(location.hash.slice(1)).get('client');
@@ -14,7 +15,8 @@
   const state=()=>board?.state||{members:[],devices:[],clients:[],setups:[]};
   const member=id=>state().members.find(m=>m.id===id),device=id=>state().devices.find(d=>d.id===id);
   const name=id=>member(id)?.name||'Unallocated';
-  const plannedCount=c=>c&&!c.archived&&!state().setups.some(j=>j.client_id===c.id)?c.planned_domains||0:0;
+  const progress=c=>board?.client_progress?.[c?.id]||{target:c?.domain_target||c?.planned_domains||0,complete:0,actual_todo:0,remaining:c?.domain_target||c?.planned_domains||0,replacements_needed:c?.domain_target||c?.planned_domains||0};
+  const missingLabel=c=>state().setups.some(j=>j.client_id===c.id&&(j.stage==='Burned'||j.archived))?'need replacing':'to add';
   const memberOptions=(selected='',pool=false)=>(pool?'<option value="">Unallocated pool</option>':'<option value="">Select team member</option>')+state().members.filter(m=>m.active||m.id===selected).map(m=>`<option value="${esc(m.id)}" ${m.id===selected?'selected':''}>${esc(m.name)}${m.active?'':' (removed)'}</option>`).join('');
   const uses=d=>Math.max(d.use_count||0,d.used_at||d.status==='Used'?1:0);
   const capacity=d=>d.kind==='Phone'?(board?.summary.phone_setups??2):(board?.summary.pc_setups??1);
@@ -32,11 +34,16 @@
   async function api(path='',data){
     const r=await fetch('/api/gmail-setup'+path,{method:data===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Domain-CSRF':app.dataset.csrf},...(data===undefined?{}:{body:JSON.stringify(data)})});
     let result;try{result=await r.json();}catch{throw Error('Unexpected server response. Refresh before retrying.');}
-    if(!r.ok)throw Error(typeof result.detail==='string'?result.detail:r.status===401?'Sign in again to continue.':'Check the form fields and retry.');
+    if(!r.ok){const error=Error(typeof result.detail==='string'?result.detail:r.status===401?'Sign in again to continue.':'Check the form fields and retry.');error.status=r.status;error.revisionConflict=r.headers.get('X-Gmail-Conflict')==='revision';throw error;}
     return result;
   }
   function accept(result){if(board&&result.revision<board.revision)return;board=result;render();}
-  async function refresh(){accept(await api());}
+  async function refresh({background=false}={}){
+    const version=activityVersion,result=await api();
+    // A read can finish after someone starts choosing a stage or saving it.
+    if(background&&(version!==activityVersion||busy||editing()||$('gs-dialog').open))return;
+    accept(result);
+  }
   function lockControls(){
     if(!lockedControls)return;
     for(const el of lockedControls.keys())if(!el.isConnected)lockedControls.delete(el);
@@ -48,20 +55,40 @@
     }
   }
   async function run(fn){
-    if(busy)return;busy=true;app.setAttribute('aria-busy','true');
+    if(busy)return;busy=true;activityVersion++;app.setAttribute('aria-busy','true');
     lockedControls=new Map();lockControls();
     try{await fn();}catch(err){message(err.message,true);if($('gs-dialog').open)$('gs-form-error').textContent=err.message;}
     finally{busy=false;app.removeAttribute('aria-busy');lockedControls.forEach((disabled,el)=>{if(el.isConnected)el.disabled=disabled;});lockedControls=null;updateClientButtons();renderDnsBatch(state().clients.find(c=>c.id===selectedClient));}
   }
-  async function change(action,data){const result=await api('/change',{revision:board.revision,action,data});accept(result);return result;}
+  async function change(action,data){
+    const original=state().setups.find(j=>j.id===data.id);
+    const watched=action==='setup_stage'?['stage','operator_id','device_id','email','domain','client_id','archived','purchase_at','purchase_device','device_usage_resets']:
+      action==='setup_assign'?['stage','domain','client_id','archived','purchase_at','purchase_device',...('operator_id'in data||'device_id'in data?['operator_id','device_id']:[]),...('email'in data?['email']:[])]:
+      action==='setup_notes'?['notes','domain','client_id','archived']:null;
+    for(let attempt=0;attempt<3;attempt++){
+      try{const result=await api('/change',{revision:board.revision,action,data});accept(result);return result;}
+      catch(error){
+        if(!error.revisionConflict)throw error;
+        const latest=await api(),current=latest.state.setups.find(j=>j.id===data.id);
+        accept(latest);
+        if(action==='setup_stage'&&current&&!current.archived&&current.stage===data.stage)return latest;
+        if(!watched||!original||!current||current.archived||!watched.every(key=>JSON.stringify(original[key]??null)===JSON.stringify(current[key]??null))){
+          throw Error(watched?'This domain was updated by another team member. The latest saved values are shown; review them before changing it again.':error.message);
+        }
+        // Retry the narrow change only if its inputs still match. Other
+        // domains and unrelated notes can change without discarding a stage.
+        if(attempt===2)throw Error('The team tracker is busy. Your change was not saved; please try again.');
+      }
+    }
+  }
   function tab(which){for(const view of ['setups','devices']){$('gs-'+view).hidden=view!==which;$('gs-tab-'+view).setAttribute('aria-selected',String(view===which));}}
   function render(){
     const s=board.summary,st=state();
-    $('gs-stats').innerHTML=[['not_started','Not started'],['started','Started'],['purchased','Purchase made'],['complete','Setup complete']].map(([key,title])=>`<div class="gs-stat"><strong>${s[key]}</strong><span>${title}</span></div>`).join('')+`<div class="gs-stat gs-reserve-stat"><span>Setup capacity / required</span><div class="gs-reserve-ratio"><strong>${s.available_setups}</strong><span>/</span><strong id="gs-reserve-target">${s.target}</strong></div><b class="gs-shortfall ${s.low_stock?'low':'ready'}">${s.low_stock?`Order ${s.shortfall} more ${s.order_kind==='Phone'?'phones':'laptops / PCs'}`:'Setup capacity covered'}</b><p class="gs-reserve-calculation">Required: ${s.todo} to do${s.planned_todo?` (${s.actual_todo} actual + ${s.planned_todo} planned)`:""} + ${s.contingency} contingency = ${s.target} setups.<br>Available: ${s.phone_available} phone + ${s.pc_available} laptop / PC${s.purchased_setups?` + ${s.purchased_setups} already purchased`:""} = ${s.available_setups} setups.<br>${s.available_setups>s.target?`Surplus: ${s.available_setups} − ${s.target} = ${s.available_setups-s.target} setup slots.`:`Gap: ${s.target} − ${s.available_setups} = ${s.setup_shortfall} setups.`}<br>${s.setup_shortfall?`${s.setup_shortfall} ÷ ${s.order_capacity}, rounded up = ${s.shortfall} new ${s.order_kind==='Phone'?'phones':'laptops / PCs'} (${s.shortfall*s.order_capacity} extra setup slots).`:`No new devices needed. New ${s.order_kind==='Phone'?'phones':'laptops / PCs'} cover ${s.order_capacity} setups each.`}</p></div>`;
+    $('gs-stats').innerHTML=[['not_started','Not started'],['started','Started'],['purchased','Purchase made'],['complete','Setup complete']].map(([key,title])=>`<div class="gs-stat"><strong>${s[key]}</strong><span>${title}</span></div>`).join('')+`<div class="gs-stat gs-reserve-stat"><span>Setup capacity / required</span><div class="gs-reserve-ratio"><strong>${s.available_setups}</strong><span>/</span><strong id="gs-reserve-target">${s.target}</strong></div><b class="gs-shortfall ${s.low_stock?'low':'ready'}">${s.low_stock?`Order ${s.shortfall} more ${s.order_kind==='Phone'?'phones':'laptops / PCs'}`:'Setup capacity covered'}</b><p class="gs-reserve-calculation">Required: ${s.todo} to do${s.planned_todo?` (${s.actual_todo} actual + ${s.planned_todo} to add / replace)`:""} + ${s.contingency} contingency = ${s.target} setups.<br>Available: ${s.phone_available} phone + ${s.pc_available} laptop / PC${s.purchased_setups?` + ${s.purchased_setups} already purchased`:""} = ${s.available_setups} setups.<br>${s.available_setups>s.target?`Surplus: ${s.available_setups} − ${s.target} = ${s.available_setups-s.target} setup slots.`:`Gap: ${s.target} − ${s.available_setups} = ${s.setup_shortfall} setups.`}<br>${s.setup_shortfall?`${s.setup_shortfall} ÷ ${s.order_capacity}, rounded up = ${s.shortfall} new ${s.order_kind==='Phone'?'phones':'laptops / PCs'} (${s.shortfall*s.order_capacity} extra setup slots).`:`No new devices needed. New ${s.order_kind==='Phone'?'phones':'laptops / PCs'} cover ${s.order_capacity} setups each.`}</p></div>`;
     $('gs-phone-capacity').value=s.phone_setups;$('gs-pc-capacity').value=s.pc_setups;$('gs-order-kind').value=s.order_kind;
     $('gs-device-rules').textContent=`Phones: ${s.phone_setups} setups each · Laptops / PCs: ${s.pc_setups} setups each.`;
     $('gs-stock').hidden=!s.low_stock;
-    $('gs-stock').innerHTML=`<div><strong>Order ${s.shortfall} more ${s.order_kind==='Phone'?'phones':'laptops / PCs'}</strong><small>${s.available_setups} setup capacity / ${s.target} required · ${s.todo} to do${s.planned_todo?` including ${s.planned_todo} planned`:""} + ${s.contingency} contingency setups. ${s.setup_shortfall} setups short; ${s.order_capacity} per new ${s.order_kind==='Phone'?'phone':'laptop / PC'}, rounded up.</small></div><button data-stock-add>Add inventory</button>`;
+    $('gs-stock').innerHTML=`<div><strong>Order ${s.shortfall} more ${s.order_kind==='Phone'?'phones':'laptops / PCs'}</strong><small>${s.available_setups} setup capacity / ${s.target} required · ${s.todo} to do${s.planned_todo?` including ${s.planned_todo} to add / replace`:""} + ${s.contingency} contingency setups. ${s.setup_shortfall} setups short; ${s.order_capacity} per new ${s.order_kind==='Phone'?'phone':'laptop / PC'}, rounded up.</small></div><button data-stock-add>Add inventory</button>`;
     const chosen=$('gs-filter-manager').value;$('gs-filter-manager').innerHTML='<option value="">Everyone</option>'+st.members.map(m=>`<option value="${esc(m.id)}">${esc(m.name)}${m.active?'':' (removed)'}</option>`).join('');$('gs-filter-manager').value=chosen;
     renderSetups();renderTeam();$('gs-updated').textContent=board.updated_at?`Updated ${new Date(board.updated_at).toLocaleString('en-GB')}`:'Add your actual device inventory to get started';lockControls();
   }
@@ -98,7 +125,8 @@
     $('gs-client-list').hidden=Boolean(current);$('gs-client-detail').hidden=!current;
     $('gs-back-clients').hidden=!current;
     $('gs-client-heading').textContent=current?current.name:'Clients';
-    $('gs-client-caption').textContent=current?`${name(current.account_manager_id)} · ${current.section==='client'?'Client':'Biz Dev'} · ${plannedCount(current)?`${plannedCount(current)} planned domains included in the forecast`:'Completed domains move below in-progress work; burned domains appear last'}`:'Choose a client to view its domains and setup stages.';
+    $('gs-client-caption').textContent=current?`${name(current.account_manager_id)} · ${current.section==='client'?'Client':'Biz Dev'}`:'Choose a client to view its domains and setup stages.';
+    renderClientInfo(current);
     $('gs-add-setup').textContent=current?'+ Add domains':'+ Client';
     $('gs-edit-client').hidden=!current;$('gs-delete-client').hidden=!current;
     updateClientButtons();renderDnsBatch(current);
@@ -106,13 +134,13 @@
     $('gs-bulk-panel').hidden=!current||!bulkOpen;
     const visible=clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).filter(c=>{
       const domains=all.filter(s=>s.client_id===c.id);
-      return domains.length?domains.some(matches):(!stage||stage==='Not started'&&plannedCount(c)>0)&&(!manager||c.account_manager_id===manager)&&(!section||c.section===section)&&(!search||c.name.toLowerCase().includes(search));
+      return domains.some(matches)||(!domains.length&&!stage||progress(c).replacements_needed>0&&(!stage||stage==='Not started'))&&(!manager||c.account_manager_id===manager)&&(!section||c.section===section)&&(!search||c.name.toLowerCase().includes(search));
     });
-    const clientToDo=c=>plannedCount(c)||all.filter(j=>j.client_id===c.id&&!closed(j.stage)).length;
+    const clientToDo=c=>progress(c).remaining;
     const activeClients=visible.filter(c=>clientToDo(c)>0),completedClients=visible.filter(c=>clientToDo(c)===0);
     const clientCard=c=>{
-      const domains=all.filter(s=>s.client_id===c.id),complete=domains.filter(s=>s.stage==='Setup complete').length,burned=domains.filter(s=>s.stage==='Burned').length,planned=plannedCount(c);
-      return `<button class="gs-client-card" data-open-client="${esc(c.id)}"><div><strong>${esc(c.name)}</strong><small>${esc(name(c.account_manager_id))} · ${c.section==='client'?'Client':'Biz Dev'}</small></div><div class="gs-client-counts"><span>${planned?`${planned} planned domains`:`${domains.length} ${domains.length===1?'domain':'domains'}`}</span><span>${planned||domains.length-complete-burned} to do</span><span class="gs-complete-count">${complete} complete</span>${burned?`<span class="gs-burned-count">${burned} burned</span>`:''}<span aria-hidden="true">→</span></div></button>`;
+      const p=progress(c),burned=all.filter(j=>j.client_id===c.id&&j.stage==='Burned').length;
+      return `<button class="gs-client-card" data-open-client="${esc(c.id)}"><div><strong>${esc(c.name)}</strong><small>${esc(name(c.account_manager_id))} · ${c.section==='client'?'Client':'Biz Dev'}</small></div><div class="gs-client-counts"><span>${p.target} target</span><span><b>${p.remaining}</b> to complete</span><span class="gs-complete-count">${p.complete} complete</span>${p.replacements_needed?`<span class="gs-replacement-count" data-client-replacements="${esc(c.id)}">${p.replacements_needed} ${missingLabel(c)}</span>`:''}${burned?`<span class="gs-burned-count">${burned} burned</span>`:''}<span aria-hidden="true">→</span></div></button>`;
     };
     $('gs-client-list').innerHTML=visible.length?`${activeClients.length?`<div class="gs-client-group" data-client-group="active">${activeClients.map(clientCard).join('')}</div>`:''}${completedClients.length?`<section class="gs-client-group" data-client-group="complete" aria-label="Completed clients"><h4 class="gs-list-heading gs-complete-heading">Completed <span>${completedClients.length}</span></h4>${completedClients.map(clientCard).join('')}</section>`:''}`:'<div class="gs-empty"><strong>No clients to show</strong>Add a client first, then add its domains.</div>';
     if(current){
@@ -120,9 +148,14 @@
       const pending=domains.filter(s=>!closed(s.stage)),complete=domains.filter(s=>s.stage==='Setup complete'),burned=domains.filter(s=>s.stage==='Burned');
       const order=(a,b)=>(a.order||0)-(b.order||0)||a.domain.localeCompare(b.domain);
       const pendingOrder=(a,b)=>(a.created_at||'').localeCompare(b.created_at||'');
-      $('gs-setup-list').innerHTML=domains.length?`${pending.length?`<h4 class="gs-list-heading">In progress <span>${pending.length}</span></h4>${pending.sort(pendingOrder).map(renderDomain).join('')}`:''}${complete.length?`<h4 class="gs-list-heading gs-complete-heading">Complete <span>${complete.length}</span></h4>${complete.sort(order).map(renderDomain).join('')}`:''}${burned.length?`<h4 class="gs-list-heading gs-burned-heading">Burned <span>${burned.length}</span></h4>${burned.sort((a,b)=>(a.burned_at||'').localeCompare(b.burned_at||'')).map(renderDomain).join('')}`:''}`:`<div class="gs-empty"><strong>No domains to show</strong>${plannedCount(current)?`${plannedCount(current)} planned domains are included in the forecast. Add actual domains to replace this placeholder.`:'Add a domain to this client or change your filters.'}</div>`;
+      $('gs-setup-list').innerHTML=domains.length?`${pending.length?`<h4 class="gs-list-heading">In progress <span>${pending.length}</span></h4>${pending.sort(pendingOrder).map(renderDomain).join('')}`:''}${complete.length?`<h4 class="gs-list-heading gs-complete-heading">Complete <span>${complete.length}</span></h4>${complete.sort(order).map(renderDomain).join('')}`:''}${burned.length?`<h4 class="gs-list-heading gs-burned-heading">Burned <span>${burned.length}</span></h4>${burned.sort((a,b)=>(a.burned_at||'').localeCompare(b.burned_at||'')).map(renderDomain).join('')}`:''}`:`<div class="gs-empty"><strong>No domains to show</strong>${progress(current).remaining?`${progress(current).remaining} domains still needed. Add domains to continue.`:'Add a domain to this client or change your filters.'}</div>`;
     }else $('gs-setup-list').innerHTML='';
     lockControls();
+  }
+  function renderClientInfo(client){
+    const el=$('gs-client-info');el.hidden=!client;if(!client){el.innerHTML='';return;}
+    const p=progress(client),url=/^https?:\/\//i.test(client.website_url||'')?client.website_url:null;
+    el.innerHTML=`<div class="gs-client-progress"><span><strong>${p.target}</strong> target</span><span><strong>${p.complete}</strong> complete</span><span><strong>${p.remaining}</strong> still needed</span>${p.replacements_needed?`<b class="gs-replacement-count" data-client-replacements="${esc(client.id)}">${p.replacements_needed} ${missingLabel(client)}</b>`:''}</div><dl class="gs-client-contacts"><div><dt>Sender’s full name</dt><dd>${esc(client.sender_full_name||'Not added')}</dd></div><div><dt>Forwarding website</dt><dd>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`:'Not added'}</dd></div><div><dt>Account manager email</dt><dd>${esc(client.account_manager_email||'Not added')}</dd></div></dl>`;
   }
   function completeClient(){
     const client=state().clients.find(c=>c.id===selectedClient);if(!client)return;
@@ -220,12 +253,12 @@
   function editDevice(id){const d=device(id);dialog(label(d),`<div class="gs-form-grid">${field('Physical asset label','gs-asset-tag',d.asset_tag,'required maxlength="80"')}<label>Allocate to<select id="gs-transfer-owner">${memberOptions(d.member_id,true)}</select></label><label>Condition<select id="gs-asset-status">${conditions.map(([v,l])=>`<option value="${esc(v)}" ${v===(d.status==='Blocked'?'Blocked|'+(d.block_reason||'Other'):d.status)?'selected':''} ${d.status==='Blocked'&&!v.startsWith('Blocked')||d.used_at&&v==='Unused'?'disabled':''}>${l}</option>`).join('')}</select></label></div>${deviceDomainDetails(d)}<button type="button" id="gs-remove-device" class="gs-danger">Remove from inventory</button>`,async()=>{await change('device_update',{id,member_id:value('gs-transfer-owner')||null,...conditionData(value('gs-asset-status')),asset_tag:value('gs-asset-tag')});message('Device updated.');});for(const b of $('gs-form-fields').querySelectorAll('[data-device-domain]'))b.onclick=()=>{const job=state().setups.find(j=>j.id===b.dataset.deviceDomain);$('gs-dialog').close();tab('setups');$('gs-search').value='';$('gs-filter-stage').value='';$('gs-filter-manager').value='';$('gs-filter-section').value='';openClient(job.client_id);const row=$('gs-setup-list').querySelector(`[data-setup="${job.id}"]`);row?.scrollIntoView({block:'center',behavior:'smooth'});row?.classList.add('gs-domain-highlight');setTimeout(()=>row?.classList.remove('gs-domain-highlight'),2500);};$('gs-remove-device').onclick=()=>{if(confirm('Remove this device from active inventory? Purchase history will be retained.'))run(async()=>{await change('device_remove',{id});$('gs-dialog').close();message('Device removed from active inventory.');});};}
   function addClient(id){
     const c=state().clients.find(c=>c.id===id)||{};
-    const canPlan=!state().setups.some(j=>j.client_id===c.id);
-    dialog(id?'Edit client':'Add client',`<div class="gs-form-grid">${field('Client / company name','gs-client-name',c.name,'required maxlength="150"')}<label>Section<select id="gs-client-section" ${id?'disabled':''}><option value="client" ${c.section==='client'?'selected':''}>Client · 1) Emails - entry</option><option value="bizdev" ${c.section==='bizdev'?'selected':''}>Biz Dev · 1) BD Emails - entry</option></select></label><label>Account manager<select id="gs-client-manager" required>${memberOptions(c.account_manager_id)}</select></label><label>Default setup person (optional)<select id="gs-client-operator">${memberOptions(member(c.operator_id)?.active?c.operator_id:'')}</select></label>${canPlan?`<label class="gs-wide">Planned domains (optional)<input id="gs-client-planned" type="number" inputmode="numeric" min="0" max="5000" step="1" value="${c.planned_domains||0}"><small>Used until you add actual domains.</small></label>`:''}</div>`,async()=>{
+    dialog(id?'Edit client':'Add client',`<div class="gs-form-grid">${field('Client / company name','gs-client-name',c.name,'required maxlength="150"')}<label>Section<select id="gs-client-section" ${id?'disabled':''}><option value="client" ${c.section==='client'?'selected':''}>Client · 1) Emails - entry</option><option value="bizdev" ${c.section==='bizdev'?'selected':''}>Biz Dev · 1) BD Emails - entry</option></select></label>${field('Sender’s full name','gs-client-sender-full-name',c.sender_full_name,'maxlength="150"')}${field('Client URL for forwarding','gs-client-url',c.website_url,'inputmode="url" maxlength="2048" placeholder="https://clientwebsite.com"')}<label>Account manager<select id="gs-client-manager" required>${memberOptions(c.account_manager_id)}</select></label>${field('Account manager email','gs-client-manager-email',c.account_manager_email??member(c.account_manager_id)?.email??'','type="email" maxlength="254"')}<label>Default setup person (optional)<select id="gs-client-operator">${memberOptions(member(c.operator_id)?.active?c.operator_id:'')}</select></label><label>Domain target<input id="gs-client-target" type="number" inputmode="numeric" min="0" max="5000" step="1" value="${progress(c).target}"><small>Burned domains still need replacing to reach this target.</small></label></div>`,async()=>{
       const existing=new Set(state().clients.map(c=>c.id));
-      const r=await change('client_save',{...(id?{id}:{}),name:value('gs-client-name'),section:value('gs-client-section'),account_manager_id:value('gs-client-manager'),operator_id:value('gs-client-operator')||null,planned_domains:canPlan?Number(value('gs-client-planned')||0):0});
+      const r=await change('client_save',{...(id?{id}:{}),name:value('gs-client-name'),section:value('gs-client-section'),account_manager_id:value('gs-client-manager'),operator_id:value('gs-client-operator')||null,domain_target:Number(value('gs-client-target')||0),sender_full_name:value('gs-client-sender-full-name'),website_url:value('gs-client-url'),account_manager_email:value('gs-client-manager-email')});
       if(!id)openClient(r.state.clients.find(c=>!existing.has(c.id)).id);message(id?'Client updated.':'Client added.');
     });
+    $('gs-client-manager').onchange=()=>{$('gs-client-manager-email').value=member(value('gs-client-manager'))?.email||'';};
   }
   function editSetup(id){
     const s=state().setups.find(s=>s.id===id)||{};
@@ -297,7 +330,7 @@
     run(async()=>{try{if(job.sync?.status==='synced'&&!['Not started','Started'].includes(job.stage)&&input.dataset.setDevice)await change('setup_device',{id,operator_id:job.operator_id,device_id:input.value});else await change('setup_assign',{id,...patch});message('Domain updated.');}finally{renderSetups();}});
   };
   // Refresh shared counts without disturbing an open edit form or active request.
-  setInterval(()=>{if(!busy&&!$('gs-dialog').open&&!document.hidden&&!editing())refresh().catch(err=>message(err.message,true));},30000);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!busy&&!$('gs-dialog').open&&!editing())refresh().catch(err=>message(err.message,true));});
+  setInterval(()=>{if(!busy&&!$('gs-dialog').open&&!document.hidden&&!editing())refresh({background:true}).catch(err=>message(err.message,true));},30000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!busy&&!$('gs-dialog').open&&!editing())refresh({background:true}).catch(err=>message(err.message,true));});
   run(refresh);
 })();

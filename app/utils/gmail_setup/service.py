@@ -68,12 +68,44 @@ def ensure_clients(state):
             clients.append(client)
             by_key[key] = client
         job['client_id'] = by_key[key]['id']
-    # A placeholder belongs only to a client with no actual domain history.
-    # Repair older saved boards too; the next CAS mutation persists this cleanup.
-    clients_with_domains = {j.get('client_id') for j in state['setups']}
+    # Upgrade once, before clearing the old placeholder. The original demand
+    # survives burned/deleted rows; replacements fill it instead of adding to it.
+    history_counts = {}
+    for job in state['setups']:
+        history_counts[job['client_id']] = history_counts.get(job['client_id'], 0)+1
     for client in clients:
-        if client['id'] in clients_with_domains:
+        if 'domain_target' not in client:
+            client['domain_target'] = max(client.get('planned_domains', 0), history_counts.get(client['id'], 0))
+        if history_counts.get(client['id']):
             client['planned_domains'] = 0
+
+
+def client_progress(state, client, jobs=None):
+    jobs = [job for job in (state['setups'] if jobs is None else jobs)
+            if job.get('client_id') == client['id'] and not job.get('archived')]
+    complete = sum(job['stage'] == STAGES[2] for job in jobs)
+    actual_todo = sum(job['stage'] not in CLOSED_STAGES for job in jobs)
+    target = client.get('domain_target', 0)
+    remaining = max(0, target-complete)
+    replacements = max(0, remaining-actual_todo)
+    return {'target': target, 'complete': complete, 'actual_todo': actual_todo,
+            'todo': remaining, 'remaining': remaining, 'replacements_needed': replacements}
+
+
+def client_progress_map(state):
+    grouped = {}
+    for job in state['setups']:
+        grouped.setdefault(job.get('client_id'), []).append(job)
+    return {client['id']: client_progress(state, client, grouped.get(client['id'], []))
+            for client in state['clients'] if not client.get('archived')}
+
+
+def grow_client_target(state, client):
+    healthy = sum(job.get('client_id') == client['id'] and not job.get('archived')
+                  and job['stage'] != BURNED for job in state['setups'])
+    client['domain_target'] = max(client.get('domain_target', 0), healthy)
+    if healthy:
+        client['planned_domains'] = 0
 
 
 def find(state, collection, identifier, active=False):
@@ -193,11 +225,11 @@ def reserve_plan(state):
     # Operations reads the stored board directly. Resolve legacy client links
     # before forecasting so it agrees with the client view and never adds both.
     ensure_clients(state)
-    jobs = [j for j in state['setups'] if not j.get('archived') and j['stage'] not in CLOSED_STAGES]
-    clients_with_domains = {j.get('client_id') for j in state['setups']}
-    planned = sum(c.get('planned_domains', 0) for c in state.get('clients', [])
-        if not c.get('archived') and c['id'] not in clients_with_domains)
-    todo = len(jobs)+planned
+    progress = client_progress_map(state)
+    jobs = [j for j in state['setups'] if j.get('client_id') in progress
+            and not j.get('archived') and j['stage'] not in CLOSED_STAGES]
+    planned = sum(client['replacements_needed'] for client in progress.values())
+    todo = sum(client['remaining'] for client in progress.values())
     usable = {d['id']: d for d in state['devices'] if not d.get('archived') and d['status'] != 'Blocked'}
     remaining = {kind: sum(max(0, device_capacity(state, d)-device_uses(d))
         for d in usable.values() if d['kind'] == kind) for kind in DEFAULT_CAPACITY}
@@ -242,7 +274,9 @@ def result(record):
     state = copy.deepcopy(record['state'])
     # Lease tokens remain server-side; public state is not accepted as a mutation.
     state.pop('sync_lock', None)
-    return {'state': state, 'revision': record['revision'], 'updated_at': record['updated_at'], 'summary': summary(state),
+    plan = summary(state)
+    return {'state': state, 'revision': record['revision'], 'updated_at': record['updated_at'], 'summary': plan,
+            'client_progress': client_progress_map(state),
             **({'import_summary': record['import_summary']} if 'import_summary' in record else {})}
 
 
@@ -281,7 +315,7 @@ def device_slot(state, member_id, kind, exclude=None):
 def mutate(user, expected, action, data):
     record = board(user)
     if record['revision'] != expected:
-        raise HTTPException(409, 'Someone updated the team tracker. Refresh before saving again.')
+        raise HTTPException(409, 'Someone updated the team tracker. Refresh before saving again.', headers=store.REVISION_CONFLICT_HEADERS)
     state = copy.deepcopy(record['state'])
     unlocked(state)
     state['sync_lock'] = None
@@ -295,13 +329,31 @@ def mutate(user, expected, action, data):
         state.update(device_capacity=limits, order_device_kind=data['order_kind'])
     elif action == 'client_save':
         current = find(state, 'clients', data['id'], True) if data.get('id') else None
-        planned = data.get('planned_domains')
-        if planned is None:
-            planned = (current or {}).get('planned_domains', 0)
-        if type(planned) is not int or not 0 <= planned <= 5000:
-            raise HTTPException(400, 'Enter a planned domain count from 0 to 5000.')
-        if current and any(j.get('client_id') == current['id'] for j in state['setups']):
-            planned = 0
+        data = {'section': (current or {}).get('section', 'client'), **data}
+        target = data.get('domain_target')
+        if target is None:
+            target = data.get('planned_domains')
+        if target is None:
+            target = (current or {}).get('domain_target', 0)
+        if type(target) is not int or not 0 <= target <= 5000:
+            raise HTTPException(400, 'Enter a domain target from 0 to 5000.')
+        healthy = sum(job.get('client_id') == current['id'] and not job.get('archived') and job['stage'] != BURNED
+                      for job in state['setups']) if current else 0
+        if target < healthy:
+            raise HTTPException(400, f'Target must cover {healthy} current domains.')
+        metadata = {}
+        if 'sender_full_name' in data:
+            metadata['sender_full_name'] = text(data['sender_full_name'], 'Sender full name', False)
+        if 'account_manager_email' in data:
+            email = text(data['account_manager_email'], 'Account manager email', False).lower()
+            if email and not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email):
+                raise HTTPException(400, 'Enter a valid account manager email address.')
+            metadata['account_manager_email'] = email
+        if 'website_url' in data:
+            from .dns_setup import destination_url
+            website = text(data['website_url'], 'Client website', False)
+            metadata['website_url'] = destination_url(website, '') if website else ''
+        planned = 0 if current and any(j.get('client_id') == current['id'] for j in state['setups']) else target
         client_name = re.sub(r'\s+', ' ', text(data['name'], 'Client name'))
         key = client_key(data['section'], client_name)
         if any(not c.get('archived') and c['id'] != (current or {}).get('id') and client_key(c['section'], c['name']) == key for c in state['clients']):
@@ -321,11 +373,13 @@ def mutate(user, expected, action, data):
                     else:
                         job['account_manager_id'] = data['account_manager_id']
                     job['client_name'] = client_name
-            current.update(name=client_name, account_manager_id=data['account_manager_id'], operator_id=data.get('operator_id'), planned_domains=planned, updated_at=now())
+            current.update(name=client_name, account_manager_id=data['account_manager_id'],
+                           operator_id=data.get('operator_id', current.get('operator_id')), planned_domains=planned,
+                           domain_target=target, updated_at=now(), **metadata)
         else:
             state['clients'].append({'id': new_id(), 'name': client_name, 'section': data['section'],
                                      'account_manager_id': data['account_manager_id'], 'operator_id': data.get('operator_id'),
-                                     'planned_domains': planned, 'created_at': now()})
+                                     'planned_domains': planned, 'domain_target': target, 'created_at': now(), **metadata})
     elif action == 'client_remove':
         client = find(state, 'clients', data['id'], True)
         client.update(archived=True, deleted_at=now())
@@ -387,7 +441,7 @@ def mutate(user, expected, action, data):
             existing.add(domain)
             added += 1
         if added:
-            client['planned_domains'] = 0
+            grow_client_target(state, client)
         outcome = {'added': added, 'skipped': len(parsed)-added}
     elif action == 'member_save':
         if data.get('id'):
@@ -570,6 +624,7 @@ def mutate(user, expected, action, data):
                        section=data['section'], account_manager_id=manager['id'], operator_id=operator['id'] if operator else None,
                        device_id=device_id, notes=text(data.get('notes'), 'Notes', False), updated_at=now())
         set_stage(state, current, data.get('stage') or current['stage'])
+        grow_client_target(state, client)
     elif action == 'setup_device':
         # A missing device can be recorded later, including after a sheet sync,
         # without permitting edits to the published email, owner or sheet row.
@@ -592,6 +647,7 @@ def mutate(user, expected, action, data):
     elif action == 'setup_stage':
         job = find(state, 'setups', data['id'], True)
         set_stage(state, job, data['stage'])
+        grow_client_target(state, find(state, 'clients', job['client_id'], True))
     elif action == 'setup_notes':
         job = find(state, 'setups', data['id'], True)
         if not isinstance(data.get('notes'), str) or len(data['notes']) > 1000:

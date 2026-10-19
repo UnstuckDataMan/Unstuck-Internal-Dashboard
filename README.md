@@ -20,8 +20,12 @@ no new service, frontend build step or database provider.
 Open **Operations → Gmail Set** (`/gmail-set`). The main tool tracks the shared
 company setup journey: **Not started → Started → Purchase made → Setup complete**.
 Create a client first, click its card, then paste up to 500 domains or emails.
+Client details also store the sender's full name, client website for forwarding,
+and account manager's email. These can be edited later. A website entered without
+a scheme is saved with `https://`; saved websites prefill DNS setup confirmations.
 An optional sender name (for example, `ashley`) populates `ashley@domain.com`
-for bare domains; explicit pasted email addresses are preserved.
+for bare domains; explicit pasted email addresses are preserved. This mailbox
+name is separate from the sender's full name.
 One account manager applies to the client. Optionally choose a default setup
 person, then change setup person, sending email, device and stage inline for
 each domain. Bare domains can be planned without an email or setup person;
@@ -81,20 +85,29 @@ is no longer the main workflow.
   the saved limit or blocked. Raising/lowering limits updates every card, domain
   picker, allocation check and consumption check without erasing physical history.
   Manually blocked equipment remains blocked even if limits are raised.
-- New or empty clients can have an optional **Planned domains** placeholder (0–5000).
-  It contributes to company to do, Not started and device-order calculations before
-  domains are purchased. The first actual domain added (bulk or single) clears
-  the entire placeholder: 10 planned followed by 7 actual becomes 7, never 17
-  or a minimum of 10. Failed imports and imports containing only duplicates keep
-  the placeholder. Completed/deleted actual domains never revive an old plan.
-  The client list and forecast distinguish planned counts from actual domain rows;
-  placeholders create no sending emails, sheet rows or DMARC targets.
+- Each client has a saved **Domain target** (0–5000): the number of completed
+  domains needed for that client. Set it manually before buying domains, or let
+  pasted domains establish it. Partial imports retain a larger manual target;
+  adding domains grows the target only when the active, nonburned domain count
+  exceeds it. Duplicate-only and failed imports do not increase the target.
+  Remaining work is **target − completed domains**. For a target of 10, three
+  complete and two burned leaves **7 to do**, including **2 replacements**.
+  Burned or deleted domains retain their place in the target until replaced or
+  the target is explicitly reduced. Replacement additions fill those places
+  without inflating the target; targets cannot be reduced below the number of
+  current nonburned domains. Client counts, Completed grouping and device orders
+  all use this same remaining-work calculation. Missing domains create demand,
+  not synthetic email rows or DNS targets.
+  Older clients receive a target once from the greater of their old planned
+  count and recorded domain history, including burned/deleted rows. This target
+  can then be edited in the client details.
 - Both Gmail Set and Operations compare **setup slots**: required setups are
-  **active to do domains + 10 contingency setups**, not ten physical devices.
+  **all clients' remaining work + 10 contingency setups**, not ten physical devices.
   Remaining capacity sums max(limit − recorded uses, 0) on active, unblocked
   phones and PCs. Purchase-stage jobs already paid for on a recorded device also
-  count as covered; jobs reset to Not started require fresh capacity. Completed,
-  burned and deleted domains leave the demand count. New orders are
+  count as covered; jobs reset to Not started require fresh capacity. Completed
+  domains reduce demand; burned/deleted domains still need replacements against
+  the client's target. New orders are
   ceil(max(0, required − available setup slots) / setups per new device).
   The card shows phone/PC capacity separately, demand, setup shortfall and whole
   devices to order. For 19 to do + 10 contingency, 22 phone + 2 PC slots give
@@ -151,9 +164,12 @@ is no longer the main workflow.
   endpoints are disabled. Historical sheet row links remain for reference;
   they do not verify the row's current Live status. The tool includes a direct
   link to the Master Strategy sheet.
-- Workspace-wide conditional revisions protect shared tracker updates. A
-  persistent 180-second write lease prevents overlapping DNS writes. Boot
-  diagnostics check tracker storage only.
+- Workspace-wide conditional revisions protect shared tracker updates. Narrow
+  stage, assignment and notes saves can retry after an unrelated teammate edit;
+  a conflicting change to the same fields shows the latest saved values instead
+  of overwriting them. Background refreshes do not replace active edits or
+  responses from a newer save. A persistent 180-second write lease prevents
+  overlapping DNS writes. Boot diagnostics check tracker storage only.
 - Apply `migrations/gmail_setup_schema.sql` to the existing Supabase project. RLS
   is enabled with no browser policies/grants; only the server service role can
   access the workspace-scoped board. Google dashboard sessions, tool access and

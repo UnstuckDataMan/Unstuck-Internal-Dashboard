@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from app.utils import supabase as sb
 
 TABLE = 'gmail_setup_boards'
+REVISION_CONFLICT_HEADERS = {'X-Gmail-Conflict': 'revision'}
 
 
 def workspace(user):
@@ -22,7 +23,8 @@ def call(method, table, params, body=None):
                              headers=sb.sb_service_headers('return=representation'),
                              **({'json': body} if body is not None else {}), timeout=(3, 12))
         if r.status_code == 409:
-            raise HTTPException(409, 'The team tracker changed. Refresh and retry.')
+            headers = REVISION_CONFLICT_HEADERS if table == TABLE and method.lower() in {'post', 'patch'} else None
+            raise HTTPException(409, 'The team tracker changed. Refresh and retry.', headers=headers)
         if not r.ok:
             raise HTTPException(503, 'Gmail Set storage is unavailable. Your changes were not saved.')
         return r.json()
@@ -50,5 +52,5 @@ def save(user, state, revision):
     else:
         rows = call('patch', TABLE, {'workspace_id': 'eq.'+workspace(user), 'revision': 'eq.'+str(revision)}, body)
     if not rows:
-        raise HTTPException(409, 'Someone updated the team tracker. Refresh before saving again.')
+        raise HTTPException(409, 'Someone updated the team tracker. Refresh before saving again.', headers=REVISION_CONFLICT_HEADERS)
     return rows[0]
