@@ -40,6 +40,14 @@ with a prominent instruction for SDRs and Scale Clients to use the GPT domain
 clustering plugin in Notion. This step is optional for normal clients; clustering
 is no longer the main workflow.
 
+Gmail Set checks for a new release every 30 seconds and when a tab becomes visible.
+Idle tabs reload the current release; open forms, unsaved edits and active saves
+delay that reload. The Refresh button checks the release as well as shared data.
+Render's commit ID identifies releases; local previews use the asset hash.
+If an open tab has an older CSRF token after sign-in, only the server's explicit
+pre-mutation session rejection triggers a current-token fetch and one retry.
+Ordinary permission failures and uncertain writes are never replayed this way.
+
 - The tracker seeds its member list from active dashboard users in the signed-in
   workspace. Members can be added, edited or removed within this tool without
   changing dashboard login access. Open work must be reassigned before removal.

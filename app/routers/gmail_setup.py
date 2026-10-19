@@ -1,6 +1,7 @@
 """Shared Gmail setup board, protected by dashboard tool access and CSRF."""
 import secrets
 import hashlib
+import os
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
@@ -14,6 +15,7 @@ router = APIRouter()
 _STATIC = Path(__file__).resolve().parents[1] / 'static'
 ASSET_VERSION = hashlib.sha256(b''.join((_STATIC / name).read_bytes() for name in
     ('gmail-setup.js', 'gmail-setup.css'))).hexdigest()[:12]
+APP_VERSION = os.getenv('RENDER_GIT_COMMIT') or ASSET_VERSION
 
 
 class Strict(BaseModel):
@@ -127,13 +129,19 @@ class Change(Strict):
 def page(request: Request, user=Depends(access)):
     request.session.setdefault('domain_csrf', secrets.token_urlsafe(32))
     return templates.TemplateResponse(request, 'gmail_setup.html', {
-        'csrf': request.session['domain_csrf'], 'gmail_asset_version': ASSET_VERSION,
+        'csrf': request.session['domain_csrf'], 'gmail_asset_version': ASSET_VERSION, 'gmail_app_version': APP_VERSION,
         'gmail_can_manage_dns': user.get('role') == 'admin'})
 
 
 @router.get('/api/gmail-setup')
 def get_board(user=Depends(access)):
     return service.result(service.board(user))
+
+
+@router.get('/api/gmail-setup/session')
+def session_status(request: Request, user=Depends(access)):
+    request.session.setdefault('domain_csrf', secrets.token_urlsafe(32))
+    return {'csrf': request.session['domain_csrf'], 'app_version': APP_VERSION}
 
 
 @router.get('/api/gmail-setup/summary')

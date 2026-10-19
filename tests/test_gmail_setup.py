@@ -255,6 +255,78 @@ def test_tracker_routes_auth_csrf_schema_and_shared_visibility(client,board_db,m
     assert 'sync_lock' not in client.get('/api/gmail-setup').json()['state']
 
 
+def test_session_status_requires_tool_access_and_returns_stable_current_token_and_build_for_staff(client,board_db,monkeypatch):
+    from app.routers.gmail_setup import APP_VERSION
+    user=None
+    monkeypatch.setattr(auth,'get_session_user',lambda request:user)
+    response=client.get('/api/gmail-setup/session')
+    assert response.status_code==401 and 'X-Gmail-Session' not in response.headers
+    user={**OTHER,'tools':[]}
+    response=client.get('/api/gmail-setup/session')
+    assert response.status_code==403 and 'X-Gmail-Session' not in response.headers
+    user={**OTHER,'role':'sdr'}
+    response=client.get('/api/gmail-setup/session')
+    assert response.status_code==200 and response.headers['cache-control']=='no-store'
+    token=response.json()['csrf']
+    assert len(token)>=32 and response.json()['app_version']==APP_VERSION
+    assert client.get('/api/gmail-setup/session').json()==response.json()
+    assert board_db=={} # fetching a session never creates/loads a tracker or sheet row
+    import re
+    page=client.get('/gmail-set')
+    assert re.search('data-csrf="([^"]+)"',page.text)[1]==token
+    assert re.search('data-app-version="([^"]+)"',page.text)[1]==APP_VERSION
+    assert client.get('/api/gmail-setup/session').json()['csrf']==token
+
+
+def test_stale_session_token_fails_before_mutation_then_current_token_retry_succeeds(client,board_db,monkeypatch):
+    monkeypatch.setattr(auth,'get_session_user',lambda request:OTHER)
+    monkeypatch.setattr(sheets,'publish',lambda *args:pytest.fail('Session recovery must not write Google Sheets'))
+    record,jid=create_setup(people()['Dylan'])
+    before=s.board(OTHER)
+    payload={'revision':record['revision'],'action':'setup_notes','data':{'id':jid,'notes':'Saved by Matthew after session check'}}
+    client.headers['X-Domain-CSRF']='outdated-tab-token'
+    rejected=client.post('/api/gmail-setup/change',json=payload)
+    assert rejected.status_code==403 and rejected.headers['X-Gmail-Session']=='refresh'
+    assert rejected.json()['detail']=='Session verification failed. Refresh the page and retry.'
+    assert s.board(OTHER)==before
+    recovered=client.get('/api/gmail-setup/session')
+    assert recovered.status_code==200 and s.board(OTHER)==before
+    client.headers['X-Domain-CSRF']=recovered.json()['csrf']
+    saved=client.post('/api/gmail-setup/change',json=payload)
+    assert saved.status_code==200 and saved.json()['state']['setups'][0]['notes']==payload['data']['notes']
+    assert s.board(USER)['state']['setups'][0]['notes']==payload['data']['notes'] # same workspace for both people
+    assert client.get('/api/gmail-setup/session').json()['csrf']==recovered.json()['csrf']
+
+
+def test_release_version_changes_page_and_session_without_changing_asset_cache_version(client,monkeypatch):
+    from app.routers import gmail_setup
+    monkeypatch.setattr(auth,'get_session_user',lambda request:OTHER)
+    monkeypatch.setattr(gmail_setup,'APP_VERSION','synthetic-backend-only-release')
+    response=client.get('/api/gmail-setup/session')
+    assert response.json()['app_version']=='synthetic-backend-only-release'
+    page=client.get('/gmail-set')
+    assert 'data-app-version="synthetic-backend-only-release"' in page.text
+    assert f'/static/gmail-setup.js?v={gmail_setup.ASSET_VERSION}' in page.text
+    assert f'/static/gmail-setup.css?v={gmail_setup.ASSET_VERSION}' in page.text
+
+
+def test_recovery_session_does_not_grant_removed_tool_access_or_bypass_csrf(client,board_db,monkeypatch):
+    user={**OTHER}
+    monkeypatch.setattr(auth,'get_session_user',lambda request:user)
+    token=client.get('/api/gmail-setup/session').json()['csrf']
+    owner=people()['Dylan'];record,jid=create_setup(owner)
+    payload={'revision':record['revision'],'action':'setup_notes','data':{'id':jid,'notes':'Must stay unsaved'}}
+    # Obtaining the current token does not bypass the requirement to send it.
+    response=client.post('/api/gmail-setup/change',json=payload)
+    assert response.status_code==403 and response.headers['X-Gmail-Session']=='refresh'
+    client.headers['X-Domain-CSRF']=token
+    user['tools']=[]
+    response=client.post('/api/gmail-setup/change',json=payload)
+    assert response.status_code==403 and 'X-Gmail-Session' not in response.headers
+    assert client.get('/api/gmail-setup/session').status_code==403
+    assert s.board(USER)==record
+
+
 @pytest.mark.parametrize('defer_sync',[False,True,None])
 def test_completion_routes_never_write_strategy_sheet_for_individual_details_or_bulk_completion(client,board_db,monkeypatch,defer_sync):
     import re

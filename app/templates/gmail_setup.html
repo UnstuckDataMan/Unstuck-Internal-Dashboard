@@ -3,9 +3,10 @@
 {% block heading %}Gmail Set{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="/static/gmail-setup.css?v={{ gmail_asset_version }}">{% endblock %}
 {% block content %}
-<div id="gs-app" data-csrf="{{ csrf }}" data-dns-admin="{{ 'true' if gmail_can_manage_dns else 'false' }}">
+<div id="gs-app" data-csrf="{{ csrf }}" data-app-version="{{ gmail_app_version }}" data-dns-admin="{{ 'true' if gmail_can_manage_dns else 'false' }}">
   <div class="gs-intro"><div><div class="gs-eyebrow">OPERATIONS / GMAIL SET</div><h2>New Gmail setups</h2><p>Track each account from purchase to completion. Keep your team’s devices ready.</p></div><button id="gs-refresh">Refresh</button></div>
   <aside class="gs-note"><strong>SDR’s and Scale Clients only: Before you start</strong><p>Use the <strong>GPT domain clustering plugin in Notion</strong> to choose and check your domains. Add the approved domains here to track their setup. This step is optional for normal clients.</p></aside>
+  <aside id="gs-update" class="gs-update" role="status" hidden><span>A new version is ready. Save your changes, then update.</span><button id="gs-apply-update" type="button">Update tool</button></aside>
   <div id="gs-message" role="status" aria-live="polite"></div>
   <div id="gs-stock" class="gs-stock" role="alert" hidden></div>
   <div id="gs-stats" class="gs-stats" aria-label="Company overview"></div>

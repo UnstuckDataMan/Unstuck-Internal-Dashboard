@@ -6,6 +6,7 @@
   let board=null,busy=false,submitForm=null,bulkOpen=false,bulkClient=null;
   let lockedControls=null;
   let activityVersion=0;
+  let nextVersion=null,sessionCheck=null,reloading=false;
   const noteDrafts=new Map();
   let processingBatch=null,batchCurrent='',stopBatch=false;
   let selectedClient=new URLSearchParams(location.hash.slice(1)).get('client');
@@ -31,17 +32,53 @@
   const label=d=>`${d.kind} ${d.number} · ${name(d.member_id)}`;
   function updateClientButtons(){const c=state().clients.find(c=>c.id===selectedClient&&!c.archived),jobs=state().setups.filter(j=>j.client_id===c?.id&&!j.archived&&j.stage!=='Burned');$('gs-client-dns').hidden=!c||app.dataset.dnsAdmin!=='true';$('gs-client-dns').disabled=busy||!jobs.length;$('gs-complete-client').hidden=!c;$('gs-complete-client').disabled=busy||!jobs.some(j=>j.stage!=='Setup complete');}
   function message(text,error=false){$('gs-message').textContent=text;$('gs-message').classList.toggle('error',error);}
-  async function api(path='',data){
+  async function api(path='',data,recoverSession=true){
     const r=await fetch('/api/gmail-setup'+path,{method:data===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Domain-CSRF':app.dataset.csrf},...(data===undefined?{}:{body:JSON.stringify(data)})});
     let result;try{result=await r.json();}catch{throw Error('Unexpected server response. Refresh before retrying.');}
-    if(!r.ok){const error=Error(typeof result.detail==='string'?result.detail:r.status===401?'Sign in again to continue.':'Check the form fields and retry.');error.status=r.status;error.revisionConflict=r.headers.get('X-Gmail-Conflict')==='revision';throw error;}
+    if(!r.ok){
+      // Only this header means the server rejected the request before any
+      // change. Never replay an authorization failure or an uncertain write.
+      if(data!==undefined&&recoverSession&&r.status===403&&r.headers.get('X-Gmail-Session')==='refresh'){
+        await checkSessionVersion();return api(path,data,false);
+      }
+      const error=Error(typeof result.detail==='string'?result.detail:r.status===401?'Sign in again to continue.':'Check the form fields and retry.');error.status=r.status;error.revisionConflict=r.headers.get('X-Gmail-Conflict')==='revision';throw error;
+    }
     return result;
   }
-  function accept(result){if(board&&result.revision<board.revision)return;board=result;render();}
+  function unsavedChanges(){
+    if(noteDrafts.size||bulkOpen&&(value('gs-bulk-domains')||value('gs-bulk-sender')))return true;
+    if(!board)return false;
+    if(Number(value('gs-phone-capacity'))!==board.summary.phone_setups||Number(value('gs-pc-capacity'))!==board.summary.pc_setups||value('gs-order-kind')!==board.summary.order_kind)return true;
+    return [...app.querySelectorAll('[data-set-email]')].some(el=>el.value.trim()!==(state().setups.find(j=>j.id===el.dataset.setEmail)?.email||''));
+  }
+  function applyUpdate(){
+    if(!nextVersion)return;
+    const safe=Boolean(board)&&!busy&&!editing()&&!$('gs-dialog').open&&!unsavedChanges();
+    $('gs-update').hidden=false;$('gs-apply-update').disabled=!safe;
+    if(safe&&!document.hidden&&!reloading){reloading=true;location.reload();}
+  }
+  function checkSessionVersion(){
+    if(!sessionCheck)sessionCheck=(async()=>{
+      const session=await api('/session',undefined,false);
+      app.dataset.csrf=session.csrf;
+      nextVersion=session.app_version!==app.dataset.appVersion?session.app_version:null;
+      $('gs-update').hidden=!nextVersion;
+      applyUpdate();return session;
+    })().finally(()=>{sessionCheck=null;});
+    return sessionCheck;
+  }
+  function accept(result){
+    if(board&&result.revision<board.revision)return;board=result;
+    for(const id of noteDrafts.keys()){
+      const job=state().setups.find(j=>j.id===id);
+      if(!job||job.archived||state().clients.find(c=>c.id===job.client_id)?.archived)noteDrafts.delete(id);
+    }
+    render();
+  }
   async function refresh({background=false}={}){
     const version=activityVersion,result=await api();
     // A read can finish after someone starts choosing a stage or saving it.
-    if(background&&(version!==activityVersion||busy||editing()||$('gs-dialog').open))return;
+    if(background&&(version!==activityVersion||busy||editing()||$('gs-dialog').open||unsavedChanges()))return;
     accept(result);
   }
   function lockControls(){
@@ -58,7 +95,7 @@
     if(busy)return;busy=true;activityVersion++;app.setAttribute('aria-busy','true');
     lockedControls=new Map();lockControls();
     try{await fn();}catch(err){message(err.message,true);if($('gs-dialog').open)$('gs-form-error').textContent=err.message;}
-    finally{busy=false;app.removeAttribute('aria-busy');lockedControls.forEach((disabled,el)=>{if(el.isConnected)el.disabled=disabled;});lockedControls=null;updateClientButtons();renderDnsBatch(state().clients.find(c=>c.id===selectedClient));}
+    finally{busy=false;app.removeAttribute('aria-busy');lockedControls.forEach((disabled,el)=>{if(el.isConnected)el.disabled=disabled;});lockedControls=null;updateClientButtons();renderDnsBatch(state().clients.find(c=>c.id===selectedClient));applyUpdate();}
   }
   async function change(action,data){
     const original=state().setups.find(j=>j.id===data.id);
@@ -287,7 +324,9 @@
   $('gs-capacity-form').onsubmit=ev=>{ev.preventDefault();const data={phone_setups:Number(value('gs-phone-capacity')),pc_setups:Number(value('gs-pc-capacity')),order_kind:value('gs-order-kind')};run(async()=>{await change('capacity_set',data);message('Setup limits saved. Device target and availability updated for the team.');});};
   $('gs-form').onsubmit=ev=>{ev.preventDefault();run(async()=>{await submitForm();$('gs-dialog').close();});};
   for(const id of ['gs-dialog-close','gs-dialog-cancel'])$(id).onclick=()=>$('gs-dialog').close();
-  $('gs-refresh').onclick=()=>run(async()=>{await refresh();message('Team tracker refreshed.');});
+  $('gs-refresh').onclick=()=>run(async()=>{await refresh();await checkSessionVersion();message('Team tracker refreshed.');});
+  $('gs-apply-update').onclick=applyUpdate;
+  $('gs-dialog').addEventListener('close',()=>setTimeout(applyUpdate,0));
   $('gs-add-setup').onclick=()=>{if(!selectedClient)return addClient();bulkOpen=true;renderSetups();$('gs-bulk-domains').focus();};
   $('gs-add-single').onclick=()=>editSetup();
   $('gs-edit-client').onclick=()=>addClient(selectedClient);
@@ -316,7 +355,7 @@
     if(b.dataset.saveNotes)return run(async()=>{const id=b.dataset.saveNotes,notes=$('gs-setup-list').querySelector(`[data-set-notes="${id}"]`).value;await change('setup_notes',{id,notes});noteDrafts.delete(id);renderSetups();$('gs-setup-list').querySelector(`[data-notes-status="${id}"]`).textContent='Saved';message('Notes saved.');});
     if(b.dataset.removeSetup&&confirm('Delete this domain from Gmail Set? Google Sheet rows and device usage history will be retained.'))run(async()=>{await change('setup_remove',{id:b.dataset.removeSetup});message('Domain deleted.');});
   };
-  $('gs-setup-list').oninput=e=>{const id=e.target.dataset.setNotes;if(!id)return;noteDrafts.set(id,e.target.value);$('gs-setup-list').querySelector(`[data-notes-status="${id}"]`).textContent='Unsaved changes';};
+  $('gs-setup-list').oninput=e=>{const id=e.target.dataset.setNotes;if(!id)return;if(e.target.value===(state().setups.find(j=>j.id===id)?.notes||''))noteDrafts.delete(id);else noteDrafts.set(id,e.target.value);$('gs-setup-list').querySelector(`[data-notes-status="${id}"]`).textContent=noteDrafts.has(id)?'Unsaved changes':'';};
   $('gs-setup-list').onchange=e=>{
     const input=e.target,id=input.dataset.setOperator||input.dataset.setDevice||input.dataset.setEmail||input.dataset.setStage;if(!id)return;
     const job=state().setups.find(s=>s.id===id);
@@ -329,8 +368,14 @@
     const patch=input.dataset.setOperator?{operator_id:input.value||null}:input.dataset.setDevice?{device_id:input.value||null}:{email:input.value.trim()};
     run(async()=>{try{if(job.sync?.status==='synced'&&!['Not started','Started'].includes(job.stage)&&input.dataset.setDevice)await change('setup_device',{id,operator_id:job.operator_id,device_id:input.value});else await change('setup_assign',{id,...patch});message('Domain updated.');}finally{renderSetups();}});
   };
-  // Refresh shared counts without disturbing an open edit form or active request.
-  setInterval(()=>{if(!busy&&!$('gs-dialog').open&&!document.hidden&&!editing())refresh({background:true}).catch(err=>message(err.message,true));},30000);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!busy&&!$('gs-dialog').open&&!editing())refresh({background:true}).catch(err=>message(err.message,true));});
-  run(refresh);
+  // Open tabs check the running version too. Drafts and active writes delay
+  // an upgrade; returning to an idle tab loads the same release for everyone.
+  function poll(){
+    if(document.hidden)return;
+    checkSessionVersion().catch(err=>message(err.message,true));
+    if(!busy&&!$('gs-dialog').open&&!editing()&&!unsavedChanges())refresh({background:true}).catch(err=>message(err.message,true));
+  }
+  setInterval(poll,30000);
+  document.addEventListener('visibilitychange',poll);
+  run(async()=>{await refresh();await checkSessionVersion();});
 })();

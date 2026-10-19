@@ -111,7 +111,7 @@ def mutation_access(request: Request, user=Depends(access)):
     token = request.headers.get('X-Domain-CSRF', '')
     expected = request.session.get('domain_csrf', '')
     if not token or not expected or not secrets.compare_digest(token, expected):
-        raise HTTPException(403, 'Session verification failed. Refresh the page and retry.')
+        raise HTTPException(403, 'Session verification failed. Refresh the page and retry.', headers={'X-Gmail-Session': 'refresh'})
     return user
 
 
