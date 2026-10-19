@@ -255,37 +255,38 @@ def test_tracker_routes_auth_csrf_schema_and_shared_visibility(client,board_db,m
     assert 'sync_lock' not in client.get('/api/gmail-setup').json()['state']
 
 
-def test_completion_routes_save_pending_before_sheet_sync_and_keep_legacy_inline_contract(client,board_db,monkeypatch):
+@pytest.mark.parametrize('defer_sync',[False,True,None])
+def test_completion_routes_never_write_strategy_sheet_for_individual_details_or_bulk_completion(client,board_db,monkeypatch,defer_sync):
     import re
     monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
     page=client.get('/gmail-set')
     client.headers['X-Domain-CSRF']=re.search('data-csrf="([^"]+)"',page.text)[1]
-    calls=[]
-    def publish(job,owner):
-        calls.append((job['id'],owner))
-        return {'row':len(calls)+2,'url':'https://docs.google.com/spreadsheets/d/test/edit#gid=0&range=A3'}
-    monkeypatch.setattr(sheets,'publish',publish)
+    monkeypatch.setattr(sheets,'publish',lambda *args:pytest.fail('Runtime completion must never write to Google Sheets'))
+    monkeypatch.setattr(s,'sync_completed',lambda *args:pytest.fail('Runtime completion must never invoke sheet sync'))
     owner=people()['Dylan']
     record,first=create_setup(owner)
-    _,second=create_setup(owner,domain='legacyinline.com',email='me@legacyinline.com')
-    _,third=create_setup(owner,domain='batchpending.com',email='me@batchpending.com')
+    create_setup(owner,domain='manualbatch.com',email='me@manualbatch.com')
+    flag={} if defer_sync is None else {'defer_sync':defer_sync}
     response=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'setup_stage',
-        'data':{'id':first,'stage':'Setup complete'},'defer_sync':True})
-    assert response.status_code==200 and calls==[]
-    assert response.json()['state']['setups'][0]['sync']['status']=='pending'
+        'data':{'id':first,'stage':'Setup complete'},**flag})
+    assert response.status_code==200
+    assert response.json()['state']['setups'][0]['sync']['status']=='manual'
     assert response.json()['summary']['complete']==1
-    synced=client.post(f'/api/gmail-setup/setups/{first}/sync')
-    assert synced.status_code==200 and synced.json()['state']['setups'][0]['sync']['status']=='synced'
-    assert calls==[(first,'Cedar client')]
-    legacy=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'setup_stage',
-        'data':{'id':second,'stage':'Setup complete'}})
-    assert legacy.status_code==200 and legacy.json()['state']['setups'][1]['sync']['status']=='synced'
-    assert len(calls)==2 and calls[-1][0]==second
+    assigned=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'setup_assign',
+        'data':{'id':first,'email':'me@cedarclients.com'},**flag})
+    assert assigned.status_code==200 and assigned.json()['state']['setups'][0]['sync']['status']=='manual'
+    details=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'setup_save',
+        'data':{'account_manager_id':owner,'operator_id':owner,'client_name':'Details client','email':'me@manualdetails.com','stage':'Setup complete'},**flag})
+    assert details.status_code==200 and details.json()['state']['setups'][-1]['sync']['status']=='manual'
     completed=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'client_complete',
-        'data':{'id':record['state']['setups'][0]['client_id']}})
+        'data':{'id':record['state']['setups'][0]['client_id']},**flag})
     assert completed.status_code==200 and completed.json()['summary']['complete']==3
-    assert completed.json()['state']['setups'][2]['sync']['status']=='pending' and len(calls)==2
-    assert client.post(f'/api/gmail-setup/setups/{third}/sync').status_code==200 and calls[-1][0]==third
+    assert all(job['sync']['status']=='manual' for job in completed.json()['state']['setups'])
+    before=s.board(USER)
+    for path in (f'/api/gmail-setup/setups/{first}/sync','/api/gmail-setup/check-sheet'):
+        rejected=client.post(path)
+        assert rejected.status_code==410 and 'manual' in rejected.json()['detail']
+        assert s.board(USER)==before
 
 
 def test_notes_route_remains_editable_after_complete_and_burned_with_csrf_revision_and_field_validation(client,board_db,monkeypatch):
@@ -308,7 +309,33 @@ def test_notes_route_remains_editable_after_complete_and_burned_with_csrf_revisi
     response=client.post('/api/gmail-setup/change',json=payload)
     assert response.status_code==200
     job=response.json()['state']['setups'][0]
-    assert job['stage']=='Burned' and job['notes']=='Retained burned-domain note' and job['sync']['status']=='pending'
+    assert job['stage']=='Burned' and job['notes']=='Retained burned-domain note' and job['sync']['status']=='manual'
+
+
+def test_gmail_setup_diagnostics_reports_manual_sheet_mode_without_contacting_google(monkeypatch):
+    from app.utils.gmail_setup import diagnostics
+    monkeypatch.setattr(sheets,'readiness',lambda:pytest.fail('Manual sheet mode must not check Google write access'))
+    monkeypatch.setattr(sb,'sb_service_configured',lambda:True)
+    monkeypatch.setattr(sb,'sb_service_headers',lambda:{'Authorization':'Bearer fake'})
+    monkeypatch.setattr(diagnostics.requests,'get',lambda *args,**kwargs:FakeResponse(200,[]))
+    check=diagnostics.check()
+    assert check['storage_ready'] is True and check['sheet']['mode']=='manual'
+
+
+@pytest.mark.parametrize('legacy_status',['pending','error','synced'])
+def test_stale_retry_requests_cannot_publish_or_modify_legacy_sheet_metadata(client,board_db,monkeypatch,legacy_status):
+    import re
+    monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
+    monkeypatch.setattr(sheets,'publish',lambda *args:pytest.fail('A cached Retry button must not publish to the sheet'))
+    monkeypatch.setattr(s,'sync_completed',lambda *args:pytest.fail('The retired route must not call the sync helper'))
+    _,jid=create_setup(people()['Dylan'])
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    record['state']['setups'][0]['sync']={'status':legacy_status,'row':42,'url':'https://docs.google.com/spreadsheets/d/test/edit#gid=0&range=A42'}
+    before=store.save(USER,record['state'],record['revision'])
+    page=client.get('/gmail-set');client.headers['X-Domain-CSRF']=re.search('data-csrf="([^"]+)"',page.text)[1]
+    response=client.post(f'/api/gmail-setup/setups/{jid}/sync')
+    assert response.status_code==410 and 'manual' in response.json()['detail']
+    assert s.board(USER)==before
 
 
 def test_store_filters_workspace_and_uses_revision_lease(monkeypatch):

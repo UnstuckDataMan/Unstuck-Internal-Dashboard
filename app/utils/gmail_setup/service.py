@@ -690,7 +690,7 @@ def set_stage(state, job, stage):
         completed = [j for j in state['setups'] if j.get('client_id') == client['id'] and j.get('completed_at')]
         number = max(client.get('next_order', 1), len(completed)+1, max((j.get('order') or 0 for j in completed), default=0)+1)
         client['next_order'] = number+1
-        job.update(completed_at=now(), order=number, sync={'status': 'pending'},
+        job.update(completed_at=now(), order=number, sync={'status': 'manual'},
             sheet_owner=job['client_name'] if job['section'] == 'client' else find(state, 'members', job['operator_id'])['name'])
     job['stage'] = stage
     job['updated_at'] = now()

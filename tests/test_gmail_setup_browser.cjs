@@ -1,4 +1,4 @@
-// Local-only: all persistence and sheet writes use the synthetic preview harness.
+// Local-only: all persistence uses the synthetic preview harness.
 const {chromium}=require('playwright');const assert=require('node:assert/strict');
 require('node:fs').mkdirSync('work',{recursive:true});
 (async()=>{
@@ -39,9 +39,7 @@ require('node:fs').mkdirSync('work',{recursive:true});
  assert.equal(await card().locator('.gs-badge').filter({hasText:'Device not added yet'}).count(),0);assert.equal((await data()).summary.unused,20);
  await card().locator('[data-set-stage]').selectOption('Purchase made');await idle();assert.equal(await card().locator('[data-set-stage]').inputValue(),'Purchase made');assert.match(await page.textContent('#gs-stock'),/30 setup capacity \/ 12/);
  await card().locator('[data-set-stage]').selectOption('Setup complete');await idle();assert.equal(await card().locator('[data-set-stage]').inputValue(),'Setup complete');
- assert.equal(await page.locator('[data-setup]').last().getAttribute('data-setup'),job.id);assert.match(await card().textContent(),/Sheet sync needs attention/);
- await card().locator('[data-sync]').click();await idle();assert.match(await card().textContent(),/Live in 1\) Emails - entry · row 23/);
- assert.match(await card().locator('a').getAttribute('href'),/#gid=0&range=A23/);
+ assert.equal(await page.locator('[data-setup]').last().getAttribute('data-setup'),job.id);assert.match(await card().textContent(),/Master Strategy sheet manually/);assert.equal(await card().locator('[data-sync]').count(),0);
  await page.click('#gs-tab-devices');
  await page.click(`[data-device="${phone.id}"]`);await page.selectOption('#gs-asset-status','Blocked|QR code');await save();
  assert.match(await page.locator(`[data-device="${phone.id}"]`).textContent(),/Block QR code/);
@@ -65,7 +63,7 @@ require('node:fs').mkdirSync('work',{recursive:true});
  assert.equal(await page.locator(`#gs-job-device option[value="${phone.id}"]`).count(),0);
  assert.equal(await page.locator(`#gs-job-device option[value="${phone2.id}"]`).count(),0);
  await page.selectOption('#gs-job-stage','Setup complete');await save();job=(await data()).state.setups.at(-1);
- assert.match(await card().textContent(),/Live in 1\) BD Emails - entry/);
+ assert.match(await card().textContent(),/Master Strategy sheet manually/);
  await page.click('#gs-back-clients');assert.equal(await page.locator('[data-open-client]').count(),2);assert.equal(await page.locator('[data-setup]').count(),0);
  await page.selectOption('#gs-filter-section','client');assert.equal(await page.locator('[data-open-client]').count(),1);await page.selectOption('#gs-filter-section','');
  await page.selectOption('#gs-filter-manager',ids.Matthew);assert.equal(await page.locator('[data-open-client]').count(),1);await page.selectOption('#gs-filter-manager','');
@@ -77,7 +75,7 @@ require('node:fs').mkdirSync('work',{recursive:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'setup view mobile overflow');
  await page.evaluate(()=>document.querySelector('.page').scrollTop=0);await page.screenshot({path:'work/gmail-setup-journey-mobile.png',fullPage:true,animations:'disabled'});
  await page.setViewportSize({width:1440,height:1050});await page.evaluate(()=>document.querySelector('.page').scrollTop=0);await page.screenshot({path:'work/gmail-setup-journey-desktop.png',fullPage:true,animations:'disabled'});
- await page.locator('summary').filter({hasText:'Google Sheet connection'}).click();await page.click('#gs-check-sheet');await idle();assert.match(await page.textContent('#gs-sheet-status'),/write access ready/);
+ await page.locator('summary').filter({hasText:'Master Strategy sheet · manual updates'}).click();assert.equal(await page.locator('#gs-check-sheet').count(),0);assert.match(await page.locator('a').filter({hasText:'Open Master Strategy sheet'}).getAttribute('href'),/1PN5Lx-5c4nbouDl/);
  await page.goto('http://127.0.0.1:8766/');await page.waitForFunction(()=>document.querySelector('#gs-home-stock')?.textContent.length>0);
  assert.match(await page.textContent('#gs-home-stock'),/^(Order \d+ more (phones?|laptops? \/ PCs?)|No new devices needed)$/);
  // Stage failures block the selected physical asset and retain retry history.
@@ -94,10 +92,10 @@ require('node:fs').mkdirSync('work',{recursive:true});
  await failureCard.locator('[data-set-stage]').selectOption('Failed at payment');await idle();assert.match(await failureCard.textContent(),/Block Payment · do not use/);
  model=await data();assert.equal(model.state.setups.at(-1).device_failures.length,2);
  for(const d of [phone4,phone5])assert.equal(model.state.devices.find(x=>x.id===d.id).status,'Blocked');
- // Fill in the missing device after completion without adding a second sheet row.
- await pendingSelect.selectOption('Setup complete');await idle();assert.match(await pending.textContent(),/Device not added yet/);assert.match(await pending.textContent(),/Live in/);
+ // Fill in the missing device after completion without publishing a sheet row.
+ await pendingSelect.selectOption('Setup complete');await idle();assert.match(await pending.textContent(),/Device not added yet/);assert.match(await pending.textContent(),/Master Strategy sheet manually/);
  const pc=model.state.devices.find(d=>d.kind==='PC'&&d.number===1);await pending.locator('[data-set-device]').selectOption(pc.id);await idle();
- assert.equal(await pending.locator('.gs-badge').filter({hasText:'Device not added yet'}).count(),0);assert.match(await pending.textContent(),/Live in/);
+ assert.equal(await pending.locator('.gs-badge').filter({hasText:'Device not added yet'}).count(),0);assert.match(await pending.textContent(),/Master Strategy sheet manually/);
  await page.reload();await idle();assert.match(await failureCard.textContent(),/Failed at payment/);assert.match(await pending.textContent(),/PC 1/);
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'work/gmail-setup-optional-devices-failures-mobile.png',fullPage:true,animations:'disabled'});
  // Reproduce the reported form: existing client manager removed from the
@@ -108,7 +106,7 @@ require('node:fs').mkdirSync('work',{recursive:true});
  await page.fill('#gs-job-email','ashley@alabgrouppr.com');await page.selectOption('#gs-job-stage','Setup complete');
  assert.equal(await page.locator('#gs-job-device').evaluate(e=>e.required),false);assert.equal(await page.inputValue('#gs-job-device'),'');await save();
  const alabJob=(await data()).state.setups.at(-1),alabCard=page.locator(`[data-setup="${alabJob.id}"]`);
- assert.match(await alabCard.textContent(),/Device not added yet/);assert.match(await alabCard.textContent(),/Live in/);
+ assert.match(await alabCard.textContent(),/Device not added yet/);assert.match(await alabCard.textContent(),/Master Strategy sheet manually/);
  const script=await page.locator('script[src*="gmail-setup.js"]').getAttribute('src');assert.match(script,/v=[a-f0-9]{12}/);
  const asset=await page.request.get(new URL(script,page.url()).href);assert.equal(asset.headers()['cache-control'],'no-store');
  // Two-use phone capacity: green -> orange -> red; completion does not
@@ -136,5 +134,5 @@ require('node:fs').mkdirSync('work',{recursive:true});
  await page.click('#gs-tab-setups');await add();assert.equal(await page.locator(`#gs-job-device option[value="${pc.id}"]`).count(),0);assert.equal(await page.locator(`#gs-job-device option[value="${capacityPhone.id}"]`).count(),0);await page.fill('#gs-job-email','me@futureplanning.com');await save();assert.match(await page.locator('[data-setup]').filter({hasText:'futureplanning.com'}).textContent(),/Device not added yet/);
  await page.reload();await idle();assert.equal((await data()).state.devices.find(d=>d.id===capacityPhone.id).use_count,2);
  assert.deepEqual(errors,[]);
- await browser.close();console.log('PASS: shared roster, automatic device reserve, add/transfer/remove inventory and members, QR/payment blocks, purchase history, client drill-in/back navigation, visible stage selectors, completed domains sorted last, both sheet destinations, failed sync/retry, filters, Operations alert, device-free planning, exact reported form, green/orange/red two-use phones and mobile layouts.');
+ await browser.close();console.log('PASS: shared roster, automatic device reserve, add/transfer/remove inventory and members, QR/payment blocks, purchase history, client drill-in/back navigation, visible stage selectors, completed domains sorted last, manual sheet updates without sync/retry, filters, Operations alert, device-free planning, exact reported form, green/orange/red two-use phones and mobile layouts.');
 })().catch(e=>{console.error(e);process.exit(1)});

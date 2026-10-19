@@ -4,11 +4,11 @@ import hashlib
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from app.deps import templates
 from app.routers.domain_cluster import access, mutation_access
-from app.utils.gmail_setup import service, sheets
+from app.utils.gmail_setup import service
 
 router = APIRouter()
 _STATIC = Path(__file__).resolve().parents[1] / 'static'
@@ -154,21 +154,17 @@ def change(body: Change, user=Depends(mutation_access)):
     except ValidationError:
         raise HTTPException(400, 'Check the required fields, device counts and selected values.') from None
     record = service.mutate(user, body.revision, body.action, data)
-    if not body.defer_sync and body.action in {'setup_stage', 'setup_save', 'setup_assign'}:
-        job = next((j for j in record['state']['setups'] if j['id'] == data.get('id')), None) if data.get('id') else record['state']['setups'][-1]
-        if job and job['stage'] == 'Setup complete' and job.get('sync', {}).get('status') != 'synced':
-            record = service.sync_completed(user, job['id'])
     return service.result(record)
 
 
 @router.post('/api/gmail-setup/setups/{job_id}/sync')
 def sync(job_id: UUID, user=Depends(mutation_access)):
-    return service.result(service.sync_completed(user, str(job_id)))
+    raise HTTPException(410, 'Master Strategy sheet updates are manual. Add completed sending emails to the sheet yourself.')
 
 
 @router.post('/api/gmail-setup/check-sheet')
 def check_sheet(user=Depends(mutation_access)):
-    return sheets.readiness()
+    raise HTTPException(410, 'Master Strategy sheet updates are manual. Add completed sending emails to the sheet yourself.')
 
 
 class DmarcStart(Strict):

@@ -4,7 +4,7 @@
 {% block extra_head %}<link rel="stylesheet" href="/static/gmail-setup.css?v={{ gmail_asset_version }}">{% endblock %}
 {% block content %}
 <div id="gs-app" data-csrf="{{ csrf }}" data-dns-admin="{{ 'true' if gmail_can_manage_dns else 'false' }}">
-  <div class="gs-intro"><div><div class="gs-eyebrow">OPERATIONS / GMAIL SET</div><h2>New Gmail setups</h2><p>Track each account from purchase to Live. Keep your team’s devices ready.</p></div><button id="gs-refresh">Refresh</button></div>
+  <div class="gs-intro"><div><div class="gs-eyebrow">OPERATIONS / GMAIL SET</div><h2>New Gmail setups</h2><p>Track each account from purchase to completion. Keep your team’s devices ready.</p></div><button id="gs-refresh">Refresh</button></div>
   <aside class="gs-note"><strong>SDR’s and Scale Clients only: Before you start</strong><p>Use the <strong>GPT domain clustering plugin in Notion</strong> to choose and check your domains. Add the approved domains here to track their setup. This step is optional for normal clients.</p></aside>
   <div id="gs-message" role="status" aria-live="polite"></div>
   <div id="gs-stock" class="gs-stock" role="alert" hidden></div>
@@ -18,7 +18,7 @@
     <div id="gs-client-list" class="gs-client-list"></div><div id="gs-client-detail" hidden>
       <form id="gs-bulk-panel" class="gs-bulk" hidden><label class="gs-sender" for="gs-bulk-sender">Sender name (optional)<input id="gs-bulk-sender" maxlength="64" placeholder="ashley" autocomplete="off"></label><label for="gs-bulk-domains">Paste domains or emails</label><textarea id="gs-bulk-domains" rows="4" maxlength="50000" required placeholder="domain-one.com&#10;domain-two.com&#10;me@domain-three.com"></textarea><div class="gs-bulk-footer"><label>Default setup person (optional)<select id="gs-bulk-operator"></select></label><div class="gs-actions"><button type="button" id="gs-add-single">Add one with details</button><button type="submit" class="gs-primary">Add domains</button></div></div><p id="gs-bulk-error" role="alert"></p></form>
       <div id="gs-setup-list" class="gs-setup-list"></div></div>
-    <details class="gs-card"><summary>Google Sheet connection</summary><p>Completing a domain adds its sending email immediately below the last entry in the selected client or Biz Dev tab, with Live checked. The tool checks for an existing email before adding a row.</p><button id="gs-check-sheet">Check sheet write access</button><p id="gs-sheet-status" role="status"></p></details>
+    <details class="gs-card"><summary>Master Strategy sheet · manual updates</summary><p>Add completed sending emails to the client or Biz Dev tab manually and tick Live. Marking a domain complete in Gmail Set saves its status here only.</p><a href="https://docs.google.com/spreadsheets/d/1PN5Lx-5c4nbouDl-Apw9YJgrYTuoDsBKqzk5Hh6Z0po/edit" target="_blank" rel="noopener noreferrer">Open Master Strategy sheet ↗</a></details>
   </section>
   <section id="gs-devices" role="tabpanel" aria-labelledby="gs-tab-devices" hidden>
     <div class="gs-section-title"><div><h3>Team &amp; devices</h3><p id="gs-device-rules"></p></div><div class="gs-actions"><button id="gs-add-member">+ Team member</button><button id="gs-add-devices" class="gs-primary">+ Add devices</button></div></div>

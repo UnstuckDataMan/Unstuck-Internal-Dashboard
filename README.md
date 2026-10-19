@@ -18,7 +18,7 @@ no new service, frontend build step or database provider.
 ## Gmail Set / account setup tracker
 
 Open **Operations → Gmail Set** (`/gmail-set`). The main tool tracks the shared
-company setup journey: **Not started → Purchase made → Setup complete**.
+company setup journey: **Not started → Started → Purchase made → Setup complete**.
 Create a client first, click its card, then paste up to 500 domains or emails.
 An optional sender name (for example, `ashley`) populates `ashley@domain.com`
 for bare domains; explicit pasted email addresses are preserved.
@@ -27,7 +27,8 @@ person, then change setup person, sending email, device and stage inline for
 each domain. Bare domains can be planned without an email or setup person;
 completion requires both. Invalid paste lines are identified and duplicates
 are skipped. The
-client list shows counts instead of every domain; unfinished domains appear above
+client list shows counts instead of every domain; clients with no setups left to
+do appear in a separate **Completed** section. Unfinished domains appear above
 completed ones in each client’s domain list. Each domain has a stage dropdown,
 and the add/edit form also lets you choose its stage. Existing flat records are
 grouped automatically without changing their sheet rows or purchase history. It starts
@@ -39,29 +40,31 @@ is no longer the main workflow.
   workspace. Members can be added, edited or removed within this tool without
   changing dashboard login access. Open work must be reassigned before removal.
 - Record account manager, setup owner, client/Biz Dev section, root domain,
-  sending email. Sheet order is automatic per client: the first completion gets
-  1, the next 2, and so on. The number is stored before sync and stays fixed
-  through retries and deletion; manual order inputs are ignored.
+  sending email. Completion order is automatic per client: the first completion
+  gets 1, the next 2, and so on. The number stays fixed through reopening and
+  deletion; manual order inputs are ignored.
   Device allocation is optional, even with zero inventory;
   accounts without one show **Device not added yet** and an inline device selector.
-  A missing device can be recorded after completion without republishing the sheet row.
+  A missing device can be recorded after completion.
   Purchase records snapshot the actual
   device and asset label; removing/transferring equipment preserves that history.
 - Clients can be renamed and deleted from their detail page; every domain has
-  a Delete action, including published work. Deletion removes tracker entries
+  a Delete action, including completed work. Deletion removes tracker entries
   and preserves existing sheet rows, completion counters and physical device
-  history. Renaming keeps the original sheet-owner snapshot for stable retries.
+  history. Historical sheet-entry references remain available.
+- Each domain has a **Notes** box and **Save notes** button. Notes remain saved
+  when a domain is completed, burned or reopened.
 - Add actual inventory in batches of 0–10 phones and 0–10 PCs per person, with
   labels Phone 1–10 and PC 1–10 plus stable physical asset IDs. The unallocated pool
   supports stock awaiting assignment. No imaginary devices are seeded.
   When adding inventory, choose Unused, Used once or Used twice (or a block
   reason). Previous uses count towards the device's setup limit immediately.
 - Setup stages include **Failed at QR** and **Failed at payment**. Selecting either
-  blocks the linked device in red with the matching reason, without publishing a
-  Live row. Retry with a replacement device or leave it unallocated; the failed
+  blocks the linked device in red with the matching reason.
+  Retry with a replacement device or leave it unallocated; the failed
   asset stays in account history.
 - Domain stages include **Started**, which tracks active work without consuming a
-  device use or publishing a sheet row. Started and Purchase made cards have a
+  device use. Started and Purchase made cards have a
   subtle amber tint; Setup complete is green; Burned and QR/payment failures are
   red. Button styles remain unchanged. Started stays in setup-demand calculations
   and has its own overview count and stage filter.
@@ -90,8 +93,8 @@ is no longer the main workflow.
   **active to do domains + 10 contingency setups**, not ten physical devices.
   Remaining capacity sums max(limit − recorded uses, 0) on active, unblocked
   phones and PCs. Purchase-stage jobs already paid for on a recorded device also
-  count as covered; jobs reset to Not started require fresh capacity. Completed
-  and deleted domains leave the demand count. New orders are
+  count as covered; jobs reset to Not started require fresh capacity. Completed,
+  burned and deleted domains leave the demand count. New orders are
   ceil(max(0, required − available setup slots) / setups per new device).
   The card shows phone/PC capacity separately, demand, setup shortfall and whole
   devices to order. For 19 to do + 10 contingency, 22 phone + 2 PC slots give
@@ -112,7 +115,7 @@ is no longer the main workflow.
   require review; forwarding changed since preview requires fresh confirmation.
   Exact deletion snapshots, expiring confirmations, shared write claims,
   readback and idempotent retries protect unrelated records and domains.
-- **Set up all domains**, next to **Set up DMARC** in the client header, runs the
+- **Set up all domains** in the client header runs the
   same full setup for every actual, active domain in that client. One purchase
   confirmation and website URL cover the batch. Domains run sequentially, with a
   progress bar and saved Ready / Needs attention / Waiting results. Burned and
@@ -120,34 +123,37 @@ is no longer the main workflow.
   a provider rate limit pauses the batch. Keep the page open, or use **Pause after
   this domain** and **Resume setup** after a refresh. Each waiting domain receives
   a fresh DNS preview; interrupted writes are reconciled before retrying.
-- Administrators can also select **Set up DMARC** for a whole client after confirming domain
-  purchases with **Proceed / Cancel**. Only the selected active domains within that client are used;
-  the server fixes each domain/report-email snapshot before any external write.
+- DMARC is included in both the individual and client-wide DNS setup actions.
   Both rua/ruf use the domain's sending email, with
   `v=DMARC1; p=none; pct=100; rua=mailto:<email>; ruf=mailto:<email>; fo=1`,
-  TXT `_dmarc` and TTL 600. Missing sending emails are skipped with a clear result.
+  TXT `_dmarc` and TTL 600. Missing sending emails need attention before DNS setup.
   Existing Porkbun credentials remain server-side. Each domain checks ownership,
   API access and Porkbun nameservers; missing records are created and read back.
   Matching records are verified without another write; conflicting records are
   reported without duplication or overwrite. Persistent CAS claims serialize DNS
-  and sheet writes; per-domain results survive refresh and safe retries.
+  writes; per-domain results survive refresh and safe retries.
 - Selecting a later stage records purchase/device history as needed; choosing
-  Setup complete also publishes the sending email. Select **Not started** to reopen a completed or failed domain. Resetting a failed attempt removes that attempt’s use and block from its
+  **Setup complete** saves completion in Gmail Set only. **Mark all as complete**,
+  beside **Set up all domains**, completes all unfinished domains for that client
+  after confirmation; burned and deleted domains are excluded. Each domain needs
+  a sending email and active setup person before completion.
+  Select **Not started** to reopen a completed or failed domain and change its
+  setup person or device. Resetting a failed attempt removes that attempt’s use and block from its
   device: it returns to green/Unused if no other use remains, or orange with
   one other use. Independent manual blocks and other failed domains still apply.
   Older detached resets are reconciled on read. Failure history, original
   completion order and existing sheet rows stay recorded. Re-completing
-  the same domain reuses its order/row rather than counting another setup. Completion is saved before attempting Google sync. The correct authorised tab
-  is selected, columns are resolved by headings (including the moved BD Live
-  column), existing exact emails/row markers are reconciled, and a native row is
-  inserted immediately after the last actual email/domain entry (ignoring the
-  blank/formatted tail), atomically with Live checked and checkbox validation. Readback verifies
-  the email, completion order and Live value. No recovery code or password columns are read/copied.
-- Failed sync remains visibly retryable. Workspace-wide conditional revisions
-  and a persistent 180-second write lease prevent overlapping tool writes. A
-  retry reconciles committed external writes after a timeout or process restart.
-- The strategy-sheet service account requires **Editor** access. The tool can
-  check Drive `capabilities.canEdit` without writing a fake setup row.
+  the same domain keeps its completion order rather than counting another setup.
+- **Master Strategy sheet updates are manual.** After completing a domain, add
+  its sending email below the last entry in `1) Emails - entry` for clients or
+  `1) BD Emails - entry` for Biz Dev, then tick **Live**. Gmail Set never adds,
+  edits or retries writes to that sheet. Its old sync and sheet-access-check
+  endpoints are disabled. Historical sheet row links remain for reference;
+  they do not verify the row's current Live status. The tool includes a direct
+  link to the Master Strategy sheet.
+- Workspace-wide conditional revisions protect shared tracker updates. A
+  persistent 180-second write lease prevents overlapping DNS writes. Boot
+  diagnostics check tracker storage only.
 - Apply `migrations/gmail_setup_schema.sql` to the existing Supabase project. RLS
   is enabled with no browser policies/grants; only the server service role can
   access the workspace-scoped board. Google dashboard sessions, tool access and
@@ -232,7 +238,8 @@ https://docs.google.com/spreadsheets/d/1PN5Lx-5c4nbouDl-Apw9YJgrYTuoDsBKqzk5Hh6Z
 Add **PORKBUN_API_KEY** and **PORKBUN_SECRET_API_KEY** to Render environment variables.
 Availability checks need read permission. URL forwarding and DMARC setup need both read and DNS permissions. Configure these at https://porkbun.com/account/api. Never paste keys into
 portfolio settings, browser code, Git, or the strategy sheet. No purchase permission
-is needed. Credentials remain on Render. Use Check setup in Gmail Set to verify live access; a read-only check also logs sanitized readiness flags after each production boot.
+is needed. Credentials remain on Render. Use **Check connections** in the legacy
+planner to verify access.
 
 - **Check on Porkbun** checks an existing ten-name batch.
 - **Only return names verified available on Porkbun** searches up to 30 candidates

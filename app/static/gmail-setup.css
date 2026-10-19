@@ -53,7 +53,7 @@
 @media(max-width:700px){body:has(#gs-app) .topbar-left,body:has(#gs-app) .topbar-right{min-width:0;flex:1}body:has(#gs-app) .topbar-title{flex:0 0 auto;white-space:nowrap}body:has(#gs-app) .home-label{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0)}.gs-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.gs-team-grid{grid-template-columns:1fr}.gs-filters,.gs-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.gs-card{padding:18px}.gs-card-head{gap:10px}.gs-form-grid{grid-template-columns:1fr}.gs-form-grid .gs-wide{grid-column:auto}#gs-dialog{padding:20px}.gs-stock{gap:12px}}
 @media(prefers-reduced-motion:reduce){#gs-app *,#gs-dialog *{transition:none!important;scroll-behavior:auto!important}}
 /* Client → domains view: show the company list first, then one client's work. */
-.gs-client-list{display:grid;gap:12px;margin-bottom:20px}
+.gs-client-list{display:grid;gap:12px;margin-bottom:20px}.gs-client-group{display:grid;gap:12px}.gs-client-group>.gs-complete-heading{margin-bottom:0}
 #gs-app .gs-client-card{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px;text-align:left;background:rgba(255,255,255,.045);border-radius:14px;width:100%}
 .gs-client-card strong{display:block;font:600 18px var(--font-display);margin-bottom:5px}.gs-client-card small{display:block;font-size:12px;color:var(--text-2)}
 .gs-client-counts{display:flex;gap:20px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--text-2)}.gs-complete-count{color:#a7f3d0}
