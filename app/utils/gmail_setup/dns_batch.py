@@ -15,7 +15,7 @@ def running(batch):
 
 
 def start(user, client_id, revision, confirmed_purchased, destination):
-    dns.require_admin(user)
+    dns.require_setup_access(user)
     if confirmed_purchased is not True:
         raise HTTPException(400, 'Confirm that all domain purchases are complete before proceeding.')
     record = s.board(user)
@@ -64,7 +64,7 @@ def finish(user, client_id, batch_id, job_id, result):
 
 
 def step(user, client_id, batch_id, job_id, revision):
-    dns.require_admin(user)
+    dns.require_setup_access(user)
     record = s.board(user)
     if record['revision'] != revision:
         raise HTTPException(409, 'The tracker changed. Refresh and resume the saved batch.')

@@ -136,8 +136,8 @@ def test_unconfirmed_expired_foreign_burned_and_archived_requests_never_delete(b
     _,jid=create_setup(people()['Dylan']);record=preview(jid)
     identifier=record['state']['setups'][0]['dns_setup_preview']['id']
     with pytest.raises(HTTPException):d.apply(USER,jid,identifier,record['revision'],False,'https://clientwebsite.com')
-    with pytest.raises(HTTPException):d.apply(OTHER,jid,identifier,record['revision'],True,'https://clientwebsite.com')
-    with pytest.raises(HTTPException):d.preview({'email':'admin@another-company.com','role':'admin'},jid,0)
+    with pytest.raises(HTTPException):d.apply({**OTHER,'tools':[]},jid,identifier,record['revision'],True,'https://clientwebsite.com')
+    with pytest.raises(HTTPException):d.preview({'email':'admin@another-company.com','role':'admin','tools':['gmail_set']},jid,0)
     stored=board_db[store.workspace(USER)]
     stored['state']['setups'][0]['dns_setup_preview']['created_at']=(datetime.now(timezone.utc)-timedelta(minutes=16)).isoformat()
     with pytest.raises(HTTPException,match='expired'):apply(s.board(USER),jid)
@@ -218,21 +218,48 @@ def test_claim_blocks_other_mutations_and_missing_readback_is_not_success(board_
     assert result['state']['sync_lock'] is None
 
 
-def test_routes_require_csrf_admin_confirmation_and_server_selected_record_ids(client,board_db,registrar,monkeypatch):
-    _,jid=create_setup(people()['Dylan']);user={**USER}
+@pytest.mark.parametrize('role',['sdr','reviewer','viewer'])
+def test_routes_require_csrf_tool_access_confirmation_and_server_selected_record_ids(client,board_db,registrar,monkeypatch,role):
+    _,jid=create_setup(people()['Dylan']);user={**USER,'role':role}
     monkeypatch.setattr(auth,'get_session_user',lambda request:user)
     page=client.get('/gmail-set');csrf=re.search('data-csrf="([^"]+)"',page.text)[1]
     base=f'/api/gmail-setup/setups/{jid}/dns-setup'
     payload={'revision':s.board(USER)['revision']}
     assert client.post(base+'/preview',json=payload).status_code==403
     client.headers['X-Domain-CSRF']=csrf
-    user['role']='sdr';assert client.post(base+'/preview',json=payload).status_code==403
-    user['role']='admin';record=client.post(base+'/preview',json=payload).json()
+    user['tools']=[];assert client.post(base+'/preview',json=payload).status_code==403
+    user['tools']=['gmail_set'];record=client.post(base+'/preview',json=payload).json()
     assert not deletes(registrar)
     payload={'revision':record['revision'],'preview_id':record['state']['setups'][0]['dns_setup_preview']['id'],'confirmed_purchased':True,'destination':'https://clientwebsite.com'}
     assert client.post(base+'/apply',json={**payload,'confirmed_purchased':False}).status_code==422
     assert client.post(base+'/apply',json={**payload,'records':[{'id':'50'}]}).status_code==422
     assert client.post(base+'/apply',json=payload).json()['state']['setups'][0]['dns_setup']['status']=='verified'
+
+
+@pytest.mark.parametrize('role',['sdr','reviewer','viewer'])
+def test_staff_with_gmail_set_can_preview_and_apply_dns_without_admin_role(board_db,registrar,role):
+    _,jid=create_setup(people()['Dylan'])
+    staff={**OTHER,'email':'devlin@unstuck-agency.com','role':role}
+    original=s.summary(s.board(USER)['state'])
+    prepared=d.preview(staff,jid,s.board(staff)['revision'])
+    assert not deletes(registrar)
+    approved=prepared['state']['setups'][0]['dns_setup_preview']['id']
+    applied=d.apply(staff,jid,approved,prepared['revision'],True,'https://clientwebsite.com')
+    assert applied['state']['setups'][0]['dns_setup']['status']=='verified'
+    assert len(deletes(registrar))==5 and s.summary(applied['state'])==original
+    assert applied['state']['events'][-1]['by']==staff['email']
+
+
+@pytest.mark.parametrize('denied_user',[{**USER,'tools':[]},{**OTHER,'tools':[]},
+    {'email':USER['email'],'role':'admin'},{**USER,'tools':None},{**USER,'tools':'gmail_set'}])
+def test_dns_core_denies_missing_tool_before_provider_or_state_changes(board_db,registrar,denied_user):
+    _,jid=create_setup(people()['Dylan']);before=s.board(USER)
+    with pytest.raises(HTTPException) as exc:d.preview(denied_user,jid,before['revision'])
+    assert exc.value.status_code==403 and s.board(USER)==before and not registrar.calls
+    prepared=preview(jid);calls=copy.deepcopy(registrar.calls)
+    approved=prepared['state']['setups'][0]['dns_setup_preview']['id']
+    with pytest.raises(HTTPException) as exc:d.apply(denied_user,jid,approved,prepared['revision'],True,'https://clientwebsite.com')
+    assert exc.value.status_code==403 and s.board(USER)==prepared and registrar.calls==calls
 
 
 def test_missing_tracking_and_dmarc_created_with_exact_policy_then_wildcard_forward(board_db,registrar):

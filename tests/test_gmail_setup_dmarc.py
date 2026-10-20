@@ -81,7 +81,7 @@ def test_confirmation_scope_missing_email_and_refresh_persistence(board_db,regis
     before=s.board(USER)
     with pytest.raises(HTTPException):d.start(USER,client_id,before['revision'],False)
     with pytest.raises(HTTPException):d.start(USER,client_id,0,True)
-    with pytest.raises(HTTPException):d.start(OTHER,client_id,before['revision'],True)
+    with pytest.raises(HTTPException):d.start({**OTHER,'tools':[]},client_id,before['revision'],True)
     assert s.board(USER)==before and not registrar.calls
     record=start(client_id)
     batch=next(c for c in record['state']['clients'] if c['id']==client_id)['dmarc_batch']
@@ -188,7 +188,41 @@ def test_lost_write_response_can_retry_without_duplicate_record(board_db,registr
     assert len(writes(registrar))==1
 
 
-def test_dmarc_route_requires_csrf_admin_and_explicit_confirmation(client,board_db,registrar,monkeypatch):
+@pytest.mark.parametrize('role',['sdr','reviewer','viewer'])
+def test_gmail_set_users_can_confirm_and_apply_dmarc_regardless_of_role(board_db,registrar,role):
+    owner=people()['Dylan'];record,jid=create_setup(owner)
+    client_id=record['state']['setups'][0]['client_id']
+    original=copy.deepcopy(record['state']['setups'][0])
+    user={**OTHER,'role':role}
+    record=d.start(user,client_id,record['revision'],True)
+    assert not registrar.calls
+    batch=record['state']['clients'][0]['dmarc_batch']
+    record=d.apply(user,client_id,batch['id'],jid,record['revision'])
+    job=record['state']['setups'][0]
+    assert job['dmarc']['status']=='verified' and len(writes(registrar))==1
+    assert {key:value for key,value in job.items() if key!='dmarc'}==original
+    assert record['state']['sync_lock'] is None
+    assert record['state']['events'][-1]['by']==user['email']
+    assert s.board(user)==s.board(USER)
+
+
+@pytest.mark.parametrize('role',['admin','sdr','reviewer','viewer'])
+def test_dmarc_start_and_apply_require_explicit_tool_access_before_provider_or_state_changes(board_db,registrar,role):
+    owner=people()['Dylan'];record,jid=create_setup(owner)
+    client_id=record['state']['setups'][0]['client_id']
+    user={**OTHER,'role':role,'tools':[]}
+    before=s.board(USER)
+    with pytest.raises(HTTPException) as exc:
+        d.start(user,client_id,record['revision'],True)
+    assert exc.value.status_code==403 and s.board(USER)==before and not registrar.calls
+    record=start(client_id);batch=record['state']['clients'][0]['dmarc_batch']
+    before=s.board(USER)
+    with pytest.raises(HTTPException) as exc:
+        d.apply(user,client_id,batch['id'],jid,record['revision'])
+    assert exc.value.status_code==403 and s.board(USER)==before and not registrar.calls
+
+
+def test_dmarc_route_requires_csrf_tool_access_and_explicit_confirmation(client,board_db,registrar,monkeypatch):
     owner=people()['Dylan'];record,jid=create_setup(owner)
     client_id=record['state']['setups'][0]['client_id']
     user={**USER};monkeypatch.setattr(auth,'get_session_user',lambda request:user)
@@ -198,9 +232,15 @@ def test_dmarc_route_requires_csrf_admin_and_explicit_confirmation(client,board_
     assert client.post(endpoint,json=payload).status_code==403
     client.headers['X-Domain-CSRF']=csrf
     assert client.post(endpoint,json={**payload,'confirmed_purchased':False}).status_code==422
-    user['role']='sdr';assert client.post(endpoint,json=payload).status_code==403
-    user['role']='admin';r=client.post(endpoint,json=payload)
+    user['role']='sdr';r=client.post(endpoint,json=payload)
     assert r.status_code==200 and not registrar.calls
     current=r.json();batch=current['state']['clients'][0]['dmarc_batch']
-    result=client.post(f'/api/gmail-setup/clients/{client_id}/dmarc/{batch["id"]}/{jid}',json={'revision':current['revision']})
+    apply_endpoint=f'/api/gmail-setup/clients/{client_id}/dmarc/{batch["id"]}/{jid}'
+    before=s.board(USER)
+    user.update(role='admin',tools=[])
+    assert client.post(endpoint,json=payload).status_code==403
+    assert client.post(apply_endpoint,json={'revision':current['revision']}).status_code==403
+    assert s.board(USER)==before and not registrar.calls
+    user.update(role='sdr',tools=['gmail_set'])
+    result=client.post(apply_endpoint,json={'revision':current['revision']})
     assert result.status_code==200 and result.json()['state']['setups'][0]['dmarc']['status']=='verified'

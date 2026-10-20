@@ -133,20 +133,47 @@ def test_legacy_preview_age_does_not_expire_a_waiting_batch(batch_case,board_db)
     assert next(j for j in record['state']['setups'] if j['id']==jobs[0]['id'])['dns_setup_preview']['created_at']>batch(record,cid)['created_at']
 
 
-def test_start_and_step_require_admin_confirmation_current_batch_and_csrf(client,batch_case,monkeypatch):
+@pytest.mark.parametrize('role',['sdr','reviewer','viewer'])
+def test_start_and_step_require_tool_access_confirmation_current_batch_and_csrf(client,batch_case,monkeypatch,role):
     cid,jobs,foreign,registrar=batch_case;record=s.board(USER)
-    with pytest.raises(HTTPException):b.start(OTHER,cid,record['revision'],True,'https://clientwebsite.com')
+    with pytest.raises(HTTPException):b.start({**OTHER,'tools':[]},cid,record['revision'],True,'https://clientwebsite.com')
     with pytest.raises(HTTPException):b.start(USER,cid,record['revision'],False,'https://clientwebsite.com')
-    user={**USER};monkeypatch.setattr(auth,'get_session_user',lambda request:user)
+    user={**USER,'role':role};monkeypatch.setattr(auth,'get_session_user',lambda request:user)
     page=client.get('/gmail-set');csrf=re.search('data-csrf="([^"]+)"',page.text)[1]
     url=f'/api/gmail-setup/clients/{cid}/dns-setup/start'
     body={'revision':record['revision'],'confirmed_purchased':True,'destination':'https://clientwebsite.com'}
     assert client.post(url,json=body).status_code==403
     client.headers['X-Domain-CSRF']=csrf
     assert client.post(url,json={**body,'confirmed_purchased':False}).status_code==422
-    user['role']='sdr';assert client.post(url,json=body).status_code==403
-    user['role']='admin';record=client.post(url,json=body).json()
+    user['tools']=[];assert client.post(url,json=body).status_code==403
+    user['tools']=['gmail_set'];record=client.post(url,json=body).json()
     endpoint=f'/api/gmail-setup/clients/{cid}/dns-setup/{batch(record,cid)["id"]}/{jobs[0]["id"]}'
     assert client.post(endpoint,json={'revision':record['revision']}).json()['state']['clients'][0]['dns_setup_batch']['results'][jobs[0]['id']]['status']=='verified'
     old=record;record=start(cid)
     with pytest.raises(HTTPException):b.step(USER,cid,batch(old,cid)['id'],jobs[1]['id'],record['revision'])
+
+
+@pytest.mark.parametrize('role',['sdr','reviewer','viewer'])
+def test_staff_with_tool_can_start_and_complete_the_client_dns_batch(batch_case,role):
+    cid,jobs,foreign,registrar=batch_case
+    staff={**OTHER,'email':'devlin@unstuck-agency.com','role':role}
+    original=s.summary(s.board(USER)['state']);unrelated=copy.deepcopy(registrar.records[foreign['domain']])
+    record=b.start(staff,cid,s.board(staff)['revision'],True,'https://clientwebsite.com')
+    assert not registrar.calls
+    current=batch(record,cid)
+    for job in jobs[:2]:
+        record=b.step(staff,cid,current['id'],job['id'],record['revision'])
+    assert all(result['status']=='verified' for result in batch(record,cid)['results'].values())
+    assert batch(record,cid)['completed_at'] and s.summary(record['state'])==original
+    assert registrar.records[foreign['domain']]==unrelated
+
+
+@pytest.mark.parametrize('denied_user',[{**USER,'tools':[]},{**OTHER,'tools':[]},
+    {'email':USER['email'],'role':'admin'},{**USER,'tools':None},{**USER,'tools':'gmail_set'}])
+def test_batch_core_denies_missing_tool_before_claiming_or_contacting_provider(batch_case,denied_user):
+    cid,jobs,foreign,registrar=batch_case;before=s.board(USER)
+    with pytest.raises(HTTPException) as exc:b.start(denied_user,cid,before['revision'],True,'https://clientwebsite.com')
+    assert exc.value.status_code==403 and s.board(USER)==before and not registrar.calls
+    prepared=start(cid)
+    with pytest.raises(HTTPException) as exc:b.step(denied_user,cid,batch(prepared,cid)['id'],jobs[0]['id'],prepared['revision'])
+    assert exc.value.status_code==403 and s.board(USER)==prepared and not registrar.calls

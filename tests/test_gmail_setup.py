@@ -816,6 +816,20 @@ def test_legacy_gmail_url_serves_the_same_current_layout_version_and_cache_heade
     assert f'/static/gmail-setup.js?v={ASSET_VERSION}' in legacy.text
 
 
+@pytest.mark.parametrize('role',['admin','reviewer','sdr','viewer'])
+def test_all_team_roles_with_tool_access_receive_dns_setup_and_recent_ui(client,monkeypatch,role):
+    user={**OTHER,'email':'devlin@unstuck-agency.com','role':role,'tools':['gmail_set']}
+    monkeypatch.setattr(auth,'get_session_user',lambda request:user)
+    page=client.get('/gmail-set')
+    assert page.status_code==200
+    assert 'data-dns-enabled="true"' in page.text
+    assert 'data-dns-admin' not in page.text
+    assert 'id="gs-client-dns"' in page.text
+    assert 'id="gs-renew-dialog"' in page.text and '<option>Gmail deleted</option>' in page.text
+    user['tools']=[]
+    assert client.get('/gmail-set').status_code==403
+
+
 def test_recovery_session_does_not_grant_removed_tool_access_or_bypass_csrf(client,board_db,monkeypatch):
     user={**OTHER}
     monkeypatch.setattr(auth,'get_session_user',lambda request:user)

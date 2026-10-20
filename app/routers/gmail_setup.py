@@ -142,7 +142,7 @@ def page(request: Request, user=Depends(access)):
     request.session.setdefault('domain_csrf', secrets.token_urlsafe(32))
     return templates.TemplateResponse(request, 'gmail_setup.html', {
         'csrf': request.session['domain_csrf'], 'gmail_asset_version': ASSET_VERSION, 'gmail_app_version': APP_VERSION,
-        'gmail_can_manage_dns': user.get('role') == 'admin'})
+        'gmail_can_manage_dns': 'gmail_set' in user.get('tools', [])})
 
 
 @router.get('/api/gmail-setup')

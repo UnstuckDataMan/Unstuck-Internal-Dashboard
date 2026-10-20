@@ -149,7 +149,10 @@ the tracker version without reloading over drafts.
   24/29 coverage: 5 slots short, requiring **3 phones** at two setups each.
   The same saved limits control ordering, device colours and allocations.
   No external orders or notifications are sent.
-- Each domain has an administrator-only **One-click setup** button. After the
+- Every team member with Gmail Set access can use the domain-level
+  **One-click setup** button and client-wide **Set up all domains**. This uses
+  the same tool permission as Master Domains, stages, notes and client passwords;
+  no administrator role is required. After the
   purchase warning, enter the client website URL and select **Proceed**. It removes
   only reviewed Porkbun forwarding MX, default Porkbun SPF and ACME challenge TXT
   records; adds/verifies `t` CNAME → `open.sleadtrack.com`, the domain's sending-email

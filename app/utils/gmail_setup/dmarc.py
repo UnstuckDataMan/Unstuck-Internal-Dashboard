@@ -3,11 +3,7 @@ import copy
 from fastapi import HTTPException
 from app.utils.domain_cluster import provisioning as p
 from . import service as s, store
-
-
-def require_admin(user):
-    if user.get('role') != 'admin':
-        raise HTTPException(403, 'An administrator must configure DMARC through the shared Porkbun account.')
+from .dns_setup import require_setup_access
 
 
 def apply_record(domain, email, key, client=None):
@@ -31,7 +27,7 @@ def apply_record(domain, email, key, client=None):
 
 
 def start(user, client_id, revision, confirmed_purchased, setup_ids=None):
-    require_admin(user)
+    require_setup_access(user)
     if confirmed_purchased is not True:
         raise HTTPException(400, 'Confirm that domain purchases are complete before proceeding.')
     record = s.board(user)
@@ -65,7 +61,7 @@ def start(user, client_id, revision, confirmed_purchased, setup_ids=None):
 
 
 def apply(user, client_id, batch_id, job_id, revision):
-    require_admin(user)
+    require_setup_access(user)
     record = s.board(user)
     if record['revision'] != revision:
         raise HTTPException(409, 'The tracker changed. Refresh before retrying DMARC.')

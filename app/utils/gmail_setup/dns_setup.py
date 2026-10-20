@@ -11,9 +11,10 @@ PREVIEW_SECONDS = 900
 MAX_RECORDS = 10
 
 
-def require_admin(user):
-    if user.get('role') != 'admin':
-        raise HTTPException(403, 'An administrator must configure DNS through the shared Porkbun account.')
+def require_setup_access(user):
+    tools = (user or {}).get('tools') or []
+    if not isinstance(tools, (list, tuple, set)) or 'gmail_set' not in tools:
+        raise HTTPException(403, 'Gmail Set access required.')
 
 
 def canonical(record, domain):
@@ -147,7 +148,7 @@ def check_forward_snapshot(current, approved):
 
 
 def preview(user, job_id, revision):
-    require_admin(user)
+    require_setup_access(user)
     record = s.board(user)
     if record['revision'] != revision:
         raise HTTPException(409, 'The tracker changed. Refresh before reviewing DNS records.')
@@ -233,7 +234,7 @@ def configure_records(domain, email, destination, approved, approved_forwards, p
 
 
 def apply(user, job_id, preview_id, revision, confirmed_purchased, destination):
-    require_admin(user)
+    require_setup_access(user)
     if confirmed_purchased is not True:
         raise HTTPException(400, 'Confirm that domain purchase is complete before proceeding.')
     record = s.board(user)
