@@ -14,7 +14,7 @@ MAX_RECORDS = 10
 def require_setup_access(user):
     tools = (user or {}).get('tools') or []
     if not isinstance(tools, (list, tuple, set)) or 'gmail_set' not in tools:
-        raise HTTPException(403, 'Gmail Set access required.')
+        raise HTTPException(403, 'Gmail Setup Tool access required.')
 
 
 def canonical(record, domain):

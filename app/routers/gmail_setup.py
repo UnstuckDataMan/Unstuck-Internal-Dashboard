@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from app.deps import templates
 from app.routers.domain_cluster import access, mutation_access
@@ -146,8 +146,12 @@ def page(request: Request, user=Depends(access)):
 
 
 @router.get('/api/gmail-setup')
-def get_board(user=Depends(access)):
-    return service.result(service.board(user))
+def get_board(background_tasks: BackgroundTasks, user=Depends(access)):
+    from app.utils.gmail_setup import backup
+    record = service.board(user)
+    if backup.pending(record['state']):
+        background_tasks.add_task(backup.resume, user)
+    return service.result(record)
 
 
 @router.get('/api/gmail-setup/session')
@@ -164,7 +168,7 @@ def get_summary(user=Depends(access)):
 
 
 @router.post('/api/gmail-setup/change')
-def change(body: Change, user=Depends(mutation_access)):
+def change(body: Change, background_tasks: BackgroundTasks, user=Depends(mutation_access)):
     models = {'reserve_set': Reserve, 'capacity_set': Capacity, 'client_save': Client, 'client_remove': Identifier, 'client_complete': Identifier, 'client_password': ClientPassword, 'setup_bulk': Bulk, 'setup_assign': Assignment, 'setup_notes': Notes, 'setup_master': MasterDomain,
               'member_save': Member, 'member_remove': Identifier, 'devices_add': Devices,
               'device_update': Device, 'device_remove': Identifier, 'setup_save': Setup,
@@ -178,6 +182,9 @@ def change(body: Change, user=Depends(mutation_access)):
     except ValidationError:
         raise HTTPException(400, 'Check the required fields, device counts and selected values.') from None
     record = service.mutate(user, body.revision, body.action, data)
+    from app.utils.gmail_setup import backup
+    if backup.pending(record['state']):
+        background_tasks.add_task(backup.resume, user)
     return service.result(record)
 
 
@@ -187,13 +194,30 @@ def reveal_client_password(client_id: UUID, user=Depends(mutation_access)):
 
 
 @router.post('/api/gmail-setup/setups/{job_id}/sync')
-def sync(job_id: UUID, user=Depends(mutation_access)):
-    raise HTTPException(410, 'Master Strategy sheet updates are manual. Add completed sending emails to the sheet yourself.')
+def sync(job_id: UUID, background_tasks: BackgroundTasks, user=Depends(mutation_access)):
+    from app.utils.gmail_setup import backup
+    record = backup.queue_retry(user, str(job_id))
+    background_tasks.add_task(backup.resume, user)
+    return service.result(record)
+
+
+class ClientBackup(Strict):
+    revision: int = Field(ge=0)
+
+
+@router.post('/api/gmail-setup/clients/{client_id}/sync')
+def sync_client(client_id: UUID, body: ClientBackup, background_tasks: BackgroundTasks, user=Depends(mutation_access)):
+    from app.utils.gmail_setup import backup
+    record = backup.queue_client(user, str(client_id), body.revision)
+    if backup.pending(record['state']):
+        background_tasks.add_task(backup.resume, user)
+    return service.result(record)
 
 
 @router.post('/api/gmail-setup/check-sheet')
 def check_sheet(user=Depends(mutation_access)):
-    raise HTTPException(410, 'Master Strategy sheet updates are manual. Add completed sending emails to the sheet yourself.')
+    from app.utils.gmail_setup import sheets
+    return sheets.readiness()
 
 
 class DmarcStart(Strict):

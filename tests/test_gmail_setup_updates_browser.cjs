@@ -1,4 +1,4 @@
-// Isolated synthetic browser regression: no Google or Porkbun requests are allowed.
+// Isolated synthetic browser regression: Sheets backups use the fake preview publisher; no live providers.
 const {chromium}=require('playwright'),assert=require('node:assert/strict');
 (async()=>{
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
@@ -20,7 +20,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  const notes=async(id,value)=>{await page.fill(`[data-set-notes="${id}"]`,value);await page.click(`[data-save-notes="${id}"]`);await idle();assert.equal(findJob(await data(),id).notes,value);};
  const open=async id=>{await page.goto(`http://127.0.0.1:8766/gmail-set?qa=${Date.now()}${id?'#client='+id:''}`);await idle();};
  const group=(id,name)=>page.locator(`[data-client-group="${name}"] [data-open-client="${id}"]`);
- const manual=async id=>{assert.match(await card(id).locator('.gs-sync').textContent(),/Master Strategy sheet manually/);assert.equal(await card(id).locator('[data-sync]').count(),0);assert.deepEqual(syncRequests,[],'completion must not request a strategy-sheet sync');};
+ const backedUp=async id=>{await page.click('#gs-client-heading');await page.waitForFunction(async id=>{const board=await fetch('/api/gmail-setup').then(response=>response.json()),sync=board.state.setups.find(job=>job.id===id)?.sync;return sync?.status==='synced'&&sync.live===true;},id,{polling:100});if(await card(id).count())await page.waitForFunction(id=>document.querySelector(`[data-sheet-status="${id}"]`)?.textContent.includes('Backed up · Live'),id);};
  await page.goto('http://127.0.0.1:8766/gmail-set');await idle();
  await change('member_save',{name:`Update owner A ${tag}`});await change('member_save',{name:`Update owner B ${tag}`});
  let model=await data();const a=model.state.members.find(m=>m.name===`Update owner A ${tag}`).id,b=model.state.members.find(m=>m.name===`Update owner B ${tag}`).id;
@@ -32,8 +32,8 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  assert.equal(await page.locator('#gs-dmarc').count(),0,'obsolete standalone DMARC button is removed');
  assert.equal(await page.locator('#gs-client-dns + #gs-complete-client').count(),1,'bulk completion is beside DNS setup');
  await stage(quick.id,'Setup complete');
- assert.match(await card(quick.id).getAttribute('class'),/gs-domain-complete/);await manual(quick.id);
- model=await data();assert.equal(findJob(model,quick.id).stage,'Setup complete');assert.notEqual(findJob(model,quick.id).sync.status,'synced');
+ assert.match(await card(quick.id).getAttribute('class'),/gs-domain-complete/);await backedUp(quick.id);
+ model=await data();assert.equal(findJob(model,quick.id).stage,'Setup complete');assert.equal(findJob(model,quick.id).sync.status,'synced');
  assert.equal(await page.locator('[data-setup]').last().getAttribute('data-setup'),quick.id,'completed card moves immediately');
  assert.equal(await card(waiting.id).locator('[data-set-stage]').inputValue(),'Not started');
  const completed=structuredClone(findJob(model,quick.id)),used=model.state.devices.find(d=>d.id===aPhones[0].id).use_count;
@@ -51,21 +51,21 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await card(quick.id).locator('[data-set-operator]').selectOption(a);await idle();await card(quick.id).locator('[data-set-device]').selectOption(aPhones[1].id);await idle();
  assert.equal(findJob(await data(),quick.id).notes,burnedNote);assert.equal(findJob(await data(),quick.id).operator_id,a);assert.equal(findJob(await data(),quick.id).device_id,aPhones[1].id);
  const draftNote='Inline draft must survive opening Details.';await page.fill(`[data-set-notes="${waiting.id}"]`,draftNote);await card(waiting.id).locator('[data-edit-setup]').click();
- assert.equal(await page.inputValue('#gs-job-notes'),draftNote);await page.selectOption('#gs-job-stage','Setup complete');await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();assert.equal(findJob(await data(),waiting.id).notes,draftNote);assert.equal(findJob(await data(),waiting.id).stage,'Setup complete');await manual(waiting.id);
+ assert.equal(await page.inputValue('#gs-job-notes'),draftNote);await page.selectOption('#gs-job-stage','Setup complete');await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();assert.equal(findJob(await data(),waiting.id).notes,draftNote);assert.equal(findJob(await data(),waiting.id).stage,'Setup complete');await backedUp(waiting.id);
  // Bulk completion is client-scoped and covers hidden, unfinished rows too.
  const bulkResult=await change('client_save',{name:`Bulk completion ${tag}`,account_manager_id:a,operator_id:a,section:'client'}),bulkClient=bulkResult.state.clients.at(-1);
  const bulkNames=['bulkvisible','bulkhidden','bulkready','bulkburned','bulkalready'];
  await change('setup_bulk',{client_id:bulkClient.id,domains:bulkNames.map(domain).join('\n'),sender_name:'sender',operator_id:a});
  model=await data();const burned=jobFor(model,'bulkburned'),already=jobFor(model,'bulkalready'),eligible=['bulkvisible','bulkhidden','bulkready'].map(name=>jobFor(model,name));
  await change('setup_stage',{id:burned.id,stage:'Burned'});await change('setup_stage',{id:already.id,stage:'Setup complete'});
- const beforeAlready=findJob(await data(),already.id),beforeOther=findJob(await data(),waiting.id);
- await open(bulkClient.id);await notes(burned.id,'Do not retry; keep burned history.');await page.fill('#gs-search',domain('bulkvisible'));assert.equal(await page.locator('[data-setup]').count(),1);
- await page.click('#gs-complete-client');assert.match(await page.textContent('#gs-dialog'),/Master Strategy sheet manually/);await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();
- model=await data();for(const job of eligible){assert.equal(findJob(model,job.id).stage,'Setup complete','all active client domains save together');assert.notEqual(findJob(model,job.id).sync.status,'synced');}
- assert.match(await card(eligible[0].id).getAttribute('class'),/gs-domain-complete/);await manual(eligible[0].id);assert.equal(findJob(model,burned.id).stage,'Burned');assert.equal(findJob(model,burned.id).notes,'Do not retry; keep burned history.');assert.deepEqual(findJob(model,already.id),beforeAlready);assert.deepEqual(findJob(model,waiting.id),beforeOther);
+ await open(bulkClient.id);await backedUp(already.id);const beforeAlready=findJob(await data(),already.id),beforeOther=findJob(await data(),waiting.id);
+ await notes(burned.id,'Do not retry; keep burned history.');await page.fill('#gs-search',domain('bulkvisible'));assert.equal(await page.locator('[data-setup]').count(),1);
+ await page.click('#gs-complete-client');assert.match(await page.textContent('#gs-dialog'),/complete/i);await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();
+ model=await data();for(const job of eligible){assert.equal(findJob(model,job.id).stage,'Setup complete','all active client domains save together');await backedUp(job.id);}
+ assert.match(await card(eligible[0].id).getAttribute('class'),/gs-domain-complete/);await backedUp(eligible[0].id);assert.equal(findJob(model,burned.id).stage,'Burned');assert.equal(findJob(model,burned.id).notes,'Do not retry; keep burned history.');assert.deepEqual(findJob(model,already.id),beforeAlready);assert.deepEqual(findJob(model,waiting.id),beforeOther);
  await page.fill('#gs-search','');assert.equal(await page.locator('[data-setup]').count(),5);assert.equal(await page.locator('[data-setup]').last().getAttribute('data-setup'),burned.id);
  await notes(eligible[0].id,'Completed in bulk; retain after reload.');await page.reload();await idle();assert.equal(await page.inputValue(`[data-set-notes="${eligible[0].id}"]`),'Completed in bulk; retain after reload.');
- assert.equal(await page.locator('[data-sync]').count(),0,'manual sheet updates expose no retry action');
+ assert.equal(await page.locator('[data-sync]').count(),0,'successful backups expose no retry action');
  await page.locator('#gs-client-heading').evaluate(el=>el.scrollIntoView({block:'start'}));await page.screenshot({path:'work/gmail-updates-desktop.png',animations:'disabled'});
  await card(eligible[0].id).screenshot({path:'work/gmail-updates-cards.png',animations:'disabled'});await card(burned.id).screenshot({path:'work/gmail-updates-burned.png',animations:'disabled'});
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'notes and client actions fit mobile');await card(eligible[0].id).evaluate(el=>el.scrollIntoView({block:'start'}));await page.screenshot({path:'work/gmail-updates-mobile.png',animations:'disabled'});
@@ -75,7 +75,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  // A replacement fills the burned slot; it must not increase the original target.
  await change('setup_bulk',{client_id:bulkClient.id,domains:domain('bulkreplacement'),sender_name:'sender',operator_id:a});await open(bulkClient.id);
  model=await data();const replacement=jobFor(model,'bulkreplacement');assert.equal(model.client_progress[bulkClient.id].target,5);assert.equal(model.client_progress[bulkClient.id].remaining,1);assert.equal(model.client_progress[bulkClient.id].replacements_needed,0);
- await stage(replacement.id,'Setup complete');await manual(replacement.id);assert.equal((await data()).client_progress[bulkClient.id].remaining,0);await page.click('#gs-back-clients');assert.equal(await group(bulkClient.id,'complete').count(),1,'the client completes only after its burned slot is replaced');
+ await stage(replacement.id,'Setup complete');await backedUp(replacement.id);assert.equal((await data()).client_progress[bulkClient.id].remaining,0);await page.click('#gs-back-clients');assert.equal(await group(bulkClient.id,'complete').count(),1,'the client completes only after its burned slot is replaced');
  assert.equal(await page.locator('[data-client-group="active"] + [data-client-group="complete"]').count(),1,'completed clients appear below active clients');
  await page.selectOption('#gs-filter-stage','Setup complete');assert.equal(await group(client.id,'active').count(),1,'a client with one finished and one unfinished domain stays active when filtering to completed');assert.equal(await group(bulkClient.id,'complete').count(),1);await page.selectOption('#gs-filter-stage','');
  await group(bulkClient.id,'complete').click();await stage(eligible[0].id,'Not started');await page.click('#gs-back-clients');assert.equal(await group(bulkClient.id,'active').count(),1,'reopening a domain instantly returns the client to active');
@@ -85,6 +85,6 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  const emptyResult=await change('client_save',{name:`Empty client ${tag}`,account_manager_id:a,operator_id:a,section:'client',domain_target:0}),emptyClient=emptyResult.state.clients.at(-1);
  await open();assert.equal(await group(bulkClient.id,'active').count(),1,'adding an actual domain beyond the finished target returns a client to active');assert.equal((await data()).client_progress[bulkClient.id].target,6);assert.equal(await group(plannedClient.id,'active').count(),1,'unentered target domains count as outstanding work');assert.match(await group(plannedClient.id,'active').textContent(),/7 target/);assert.match(await group(plannedClient.id,'active').textContent(),/7 to complete/);assert.equal(await group(emptyClient.id,'complete').count(),1,'a zero-domain client has zero outstanding work');
  await page.locator('#gs-client-list').screenshot({path:'work/gmail-client-completed-groups.png',animations:'disabled'});await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'client groups fit mobile');await page.locator('#gs-client-list').screenshot({path:'work/gmail-client-completed-groups-mobile.png',animations:'disabled'});
- assert.deepEqual(syncRequests,[],'individual, Details, API and bulk completion never request sheet sync');assert.equal(await page.locator('[data-sync]').count(),0);assert.deepEqual(errors,[]);
- await browser.close();console.log('PASS: manual-only sheet updates with zero sync requests, immediate green completion, reopened/burned owner and device edits, saved notes across completion/burn/reset/reload, Details draft preservation, client-wide completion independent of filters, burned/other-client isolation, active/completed client grouping and mobile layout.');
+ assert.equal(await page.locator('[data-sync]').count(),0);assert.deepEqual(errors,[]);
+ await browser.close();console.log('PASS: synthetic Sheets backups, immediate green completion, reopened/burned owner and device edits, saved notes across completion/burn/reset/reload, Details draft preservation, client-wide completion independent of filters, burned/other-client isolation, active/completed client grouping and mobile layout.');
 })().catch(e=>{console.error(e);process.exit(1)});

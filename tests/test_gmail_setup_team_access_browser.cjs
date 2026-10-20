@@ -14,7 +14,6 @@ from app import auth
 from app.utils.gmail_setup import store,sheets
 importlib.reload(auth)
 os.environ['AUTH_DISABLED']='0'
-sheets.publish=forbidden
 store.team_directory=lambda user:[{'name':name,'email':name.lower()+'@unstuck-agency.com'} for name in ['Dylan','Devlin','Kelton','Robyn','Chris']]
 uvicorn.run(app,host='127.0.0.1',port=8768,log_level='warning',lifespan='off')
 `;
@@ -57,6 +56,6 @@ const cookie=(name,role,tools=['gmail_set'],email=name.toLowerCase()+'@unstuck-a
   const anonymous=await browser.newContext(),redirect=await anonymous.request.get(origin+'/gmail-set',{maxRedirects:0});assert.equal(redirect.status(),303);assert.equal(redirect.headers().location,'/login');assert.equal((await anonymous.request.get(origin+'/api/gmail-setup')).status(),401);
   const outside=await browser.newContext();await outside.addCookies([{name:'dashboard_session',value:cookie('Outside','viewer',['gmail_set'],'outside@another-workspace.com'),url:origin,httpOnly:true,sameSite:'Lax'}]);const outsideBoard=await outside.request.get(origin+'/api/gmail-setup'),outsideRevision=(await outsideBoard.json()).revision;assert.equal((await outside.request.post(origin+`/api/gmail-setup/setups/${jobs[0].id}/dns-setup/preview`,{headers:{'X-Domain-CSRF':'outside-team-csrf'},data:{revision:outsideRevision}})).status(),404);
   await card(devlin,jobs[0].id).screenshot({path:'work/gmail-team-devlin-oneclick-ready.png',animations:'disabled'});await devlin.setViewportSize({width:390,height:844});assert.equal(await devlin.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await card(devlin,jobs[0].id).screenshot({path:'work/gmail-team-devlin-mobile.png',animations:'disabled'});
-  assert.deepEqual(sheetRequests,[]);assert.deepEqual(errors,[]);console.log('PASS: Devlin viewer can preview/cancel/confirm/apply/read back one-click synthetic DNS; all Gmail Set roles share one-click/batch and recent features; missing-tool/anonymous/workspace boundaries remain enforced; mobile and zero Google Sheet writes.');
+  await devlin.waitForFunction(async id=>{const board=await fetch('/api/gmail-setup').then(response=>response.json());return board.state.setups.find(job=>job.id===id)?.sync.status==='synced';},jobs[1].id);assert.deepEqual(errors,[]);console.log('PASS: Devlin viewer can preview/cancel/confirm/apply/read back one-click synthetic DNS; all Gmail Set roles share one-click/batch and recent features; missing-tool/anonymous/workspace boundaries remain enforced; mobile and synthetic Sheets backups.');
  }finally{if(browser)await browser.close();if(server&&server.exitCode===null){const exited=once(server,'exit');server.kill('SIGTERM');await Promise.race([exited,sleep(3000)]);}}
 })().catch(error=>{console.error(error);process.exit(1)});

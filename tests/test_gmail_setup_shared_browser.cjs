@@ -60,5 +60,5 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await poll(two);await two.waitForFunction(id=>document.querySelector(`[data-set-stage="${id}"]`)?.value==='Started',delayed.id);
  await Promise.all([one.reload(),two.reload()]);await Promise.all([idle(one),idle(two)]);
  for(const page of [one,two]){assert.equal(await select(page,first.id).inputValue(),'Purchase made');assert.equal(await select(page,second.id).inputValue(),'Started');assert.equal(await select(page,delayed.id).inputValue(),'Started');}
- assert.deepEqual(syncRequests,[]);assert.deepEqual(errors,[]);await browser.close();console.log('PASS: two independent devices safely rebase unrelated changes, reject conflicting stage overwrites, retain Started across another user/poll/reload, protect an active dropdown from delayed reads, and keep sheet updates manual.');
+ assert.deepEqual(syncRequests,[]);assert.deepEqual(errors,[]);await browser.close();console.log('PASS: two independent devices safely rebase unrelated changes, reject conflicting stage overwrites, retain Started across another user/poll/reload, protect an active dropdown from delayed reads, without triggering a backup for unfinished domains.');
 })().catch(e=>{console.error(e);process.exit(1)});

@@ -15,6 +15,7 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
 from app.utils import google_sheets as gs
+from app.utils.strategy_sheet_identity import email_cell_identity
 from . import engine as e
 
 SHEET_ID = '1PN5Lx-5c4nbouDl-Apw9YJgrYTuoDsBKqzk5Hh6Z0po'
@@ -75,7 +76,7 @@ def parse_tab(kind, title, values):
             continue
         live += 1
         try:
-            domain = e.normalize(str(cell(row, email_col)))
+            domain = e.normalize(email_cell_identity(cell(row, email_col)))
         except ValueError:
             reason = ('Live is checked but Email is empty.' if not str(cell(row, email_col)).strip()
                       else 'Live is checked but Email contains an invalid email/domain.')

@@ -2,6 +2,7 @@
 import copy
 import os
 import sys
+import threading
 sys.path.insert(0,os.path.dirname(os.path.dirname(__file__)))
 os.environ['AUTH_DISABLED']='1';os.environ['SESSION_SECRET']='gmail-local-qa'
 from fastapi import HTTPException
@@ -11,23 +12,38 @@ from app.utils.gmail_setup import store,sheets,dmarc
 user={'email':'dylan@unstuck-agency.com','name':'Dylan','role':'admin','tools':['gmail_set']}
 auth.get_session_user=lambda request:user
 rows={}
+_store_lock=threading.Lock()
 store.team_directory=lambda user:[{'name':name,'email':name.lower()+'@unstuck-agency.com'} for name in ['Dylan','Matthew','Robyn','Chris']]
 def load(user):return copy.deepcopy(rows.get(store.workspace(user)))
 def save(user,state,revision):
     key=store.workspace(user)
-    if rows.get(key,{'revision':0})['revision']!=revision:raise HTTPException(409,'Tracker changed. Refresh and retry.')
     from app.utils.gmail_setup.service import now
-    rows[key]={'workspace_id':key,'state':copy.deepcopy(state),'revision':revision+1,'updated_at':now()}
-    return copy.deepcopy(rows[key])
+    with _store_lock:
+        if rows.get(key,{'revision':0})['revision']!=revision:raise HTTPException(409,'Tracker changed. Refresh and retry.',headers=store.REVISION_CONFLICT_HEADERS)
+        rows[key]={'workspace_id':key,'state':copy.deepcopy(state),'revision':revision+1,'updated_at':now()}
+        return copy.deepcopy(rows[key])
 store.load=load;store.save=save
 attempts={}
-def publish(job,owner):
+sheet_rows={}
+def publish(job,owner,guard=None):
+    if guard:guard()
     attempts[job['id']]=attempts.get(job['id'],0)+1
+    gid,title=sheets.TABS[job['section']]
+    row=sheet_rows.setdefault(job['id'],{'tab':title,'sheet_id':gid,'row':23,'url':sheets.SOURCE_URL+f'#gid={gid}&range=A23',
+        'email':job.get('sheet_display_email',job['email']),'owner':owner,'live':True})
+    row['live']=True
     if job['domain']=='retryclients.com' and attempts[job['id']]==1:
         raise HTTPException(503,'Synthetic lost response. Setup saved; Retry sync.')
+    return {key:row[key] for key in ('tab','sheet_id','row','url','live')}
+def deactivate(job,owner,guard=None):
+    if guard:guard()
+    row=sheet_rows.get(job['id'])
     gid,title=sheets.TABS[job['section']]
-    return {'tab':title,'sheet_id':gid,'row':23,'url':sheets.SOURCE_URL+f'#gid={gid}&range=A23'}
+    if not row:return {'tab':title,'sheet_id':gid,'live':False,'missing':True,'message':'No matching sheet row was found; nothing was added or removed.'}
+    row['live']=False
+    return {key:row[key] for key in ('tab','sheet_id','row','url','live')}
 sheets.publish=publish
+sheets.deactivate=deactivate
 sheets.readiness=lambda:{'ready':True,'message':'Sheet write access ready.'}
 
 # Synthetic DMARC provider: browser QA cannot call or mutate live registrar DNS.

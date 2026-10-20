@@ -16,6 +16,10 @@ OTHER={'email':'matthew@unstuck-agency.com','role':'sdr','tools':['gmail_set']}
 
 @pytest.fixture
 def board_db(monkeypatch):
+    from app.utils.gmail_setup import backup
+    # Endpoint tests assert queued intents separately from worker tests; no
+    # background task may contact a real sheet from this in-memory fixture.
+    monkeypatch.setattr(backup,'resume',lambda user:None)
     rows={}
     monkeypatch.setattr(store,'team_directory',lambda user:[{'email':'dylan@unstuck-agency.com','name':'Dylan'},{'email':'matthew@unstuck-agency.com','name':'Matthew'},{'email':'robyn@unstuck-agency.com','name':'Robyn'}])
     def load(user):return copy.deepcopy(rows.get(store.workspace(user)))
@@ -236,8 +240,10 @@ def test_gmail_deleted_requires_confirmation_and_preserves_history_without_archi
     assert job['stage']==s.GMAIL_DELETED and job['archived'] is False
     assert job['gmail_deleted_from']==starting_stage and job['gmail_deleted_at']==job['auto_renew_stopped_at']
     for field in ('notes','master_domain_id','master_color','purchase_at','purchase_device','purchase_device_history',
-                  'device_failures','completed_at','order','sheet_owner','sync','device_id','operator_id'):
+                      'device_failures','completed_at','order','sheet_owner','device_id','operator_id'):
         assert job.get(field)==before['state']['setups'][0].get(field)
+        assert job['sync']['status']=='pending' and job['sync']['live'] is False
+        assert job['sync'].get('row')==before['state']['setups'][0].get('sync',{}).get('row')
     assert record['state']['devices']==before['state']['devices'] and record['state']['clients']==before['state']['clients']
     plan=s.summary(record['state'])
     assert plan['gmail_deleted']==1 and plan['burned']==plan['complete']==plan['actual_todo']==0
@@ -691,18 +697,25 @@ def test_existing_email_conflicts_are_row_specific_and_no_write(sheet_session):
     assert 'row 2' in exc.value.detail and 'At Risk' in exc.value.detail
 
 
-def test_sheet_lease_prevents_overlapping_work_and_expires_safely(board_db,monkeypatch):
+def test_sheet_lease_serializes_sheet_writers_without_blocking_tracker_edits_and_expires_safely(board_db,monkeypatch):
     owner=people()['Dylan'];d=devices(owner)['state']['devices'][0]
     _,jid=create_setup(owner,d['id']);change('setup_stage',{'id':jid,'stage':'Purchase made'});change('setup_stage',{'id':jid,'stage':'Setup complete'})
-    def publish(job,owner):
-        with pytest.raises(HTTPException) as exc:change('member_save',{'name':'New','email':''},user=OTHER)
+    def publish(job,owner,guard=None):
+        lock=copy.deepcopy(s.board(USER)['state']['sync_lock'])
+        updated=change('member_save',{'name':'During backup','email':''},user=OTHER)
+        assert updated['state']['sync_lock']==lock
+        change('setup_notes',{'id':jid,'notes':'Saved without waiting for the sheet'},user=OTHER)
+        with pytest.raises(HTTPException) as exc:s.sync_completed(OTHER,jid)
         assert exc.value.status_code==409
-        with pytest.raises(HTTPException):s.sync_completed(OTHER,jid)
+        guard()
         return {'tab':'Client','row':3,'url':'https://docs.google.com/example'}
     monkeypatch.setattr(sheets,'publish',publish)
-    assert s.sync_completed(USER,jid)['state']['setups'][0]['sync']['status']=='synced'
+    synced=s.sync_completed(USER,jid)
+    assert synced['state']['setups'][0]['sync']['status']=='synced'
+    assert synced['state']['setups'][0]['notes']=='Saved without waiting for the sheet'
+    assert any(member['name']=='During backup' for member in synced['state']['members'])
     record=s.board(USER);record['state']['sync_lock']={'token':'expired','job_id':jid,'at':(datetime.now(timezone.utc)-timedelta(seconds=181)).isoformat()};store.save(USER,record['state'],record['revision'])
-    assert change('member_save',{'name':'New','email':''})['state']['sync_lock'] is None
+    assert change('member_save',{'name':'After expired backup','email':''})['state']['sync_lock'] is None
 
 
 def test_tracker_routes_auth_csrf_schema_and_shared_visibility(client,board_db,monkeypatch):
@@ -848,13 +861,16 @@ def test_recovery_session_does_not_grant_removed_tool_access_or_bypass_csrf(clie
 
 
 @pytest.mark.parametrize('defer_sync',[False,True,None])
-def test_completion_routes_never_write_strategy_sheet_for_individual_details_or_bulk_completion(client,board_db,monkeypatch,defer_sync):
+def test_completion_routes_save_pending_then_schedule_worker_for_individual_details_and_bulk(client,board_db,monkeypatch,defer_sync):
     import re
     monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
     page=client.get('/gmail-set')
     client.headers['X-Domain-CSRF']=re.search('data-csrf="([^"]+)"',page.text)[1]
     monkeypatch.setattr(sheets,'publish',lambda *args:pytest.fail('Runtime completion must never write to Google Sheets'))
     monkeypatch.setattr(s,'sync_completed',lambda *args:pytest.fail('Runtime completion must never invoke sheet sync'))
+    from app.utils.gmail_setup import backup
+    scheduled=[]
+    monkeypatch.setattr(backup,'resume',lambda user:scheduled.append(user['email']))
     owner=people()['Dylan']
     record,first=create_setup(owner)
     create_setup(owner,domain='manualbatch.com',email='me@manualbatch.com')
@@ -862,23 +878,22 @@ def test_completion_routes_never_write_strategy_sheet_for_individual_details_or_
     response=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'setup_stage',
         'data':{'id':first,'stage':'Setup complete'},**flag})
     assert response.status_code==200
-    assert response.json()['state']['setups'][0]['sync']['status']=='manual'
+    assert response.json()['state']['setups'][0]['sync']['status']=='pending' and scheduled==[USER['email']]
     assert response.json()['summary']['complete']==1
     assigned=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'setup_assign',
         'data':{'id':first,'email':'me@cedarclients.com'},**flag})
-    assert assigned.status_code==200 and assigned.json()['state']['setups'][0]['sync']['status']=='manual'
+    assert assigned.status_code==409 # an attempted backup freezes its email identity
     details=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'setup_save',
         'data':{'account_manager_id':owner,'operator_id':owner,'client_name':'Details client','email':'me@manualdetails.com','stage':'Setup complete'},**flag})
-    assert details.status_code==200 and details.json()['state']['setups'][-1]['sync']['status']=='manual'
+    assert details.status_code==200 and details.json()['state']['setups'][-1]['sync']['status']=='pending'
     completed=client.post('/api/gmail-setup/change',json={'revision':s.board(USER)['revision'],'action':'client_complete',
         'data':{'id':record['state']['setups'][0]['client_id']},**flag})
     assert completed.status_code==200 and completed.json()['summary']['complete']==3
-    assert all(job['sync']['status']=='manual' for job in completed.json()['state']['setups'])
+    assert all(job['sync']['status']=='pending' for job in completed.json()['state']['setups'])
     before=s.board(USER)
-    for path in (f'/api/gmail-setup/setups/{first}/sync','/api/gmail-setup/check-sheet'):
-        rejected=client.post(path)
-        assert rejected.status_code==410 and 'manual' in rejected.json()['detail']
-        assert s.board(USER)==before
+    retried=client.post(f'/api/gmail-setup/setups/{first}/sync')
+    assert retried.status_code==200 and retried.json()['state']['setups'][0]['sync']['status']=='pending'
+    assert s.board(USER)['state']['setups'][0]['sheet_intent']['generation']!=before['state']['setups'][0]['sheet_intent']['generation']
 
 
 def test_notes_route_remains_editable_after_complete_and_burned_with_csrf_revision_and_field_validation(client,board_db,monkeypatch):
@@ -901,21 +916,21 @@ def test_notes_route_remains_editable_after_complete_and_burned_with_csrf_revisi
     response=client.post('/api/gmail-setup/change',json=payload)
     assert response.status_code==200
     job=response.json()['state']['setups'][0]
-    assert job['stage']=='Burned' and job['notes']=='Retained burned-domain note' and job['sync']['status']=='manual'
+    assert job['stage']=='Burned' and job['notes']=='Retained burned-domain note' and job['sync']['status']=='pending'
 
 
-def test_gmail_setup_diagnostics_reports_manual_sheet_mode_without_contacting_google(monkeypatch):
+def test_gmail_setup_diagnostics_reports_read_only_storage_and_sheet_readiness(monkeypatch):
     from app.utils.gmail_setup import diagnostics
-    monkeypatch.setattr(sheets,'readiness',lambda:pytest.fail('Manual sheet mode must not check Google write access'))
+    monkeypatch.setattr(sheets,'readiness',lambda:{'ready':True,'message':'Synthetic access check'})
     monkeypatch.setattr(sb,'sb_service_configured',lambda:True)
     monkeypatch.setattr(sb,'sb_service_headers',lambda:{'Authorization':'Bearer fake'})
     monkeypatch.setattr(diagnostics.requests,'get',lambda *args,**kwargs:FakeResponse(200,[]))
     check=diagnostics.check()
-    assert check['storage_ready'] is True and check['sheet']['mode']=='manual'
+    assert check['storage_ready'] is True and check['sheet']['ready'] is True
 
 
 @pytest.mark.parametrize('legacy_status',['pending','error','synced'])
-def test_stale_retry_requests_cannot_publish_or_modify_legacy_sheet_metadata(client,board_db,monkeypatch,legacy_status):
+def test_legacy_retry_requests_queue_without_inline_sheet_writes_and_keep_row_metadata(client,board_db,monkeypatch,legacy_status):
     import re
     monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
     monkeypatch.setattr(sheets,'publish',lambda *args:pytest.fail('A cached Retry button must not publish to the sheet'))
@@ -926,8 +941,63 @@ def test_stale_retry_requests_cannot_publish_or_modify_legacy_sheet_metadata(cli
     before=store.save(USER,record['state'],record['revision'])
     page=client.get('/gmail-set');client.headers['X-Domain-CSRF']=re.search('data-csrf="([^"]+)"',page.text)[1]
     response=client.post(f'/api/gmail-setup/setups/{jid}/sync')
-    assert response.status_code==410 and 'manual' in response.json()['detail']
+    assert response.status_code==200
+    current=response.json()['state']['setups'][0]
+    assert current['sync']['status']=='pending' and current['sync']['row']==42
+    assert current['sync']['url']==before['state']['setups'][0]['sync']['url']
+
+
+def test_explicit_client_backfill_queues_only_eligible_domains_and_preserves_auth_csrf_and_revision_guards(client,board_db,monkeypatch):
+    from app.utils.gmail_setup import backup
+    client_row,jobs=master_client('Historical backup',count=5)
+    change('setup_stage',{'id':jobs[0]['id'],'stage':'Setup complete'})
+    delete_gmail(jobs[1]['id'])
+    change('setup_stage',{'id':jobs[2]['id'],'stage':'Burned'})
+    change('setup_stage',{'id':jobs[4]['id'],'stage':'Setup complete'})
+    change('setup_remove',{'id':jobs[4]['id']})
+    _,other_jobs=master_client('Separate backup',count=1)
+    change('setup_stage',{'id':other_jobs[0]['id'],'stage':'Setup complete'})
+    record=s.board(USER)
+    for job in record['state']['setups']:
+        job.pop('sheet_identity',None);job.pop('sheet_intent',None)
+        # Legacy pending states without durable intent must not auto-backfill.
+        job['sync']={'status':'pending' if job['id']==jobs[0]['id'] else 'manual'}
+    before=store.save(USER,record['state'],record['revision'])
+    scheduled=[]
+    monkeypatch.setattr(backup,'resume',lambda user:scheduled.append(user['email']))
+    monkeypatch.setattr(sheets,'publish',lambda *args,**kwargs:pytest.fail('Backfill routes must queue before provider I/O'))
+    monkeypatch.setattr(sheets,'deactivate',lambda *args,**kwargs:pytest.fail('Backfill routes must queue before provider I/O'))
+    user=None
+    monkeypatch.setattr(auth,'get_session_user',lambda request:user)
+    client_path=f'/api/gmail-setup/clients/{client_row["id"]}/sync'
+    job_path=f'/api/gmail-setup/setups/{jobs[0]["id"]}/sync'
+    for path,body in ((client_path,{'revision':before['revision']}),(job_path,{})):
+        assert client.post(path,json=body).status_code==401
+    user={**OTHER,'tools':[]}
+    assert client.post(client_path,json={'revision':before['revision']}).status_code==403
+    user=OTHER
+    board=client.get('/api/gmail-setup')
+    assert board.status_code==200 and scheduled==[] and s.board(USER)==before
+    denied=client.post(client_path,json={'revision':before['revision']})
+    assert denied.status_code==403 and denied.headers['X-Gmail-Session']=='refresh'
     assert s.board(USER)==before
+    client.headers['X-Domain-CSRF']=client.get('/api/gmail-setup/session').json()['csrf']
+    stale=client.post(client_path,json={'revision':before['revision']-1})
+    assert stale.status_code==409 and stale.headers['X-Gmail-Conflict']=='revision'
+    assert s.board(USER)==before and scheduled==[]
+    response=client.post(client_path,json={'revision':before['revision']})
+    assert response.status_code==200 and scheduled==[OTHER['email']]
+    saved=s.board(USER)
+    queued={job['id']:job for job in saved['state']['setups'] if job.get('sheet_intent')}
+    assert set(queued)=={jobs[0]['id'],jobs[1]['id']}
+    assert queued[jobs[0]['id']]['sheet_intent']['live'] is True
+    assert queued[jobs[1]['id']]['sheet_intent']['live'] is False
+    public={job['id']:job for job in response.json()['state']['setups']}
+    for job_id in queued:
+        assert public[job_id]['sync']['status']=='pending'
+        assert public[job_id]['sheet_identity_locked'] is True
+        assert 'sheet_intent' not in public[job_id] and 'sheet_identity' not in public[job_id]
+    assert 'sync_lock' not in response.json()['state']
 
 
 def test_store_filters_workspace_and_uses_revision_lease(monkeypatch):
@@ -1451,7 +1521,9 @@ def test_published_reopened_setup_can_reassign_owner_and_device_without_rewritin
     assert job['purchase_device']['id']==replacement['id']
     assert job['purchase_device_history']==[original['purchase_device']]
     assert [d['use_count'] for d in record['state']['devices']]==[1,1]
-    assert s.sync_completed(USER,jid)['state']['setups'][0]['sync']==original['sync']
+    synced=s.sync_completed(USER,jid)['state']['setups'][0]['sync']
+    for field in ('status','row','sheet_id','tab','url','live'):
+        assert synced.get(field)==original['sync'].get(field)
     assert session.inserts==1 and job['sheet_owner']=='Dylan' and job['order']==1
     # Repeated completion cannot consume the new phone twice.
     record=change('setup_stage',{'id':jid,'stage':'Setup complete'})

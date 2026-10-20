@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Domain Cluster Builder · Gmail Set{% endblock %}
-{% block heading %}Gmail Set{% endblock %}
+{% block title %}Domain Cluster Builder · Gmail Setup Tool{% endblock %}
+{% block heading %}Gmail Setup Tool{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="/static/domain-cluster.css?v=3">{% endblock %}
 {% block content %}
 <div id="dc-app" data-csrf="{{ csrf }}">
-  <div class="dc-intro"><div><div class="dc-eyebrow">OPERATIONS / GMAIL SET</div><h2>Domain Cluster Builder</h2><p>Find your next domains. Keep each cluster within capacity.</p></div><button id="dc-check-setup">Check connections</button></div>
+  <div class="dc-intro"><div><div class="dc-eyebrow">OPERATIONS / GMAIL SETUP TOOL</div><h2>Domain Cluster Builder</h2><p>Find your next domains. Keep each cluster within capacity.</p></div><button id="dc-check-setup">Check connections</button></div>
   <ol class="dc-steps" aria-label="Build a domain set"><li><span>1</span> Scan live domains</li><li><span>2</span> Choose your next ten</li><li><span>3</span> Set up your new batch</li></ol>
   <div id="dc-message" role="status" aria-live="polite"></div>
   <section id="dc-sheet-issues" class="dc-card" role="alert" hidden>

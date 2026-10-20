@@ -1,19 +1,18 @@
-// Local synthetic board only: this journey never applies DNS or writes Sheets.
+// Local synthetic board and sheet publisher only: no live provider writes.
 const {chromium}=require('playwright'),assert=require('node:assert/strict');
 require('node:fs').mkdirSync('work',{recursive:true});
 (async()=>{
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
- const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[],sheetWrites=[];
+ const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[];
  const stamp=Date.now().toString(36),clientName='Sender and targets '+stamp,otherName='Partial target '+stamp;
  page.on('pageerror',e=>errors.push(e.message));
  page.on('dialog',d=>d.accept());
- page.on('request',r=>{if(r.method()==='POST'&&/\/api\/gmail-setup\/(?:check-sheet|setups\/[^/]+\/sync)(?:\?|$)/.test(r.url()))sheetWrites.push(r.url());});
  await page.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:8766')?r.continue():r.abort());
  const idle=()=>page.waitForFunction(()=>!document.querySelector('#gs-app').hasAttribute('aria-busy'));
  const data=()=>page.evaluate(()=>fetch('/api/gmail-setup').then(r=>r.json()));
  const save=async()=>{await page.click('#gs-dialog-save');await page.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle();};
  const paste=async text=>{if(!await page.locator('#gs-bulk-panel').isVisible())await page.click('#gs-add-setup');await page.fill('#gs-bulk-sender','me');await page.fill('#gs-bulk-domains',text);await page.locator('#gs-bulk-panel button[type="submit"]').click();await idle();};
- const stage=async(id,value)=>{await page.selectOption(`[data-set-stage="${id}"]`,value);await idle();assert.equal(await page.inputValue(`[data-set-stage="${id}"]`),value);};
+ const stage=async(id,value)=>{await page.selectOption(`[data-set-stage="${id}"]`,value);await idle();assert.equal(await page.inputValue(`[data-set-stage="${id}"]`),value);if(value==='Setup complete'){await page.click('#gs-client-heading');await page.locator(`[data-setup="${id}"] .gs-sheet-status.saved`).waitFor();}};
  const expectProgress=(model,id,expected)=>{const p=model.client_progress[id];assert.ok(p,'Client progress is supplied independently of visible filters');for(const[key,value]of Object.entries(expected))assert.equal(p[key],value,`${key} for client ${id}`);};
  const card=id=>page.locator(`[data-open-client="${id}"]`);
  await page.goto('http://127.0.0.1:8766/gmail-set');await idle();
@@ -43,7 +42,7 @@ require('node:fs').mkdirSync('work',{recursive:true});
  await card(id).click();await paste(`replacement${stamp}a.com\nreplacement${stamp}b.com`);
  model=await data();jobs=model.state.setups.filter(j=>j.client_id===id&&!j.archived);assert.equal(jobs.length,12);expectProgress(model,id,{target:10,complete:3,actual_todo:7,remaining:7,replacements_needed:0});assert.equal(model.summary.todo,baseline+7);
  await page.click('#gs-edit-client');assert.equal(await page.inputValue('#gs-client-target'),'10');await page.click('#gs-dialog-cancel');
- await page.click('#gs-complete-client');await save();model=await data();expectProgress(model,id,{target:10,complete:10,actual_todo:0,remaining:0,replacements_needed:0});assert.equal(model.summary.todo,baseline);
+ await page.click('#gs-complete-client');await save();await page.waitForFunction(async clientId=>{const board=await fetch('/api/gmail-setup').then(r=>r.json());return board.state.setups.filter(job=>job.client_id===clientId&&job.stage==='Setup complete').every(job=>job.sync?.status==='synced');},id);model=await data();expectProgress(model,id,{target:10,complete:10,actual_todo:0,remaining:0,replacements_needed:0});assert.equal(model.summary.todo,baseline);
  await page.click('#gs-back-clients');assert.equal(await page.locator(`[data-client-group="complete"] [data-open-client="${id}"]`).count(),1);
  await card(id).click();await stage(jobs[0].id,'Burned');model=await data();expectProgress(model,id,{target:10,complete:9,actual_todo:0,remaining:1,replacements_needed:1});assert.equal(model.summary.todo,baseline+1);
  await page.click('#gs-back-clients');assert.equal(await page.locator(`[data-client-group="active"] [data-open-client="${id}"]`).count(),1);assert.match(await card(id).locator(`[data-client-replacements="${id}"]`).textContent(),/1 need replacing/);
@@ -53,6 +52,6 @@ require('node:fs').mkdirSync('work',{recursive:true});
  model=await data();expectProgress(model,other.id,{target:12,complete:0,actual_todo:7,remaining:12,replacements_needed:5});assert.equal(model.summary.todo,baseline+13);assert.equal(model.state.clients.find(c=>c.id===other.id).domain_target,12);
  await page.reload();await idle();expectProgress(await data(),other.id,{target:12,remaining:12,replacements_needed:5});
  await page.click('#gs-back-clients');assert.match(await card(other.id).textContent(),/12 target/);assert.match(await card(other.id).textContent(),/12 to complete/);assert.match(await card(other.id).textContent(),/5.*(?:to add|need replacing)/);
- assert.equal(sheetWrites.length,0);assert.deepEqual(errors,[]);await browser.close();
- console.log('PASS: sender/forwarding/account manager details persist, forwarding URLs prefill, fixed targets survive burned domains and partial imports, replacement counts do not inflate targets, progress ignores filters, completed clients reactivate, manual Sheets only, mobile layout.');
+ const finalBoard=await data();assert.ok(finalBoard.state.setups.filter(job=>job.client_id===id&&job.stage==='Setup complete').every(job=>job.sync.status==='synced'&&job.sync.live===true),'completed domains retain Live backup status');assert.deepEqual(errors,[]);await browser.close();
+ console.log('PASS: sender/forwarding/account manager details persist, forwarding URLs prefill, fixed targets survive burned domains and partial imports, replacement counts do not inflate targets, progress ignores filters, completed clients reactivate, synthetic Live sheet backups, mobile layout.');
 })().catch(e=>{console.error(e);process.exit(1)});

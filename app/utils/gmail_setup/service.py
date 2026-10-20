@@ -247,9 +247,11 @@ def consume_device_use(state, device, job):
     device['used_at'] = device.get('used_at') or now()
 
 
-def unlocked(state):
+def unlocked(state, allow_sheet=False):
     lock = state.get('sync_lock')
     if lock and (datetime.now(timezone.utc)-datetime.fromisoformat(lock['at'])).total_seconds() < LEASE_SECONDS:
+        if allow_sheet and lock.get('kind') == 'sheet':
+            return
         if lock.get('kind') == 'dns_setup':
             raise HTTPException(409, 'DNS records are being configured. Retry in a moment.')
         if lock.get('kind') == 'dmarc':
@@ -318,6 +320,10 @@ def result(record):
     state.pop('sync_lock', None)
     from . import passwords
     passwords.scrub_public_clients(state)
+    for job in state['setups']:
+        job['sheet_identity_locked'] = sheet_identity_locked(job)
+        job.pop('sheet_identity', None)
+        job.pop('sheet_intent', None)
     plan = summary(state)
     return {'state': state, 'revision': record['revision'], 'updated_at': record['updated_at'], 'summary': plan,
             'client_progress': client_progress_map(state),
@@ -330,6 +336,10 @@ def reveal_client_password(user, client_id):
     if not client.get('password_ciphertext'):
         raise HTTPException(404, 'No password is saved for this client.')
     return passwords.reveal(user, client_id, client['password_ciphertext'])
+
+
+def sheet_identity_locked(job):
+    return bool(job.get('sheet_identity') or job.get('sync', {}).get('status') == 'synced' and not job.get('sync', {}).get('missing'))
 
 
 def text(value, label, required=True):
@@ -369,8 +379,10 @@ def mutate(user, expected, action, data):
     if record['revision'] != expected:
         raise HTTPException(409, 'Someone updated the team tracker. Refresh before saving again.', headers=store.REVISION_CONFLICT_HEADERS)
     state = copy.deepcopy(record['state'])
-    unlocked(state)
-    state['sync_lock'] = None
+    unlocked(state, allow_sheet=True)
+    lock = state.get('sync_lock') or {}
+    if lock.get('kind') != 'sheet' or (datetime.now(timezone.utc)-datetime.fromisoformat(lock['at'])).total_seconds() >= LEASE_SECONDS:
+        state['sync_lock'] = None
     outcome = None
     if action == 'reserve_set':
         raise HTTPException(409, 'The device target is automatic. Change the phone or laptop setup limits instead, then refresh.')
@@ -590,7 +602,19 @@ def mutate(user, expected, action, data):
         confirm_gmail_deleted(current, data.get('stage'), data.get('confirmed_auto_renew_stopped', False))
         if current and current['stage'] in INACTIVE_STAGES and data.get('stage') not in {STAGES[0], *INACTIVE_STAGES}:
             raise HTTPException(409, 'Choose Not started to reopen this inactive domain before editing it.')
-        if current and current.get('sync', {}).get('status') == 'synced':
+        if current and sheet_identity_locked(current):
+            if action == 'setup_save' and data.get('stage'):
+                same = all(data.get(key) == current.get(key) for key in ('account_manager_id', 'operator_id', 'device_id'))
+                same = same and text(data.get('email'), 'Sending email', False).lower() == current['email']
+                same = same and text(data.get('notes'), 'Notes', False) == current.get('notes', '')
+                same = same and data.get('section') == current['section']
+                same = same and data.get('client_id') in (None, current['client_id'])
+                same = same and (not data.get('domain') or str(data['domain']).lower().rstrip('.') == current['domain'])
+                if same:
+                    set_stage(state, current, data['stage'], data.get('confirmed_auto_renew_stopped', False))
+                    grow_client_target(state, find(state, 'clients', current['client_id'], True))
+                    audit(state, user, action)
+                    return store.save(user, state, expected)
             if action != 'setup_assign' or current['stage'] not in PLANNING_STAGES:
                 raise HTTPException(409, 'A published setup is locked to its sheet record. Correct the sheet directly if needed.')
             # Reopening releases the workflow assignment, not its published
@@ -702,7 +726,7 @@ def mutate(user, expected, action, data):
             raise HTTPException(409, 'Choose Not started to reopen this inactive domain before allocating a device.')
         if job.get('device_id'):
             raise HTTPException(409, 'This setup already has a device. Use Edit details to change a pending allocation.')
-        if job.get('sync', {}).get('status') == 'synced' and job['stage'] not in PLANNING_STAGES and data['operator_id'] != job['operator_id']:
+        if sheet_identity_locked(job) and job['stage'] not in PLANNING_STAGES and data['operator_id'] != job['operator_id']:
             raise HTTPException(409, 'Keep the published setup owner. Allocate the device to that team member first.')
         operator = find(state, 'members', data['operator_id'], True)
         device = find(state, 'devices', data['device_id'], True)
@@ -794,6 +818,9 @@ def set_stage(state, job, stage, confirmed_auto_renew_stopped=False):
             else:
                 job.update(gmail_deleted_from=old, gmail_deleted_at=stamp, auto_renew_stopped_at=stamp)
         job.update(stage=stage, updated_at=now())
+        if stage == GMAIL_DELETED:
+            from . import backup
+            backup.queue(state, job, False, force=old != stage)
         return
     if stage in PLANNING_STAGES:
         # The workflow can be reopened independently of recorded purchases,
@@ -844,42 +871,16 @@ def set_stage(state, job, stage, confirmed_auto_renew_stopped=False):
         completed = [j for j in state['setups'] if j.get('client_id') == client['id'] and j.get('completed_at')]
         number = max(client.get('next_order', 1), len(completed)+1, max((j.get('order') or 0 for j in completed), default=0)+1)
         client['next_order'] = number+1
-        job.update(completed_at=now(), order=number, sync={'status': 'manual'},
+        job.update(completed_at=now(), order=number,
             sheet_owner=job['client_name'] if job['section'] == 'client' else find(state, 'members', job['operator_id'])['name'])
     job['stage'] = stage
     job['updated_at'] = now()
+    if stage == STAGES[2]:
+        from . import backup
+        backup.queue(state, job, True, force=old != stage)
 
 
 def sync_completed(user, job_id):
-    """Persistent workspace lease serializes writes across processes and retries."""
-    from . import sheets
-    record = board(user)
-    state = copy.deepcopy(record['state'])
-    job = find(state, 'setups', job_id, True)
-    if job['stage'] != STAGES[2]:
-        raise HTTPException(409, 'Complete setup before publishing it to the strategy sheet.')
-    if job.get('sync', {}).get('status') == 'synced':
-        return record
-    unlocked(state)
-    token = new_id()
-    state['sync_lock'] = {'job_id': job_id, 'token': token, 'at': now()}
-    claimed = store.save(user, state, record['revision'])
-    try:
-        owner = job.get('sheet_owner') or (job['client_name'] if job['section'] == 'client' else find(state, 'members', job['operator_id'])['name'])
-        synced = sheets.publish(job, owner)
-        status = {'status': 'synced', 'at': now(), **synced}
-    except HTTPException as exc:
-        status = {'status': 'error', 'at': now(), 'message': exc.detail}
-        match = re.search(r'https://docs\.google\.com/spreadsheets/d/[A-Za-z0-9_-]+/edit#gid=\d+&range=A\d+', str(exc.detail))
-        if match:
-            status['url'] = match.group(0)
-    # Fail closed if a newer lease has replaced this writer. The stable sheet
-    # metadata and exact-email lookup reconcile any committed external write.
-    latest = store.load(user)
-    if not latest or (latest['state'].get('sync_lock') or {}).get('token') != token:
-        raise HTTPException(409, 'The sync claim changed. Refresh and retry; the sheet write will be reconciled.')
-    final = copy.deepcopy(latest['state'])
-    find(final, 'setups', job_id)['sync'] = status
-    final['sync_lock'] = None
-    audit(final, user, 'sheet_sync_'+status['status'])
-    return store.save(user, final, latest['revision'])
+    """Synchronous worker primitive; HTTP handlers only schedule the worker."""
+    from . import backup
+    return backup.sync_once(user, job_id)

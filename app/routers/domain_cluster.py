@@ -1,4 +1,4 @@
-"""Gmail Set / Domain Cluster Builder. All portfolio reads are owner scoped."""
+"""Gmail Setup Tool / Domain Cluster Builder. All portfolio reads are owner scoped."""
 from __future__ import annotations
 
 import copy
@@ -101,9 +101,9 @@ def access(request: Request):
     # Even AUTH_DISABLED cannot expose saved private inventories on the internet.
     user = auth.get_session_user(request)
     if not user:
-        raise HTTPException(401, 'Sign in to use Gmail Set.')
+        raise HTTPException(401, 'Sign in to use Gmail Setup Tool.')
     if 'gmail_set' not in user.get('tools', []):
-        raise HTTPException(403, 'Gmail Set access required.')
+        raise HTTPException(403, 'Gmail Setup Tool access required.')
     return user
 
 

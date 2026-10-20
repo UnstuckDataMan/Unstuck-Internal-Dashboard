@@ -11,13 +11,13 @@ REVISION_CONFLICT_HEADERS = {'X-Gmail-Conflict': 'revision'}
 def workspace(user):
     email = user.get('email', '').strip().lower()
     if '@' not in email:
-        raise HTTPException(401, 'Sign in to use Gmail Set.')
+        raise HTTPException(401, 'Sign in to use Gmail Setup Tool.')
     return hashlib.sha256(email.rsplit('@', 1)[1].encode()).hexdigest()
 
 
 def call(method, table, params, body=None):
     if not sb.sb_service_configured():
-        raise HTTPException(503, 'Gmail Set storage is not configured.')
+        raise HTTPException(503, 'Gmail Setup Tool storage is not configured.')
     try:
         r = requests.request(method, sb.SUPABASE_URL+'/rest/v1/'+table, params=params,
                              headers=sb.sb_service_headers('return=representation'),
@@ -26,10 +26,10 @@ def call(method, table, params, body=None):
             headers = REVISION_CONFLICT_HEADERS if table == TABLE and method.lower() in {'post', 'patch'} else None
             raise HTTPException(409, 'The team tracker changed. Refresh and retry.', headers=headers)
         if not r.ok:
-            raise HTTPException(503, 'Gmail Set storage is unavailable. Your changes were not saved.')
+            raise HTTPException(503, 'Gmail Setup Tool storage is unavailable. Your changes were not saved.')
         return r.json()
     except (requests.RequestException, ValueError):
-        raise HTTPException(503, 'Could not reach Gmail Set storage. Refresh before retrying.') from None
+        raise HTTPException(503, 'Could not reach Gmail Setup Tool storage. Refresh before retrying.') from None
 
 
 def load(user):

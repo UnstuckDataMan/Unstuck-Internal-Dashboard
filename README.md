@@ -15,9 +15,9 @@ Render environment variables; the app reads its environment, not a committed `.e
 build (`pip install -r requirements.txt`) and start commands. This feature introduces
 no new service, frontend build step or database provider.
 
-## Gmail Set / account setup tracker
+## Gmail Setup Tool / account setup tracker
 
-Open **Operations → Gmail Set** (`/gmail-set`). The main tool tracks the shared
+Open **Operations → Gmail Setup Tool** (`/gmail-set`). The main tool tracks the shared
 company setup journey: **Not started → Started → Purchase made → Setup complete**.
 Create a client first, click its card, then paste up to 500 domains or emails.
 Client details also store the sender's full name, client website for forwarding,
@@ -40,7 +40,7 @@ with a prominent instruction for SDRs and Scale Clients to use the GPT domain
 clustering plugin in Notion. This step is optional for normal clients; clustering
 is no longer the main workflow.
 
-Gmail Set checks for a new release every 30 seconds and when a tab becomes visible.
+Gmail Setup Tool checks for a new release every 30 seconds and when a tab becomes visible.
 Idle tabs reload the current release; open forms, unsaved edits and active saves
 delay that reload. The Refresh button checks the release as well as shared data.
 Render's commit ID identifies releases; local previews use the asset hash.
@@ -75,7 +75,7 @@ the tracker version without reloading over drafts.
 - Each client's details include an optional password input with **Save**,
   **Show / Hide** and **Remove**. Passwords are masked by default; saved values
   are encrypted server-side and omitted from shared board responses. A current
-  signed-in user with Gmail Set access must explicitly reveal a password.
+  signed-in user with Gmail Setup Tool access must explicitly reveal a password.
   Encryption uses `GMAIL_SETUP_PASSWORD_KEY`, falling back to the existing
   `SESSION_SECRET`; keep that key stable or existing saved passwords cannot be
   recovered. Password edits are kept in memory while saving other tracker work;
@@ -87,7 +87,8 @@ the tracker version without reloading over drafts.
   remain visible. Choose **No master domain** to undo a selection. Demoting,
   reassigning or deleting a master ungroups its linked domains; other masters
   retain their colours. Grouping is shared tracking metadata and leaves setup
-  progress, device capacity, DNS, forwarding and manual sheet updates unchanged.
+  progress, device capacity, DNS and forwarding unchanged. New sheet backup rows
+  label selected masters and secondary domains beside the sending email.
 - Add actual inventory in batches of 0–10 phones and 0–10 PCs per person, with
   labels Phone 1–10 and PC 1–10 plus stable physical asset IDs. The unallocated pool
   supports stock awaiting assignment. No imaginary devices are seeded.
@@ -138,7 +139,7 @@ the tracker version without reloading over drafts.
   Older clients receive a target once from the greater of their old planned
   count and recorded domain history, including burned/deleted rows. This target
   can then be edited in the client details.
-- Both Gmail Set and Operations compare **setup slots**: required setups are
+- Both Gmail Setup Tool and Operations compare **setup slots**: required setups are
   **all clients' remaining work + 10 contingency setups**, not ten physical devices.
   Remaining capacity sums max(limit − recorded uses, 0) on active, unblocked
   phones and PCs. Purchase-stage jobs already paid for on a recorded device also
@@ -151,7 +152,7 @@ the tracker version without reloading over drafts.
   24/29 coverage: 5 slots short, requiring **3 phones** at two setups each.
   The same saved limits control ordering, device colours and allocations.
   No external orders or notifications are sent.
-- Every team member with Gmail Set access can use the domain-level
+- Every team member with Gmail Setup Tool access can use the domain-level
   **One-click setup** button and client-wide **Set up all domains**. This uses
   the same tool permission as Master Domains, stages, notes and client passwords;
   no administrator role is required. After the
@@ -186,7 +187,7 @@ the tracker version without reloading over drafts.
   reported without duplication or overwrite. Persistent CAS claims serialize DNS
   writes; per-domain results survive refresh and safe retries.
 - Selecting a later stage records purchase/device history as needed; choosing
-  **Setup complete** saves completion in Gmail Set only. **Mark all as complete**,
+  **Setup complete** saves completion in Gmail Setup Tool and queues its sheet backup. **Mark all as complete**,
   beside **Set up all domains**, completes all unfinished domains for that client
   after confirmation; burned and deleted domains are excluded. Each domain needs
   a sending email and active setup person before completion.
@@ -197,19 +198,25 @@ the tracker version without reloading over drafts.
   Older detached resets are reconciled on read. Failure history, original
   completion order and existing sheet rows stay recorded. Re-completing
   the same domain keeps its completion order rather than counting another setup.
-- **Master Strategy sheet updates are manual.** After completing a domain, add
-  its sending email below the last entry in `1) Emails - entry` for clients or
-  `1) BD Emails - entry` for Biz Dev, then tick **Live**. Gmail Set never adds,
-  edits or retries writes to that sheet. Its old sync and sheet-access-check
-  endpoints are disabled. Historical sheet row links remain for reference;
-  they do not verify the row's current Live status. The tool includes a direct
-  link to the Master Strategy sheet.
+- **Google Sheets backups run in the background.** Completing a domain adds its
+  sending email below the last populated entry in `1) Emails - entry` for clients
+  or `1) BD Emails - entry` for Biz Dev, with **Live** checked. Existing matching
+  rows are reused, avoiding duplicate entries on retries. **Gmail deleted** only
+  unticks **Live** on its existing row; it never removes the entry or creates a
+  missing deleted row. Domain cards show backup progress, row links and actionable
+  errors with **Retry backup**. **Back up to Sheets** at client level includes
+  historical completed and Gmail-deleted domains from the manual-only period.
+  New rows use the actual sending email followed by **(Master)** or
+  **(Secondary: masterdomain.com is Master)** when that grouping is selected.
+  Ungrouped domains stay plain; existing email-cell labels are not rewritten.
 - Workspace-wide conditional revisions protect shared tracker updates. Narrow
   stage, assignment and notes saves can retry after an unrelated teammate edit;
   a conflicting change to the same fields shows the latest saved values instead
   of overwriting them. Background refreshes do not replace active edits or
   responses from a newer save. A persistent 180-second write lease prevents
-  overlapping DNS writes. Boot diagnostics check tracker storage only.
+  overlapping DNS writes. A separate background sheet lease preserves team edits
+  while sheet requests run; newer Live intentions are reconciled after an older
+  in-flight request. Boot diagnostics check tracker storage and sheet readiness.
 - Apply `migrations/gmail_setup_schema.sql` to the existing Supabase project. RLS
   is enabled with no browser policies/grants; only the server service role can
   access the workspace-scoped board. Google dashboard sessions, tool access and
@@ -262,7 +269,7 @@ https://docs.google.com/spreadsheets/d/1PN5Lx-5c4nbouDl-Apw9YJgrYTuoDsBKqzk5Hh6Z
 - Client emails: `1) Emails - entry`, sheet ID `0`.
 - Biz Dev emails: `1) BD Emails - entry`, sheet ID `838806676`.
 - Reuses `GOOGLE_SHEETS_SA_JSON`, the existing base64 service-account credential.
-- The user has shared the sheet as Viewer with
+- Gmail Setup Tool backups require Editor access for
   `sheets-writer-unstuck-dashboar@unstuck-dnc-and-merger.iam.gserviceaccount.com`.
 - An independent **read-only** credential scope reads metadata and a bounded A:G
   `values:batchGet`, with unformatted booleans. No recovery codes/addresses from

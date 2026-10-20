@@ -36,6 +36,7 @@
 .gs-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:14px 0 18px}
 .gs-facts dt{font-size:11px;color:var(--text-2);margin-bottom:4px}.gs-facts dd{font-size:13px;color:var(--text);overflow-wrap:anywhere}
 .gs-sync{border-top:1px solid var(--border);padding-top:14px;margin-top:16px;font-size:12px;color:var(--text-2);overflow-wrap:anywhere}.gs-sync.error{color:#fca5a5}.gs-sync a{color:#c4b5fd;text-underline-offset:3px}
+.gs-sheet-status{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}.gs-sheet-status strong{font-size:12px;font-weight:600}.gs-sheet-status.saved strong{color:#a7f3d0}.gs-sheet-status.pending strong{color:#ddd6fe}.gs-sheet-status.error strong,.gs-sheet-status.error small{color:#fca5a5}.gs-sheet-status small{flex-basis:100%;line-height:1.6;font-size:12px}#gs-app .gs-sheet-summary{font-size:12px;margin:-6px 0 18px}.gs-sheet-summary.error{color:#fca5a5!important}
 .gs-empty{border:1px dashed var(--border);border-radius:14px;padding:34px 20px;text-align:center;color:var(--text-2);margin-bottom:20px}.gs-empty strong{display:block;color:var(--text);margin-bottom:5px}
 .gs-team-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.gs-team-grid>.gs-card{min-width:0;margin-bottom:0}
 .gs-device-counts{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--text-2);margin:14px 0}.gs-device-counts strong{color:var(--text)}

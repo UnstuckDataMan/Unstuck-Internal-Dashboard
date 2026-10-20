@@ -295,6 +295,34 @@ def test_strategy_checkbox_live_flags_and_privacy():
     assert preview['missing']==['oldgrowth.com']
 
 
+@pytest.mark.parametrize('label', ['Master', 'Secondary: mastergrowth.com is Master', 'secondary:mastergrowth.com is master'])
+def test_strategy_inventory_reads_labelled_gmail_rows_without_persisting_mailboxes(label):
+    from app.utils.domain_cluster import sheets
+    parsed = sheets.parse_tab('client', '1) Emails - entry', [
+        ['Email', 'Order', 'Live', 'At risk', 'Needs deleting', 'Being replaced', 'Client'],
+        [f'sender@secondarygrowth.com ({label})', 1, True, False, False, False, 'Client One'],
+        ['other@inactivegrowth.com (Master)', 2, False, False, False, False, 'Client One'],
+    ])
+    assert [row['domain'] for row in parsed['records']] == ['secondarygrowth.com']
+    assert not parsed['invalid']
+    assert '@' not in str(parsed)
+
+
+@pytest.mark.parametrize('value', [
+    'sender@secondarygrowth.com (unknown)',
+    'sender@secondarygrowth.com (Master) extra',
+    'sender@secondarygrowth.com (Secondary: https://mastergrowth.com is Master)',
+    'sender@secondarygrowth.com (Secondary: bad_domain.com is Master)',
+])
+def test_strategy_inventory_does_not_hide_unknown_or_malformed_email_annotations(value):
+    from app.utils.domain_cluster import sheets
+    parsed = sheets.parse_tab('client', '1) Emails - entry', [
+        ['Email', 'Order', 'Live', 'Client'], [value, 1, True, 'Client One'],
+    ])
+    assert not parsed['records']
+    assert parsed['invalid'][0]['row'] == 2
+
+
 def test_strategy_reads_are_fresh_bounded_and_readonly(monkeypatch):
     from app.utils.domain_cluster import sheets
     class Session:

@@ -1,9 +1,10 @@
-"""Read-only tracker storage readiness; strategy sheet updates are manual."""
+"""Read-only tracker storage and sheet write-access readiness."""
 import json
 import logging
 import threading
 import requests
 from app.utils import supabase as sb
+from . import sheets
 
 
 def check():
@@ -14,13 +15,13 @@ def check():
             ready = r.ok
         except requests.RequestException:
             pass
-    return {'storage_ready': ready, 'sheet': {'mode': 'manual', 'message': 'Master Strategy sheet updates are manual.'}}
+    return {'storage_ready': ready, 'sheet': sheets.readiness()}
 
 
 def start_check():
     def run():
         try:
-            logging.getLogger('uvicorn.error').info('Gmail Set tracker check: %s', json.dumps(check(), sort_keys=True))
+            logging.getLogger('uvicorn.error').info('Gmail Setup Tool tracker check: %s', json.dumps(check(), sort_keys=True))
         except Exception:
-            logging.getLogger('uvicorn.error').warning('Gmail Set tracker storage check unavailable.')
+            logging.getLogger('uvicorn.error').warning('Gmail Setup Tool tracker storage check unavailable.')
     threading.Thread(target=run, name='gmail-tracker-check', daemon=True).start()
