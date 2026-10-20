@@ -149,6 +149,26 @@ def test_unconfirmed_expired_foreign_burned_and_archived_requests_never_delete(b
     assert not deletes(registrar)
 
 
+def test_gmail_deleted_after_dns_review_rejects_preview_and_apply_without_registrar_calls(board_db,registrar):
+    _,jid=create_setup(people()['Dylan']);preview(jid)
+    record=change('setup_stage',{'id':jid,'stage':'Gmail deleted','confirmed_auto_renew_stopped':True})
+    before=copy.deepcopy(record);registrar.calls.clear()
+    with pytest.raises(HTTPException,match='Gmail deleted'):preview(jid)
+    with pytest.raises(HTTPException,match='Gmail deleted'):apply(record,jid)
+    assert not registrar.calls
+    assert s.board(USER)==before
+    assert registrar.records['cedarclients.com']==defaults('cedarclients.com')+retained('cedarclients.com')
+
+
+def test_completed_domain_still_allows_confirmed_dns_setup(board_db,registrar):
+    _,jid=create_setup(people()['Dylan'])
+    change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    result=apply(preview(jid),jid)
+    assert result['state']['setups'][0]['stage']=='Setup complete'
+    assert result['state']['setups'][0]['dns_setup']['status']=='verified'
+    assert len(deletes(registrar))==5
+
+
 @pytest.mark.parametrize('problem',['denied','delegation','inactive','malformed','bad-id','too-many'])
 def test_preflight_failure_never_approves_deletion(board_db,registrar,problem):
     _,jid=create_setup(people()['Dylan']);original=registrar.call

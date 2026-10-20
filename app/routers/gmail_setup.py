@@ -60,7 +60,8 @@ class Client(Strict):
 
 class Setup(Strict):
     client_id: str | None = Field(None, max_length=36)
-    stage: Literal['Not started', 'Started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment', 'Burned'] | None = None
+    stage: Literal['Not started', 'Started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment', 'Burned', 'Gmail deleted'] | None = None
+    confirmed_auto_renew_stopped: bool = Field(False, strict=True)
     id: str | None = Field(None, max_length=36)
     account_manager_id: str = Field(max_length=36)
     operator_id: str | None = Field(None, max_length=36)
@@ -75,7 +76,8 @@ class Setup(Strict):
 
 class Stage(Strict):
     id: str = Field(max_length=36)
-    stage: Literal['Not started', 'Started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment', 'Burned']
+    stage: Literal['Not started', 'Started', 'Purchase made', 'Setup complete', 'Failed at QR', 'Failed at payment', 'Burned', 'Gmail deleted']
+    confirmed_auto_renew_stopped: bool = Field(False, strict=True)
 
 
 class SetupDevice(Strict):
@@ -122,9 +124,14 @@ class MasterDomain(Strict):
     master_domain_id: str | None = Field(..., min_length=1, max_length=36)
 
 
+class ClientPassword(Strict):
+    id: str = Field(min_length=1, max_length=36)
+    password: str | None = Field(..., min_length=1, max_length=1024)
+
+
 class Change(Strict):
     revision: int = Field(ge=0)
-    action: Literal['reserve_set', 'capacity_set', 'client_save', 'client_remove', 'client_complete', 'setup_bulk', 'setup_assign', 'setup_notes', 'setup_master', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
+    action: Literal['reserve_set', 'capacity_set', 'client_save', 'client_remove', 'client_complete', 'client_password', 'setup_bulk', 'setup_assign', 'setup_notes', 'setup_master', 'member_save', 'member_remove', 'devices_add', 'device_update', 'device_remove', 'setup_save', 'setup_stage', 'setup_device', 'setup_remove']
     data: dict
     defer_sync: bool = False
 
@@ -158,7 +165,7 @@ def get_summary(user=Depends(access)):
 
 @router.post('/api/gmail-setup/change')
 def change(body: Change, user=Depends(mutation_access)):
-    models = {'reserve_set': Reserve, 'capacity_set': Capacity, 'client_save': Client, 'client_remove': Identifier, 'client_complete': Identifier, 'setup_bulk': Bulk, 'setup_assign': Assignment, 'setup_notes': Notes, 'setup_master': MasterDomain,
+    models = {'reserve_set': Reserve, 'capacity_set': Capacity, 'client_save': Client, 'client_remove': Identifier, 'client_complete': Identifier, 'client_password': ClientPassword, 'setup_bulk': Bulk, 'setup_assign': Assignment, 'setup_notes': Notes, 'setup_master': MasterDomain,
               'member_save': Member, 'member_remove': Identifier, 'devices_add': Devices,
               'device_update': Device, 'device_remove': Identifier, 'setup_save': Setup,
               'setup_stage': Stage, 'setup_device': SetupDevice, 'setup_remove': Identifier}
@@ -172,6 +179,11 @@ def change(body: Change, user=Depends(mutation_access)):
         raise HTTPException(400, 'Check the required fields, device counts and selected values.') from None
     record = service.mutate(user, body.revision, body.action, data)
     return service.result(record)
+
+
+@router.post('/api/gmail-setup/clients/{client_id}/password/reveal')
+def reveal_client_password(client_id: UUID, user=Depends(mutation_access)):
+    return {'password': service.reveal_client_password(user, str(client_id))}
 
 
 @router.post('/api/gmail-setup/setups/{job_id}/sync')

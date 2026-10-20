@@ -11,7 +11,9 @@ STAGES = ('Not started', 'Purchase made', 'Setup complete')
 STARTED = 'Started'
 PLANNING_STAGES = (STAGES[0], STARTED)
 BURNED = 'Burned'
-CLOSED_STAGES = (STAGES[2], BURNED)
+GMAIL_DELETED = 'Gmail deleted'
+INACTIVE_STAGES = (BURNED, GMAIL_DELETED)
+CLOSED_STAGES = (STAGES[2], *INACTIVE_STAGES)
 FAILURES = {'Failed at QR': 'QR code', 'Failed at payment': 'Payment'}
 DEVICE_STATUSES = ('Unused', 'Used', 'Blocked')
 RESERVE_CONTINGENCY = 10
@@ -103,7 +105,7 @@ def client_progress_map(state):
 
 def grow_client_target(state, client):
     healthy = sum(job.get('client_id') == client['id'] and not job.get('archived')
-                  and job['stage'] != BURNED for job in state['setups'])
+                  and job['stage'] not in INACTIVE_STAGES for job in state['setups'])
     client['domain_target'] = max(client.get('domain_target', 0), healthy)
     if healthy:
         client['planned_domains'] = 0
@@ -211,13 +213,13 @@ def restore_failed_device(state, job, device):
         job.setdefault('device_usage_resets', {})[device['id']] = stamp
         if not device['use_count']:
             device['used_at'] = None
-    others = [s for s in state['setups'] if s['id'] != job['id'] and (s['stage'] in FAILURES or s['stage'] == BURNED and s.get('burned_from') in FAILURES) and s.get('device_id') == device['id'] and device['id'] not in s.get('device_usage_resets', {})]
+    others = [s for s in state['setups'] if s['id'] != job['id'] and failure_stage(s) and s.get('device_id') == device['id'] and device['id'] not in s.get('device_usage_resets', {})]
     own_block = not device.get('manual_block') and (job['id'] in device.get('block_job_ids', []) or device.get('block_reason') == FAILURES.get(failures[-1]['stage']))
     device['block_job_ids'] = [identifier for identifier in device.get('block_job_ids', []) if identifier != job['id']]
     if device['status'] == 'Blocked' and own_block and not others:
         device.update(status='Used' if device['use_count'] else 'Unused', block_reason=None, blocked_at=None)
     elif device['status'] == 'Blocked' and others and not device.get('manual_block'):
-        device['block_reason'] = FAILURES[others[-1].get('burned_from') if others[-1]['stage'] == BURNED else others[-1]['stage']]
+        device['block_reason'] = FAILURES[failure_stage(others[-1])]
     elif device['status'] == 'Used' and not device['use_count']:
         device['status'] = 'Unused'
     for failure in failures:
@@ -306,17 +308,28 @@ def summary(state):
             'purchased': sum(s['stage'] == STAGES[1] or s['stage'] in FAILURES and bool(s.get('purchase_at')) for s in state['setups'] if not s.get('archived')),
             'complete': sum(s['stage'] == STAGES[2] for s in state['setups'] if not s.get('archived')),
             'burned': sum(s['stage'] == BURNED for s in state['setups'] if not s.get('archived')),
-            'sync_errors': sum(s.get('sync', {}).get('status') == 'error' for s in state['setups'] if not s.get('archived') and s['stage'] != BURNED)}
+            'gmail_deleted': sum(s['stage'] == GMAIL_DELETED for s in state['setups'] if not s.get('archived')),
+            'sync_errors': sum(s.get('sync', {}).get('status') == 'error' for s in state['setups'] if not s.get('archived') and s['stage'] not in INACTIVE_STAGES)}
 
 
 def result(record):
     state = copy.deepcopy(record['state'])
     # Lease tokens remain server-side; public state is not accepted as a mutation.
     state.pop('sync_lock', None)
+    from . import passwords
+    passwords.scrub_public_clients(state)
     plan = summary(state)
     return {'state': state, 'revision': record['revision'], 'updated_at': record['updated_at'], 'summary': plan,
             'client_progress': client_progress_map(state),
             **({'import_summary': record['import_summary']} if 'import_summary' in record else {})}
+
+
+def reveal_client_password(user, client_id):
+    from . import passwords
+    client = find(board(user)['state'], 'clients', client_id, True)
+    if not client.get('password_ciphertext'):
+        raise HTTPException(404, 'No password is saved for this client.')
+    return passwords.reveal(user, client_id, client['password_ciphertext'])
 
 
 def text(value, label, required=True):
@@ -376,7 +389,7 @@ def mutate(user, expected, action, data):
             target = (current or {}).get('domain_target', 0)
         if type(target) is not int or not 0 <= target <= 5000:
             raise HTTPException(400, 'Enter a domain target from 0 to 5000.')
-        healthy = sum(job.get('client_id') == current['id'] and not job.get('archived') and job['stage'] != BURNED
+        healthy = sum(job.get('client_id') == current['id'] and not job.get('archived') and job['stage'] not in INACTIVE_STAGES
                       for job in state['setups']) if current else 0
         if target < healthy:
             raise HTTPException(400, f'Target must cover {healthy} current domains.')
@@ -419,6 +432,15 @@ def mutate(user, expected, action, data):
             state['clients'].append({'id': new_id(), 'name': client_name, 'section': data['section'],
                                      'account_manager_id': data['account_manager_id'], 'operator_id': data.get('operator_id'),
                                      'planned_domains': planned, 'domain_target': target, 'created_at': now(), **metadata})
+    elif action == 'client_password':
+        from . import passwords
+        client = find(state, 'clients', data['id'], True)
+        ciphertext = passwords.seal(user, client['id'], data['password'])
+        if ciphertext is None:
+            client.pop('password_ciphertext', None)
+        else:
+            client['password_ciphertext'] = ciphertext
+        client['password_updated_at'] = now()
     elif action == 'client_remove':
         client = find(state, 'clients', data['id'], True)
         client.update(archived=True, deleted_at=now())
@@ -565,8 +587,9 @@ def mutate(user, expected, action, data):
         d['archived'] = True
     elif action in {'setup_save', 'setup_assign'}:
         current = find(state, 'setups', data['id'], True) if data.get('id') else None
-        if current and current['stage'] == BURNED and data.get('stage') != STAGES[0]:
-            raise HTTPException(409, 'Choose Not started to reopen this burned domain before editing it.')
+        confirm_gmail_deleted(current, data.get('stage'), data.get('confirmed_auto_renew_stopped', False))
+        if current and current['stage'] in INACTIVE_STAGES and data.get('stage') not in {STAGES[0], *INACTIVE_STAGES}:
+            raise HTTPException(409, 'Choose Not started to reopen this inactive domain before editing it.')
         if current and current.get('sync', {}).get('status') == 'synced':
             if action != 'setup_assign' or current['stage'] not in PLANNING_STAGES:
                 raise HTTPException(409, 'A published setup is locked to its sheet record. Correct the sheet directly if needed.')
@@ -669,14 +692,14 @@ def mutate(user, expected, action, data):
         current.update(domain=domain, email=email, client_name=text(data.get('client_name'), 'Client name', False),
                        section=data['section'], account_manager_id=manager['id'], operator_id=operator['id'] if operator else None,
                        device_id=device_id, notes=text(data.get('notes'), 'Notes', False), updated_at=now())
-        set_stage(state, current, data.get('stage') or current['stage'])
+        set_stage(state, current, data.get('stage') or current['stage'], data.get('confirmed_auto_renew_stopped', False))
         grow_client_target(state, client)
     elif action == 'setup_device':
         # A missing device can be recorded later, including after a sheet sync,
         # without permitting edits to the published email, owner or sheet row.
         job = find(state, 'setups', data['id'], True)
-        if job['stage'] == BURNED:
-            raise HTTPException(409, 'Choose Not started to reopen this burned domain before allocating a device.')
+        if job['stage'] in INACTIVE_STAGES:
+            raise HTTPException(409, 'Choose Not started to reopen this inactive domain before allocating a device.')
         if job.get('device_id'):
             raise HTTPException(409, 'This setup already has a device. Use Edit details to change a pending allocation.')
         if job.get('sync', {}).get('status') == 'synced' and job['stage'] not in PLANNING_STAGES and data['operator_id'] != job['operator_id']:
@@ -692,7 +715,7 @@ def mutate(user, expected, action, data):
             record_purchase_device(state, job)
     elif action == 'setup_stage':
         job = find(state, 'setups', data['id'], True)
-        set_stage(state, job, data['stage'])
+        set_stage(state, job, data['stage'], data.get('confirmed_auto_renew_stopped', False))
         grow_client_target(state, find(state, 'clients', job['client_id'], True))
     elif action == 'setup_notes':
         job = find(state, 'setups', data['id'], True)
@@ -736,24 +759,48 @@ def record_purchase_device(state, job):
     job['purchase_device'] = device_snapshot(state, d)
 
 
-def set_stage(state, job, stage):
-    if stage not in (*STAGES, *FAILURES, STARTED, BURNED):
+def failure_stage(job):
+    """Keep failed-device ownership through inactive labels and legacy boards."""
+    stage = job['stage']
+    if stage in INACTIVE_STAGES and job.get('inactive_failure_stage') in FAILURES:
+        return job['inactive_failure_stage']
+    visited = set()
+    while stage in INACTIVE_STAGES and stage not in visited:
+        visited.add(stage)
+        stage = job.get('burned_from' if stage == BURNED else 'gmail_deleted_from')
+    return stage if stage in FAILURES else None
+
+
+def confirm_gmail_deleted(job, stage, confirmed):
+    if stage == GMAIL_DELETED and (job or {}).get('stage') != GMAIL_DELETED and confirmed is not True:
+        raise HTTPException(400, 'Confirm that auto-renew has been stopped in Porkbun before marking this Gmail deleted.')
+
+
+def set_stage(state, job, stage, confirmed_auto_renew_stopped=False):
+    if stage not in (*STAGES, *FAILURES, STARTED, *INACTIVE_STAGES):
         raise HTTPException(400, 'Choose a valid setup stage.')
     old = job['stage']
-    if old in CLOSED_STAGES and stage not in {old, STAGES[0], BURNED}:
+    confirm_gmail_deleted(job, stage, confirmed_auto_renew_stopped)
+    if old in CLOSED_STAGES and stage not in {old, STAGES[0], *INACTIVE_STAGES}:
         raise HTTPException(409, 'Choose Not started to reopen this setup before changing its stage.')
-    if stage == BURNED:
+    if stage in INACTIVE_STAGES:
         # Retain real purchase, failure and sheet history without consuming a
         # new device slot or treating the abandoned domain as unfinished work.
-        job.update(stage=stage, burned_from=job.get('burned_from') if old == BURNED else old,
-                   burned_at=job.get('burned_at') if old == BURNED else now(), updated_at=now())
+        if old != stage:
+            stamp = now()
+            job['inactive_failure_stage'] = failure_stage(job)
+            if stage == BURNED:
+                job.update(burned_from=old, burned_at=stamp)
+            else:
+                job.update(gmail_deleted_from=old, gmail_deleted_at=stamp, auto_renew_stopped_at=stamp)
+        job.update(stage=stage, updated_at=now())
         return
     if stage in PLANNING_STAGES:
         # The workflow can be reopened independently of recorded purchases,
         # completed sheet writes and the physical phone's usage/block state.
         device = find(state, 'devices', job['device_id']) if job.get('device_id') else None
         was_blocked = device and device['status'] == 'Blocked'
-        if (old in FAILURES or old == BURNED and job.get('burned_from') in FAILURES) and device:
+        if failure_stage(job) and device:
             restore_failed_device(state, job, device)
         if device and (was_blocked or device.get('archived')):
             job['device_id'] = None

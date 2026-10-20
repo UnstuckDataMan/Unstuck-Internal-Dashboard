@@ -61,8 +61,9 @@ def inspect_zone(domain, client):
 def active_job(state, job_id):
     job = s.find(state, 'setups', job_id, True)
     s.find(state, 'clients', job['client_id'], True)
-    if job['stage'] == s.BURNED:
-        raise HTTPException(409, 'This domain is burned. Reopen it before setting up DNS.')
+    if job['stage'] in s.INACTIVE_STAGES:
+        status = 'burned' if job['stage'] == s.BURNED else 'marked Gmail deleted'
+        raise HTTPException(409, f'This domain is {status}. Reopen it before setting up DNS.')
     return job
 
 

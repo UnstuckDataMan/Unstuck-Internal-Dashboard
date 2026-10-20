@@ -58,6 +58,309 @@ def master_client(name='Grouping client',count=7):
 def mark_master(job_id,master_id):return change('setup_master',{'id':job_id,'master_domain_id':master_id})
 
 
+def delete_gmail(job_id):return change('setup_stage',{'id':job_id,'stage':s.GMAIL_DELETED,'confirmed_auto_renew_stopped':True})
+
+
+@pytest.fixture
+def password_key(monkeypatch):
+    monkeypatch.setenv('GMAIL_SETUP_PASSWORD_KEY','test-only-client-password-key')
+
+
+def test_client_password_is_encrypted_at_rest_replaceable_removable_and_read_only_on_reveal(board_db,password_key):
+    import json
+    client,jobs=master_client('Password client',count=1)
+    original=s.board(USER);secret='Synthetic-client-credential-123'
+    record=change('client_password',{'id':client['id'],'password':secret})
+    saved=record['state']['clients'][0]
+    assert saved['password_ciphertext']!=secret and saved['password_updated_at']
+    assert secret not in json.dumps(board_db[store.workspace(USER)])
+    assert all('password' not in key for key in saved if key not in {'password_ciphertext','password_updated_at'})
+    public=s.result(record)['state']['clients'][0]
+    assert public['has_password'] is True and 'password_ciphertext' not in public and 'password' not in public
+    before=s.board(USER)
+    assert s.reveal_client_password(OTHER,client['id'])==secret
+    assert s.board(USER)==before # reveal never advances revisions or writes audit/state
+    replaced=change('client_password',{'id':client['id'],'password':'Replacement-test-credential'})
+    assert replaced['state']['clients'][0]['password_ciphertext']!=saved['password_ciphertext']
+    assert s.reveal_client_password(USER,client['id'])=='Replacement-test-credential'
+    removed=change('client_password',{'id':client['id'],'password':None})
+    assert 'password_ciphertext' not in removed['state']['clients'][0]
+    assert s.result(removed)['state']['clients'][0]['has_password'] is False
+    with pytest.raises(HTTPException) as exc:s.reveal_client_password(USER,client['id'])
+    assert exc.value.status_code==404
+
+
+@pytest.mark.parametrize('secret',['  spaces matter  ','\t\n','A synthetic Unicode credential 🔑','x'*1024])
+def test_client_password_preserves_whitespace_unicode_and_maximum_length(board_db,password_key,secret):
+    client,jobs=master_client('Exact password',count=1)
+    change('client_password',{'id':client['id'],'password':secret})
+    assert s.reveal_client_password(USER,client['id'])==secret
+
+
+def test_client_password_missing_or_changed_key_fails_closed_and_removal_can_recover(board_db,password_key,monkeypatch):
+    client,jobs=master_client('Password key',count=1)
+    secret='Key-recovery-test-credential'
+    change('client_password',{'id':client['id'],'password':secret})
+    original=s.board(USER)
+    monkeypatch.setenv('GMAIL_SETUP_PASSWORD_KEY','changed-test-only-key')
+    with pytest.raises(HTTPException) as exc:s.reveal_client_password(USER,client['id'])
+    assert exc.value.status_code==503 and secret not in exc.value.detail
+    assert original['state']['clients'][0]['password_ciphertext'] not in exc.value.detail
+    monkeypatch.delenv('GMAIL_SETUP_PASSWORD_KEY');monkeypatch.delenv('SESSION_SECRET')
+    for operation in (lambda:s.reveal_client_password(USER,client['id']),
+                      lambda:change('client_password',{'id':client['id'],'password':'Must not save without a key'})):
+        with pytest.raises(HTTPException) as exc:operation()
+        assert exc.value.status_code==503 and s.board(USER)==original
+    removed=change('client_password',{'id':client['id'],'password':None})
+    assert 'password_ciphertext' not in removed['state']['clients'][0]
+
+
+def test_client_password_key_falls_back_to_session_secret_and_explicit_key_takes_priority(board_db,monkeypatch):
+    monkeypatch.delenv('GMAIL_SETUP_PASSWORD_KEY',raising=False)
+    monkeypatch.setenv('SESSION_SECRET','synthetic-session-secret-for-password-test')
+    client,jobs=master_client('Fallback password key',count=1)
+    change('client_password',{'id':client['id'],'password':'Fallback-test-value'})
+    assert s.reveal_client_password(USER,client['id'])=='Fallback-test-value'
+    monkeypatch.setenv('GMAIL_SETUP_PASSWORD_KEY','explicit-test-key-overrides-session')
+    with pytest.raises(HTTPException):s.reveal_client_password(USER,client['id'])
+    monkeypatch.delenv('GMAIL_SETUP_PASSWORD_KEY')
+    assert s.reveal_client_password(USER,client['id'])=='Fallback-test-value'
+
+
+def test_client_password_ciphertext_is_bound_to_client_and_workspace(board_db,password_key):
+    first,jobs=master_client('First password client',count=1)
+    second,others=master_client('Second password client',count=1)
+    record=change('client_password',{'id':first['id'],'password':'Bound-test-credential'})
+    ciphertext=record['state']['clients'][0]['password_ciphertext']
+    record['state']['clients'][1]['password_ciphertext']=ciphertext
+    store.save(USER,record['state'],record['revision'])
+    with pytest.raises(HTTPException) as exc:s.reveal_client_password(USER,second['id'])
+    assert exc.value.status_code==503 and 'Bound-test-credential' not in exc.value.detail
+    assert s.reveal_client_password(USER,first['id'])=='Bound-test-credential'
+    outside={'email':'person@other-workspace.com','role':'sdr','tools':['gmail_set']}
+    with pytest.raises(HTTPException) as exc:s.reveal_client_password(outside,first['id'])
+    assert exc.value.status_code==404
+    copied=copy.deepcopy(s.board(USER));copied['workspace_id']=store.workspace(outside)
+    board_db[store.workspace(outside)]=copied
+    with pytest.raises(HTTPException) as exc:s.reveal_client_password(outside,first['id'])
+    assert exc.value.status_code==503 and ciphertext not in exc.value.detail
+
+
+def test_client_password_changes_do_not_touch_setup_device_dns_sheet_history_or_math(board_db,password_key,monkeypatch):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    record,jid=create_setup(owner,phone['id']);client=record['state']['clients'][0]
+    mark_master(jid,jid);change('setup_notes',{'id':jid,'notes':'Keep this account history'})
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    record['state']['setups'][0]['dns_setup']={'status':'verified','destination':'https://example.com'}
+    record['state']['setups'][0]['sync']={'status':'synced','row':42}
+    store.save(USER,record['state'],record['revision']);delete_gmail(jid)
+    before=s.board(USER);plan=s.summary(copy.deepcopy(before['state']));progress=s.result(before)['client_progress']
+    monkeypatch.setattr(sheets,'publish',lambda *args:pytest.fail('Password changes cannot publish sheet rows'))
+    monkeypatch.setattr(s,'set_stage',lambda *args:pytest.fail('Password changes cannot change setup stages'))
+    record=change('client_password',{'id':client['id'],'password':'History-preserving-test-value'})
+    assert record['state']['setups']==before['state']['setups'] and record['state']['devices']==before['state']['devices']
+    assert s.summary(record['state'])==plan and s.result(record)['client_progress']==progress
+    private={k:v for k,v in record['state']['clients'][0].items() if k not in {'password_ciphertext','password_updated_at'}}
+    assert private==before['state']['clients'][0]
+
+
+def test_client_password_routes_require_explicit_authenticated_csrf_reveal_and_scrub_all_boards(client,board_db,password_key,monkeypatch):
+    import json
+    from app.utils.gmail_setup import dns_setup
+    group,jobs=master_client('Revealed password',count=1);secret='Explicit-reveal-test-credential'
+    change('client_password',{'id':group['id'],'password':secret})
+    before=s.board(USER);user=None
+    monkeypatch.setattr(auth,'get_session_user',lambda request:user)
+    endpoint=f'/api/gmail-setup/clients/{group["id"]}/password/reveal'
+    assert client.post(endpoint).status_code==401
+    user={**OTHER,'tools':[]};assert client.post(endpoint).status_code==403
+    user={**OTHER};assert client.post(endpoint).status_code==403
+    assert client.get(endpoint).status_code==405
+    client.headers['X-Domain-CSRF']=client.get('/api/gmail-setup/session').json()['csrf']
+    response=client.post(endpoint)
+    assert response.status_code==200 and response.json()=={'password':secret}
+    assert response.headers['cache-control']=='no-store' and s.board(USER)==before
+    public=client.get('/api/gmail-setup')
+    assert public.json()['state']['clients'][0]['has_password'] is True
+    assert 'password_ciphertext' not in public.text and secret not in public.text
+    changed=client.post('/api/gmail-setup/change',json={'revision':before['revision'],'action':'setup_notes',
+        'data':{'id':jobs[0]['id'],'notes':'An unrelated safe update'}})
+    assert changed.status_code==200 and secret not in changed.text and 'password_ciphertext' not in changed.text
+    user={**USER}
+    private=s.board(USER)
+    monkeypatch.setattr(dns_setup,'preview',lambda *args:copy.deepcopy(private))
+    dns=client.post(f'/api/gmail-setup/setups/{jobs[0]["id"]}/dns-setup/preview',json={'revision':private['revision']})
+    assert dns.status_code==200 and secret not in dns.text and 'password_ciphertext' not in dns.text
+    assert s.board(USER)['state']['clients'][0]['password_ciphertext']==before['state']['clients'][0]['password_ciphertext']
+    change('client_remove',{'id':group['id']})
+    assert client.post(endpoint).status_code==404
+
+
+@pytest.mark.parametrize('data_patch',[{}, {'password':''},{'password':'x'*1025},{'password':123},{'password':False},
+    {'password':'test','password_ciphertext':'injected'}])
+def test_client_password_schema_rejects_missing_empty_oversize_nonstring_or_extra_fields(client,board_db,password_key,monkeypatch,data_patch):
+    monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
+    client.headers['X-Domain-CSRF']=client.get('/api/gmail-setup/session').json()['csrf']
+    group,jobs=master_client('Validated password',count=1);before=s.board(USER)
+    response=client.post('/api/gmail-setup/change',json={'revision':before['revision'],'action':'client_password',
+        'data':{'id':group['id'],**data_patch}})
+    assert response.status_code==400 and s.board(USER)==before
+
+
+def test_public_client_scrubbing_removes_legacy_password_secrets_without_mutating_storage(board_db,password_key):
+    group,jobs=master_client('Scrubbed password',count=1)
+    record=change('client_password',{'id':group['id'],'password':'Private-test-secret'})
+    record['state']['clients'][0].update(password='legacy-plaintext',password_plaintext='old-plaintext',password_key='old-key')
+    private=store.save(USER,record['state'],record['revision'])
+    public=s.result(private)['state']['clients'][0]
+    assert public['has_password'] is True
+    assert not set(public).intersection({'password_ciphertext','password','password_plaintext','password_key'})
+    assert s.board(USER)==private
+
+
+@pytest.mark.parametrize('starting_stage',['Not started','Started','Purchase made','Setup complete','Failed at QR','Failed at payment','Burned'])
+def test_gmail_deleted_requires_confirmation_and_preserves_history_without_archiving(board_db,starting_stage):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,jid=create_setup(owner,phone['id'])
+    change('setup_notes',{'id':jid,'notes':'Keep account history and notes'})
+    mark_master(jid,jid)
+    record=change('setup_stage',{'id':jid,'stage':starting_stage})
+    if starting_stage=='Setup complete':
+        record['state']['setups'][0]['sync']={'status':'synced','row':42}
+        record=store.save(USER,record['state'],record['revision'])
+    before=s.board(USER)
+    with pytest.raises(HTTPException,match='auto-renew'):
+        change('setup_stage',{'id':jid,'stage':s.GMAIL_DELETED})
+    assert s.board(USER)==before
+    record=delete_gmail(jid);job=record['state']['setups'][0]
+    assert job['stage']==s.GMAIL_DELETED and job['archived'] is False
+    assert job['gmail_deleted_from']==starting_stage and job['gmail_deleted_at']==job['auto_renew_stopped_at']
+    for field in ('notes','master_domain_id','master_color','purchase_at','purchase_device','purchase_device_history',
+                  'device_failures','completed_at','order','sheet_owner','sync','device_id','operator_id'):
+        assert job.get(field)==before['state']['setups'][0].get(field)
+    assert record['state']['devices']==before['state']['devices'] and record['state']['clients']==before['state']['clients']
+    plan=s.summary(record['state'])
+    assert plan['gmail_deleted']==1 and plan['burned']==plan['complete']==plan['actual_todo']==0
+    assert plan['todo']==plan['planned_todo']==1 and plan['target']==11
+    repeated=change('setup_stage',{'id':jid,'stage':s.GMAIL_DELETED})
+    for field in ('gmail_deleted_from','gmail_deleted_at','auto_renew_stopped_at'):
+        assert repeated['state']['setups'][0][field]==job[field]
+    with pytest.raises(HTTPException,match='Not started'):
+        change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    change('setup_notes',{'id':jid,'notes':'Still editable after deletion'})
+    assert s.board(USER)['state']['setups'][0]['notes']=='Still editable after deletion'
+
+
+@pytest.mark.parametrize('action',['setup_stage','setup_save'])
+def test_gmail_deleted_confirmation_is_enforced_by_api_for_stage_and_details(client,board_db,monkeypatch,action):
+    monkeypatch.setattr(auth,'get_session_user',lambda request:USER)
+    client.headers['X-Domain-CSRF']=client.get('/api/gmail-setup/session').json()['csrf']
+    record,jid=create_setup(people()['Dylan']);job=record['state']['setups'][0]
+    data={'id':jid,'stage':s.GMAIL_DELETED}
+    if action=='setup_save':
+        data.update(client_id=job['client_id'],account_manager_id=job['account_manager_id'],operator_id=job['operator_id'],
+            email=job['email'],section=job['section'],notes='')
+    payload={'revision':record['revision'],'action':action,'data':data}
+    before=s.board(USER)
+    for confirmation in ({},{'confirmed_auto_renew_stopped':False},{'confirmed_auto_renew_stopped':'true'},
+                         {'confirmed_auto_renew_stopped':1},{'confirmed_auto_renew_stopped':None}):
+        rejected=client.post('/api/gmail-setup/change',json={**payload,'data':{**data,**confirmation}})
+        assert rejected.status_code==400 and s.board(USER)==before
+    saved=client.post('/api/gmail-setup/change',json={**payload,'data':{**data,'confirmed_auto_renew_stopped':True}})
+    assert saved.status_code==200 and saved.json()['state']['setups'][0]['stage']==s.GMAIL_DELETED
+    # Selecting the unchanged stage again needs no new attestation.
+    repeated=client.post('/api/gmail-setup/change',json={**payload,'revision':saved.json()['revision']})
+    assert repeated.status_code==200
+    assert repeated.json()['state']['setups'][0]['auto_renew_stopped_at']==saved.json()['state']['setups'][0]['auto_renew_stopped_at']
+
+
+def test_gmail_deleted_guard_runs_before_a_new_details_save_creates_or_changes_anything(board_db):
+    before=s.board(USER)
+    with pytest.raises(HTTPException,match='auto-renew'):
+        change('setup_save',{'account_manager_id':people()['Dylan'],'operator_id':people()['Dylan'],
+            'client_name':'Never created','email':'me@nevercreated.com','section':'client','stage':s.GMAIL_DELETED})
+    assert s.board(USER)==before and board_db=={}
+
+
+def test_gmail_deleted_replacement_demand_bulk_completion_and_target_floor_are_consistent(board_db):
+    owner=people()['Dylan'];client,jobs=master_client('Deleted replacement target',count=4)
+    change('setup_stage',{'id':jobs[0]['id'],'stage':'Setup complete'})
+    delete_gmail(jobs[1]['id'])
+    change('setup_stage',{'id':jobs[2]['id'],'stage':'Burned'})
+    record=s.result(s.board(USER))
+    assert record['client_progress'][client['id']]=={'target':4,'complete':1,'actual_todo':1,'todo':3,'remaining':3,'replacements_needed':2}
+    completed=change('client_complete',{'id':client['id']})
+    assert [job['stage'] for job in completed['state']['setups']]==['Setup complete',s.GMAIL_DELETED,'Burned','Setup complete']
+    assert s.summary(completed['state'])['todo']==2 and s.summary(completed['state'])['gmail_deleted']==1
+    assert completed['state']['clients'][0]['domain_target']==4
+    record=change('client_save',{'id':client['id'],'name':client['name'],'account_manager_id':owner,'domain_target':2})
+    assert s.summary(record['state'])['todo']==0 # inactive rows do not raise the minimum target
+    record=change('setup_stage',{'id':jobs[1]['id'],'stage':'Not started'})
+    assert record['state']['clients'][0]['domain_target']==3 and s.summary(record['state'])['todo']==1
+
+
+def test_gmail_deleted_reopening_keeps_successful_device_use_and_old_sheet_metadata(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,jid=create_setup(owner,phone['id'])
+    record=change('setup_stage',{'id':jid,'stage':'Setup complete'})
+    record['state']['setups'][0]['sync']={'status':'synced','row':42};store.save(USER,record['state'],record['revision'])
+    deleted=delete_gmail(jid)['state']['setups'][0]
+    reopened=change('setup_stage',{'id':jid,'stage':'Not started'})
+    assert reopened['state']['devices'][0]['use_count']==1
+    assert reopened['state']['setups'][0]['sync']==deleted['sync']
+    assert reopened['state']['setups'][0]['order']==deleted['order']
+    change('setup_assign',{'id':jid,'operator_id':people()['Matthew']})
+    assert s.board(USER)['state']['setups'][0]['device_id'] is None
+    with pytest.raises(HTTPException,match='auto-renew'):
+        change('setup_stage',{'id':jid,'stage':s.GMAIL_DELETED})
+
+
+@pytest.mark.parametrize('failure',list(s.FAILURES))
+def test_failure_reset_survives_burned_deleted_wrappers_and_repeated_inactive_transitions(board_db,failure):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,jid=create_setup(owner,phone['id'])
+    change('setup_stage',{'id':jid,'stage':failure})
+    change('setup_stage',{'id':jid,'stage':'Burned'})
+    delete_gmail(jid)
+    change('setup_stage',{'id':jid,'stage':'Burned'})
+    deleted=delete_gmail(jid)
+    assert deleted['state']['setups'][0]['gmail_deleted_from']=='Burned'
+    assert s.failure_stage(deleted['state']['setups'][0])==failure
+    reset=change('setup_stage',{'id':jid,'stage':'Not started'})
+    assert reset['state']['setups'][0]['device_id'] is None
+    assert reset['state']['devices'][0]['status']=='Unused' and reset['state']['devices'][0]['use_count']==0
+    assert reset['state']['setups'][0]['device_failures'][0]['reverted_at']
+
+
+def test_other_deleted_failure_still_holds_shared_device_block_until_it_is_reopened(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,first=create_setup(owner,phone['id'])
+    _,second=create_setup(owner,phone['id'],'otherdeletedfailure.com','me@otherdeletedfailure.com')
+    change('setup_stage',{'id':first,'stage':'Failed at QR'})
+    change('setup_stage',{'id':second,'stage':'Failed at payment'})
+    change('setup_stage',{'id':first,'stage':'Burned'})
+    delete_gmail(first);delete_gmail(second)
+    reset=change('setup_stage',{'id':first,'stage':'Not started'})
+    assert reset['state']['devices'][0]['status']=='Blocked' and reset['state']['devices'][0]['block_reason']=='Payment'
+    assert reset['state']['devices'][0]['use_count']==1
+    reset=change('setup_stage',{'id':second,'stage':'Not started'})
+    assert reset['state']['devices'][0]['status']=='Unused' and reset['state']['devices'][0]['use_count']==0
+
+
+def test_deleted_legacy_burned_failure_provenance_and_sync_error_counts_remain_correct(board_db):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    _,jid=create_setup(owner,phone['id'])
+    change('setup_stage',{'id':jid,'stage':'Failed at QR'})
+    record=change('setup_stage',{'id':jid,'stage':'Burned'})
+    record['state']['setups'][0].pop('inactive_failure_stage')
+    record['state']['setups'][0]['sync']={'status':'error','message':'Old historical failure'}
+    store.save(USER,record['state'],record['revision'])
+    record=delete_gmail(jid)
+    assert s.summary(record['state'])['sync_errors']==0
+    reset=change('setup_stage',{'id':jid,'stage':'Not started'})
+    assert reset['state']['devices'][0]['use_count']==0 and reset['state']['devices'][0]['status']=='Unused'
+
+
 def test_master_domains_limit_is_per_client_stable_and_includes_burned_roots(board_db):
     first,jobs=master_client()
     assert all('master_domain_id' not in job and 'master_color' not in job for job in jobs)

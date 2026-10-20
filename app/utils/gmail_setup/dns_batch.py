@@ -26,7 +26,7 @@ def start(user, client_id, revision, confirmed_purchased, destination):
     client = s.find(state, 'clients', client_id, True)
     if running(client.get('dns_setup_batch') or {}):
         raise HTTPException(409, 'A domain is already being processed for this client. Wait for it to finish before resuming.')
-    jobs = [j for j in state['setups'] if j.get('client_id') == client_id and not j.get('archived') and j['stage'] != s.BURNED]
+    jobs = [j for j in state['setups'] if j.get('client_id') == client_id and not j.get('archived') and j['stage'] not in s.INACTIVE_STAGES]
     if not jobs:
         raise HTTPException(400, 'Add actual domains to this client before running setup.')
     for job in jobs:
@@ -90,8 +90,8 @@ def step(user, client_id, batch_id, job_id, revision):
     claimed = store.save(user, state, revision)
     try:
         job = s.find(state, 'setups', job_id, True)
-        if job.get('client_id') != client_id or job['domain'] != item['domain'] or job['email'] != item['email'] or job['stage'] == s.BURNED:
-            raise HTTPException(409, 'This domain was changed, removed or burned after confirmation. Review it before running setup again.')
+        if job.get('client_id') != client_id or job['domain'] != item['domain'] or job['email'] != item['email'] or job['stage'] in s.INACTIVE_STAGES:
+            raise HTTPException(409, 'This domain changed after confirmation, was removed or burned, or its Gmail was deleted. Review it before running setup again.')
         if not s.email_domain(job['email'], job['domain']):
             raise HTTPException(400, 'Add the sending email for this domain before running setup again.')
         # Fresh record review per domain avoids expiring a large batch's DNS

@@ -70,6 +70,14 @@ the tracker version without reloading over drafts.
   history. Historical sheet-entry references remain available.
 - Each domain has a **Notes** box and **Save notes** button. Notes remain saved
   when a domain is completed, burned or reopened.
+- Each client's details include an optional password input with **Save**,
+  **Show / Hide** and **Remove**. Passwords are masked by default; saved values
+  are encrypted server-side and omitted from shared board responses. A current
+  signed-in user with Gmail Set access must explicitly reveal a password.
+  Encryption uses `GMAIL_SETUP_PASSWORD_KEY`, falling back to the existing
+  `SESSION_SECRET`; keep that key stable or existing saved passwords cannot be
+  recovered. Password edits are kept in memory while saving other tracker work;
+  they are never stored in browser storage.
 - The optional **Master domain** dropdown groups domains within a single client.
   Choose **Make master domain** for up to five masters per client, then select
   **Under [domain]** on related domains. A crown identifies each master; its
@@ -92,6 +100,13 @@ the tracker version without reloading over drafts.
   subtle amber tint; Setup complete is green; Burned and QR/payment failures are
   red. Button styles remain unchanged. Started stays in setup-demand calculations
   and has its own overview count and stage filter.
+- **Gmail deleted** requires a **Yes, proceed** confirmation that domain auto-renew
+  has been stopped. This records the team's manual check; it does not change
+  Porkbun auto-renew or delete a Google account. Deleted domains appear below
+  Burned, retain notes/master labels/history and remain replacement work against
+  the client's target. They are excluded from unfinished lists, bulk completion
+  and DNS/DMARC setup. Reopen with **Not started** if needed. Completed domains
+  are listed under **Live domains (complete)**.
 - Unused, Used and Blocked states are separate from allocation. **Block QR code**
   and **Block Payment** are explicit block reasons. All blocked equipment is red
   and excluded from purchases; previously used devices never count as new stock.

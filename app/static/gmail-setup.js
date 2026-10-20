@@ -8,16 +8,18 @@
   let activityVersion=0;
   let nextVersion=null,sessionCheck=null,reloading=false;
   const noteDrafts=new Map();
+  const passwordDrafts=new Map();
   let processingBatch=null,batchCurrent='',stopBatch=false;
   let selectedClient=new URLSearchParams(location.hash.slice(1)).get('client');
-  const stages=['Not started','Started','Purchase made','Setup complete','Failed at QR','Failed at payment','Burned'];
-  const closed=stage=>['Setup complete','Burned'].includes(stage);
-  const stageOptions=current=>stages.map(stage=>`<option ${stage===current?'selected':''} ${closed(current)&&![current,'Not started','Burned'].includes(stage)?'disabled':''}>${stage}</option>`).join('');
+  const stages=['Not started','Started','Purchase made','Setup complete','Failed at QR','Failed at payment','Burned','Gmail deleted'];
+  const inactive=stage=>['Burned','Gmail deleted'].includes(stage);
+  const closed=stage=>stage==='Setup complete'||inactive(stage);
+  const stageOptions=current=>stages.map(stage=>`<option ${stage===current?'selected':''} ${closed(current)&&![current,'Not started','Burned','Gmail deleted'].includes(stage)?'disabled':''}>${stage}</option>`).join('');
   const state=()=>board?.state||{members:[],devices:[],clients:[],setups:[]};
   const member=id=>state().members.find(m=>m.id===id),device=id=>state().devices.find(d=>d.id===id);
   const name=id=>member(id)?.name||'Unallocated';
   const progress=c=>board?.client_progress?.[c?.id]||{target:c?.domain_target||c?.planned_domains||0,complete:0,actual_todo:0,remaining:c?.domain_target||c?.planned_domains||0,replacements_needed:c?.domain_target||c?.planned_domains||0};
-  const missingLabel=c=>state().setups.some(j=>j.client_id===c.id&&(j.stage==='Burned'||j.archived))?'need replacing':'to add';
+  const missingLabel=c=>state().setups.some(j=>j.client_id===c.id&&(inactive(j.stage)||j.archived))?'need replacing':'to add';
   const mastersFor=clientId=>state().setups.filter(j=>!j.archived&&j.client_id===clientId&&j.master_domain_id===j.id).sort((a,b)=>a.master_color-b.master_color);
   const masterGraph=clientId=>JSON.stringify(state().setups.filter(j=>!j.archived&&j.client_id===clientId).map(j=>[j.id,j.master_domain_id??null,j.master_color??null]).sort((a,b)=>a[0].localeCompare(b[0])));
   const memberOptions=(selected='',pool=false)=>(pool?'<option value="">Unallocated pool</option>':'<option value="">Select team member</option>')+state().members.filter(m=>m.active||m.id===selected).map(m=>`<option value="${esc(m.id)}" ${m.id===selected?'selected':''}>${esc(m.name)}${m.active?'':' (removed)'}</option>`).join('');
@@ -32,7 +34,7 @@
   const inventoryConditions=()=>conditions.flatMap(option=>option[0]==='Used'?Array.from({length:Math.max(2,capacity({kind:'Phone'}),capacity({kind:'PC'}))},(_,i)=>['Used|'+(i+1),i===0?'Used once':i===1?'Used twice':`Used ${i+1} times`]):[option]);
   const conditionData=v=>({status:v.split('|')[0],block_reason:v.startsWith('Blocked|')?v.split('|')[1]:null,...(v.startsWith('Used|')?{use_count:Number(v.split('|')[1])}:{})});
   const label=d=>`${d.kind} ${d.number} · ${name(d.member_id)}`;
-  function updateClientButtons(){const c=state().clients.find(c=>c.id===selectedClient&&!c.archived),jobs=state().setups.filter(j=>j.client_id===c?.id&&!j.archived&&j.stage!=='Burned');$('gs-client-dns').hidden=!c||app.dataset.dnsAdmin!=='true';$('gs-client-dns').disabled=busy||!jobs.length;$('gs-complete-client').hidden=!c;$('gs-complete-client').disabled=busy||!jobs.some(j=>j.stage!=='Setup complete');}
+  function updateClientButtons(){const c=state().clients.find(c=>c.id===selectedClient&&!c.archived),jobs=state().setups.filter(j=>j.client_id===c?.id&&!j.archived&&!inactive(j.stage));$('gs-client-dns').hidden=!c||app.dataset.dnsAdmin!=='true';$('gs-client-dns').disabled=busy||!jobs.length;$('gs-complete-client').hidden=!c;$('gs-complete-client').disabled=busy||!jobs.some(j=>j.stage!=='Setup complete');}
   function message(text,error=false){$('gs-message').textContent=text;$('gs-message').classList.toggle('error',error);}
   async function api(path='',data,recoverSession=true){
     const r=await fetch('/api/gmail-setup'+path,{method:data===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Domain-CSRF':app.dataset.csrf},...(data===undefined?{}:{body:JSON.stringify(data)})});
@@ -48,14 +50,14 @@
     return result;
   }
   function unsavedChanges(){
-    if(noteDrafts.size||bulkOpen&&(value('gs-bulk-domains')||value('gs-bulk-sender')))return true;
+    if(noteDrafts.size||passwordDrafts.size||bulkOpen&&(value('gs-bulk-domains')||value('gs-bulk-sender')))return true;
     if(!board)return false;
     if(Number(value('gs-phone-capacity'))!==board.summary.phone_setups||Number(value('gs-pc-capacity'))!==board.summary.pc_setups||value('gs-order-kind')!==board.summary.order_kind)return true;
     return [...app.querySelectorAll('[data-set-email]')].some(el=>el.value.trim()!==(state().setups.find(j=>j.id===el.dataset.setEmail)?.email||''));
   }
   function applyUpdate(){
     if(!nextVersion)return;
-    const safe=Boolean(board)&&!busy&&!editing()&&!$('gs-dialog').open&&!unsavedChanges();
+    const safe=Boolean(board)&&!busy&&!editing()&&!$('gs-dialog').open&&!$('gs-renew-dialog').open&&!unsavedChanges();
     $('gs-update').hidden=false;$('gs-apply-update').disabled=!safe;
     if(safe&&!document.hidden&&!reloading){reloading=true;location.reload();}
   }
@@ -75,12 +77,13 @@
       const job=state().setups.find(j=>j.id===id);
       if(!job||job.archived||state().clients.find(c=>c.id===job.client_id)?.archived)noteDrafts.delete(id);
     }
+    for(const id of passwordDrafts.keys())if(!state().clients.some(c=>c.id===id&&!c.archived))passwordDrafts.delete(id);
     render();
   }
   async function refresh({background=false}={}){
     const version=activityVersion,result=await api();
     // A read can finish after someone starts choosing a stage or saving it.
-    if(background&&(version!==activityVersion||busy||editing()||$('gs-dialog').open||unsavedChanges()))return;
+    if(background&&(version!==activityVersion||busy||editing()||$('gs-dialog').open||$('gs-renew-dialog').open||unsavedChanges()))return;
     accept(result);
   }
   function lockControls(){
@@ -100,21 +103,23 @@
     finally{busy=false;app.removeAttribute('aria-busy');lockedControls.forEach((disabled,el)=>{if(el.isConnected)el.disabled=disabled;});lockedControls=null;updateClientButtons();renderDnsBatch(state().clients.find(c=>c.id===selectedClient));applyUpdate();}
   }
   async function change(action,data){
-    const original=state().setups.find(j=>j.id===data.id);
+    const clientPassword=action==='client_password';
+    const original=(clientPassword?state().clients:state().setups).find(j=>j.id===data.id);
     const originalMasterGraph=action==='setup_master'?masterGraph(original?.client_id):null;
     const watched=action==='setup_stage'?['stage','operator_id','device_id','email','domain','client_id','archived','purchase_at','purchase_device','device_usage_resets']:
       action==='setup_assign'?['stage','domain','client_id','archived','purchase_at','purchase_device',...('operator_id'in data||'device_id'in data?['operator_id','device_id']:[]),...('email'in data?['email']:[])]:
       action==='setup_notes'?['notes','domain','client_id','archived']:
-      action==='setup_master'?['master_domain_id','master_color','domain','client_id','archived']:null;
+      action==='setup_master'?['master_domain_id','master_color','domain','client_id','archived']:
+      clientPassword?['password_updated_at','has_password','archived']:null;
     for(let attempt=0;attempt<3;attempt++){
       try{const result=await api('/change',{revision:board.revision,action,data});accept(result);return result;}
       catch(error){
         if(!error.revisionConflict)throw error;
-        const latest=await api(),current=latest.state.setups.find(j=>j.id===data.id);
+        const latest=await api(),current=(clientPassword?latest.state.clients:latest.state.setups).find(j=>j.id===data.id);
         accept(latest);
         if(action==='setup_stage'&&current&&!current.archived&&current.stage===data.stage)return latest;
         if(!watched||!original||!current||current.archived||!watched.every(key=>JSON.stringify(original[key]??null)===JSON.stringify(current[key]??null))||action==='setup_master'&&masterGraph(current.client_id)!==originalMasterGraph){
-          throw Error(watched?'This domain was updated by another team member. The latest saved values are shown; review them before changing it again.':error.message);
+          throw Error(clientPassword?'This client password was updated by another team member. Review it before saving again.':watched?'This domain was updated by another team member. The latest saved values are shown; review them before changing it again.':error.message);
         }
         // Retry the narrow change only if its inputs still match. Other
         // domains and unrelated notes can change without discarding a stage.
@@ -140,23 +145,23 @@
   }
   function renderDomain(s){
     const d=device(s.device_id),p=s.purchase_device,sync=s.sync||{},kind=s.section==='client'?'Client':'Biz Dev';
-    const failure=s.stage.startsWith('Failed at'),published=sync.status==='synced',burned=s.stage==='Burned';
-    const cardStage=burned||failure?' gs-domain-danger':s.stage==='Setup complete'?' gs-domain-complete':['Started','Purchase made'].includes(s.stage)?' gs-domain-started':'';
+    const failure=s.stage.startsWith('Failed at'),published=sync.status==='synced',burned=s.stage==='Burned',deleted=s.stage==='Gmail deleted',retired=inactive(s.stage);
+    const cardStage=deleted?' gs-domain-deleted':burned||failure?' gs-domain-danger':s.stage==='Setup complete'?' gs-domain-complete':['Started','Purchase made'].includes(s.stage)?' gs-domain-started':'';
     const dns=s.dmarc&&s.dmarc.email===s.email&&s.dmarc.domain===s.domain?s.dmarc:null;
     const setup=s.dns_setup?.domain===s.domain&&s.dns_setup?.email===s.email?s.dns_setup:null;
     const setupReady=setup?.status==='verified'&&setup.configuration_version===2;
     const planning=['Not started','Started'].includes(s.stage);
-    const ownerLocked=burned||!planning&&(published||s.stage==='Setup complete'||Boolean(p&&s.stage==='Purchase made')),deviceLocked=burned||!planning&&Boolean(d&&(published||p&&['Purchase made','Setup complete'].includes(s.stage)));
+    const ownerLocked=retired||!planning&&(published||s.stage==='Setup complete'||Boolean(p&&s.stage==='Purchase made')),deviceLocked=retired||!planning&&Boolean(d&&(published||p&&['Purchase made','Setup complete'].includes(s.stage)));
     const options='<option value="">Device not added yet</option>'+state().devices.filter(x=>x.id===s.device_id||available(x,s.id)&&x.member_id===s.operator_id).map(x=>`<option value="${esc(x.id)}" ${x.id===s.device_id?'selected':''}>${esc(label(x)+' · '+condition(x))}</option>`).join('');
     const safeLink=sync.url&&/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]+\/edit#gid=\d+&range=A\d+$/.test(sync.url)?sync.url:null;
     const masters=mastersFor(s.client_id),root=masters.find(m=>m.id===s.master_domain_id),isMaster=root?.id===s.id;
     const groupColour=root&&Number.isInteger(root.master_color)&&root.master_color>=0&&root.master_color<5?root.master_color:null;
     const crown=isMaster?'<svg class="gs-master-crown" role="img" aria-label="Master domain" viewBox="0 0 24 24"><path d="m3 6 5 4 4-7 4 7 5-4-2 13H5Z" fill="currentColor"/><path d="M6 22h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>':'';
     const masterOptions=`<option value="">No master domain</option><option value="${esc(s.id)}" ${isMaster?'selected':''} ${!isMaster&&masters.length>=5?'disabled':''}>${isMaster?'Master domain':masters.length>=5?'Master domain · 5 of 5 used':'Make master domain'}</option>`+masters.filter(m=>m.id!==s.id).map(m=>`<option value="${esc(m.id)}" ${root?.id===m.id?'selected':''}>Under ${esc(m.domain)}</option>`).join('');
-    return `<article class="gs-domain${cardStage}${groupColour===null?'':' gs-master-'+groupColour}" data-setup="${esc(s.id)}"${groupColour===null?'':` data-master-root="${esc(root.id)}" data-master-color="${groupColour}"`}><div class="gs-domain-head"><div class="gs-domain-name"><h4>${esc(s.domain)}${crown}</h4>${s.order&&s.stage==='Setup complete'?`<small class="gs-order">Completion #${s.order}</small>`:''}</div><div class="gs-domain-tools"><label class="gs-master-choice">Master domain<select data-set-master="${esc(s.id)}" aria-label="Master domain for ${esc(s.domain)}">${masterOptions}</select></label><div class="gs-domain-buttons">${!published&&!burned?`<button class="gs-small" data-edit-setup="${esc(s.id)}">Details</button>`:''}<button class="gs-small gs-danger" data-remove-setup="${esc(s.id)}">Delete</button></div></div></div>
-      <div class="gs-domain-controls"><label>Email<input type="email" data-set-email="${esc(s.id)}" value="${esc(s.email)}" placeholder="Add sending email" maxlength="254" ${burned||published||s.stage==='Setup complete'?'disabled':''}></label><label>Setup person<select data-set-operator="${esc(s.id)}" ${ownerLocked?'disabled':''}>${memberOptions(s.operator_id)}</select></label><label class="gs-device-choice">${d?`<strong class="gs-phone-number ${deviceClass(d)}">${esc((p?.id===d.id?p.label:d.kind+' '+d.number))}</strong>`:'Device'}<select data-set-device="${esc(s.id)}" aria-label="Device for ${esc(s.domain)}" ${deviceLocked?'disabled':''}>${options}</select></label><label class="gs-stage-control">Stage<select data-set-stage="${esc(s.id)}" aria-label="Stage for ${esc(s.domain)}">${stageOptions(s.stage,Boolean(s.purchase_at))}</select></label></div>
-      ${burned||!d||failure||d?.status==='Blocked'||d&&exhausted(d)?`<div class="gs-domain-meta">${burned?'<span class="gs-badge burned">Burned</span>':''}${!d?'<span class="gs-badge purchased">Device not added yet</span>':''}${failure?`<span class="gs-badge blocked">${esc(s.stage)}</span>`:''}${d?.status==='Blocked'?`<span class="gs-badge blocked">${esc(condition(d))} · do not use</span>`:d&&exhausted(d)?`<span class="gs-badge exhausted">${esc(condition(d))}</span>`:''}</div>`:''}
-      ${!burned&&(app.dataset.dnsAdmin==='true'||dns||setup)?`<div class="gs-domain-dmarc">${dns?`<span class="gs-badge ${dns.status==='verified'?'complete':'blocked'}" title="${esc(dns.message)}">DMARC ${dns.status==='verified'?'verified':'needs attention'}</span>`:''}${app.dataset.dnsAdmin==='true'?`<button class="gs-small" data-setup-dns="${esc(s.id)}">${setupReady?'Recheck setup':'One-click setup'}</button>`:''}${setup?`<span class="gs-badge ${setupReady?'complete':'blocked'}" title="${esc(setup.message)}">${setupReady?'DNS ready':setup.status==='verified'?'Google mail setup needed':'DNS setup needs attention'}</span>`:''}</div>`:''}
+    return `<article class="gs-domain${cardStage}${groupColour===null?'':' gs-master-'+groupColour}" data-setup="${esc(s.id)}"${groupColour===null?'':` data-master-root="${esc(root.id)}" data-master-color="${groupColour}"`}><div class="gs-domain-head"><div class="gs-domain-name"><h4>${esc(s.domain)}${crown}</h4>${s.order&&s.stage==='Setup complete'?`<small class="gs-order">Completion #${s.order}</small>`:''}</div><div class="gs-domain-tools"><label class="gs-master-choice">Master domain<select data-set-master="${esc(s.id)}" aria-label="Master domain for ${esc(s.domain)}">${masterOptions}</select></label><div class="gs-domain-buttons">${!published&&!retired?`<button class="gs-small" data-edit-setup="${esc(s.id)}">Details</button>`:''}<button class="gs-small gs-danger" data-remove-setup="${esc(s.id)}">Delete</button></div></div></div>
+      <div class="gs-domain-controls"><label>Email<input type="email" data-set-email="${esc(s.id)}" value="${esc(s.email)}" placeholder="Add sending email" maxlength="254" ${retired||published||s.stage==='Setup complete'?'disabled':''}></label><label>Setup person<select data-set-operator="${esc(s.id)}" ${ownerLocked?'disabled':''}>${memberOptions(s.operator_id)}</select></label><label class="gs-device-choice">${d?`<strong class="gs-phone-number ${deviceClass(d)}">${esc((p?.id===d.id?p.label:d.kind+' '+d.number))}</strong>`:'Device'}<select data-set-device="${esc(s.id)}" aria-label="Device for ${esc(s.domain)}" ${deviceLocked?'disabled':''}>${options}</select></label><label class="gs-stage-control">Stage<select data-set-stage="${esc(s.id)}" aria-label="Stage for ${esc(s.domain)}">${stageOptions(s.stage,Boolean(s.purchase_at))}</select></label></div>
+      ${retired||!d||failure||d?.status==='Blocked'||d&&exhausted(d)?`<div class="gs-domain-meta">${burned?'<span class="gs-badge burned">Burned</span>':deleted?'<span class="gs-badge deleted">Gmail deleted</span>':''}${!d?'<span class="gs-badge purchased">Device not added yet</span>':''}${failure?`<span class="gs-badge blocked">${esc(s.stage)}</span>`:''}${d?.status==='Blocked'?`<span class="gs-badge blocked">${esc(condition(d))} · do not use</span>`:d&&exhausted(d)?`<span class="gs-badge exhausted">${esc(condition(d))}</span>`:''}</div>`:''}
+      ${!retired&&(app.dataset.dnsAdmin==='true'||dns||setup)?`<div class="gs-domain-dmarc">${dns?`<span class="gs-badge ${dns.status==='verified'?'complete':'blocked'}" title="${esc(dns.message)}">DMARC ${dns.status==='verified'?'verified':'needs attention'}</span>`:''}${app.dataset.dnsAdmin==='true'?`<button class="gs-small" data-setup-dns="${esc(s.id)}">${setupReady?'Recheck setup':'One-click setup'}</button>`:''}${setup?`<span class="gs-badge ${setupReady?'complete':'blocked'}" title="${esc(setup.message)}">${setupReady?'DNS ready':setup.status==='verified'?'Google mail setup needed':'DNS setup needs attention'}</span>`:''}</div>`:''}
       <div class="gs-domain-notes"><label>Notes<textarea rows="2" maxlength="1000" data-set-notes="${esc(s.id)}" aria-label="Notes for ${esc(s.domain)}" placeholder="Add a note…">${esc(noteDrafts.has(s.id)?noteDrafts.get(s.id):s.notes)}</textarea></label><button class="gs-small" data-save-notes="${esc(s.id)}">Save notes</button><small data-notes-status="${esc(s.id)}" role="status">${noteDrafts.has(s.id)?'Unsaved changes':''}</small></div>
       <details class="gs-domain-details"><summary>Account details</summary><dl class="gs-facts"><div><dt>Account manager</dt><dd>${esc(name(s.account_manager_id))}</dd></div><div><dt>Purchase asset</dt><dd>${esc(p?.asset_tag||d?.asset_tag||'Not allocated')}</dd></div><div><dt>Sheet destination</dt><dd>${kind}</dd></div></dl>${(s.device_failures||[]).length?`<p class="gs-help">${s.device_failures.map(f=>esc(`${f.stage} · ${f.device.label?f.device.label+' · '+f.device.member+' · '+f.device.asset_tag:'Device not recorded'}`)).join('<br>')}</p>`:''}</details><div class="gs-sync">${published?`Previous sheet entry: ${esc(sync.tab)} · row ${sync.row}${safeLink?` · <a href="${esc(safeLink)}" target="_blank" rel="noopener noreferrer">Open sheet row ↗</a>`:''} · updates are manual`:s.stage==='Setup complete'?'Add the sending email to the Master Strategy sheet manually.':''}</div></article>`;
   }
@@ -184,28 +189,29 @@
     const clientToDo=c=>progress(c).remaining;
     const activeClients=visible.filter(c=>clientToDo(c)>0),completedClients=visible.filter(c=>clientToDo(c)===0);
     const clientCard=c=>{
-      const p=progress(c),burned=all.filter(j=>j.client_id===c.id&&j.stage==='Burned').length;
-      return `<button class="gs-client-card" data-open-client="${esc(c.id)}"><div><strong>${esc(c.name)}</strong><small>${esc(name(c.account_manager_id))} · ${c.section==='client'?'Client':'Biz Dev'}</small></div><div class="gs-client-counts"><span>${p.target} target</span><span class="gs-client-remaining ${p.remaining?'':'is-covered'}"><b>${p.remaining}</b> to complete</span><span class="gs-complete-count">${p.complete} complete</span>${p.replacements_needed?`<span class="gs-replacement-count" data-client-replacements="${esc(c.id)}"><b>${p.replacements_needed}</b> ${missingLabel(c)}</span>`:''}${burned?`<span class="gs-burned-count">${burned} burned</span>`:''}<span aria-hidden="true">→</span></div></button>`;
+      const p=progress(c),burned=all.filter(j=>j.client_id===c.id&&j.stage==='Burned').length,deleted=all.filter(j=>j.client_id===c.id&&j.stage==='Gmail deleted').length;
+      return `<button class="gs-client-card" data-open-client="${esc(c.id)}"><div><strong>${esc(c.name)}</strong><small>${esc(name(c.account_manager_id))} · ${c.section==='client'?'Client':'Biz Dev'}</small></div><div class="gs-client-counts"><span>${p.target} target</span><span class="gs-client-remaining ${p.remaining?'':'is-covered'}"><b>${p.remaining}</b> to complete</span><span class="gs-complete-count">${p.complete} complete</span>${p.replacements_needed?`<span class="gs-replacement-count" data-client-replacements="${esc(c.id)}"><b>${p.replacements_needed}</b> ${missingLabel(c)}</span>`:''}${burned?`<span class="gs-burned-count">${burned} burned</span>`:''}${deleted?`<span class="gs-deleted-count">${deleted} deleted</span>`:''}<span aria-hidden="true">→</span></div></button>`;
     };
     $('gs-client-list').innerHTML=visible.length?`${activeClients.length?`<div class="gs-client-group" data-client-group="active">${activeClients.map(clientCard).join('')}</div>`:''}${completedClients.length?`<section class="gs-client-group" data-client-group="complete" aria-label="Completed clients"><h4 class="gs-list-heading gs-complete-heading">Completed <span>${completedClients.length}</span></h4>${completedClients.map(clientCard).join('')}</section>`:''}`:'<div class="gs-empty"><strong>No clients to show</strong>Add a client first, then add its domains.</div>';
     if(current){
       const domains=all.filter(s=>s.client_id===current.id&&matches(s));
-      const pending=domains.filter(s=>!closed(s.stage)),complete=domains.filter(s=>s.stage==='Setup complete'),burned=domains.filter(s=>s.stage==='Burned');
+      const pending=domains.filter(s=>!closed(s.stage)),complete=domains.filter(s=>s.stage==='Setup complete'),burned=domains.filter(s=>s.stage==='Burned'),deleted=domains.filter(s=>s.stage==='Gmail deleted');
       const order=(a,b)=>(a.order||0)-(b.order||0)||a.domain.localeCompare(b.domain);
       const pendingOrder=(a,b)=>(a.created_at||'').localeCompare(b.created_at||'');
-      $('gs-setup-list').innerHTML=domains.length?`${pending.length?`<h4 class="gs-list-heading">In progress <span>${pending.length}</span></h4>${pending.sort(pendingOrder).map(renderDomain).join('')}`:''}${complete.length?`<h4 class="gs-list-heading gs-complete-heading">Complete <span>${complete.length}</span></h4>${complete.sort(order).map(renderDomain).join('')}`:''}${burned.length?`<h4 class="gs-list-heading gs-burned-heading">Burned <span>${burned.length}</span></h4>${burned.sort((a,b)=>(a.burned_at||'').localeCompare(b.burned_at||'')).map(renderDomain).join('')}`:''}`:`<div class="gs-empty"><strong>No domains to show</strong>${progress(current).remaining?`${progress(current).remaining} domains still needed. Add domains to continue.`:'Add a domain to this client or change your filters.'}</div>`;
+      $('gs-setup-list').innerHTML=domains.length?`${pending.length?`<h4 class="gs-list-heading">In progress <span>${pending.length}</span></h4>${pending.sort(pendingOrder).map(renderDomain).join('')}`:''}${complete.length?`<h4 class="gs-list-heading gs-complete-heading">Live domains (complete) <span>${complete.length}</span></h4>${complete.sort(order).map(renderDomain).join('')}`:''}${burned.length?`<h4 class="gs-list-heading gs-burned-heading">Burned <span>${burned.length}</span></h4>${burned.sort((a,b)=>(a.burned_at||'').localeCompare(b.burned_at||'')).map(renderDomain).join('')}`:''}${deleted.length?`<h4 class="gs-list-heading gs-deleted-heading">Deleted domains <span>${deleted.length}</span></h4>${deleted.sort((a,b)=>(a.gmail_deleted_at||'').localeCompare(b.gmail_deleted_at||'')).map(renderDomain).join('')}`:''}`:`<div class="gs-empty"><strong>No domains to show</strong>${progress(current).remaining?`${progress(current).remaining} domains still needed. Add domains to continue.`:'Add a domain to this client or change your filters.'}</div>`;
     }else $('gs-setup-list').innerHTML='';
     lockControls();
   }
   function renderClientInfo(client){
     const el=$('gs-client-info');el.hidden=!client;if(!client){el.innerHTML='';return;}
     const p=progress(client),url=/^https?:\/\//i.test(client.website_url||'')?client.website_url:null;
-    el.innerHTML=`<div class="gs-client-progress"><span><strong>${p.target}</strong> target</span><span><strong>${p.complete}</strong> complete</span><span class="gs-client-remaining ${p.remaining?'':'is-covered'}"><strong>${p.remaining}</strong> still needed</span>${p.replacements_needed?`<span class="gs-replacement-count" data-client-replacements="${esc(client.id)}"><b>${p.replacements_needed}</b> ${missingLabel(client)}</span>`:''}</div><dl class="gs-client-contacts"><div><dt>Sender’s full name</dt><dd>${esc(client.sender_full_name||'Not added')}</dd></div><div><dt>Forwarding website</dt><dd>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`:'Not added'}</dd></div><div><dt>Account manager email</dt><dd>${esc(client.account_manager_email||'Not added')}</dd></div></dl>`;
+    const password=`<dt class="gs-password-label">Password</dt><dd><div class="gs-client-password"><input id="gs-client-password" type="password" autocomplete="new-password" maxlength="1024" aria-label="Client password" placeholder="${client.has_password?'Password saved':'Add password'}" value="${esc(passwordDrafts.get(client.id)||'')}"><div class="gs-password-actions"><button id="gs-save-client-password" class="gs-small" ${passwordDrafts.has(client.id)?'':'disabled'}>Save</button><button id="gs-show-client-password" class="gs-small" aria-pressed="false" ${client.has_password||passwordDrafts.has(client.id)?'':'disabled'}>Show</button>${client.has_password?'<button id="gs-remove-client-password" class="gs-small gs-danger">Remove</button>':''}</div><small id="gs-password-status" role="status">${passwordDrafts.has(client.id)?'Unsaved changes':client.has_password?'Saved':''}</small></div></dd>`;
+    el.innerHTML=`<div class="gs-client-progress"><span><strong>${p.target}</strong> target</span><span><strong>${p.complete}</strong> complete</span><span class="gs-client-remaining ${p.remaining?'':'is-covered'}"><strong>${p.remaining}</strong> still needed</span>${p.replacements_needed?`<span class="gs-replacement-count" data-client-replacements="${esc(client.id)}"><b>${p.replacements_needed}</b> ${missingLabel(client)}</span>`:''}</div><dl class="gs-client-contacts"><div><dt>Sender’s full name</dt><dd>${esc(client.sender_full_name||'Not added')}</dd>${password}</div><div><dt>Forwarding website</dt><dd>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`:'Not added'}</dd></div><div><dt>Account manager email</dt><dd>${esc(client.account_manager_email||'Not added')}</dd></div></dl>`;
   }
   function completeClient(){
     const client=state().clients.find(c=>c.id===selectedClient);if(!client)return;
     const items=state().setups.filter(j=>j.client_id===client.id&&!j.archived&&!closed(j.stage));if(!items.length)return;
-    dialog('Mark all as complete',`<p>Mark all <strong>${items.length} unfinished ${items.length===1?'domain':'domains'}</strong> for <strong>${esc(client.name)}</strong> as complete?</p><p>This moves them to Complete in Gmail Set. Add their sending emails to the Master Strategy sheet manually. Burned domains stay burned. Only continue when their Gmail setups are finished.</p>`,async()=>{
+    dialog('Mark all as complete',`<p>Mark all <strong>${items.length} unfinished ${items.length===1?'domain':'domains'}</strong> for <strong>${esc(client.name)}</strong> as complete?</p><p>This moves them to Live domains (complete) in Gmail Set. Add their sending emails to the Master Strategy sheet manually. Burned and Gmail deleted domains stay in their sections. Only continue when their Gmail setups are finished.</p>`,async()=>{
       await change('client_complete',{id:client.id});
       $('gs-filter-stage').value='';renderSetups();$('gs-dialog').close();
       message(`${items.length} domains marked complete. Update the Master Strategy sheet manually.`);
@@ -242,8 +248,8 @@
   }
   function setupAllDomains(){
     const client=state().clients.find(c=>c.id===selectedClient);if(!client)return;
-    const items=state().setups.filter(j=>j.client_id===client.id&&!j.archived&&j.stage!=='Burned');if(!items.length)return;
-    dialog('Set up all domains for '+client.name,`<p class="gs-dmarc-warning"><strong>Only proceed if you’ve completed purchase for all ${items.length} domains.</strong></p><label>Client website URL<input id="gs-batch-destination" inputmode="url" placeholder="https://clientwebsite.com" value="${esc(client.website_url||'')}" maxlength="2048" required></label><p>Set up all ${items.length} active domains for this client: remove default DNS, add Google MX/SPF, tracking CNAME and DMARC, then replace root forwarding with the URL above.</p><p>Domains run one at a time. Burned and deleted domains are excluded. Keep this page open; saved progress can be resumed after a refresh.</p><details><summary>View ${items.length} domains</summary><ul class="gs-dmarc-preview">${items.map(i=>`<li><strong>${esc(i.domain)}</strong><small>${esc(i.email||'Sending email missing — needs attention')}</small></li>`).join('')}</ul></details>`,async()=>{
+    const items=state().setups.filter(j=>j.client_id===client.id&&!j.archived&&!inactive(j.stage));if(!items.length)return;
+    dialog('Set up all domains for '+client.name,`<p class="gs-dmarc-warning"><strong>Only proceed if you’ve completed purchase for all ${items.length} domains.</strong></p><label>Client website URL<input id="gs-batch-destination" inputmode="url" placeholder="https://clientwebsite.com" value="${esc(client.website_url||'')}" maxlength="2048" required></label><p>Set up all ${items.length} active domains for this client: remove default DNS, add Google MX/SPF, tracking CNAME and DMARC, then replace root forwarding with the URL above.</p><p>Domains run one at a time. Burned, Gmail deleted and removed domains are excluded. Keep this page open; saved progress can be resumed after a refresh.</p><details><summary>View ${items.length} domains</summary><ul class="gs-dmarc-preview">${items.map(i=>`<li><strong>${esc(i.domain)}</strong><small>${esc(i.email||'Sending email missing — needs attention')}</small></li>`).join('')}</ul></details>`,async()=>{
       const result=await api('/clients/'+client.id+'/dns-setup/start',{revision:board.revision,confirmed_purchased:true,destination:value('gs-batch-destination')});
       accept(result);$('gs-dialog').close();await processDnsBatch(client.id,state().clients.find(c=>c.id===client.id).dns_setup_batch.id);
     });$('gs-dialog-save').textContent='Proceed';
@@ -288,6 +294,11 @@
     }).join('');
   }
   function dialog(title,html,onSubmit){$('gs-dialog-save').textContent='Save';$('gs-dialog-title').textContent=title;$('gs-form-fields').innerHTML=html;$('gs-form-error').textContent='';submitForm=onSubmit;$('gs-dialog').showModal();}
+  function confirmAutoRenew(domain){
+    const prompt=$('gs-renew-dialog');
+    $('gs-renew-domain').textContent=domain||'this domain';prompt.returnValue='';
+    return new Promise(resolve=>{prompt.addEventListener('close',()=>resolve(prompt.returnValue==='yes'),{once:true});prompt.showModal();});
+  }
   const value=id=>$(id).value.trim();
   const field=(title,id,val='',extra='')=>`<label>${title}<input id="${id}" value="${esc(val)}" ${extra}></label>`;
   function editMember(id){const m=member(id)||{};dialog(id?'Edit team member':'Add team member',`<div class="gs-form-grid">${field('Name','gs-member-name',m.name,'required maxlength="100"')}${field('Team email (optional)','gs-member-email',m.email,'type="email" maxlength="254"')}</div>`,async()=>{await change('member_save',{...(id?{id}:{}),name:value('gs-member-name'),email:value('gs-member-email')});message('Team member saved.');});}
@@ -307,10 +318,11 @@
   }
   function editSetup(id){
     const s=state().setups.find(s=>s.id===id)||{};
+    let selectedStage=s.stage||'Not started',autoRenewConfirmed=false;
     const c=state().clients.find(c=>c.id===(s.client_id||selectedClient));
     if(!c)return addClient();
     dialog(id?'Edit domain':`Add domain to ${c.name}`,`<div class="gs-form-grid"><label>Setup owner<select id="gs-job-operator">${memberOptions(s.operator_id||c.operator_id)}</select></label>${field('Email','gs-job-email',s.email,'type="email" maxlength="254"')}<label>Stage<select id="gs-job-stage">${stageOptions(s.stage||'Not started',Boolean(s.purchase_at))}</select></label><label class="gs-wide">Device (optional)<select id="gs-job-device"><option value="">Allocate a device later</option></select></label><label class="gs-wide">Notes (optional)<textarea id="gs-job-notes" maxlength="1000">${esc(noteDrafts.has(id)?noteDrafts.get(id):s.notes)}</textarea></label></div>`,async()=>{
-      const r=await change('setup_save',{...(id?{id}:{}),client_id:c.id,stage:value('gs-job-stage'),account_manager_id:c.account_manager_id,operator_id:value('gs-job-operator')||null,section:c.section,client_name:c.name,...(s.domain?{domain:s.domain}:{}),email:value('gs-job-email'),device_id:value('gs-job-device')||null,notes:value('gs-job-notes')});
+      const r=await change('setup_save',{...(id?{id}:{}),client_id:c.id,stage:value('gs-job-stage'),...(autoRenewConfirmed?{confirmed_auto_renew_stopped:true}:{}),account_manager_id:c.account_manager_id,operator_id:value('gs-job-operator')||null,section:c.section,client_name:c.name,...(s.domain?{domain:s.domain}:{}),email:value('gs-job-email'),device_id:value('gs-job-device')||null,notes:value('gs-job-notes')});
       const job=r.state.setups.find(j=>j.id===id)||r.state.setups.at(-1);
       noteDrafts.delete(job.id);renderSetups();
       message(job.stage==='Setup complete'?'Setup complete. Update the Master Strategy sheet manually.':'Domain saved.');
@@ -318,7 +330,16 @@
     function options(){const owner=value('gs-job-operator');$('gs-job-device').innerHTML='<option value="">Allocate a device later</option>'+state().devices.filter(d=>d.id===s.device_id||available(d,id)&&d.member_id===owner).map(d=>`<option value="${esc(d.id)}" ${d.id===s.device_id?'selected':''}>${esc(label(d))} · ${esc(condition(d))} · ${esc(d.asset_tag)}</option>`).join('');if(s.purchase_device&&['Purchase made','Setup complete'].includes(s.stage))$('gs-job-device').disabled=true;}
     $('gs-job-operator').onchange=options;options();
     $('gs-job-device').required=false;
-    $('gs-job-stage').onchange=()=>{$('gs-job-email').required=!s.domain||value('gs-job-stage')==='Setup complete';$('gs-job-operator').required=value('gs-job-stage')==='Setup complete';};$('gs-job-stage').onchange();
+    function requiredFields(){$('gs-job-email').required=!s.domain||value('gs-job-stage')==='Setup complete';$('gs-job-operator').required=value('gs-job-stage')==='Setup complete';}
+    $('gs-job-stage').onchange=async()=>{
+      const next=value('gs-job-stage');
+      if(next==='Gmail deleted'&&s.stage!=='Gmail deleted'){
+        $('gs-job-stage').value=selectedStage;
+        if(!await confirmAutoRenew(s.domain||value('gs-job-email').split('@').at(-1)))return;
+        $('gs-job-stage').value=next;autoRenewConfirmed=true;
+      }else autoRenewConfirmed=false;
+      selectedStage=next;requiredFields();
+    };requiredFields();
   }
   function addSetupDevice(id){
     const job=state().setups.find(s=>s.id===id);
@@ -335,6 +356,7 @@
   $('gs-refresh').onclick=()=>run(async()=>{await refresh();await checkSessionVersion();message('Team tracker refreshed.');});
   $('gs-apply-update').onclick=applyUpdate;
   $('gs-dialog').addEventListener('close',()=>setTimeout(applyUpdate,0));
+  $('gs-renew-dialog').addEventListener('close',()=>setTimeout(applyUpdate,0));
   $('gs-add-setup').onclick=()=>{if(!selectedClient)return addClient();bulkOpen=true;renderSetups();$('gs-bulk-domains').focus();};
   $('gs-add-single').onclick=()=>editSetup();
   $('gs-edit-client').onclick=()=>addClient(selectedClient);
@@ -343,6 +365,29 @@
   $('gs-delete-client').onclick=()=>{const c=state().clients.find(c=>c.id===selectedClient);if(c&&confirm(`Delete ${c.name} and its domains from Gmail Set? Google Sheet rows and device usage history will be retained.`))run(async()=>{await change('client_remove',{id:c.id});openClient(null);message('Client deleted.');});};
   $('gs-bulk-panel').onsubmit=ev=>{ev.preventDefault();run(async()=>{try{const r=await change('setup_bulk',{client_id:selectedClient,domains:value('gs-bulk-domains'),sender_name:value('gs-bulk-sender'),operator_id:value('gs-bulk-operator')||null});$('gs-bulk-domains').value='';bulkOpen=false;renderSetups();message(`${r.import_summary.added} domains added${r.import_summary.skipped?' · '+r.import_summary.skipped+' duplicates skipped':''}.`);$('gs-bulk-error').textContent='';}catch(err){$('gs-bulk-error').textContent=err.message;throw err;}});};
   $('gs-back-clients').onclick=()=>openClient(null);
+  $('gs-client-info').oninput=e=>{
+    if(e.target.id!=='gs-client-password'||!selectedClient)return;
+    if(e.target.value)passwordDrafts.set(selectedClient,e.target.value);else passwordDrafts.delete(selectedClient);
+    $('gs-save-client-password').disabled=busy||!passwordDrafts.has(selectedClient);
+    $('gs-show-client-password').disabled=busy||!e.target.value&&!state().clients.find(c=>c.id===selectedClient)?.has_password;
+    $('gs-password-status').textContent=passwordDrafts.has(selectedClient)?'Unsaved changes':'';
+  };
+  $('gs-client-info').onclick=e=>{
+    const button=e.target.closest('button'),client=state().clients.find(c=>c.id===selectedClient);if(!button||!client)return;
+    const input=$('gs-client-password');
+    if(button.id==='gs-save-client-password'){
+      const password=input.value;if(!password)return;
+      return run(async()=>{await change('client_password',{id:client.id,password});passwordDrafts.delete(client.id);renderClientInfo(state().clients.find(c=>c.id===selectedClient&&!c.archived));message('Client password saved.');});
+    }
+    if(button.id==='gs-remove-client-password')return run(async()=>{await change('client_password',{id:client.id,password:null});passwordDrafts.delete(client.id);renderClientInfo(state().clients.find(c=>c.id===selectedClient&&!c.archived));message('Client password removed.');});
+    if(button.id==='gs-show-client-password'){
+      if(input.type==='text'){
+        input.type='password';button.textContent='Show';button.setAttribute('aria-pressed','false');if(!passwordDrafts.has(client.id))input.value='';return;
+      }
+      if(passwordDrafts.has(client.id)){input.type='text';button.textContent='Hide';button.setAttribute('aria-pressed','true');return;}
+      return run(async()=>{const result=await api('/clients/'+client.id+'/password/reveal',{});input.value=result.password;input.type='text';button.textContent='Hide';button.setAttribute('aria-pressed','true');});
+    }
+  };
   $('gs-client-list').onclick=e=>{const b=e.target.closest('[data-open-client]');if(b)openClient(b.dataset.openClient);};
   window.addEventListener('popstate',()=>{selectedClient=new URLSearchParams(location.hash.slice(1)).get('client');if(board)renderSetups();});$('gs-add-member').onclick=()=>editMember();$('gs-add-devices').onclick=()=>addDevices();
   $('gs-tab-setups').onclick=()=>tab('setups');$('gs-tab-devices').onclick=()=>tab('devices');
@@ -364,7 +409,7 @@
     if(b.dataset.removeSetup&&confirm('Delete this domain from Gmail Set? Google Sheet rows and device usage history will be retained.'))run(async()=>{await change('setup_remove',{id:b.dataset.removeSetup});message('Domain deleted.');});
   };
   $('gs-setup-list').oninput=e=>{const id=e.target.dataset.setNotes;if(!id)return;if(e.target.value===(state().setups.find(j=>j.id===id)?.notes||''))noteDrafts.delete(id);else noteDrafts.set(id,e.target.value);$('gs-setup-list').querySelector(`[data-notes-status="${id}"]`).textContent=noteDrafts.has(id)?'Unsaved changes':'';};
-  $('gs-setup-list').onchange=e=>{
+  $('gs-setup-list').onchange=async e=>{
     const input=e.target,id=input.dataset.setOperator||input.dataset.setDevice||input.dataset.setEmail||input.dataset.setStage||input.dataset.setMaster;if(!id)return;
     const job=state().setups.find(s=>s.id===id);
     if(input.dataset.setMaster){
@@ -374,8 +419,9 @@
     }
     if(input.dataset.setStage){
       const next=input.value;if(next===job.stage)return;
+      if(next==='Gmail deleted'){input.value=job.stage;if(!await confirmAutoRenew(job.domain))return;}
       if(next==='Setup complete'&&(!job.email||!job.operator_id)){message(!job.email?'Add the sending email on this domain before completing setup.':'Select the setup person on this domain before completing setup.',true);renderSetups();const field=$('gs-setup-list').querySelector(`[data-set-${!job.email?'email':'operator'}="${id}"]`);field?.focus();return;}
-      return run(async()=>{try{message('Saving setup stage…');await change('setup_stage',{id,stage:next});message(next==='Setup complete'?'Setup complete. Update the Master Strategy sheet manually.':'Stage updated.');}finally{renderSetups();}});
+      return run(async()=>{try{message('Saving setup stage…');await change('setup_stage',{id,stage:next,...(next==='Gmail deleted'?{confirmed_auto_renew_stopped:true}:{})});message(next==='Setup complete'?'Setup complete. Update the Master Strategy sheet manually.':next==='Gmail deleted'?'Moved to Deleted domains. Auto-renew confirmation recorded.':'Stage updated.');}finally{renderSetups();}});
     }
     if(input.dataset.setEmail&&!input.checkValidity()){input.reportValidity();return;}
     const patch=input.dataset.setOperator?{operator_id:input.value||null}:input.dataset.setDevice?{device_id:input.value||null}:{email:input.value.trim()};
@@ -386,7 +432,7 @@
   function poll(){
     if(document.hidden)return;
     checkSessionVersion().catch(err=>message(err.message,true));
-    if(!busy&&!$('gs-dialog').open&&!editing()&&!unsavedChanges())refresh({background:true}).catch(err=>message(err.message,true));
+    if(!busy&&!$('gs-dialog').open&&!$('gs-renew-dialog').open&&!editing()&&!unsavedChanges())refresh({background:true}).catch(err=>message(err.message,true));
   }
   setInterval(poll,30000);
   document.addEventListener('visibilitychange',poll);

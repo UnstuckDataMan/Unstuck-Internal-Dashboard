@@ -15,9 +15,10 @@ from test_gmail_setup_dns_setup import SetupRegistrar, defaults, retained
 def batch_case(board_db,monkeypatch):
     owner=people()['Dylan']
     client=change('client_save',{'name':'Batch client','section':'client','account_manager_id':owner})['state']['clients'][0]
-    record=change('setup_bulk',{'client_id':client['id'],'domains':'batchfirst.com\nbatchsecond.com\nbatchburned.com\nbatchdeleted.com','sender_name':'me'})
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'batchfirst.com\nbatchsecond.com\nbatchburned.com\nbatchdeleted.com\nbatchgmaildeleted.com','sender_name':'me'})
     jobs=record['state']['setups']
     change('setup_stage',{'id':jobs[2]['id'],'stage':'Burned'});change('setup_remove',{'id':jobs[3]['id']})
+    change('setup_stage',{'id':jobs[4]['id'],'stage':'Gmail deleted','confirmed_auto_renew_stopped':True})
     other=change('client_save',{'name':'Unrelated client','section':'client','account_manager_id':owner})['state']['clients'][-1]
     foreign=change('setup_bulk',{'client_id':other['id'],'domains':'batchforeign.com','sender_name':'me'})['state']['setups'][-1]
     registrar=SetupRegistrar()
@@ -48,24 +49,51 @@ def test_all_domains_saved_progress_scope_sequential_completion_and_replay(batch
     assert batch(record,cid)['completed_at'] and not batch(record,cid).get('current_job_id')
     assert registrar.records['batchforeign.com']==unrelated
     assert registrar.records['batchburned.com']==defaults('batchburned.com')+retained('batchburned.com')
+    assert registrar.records['batchgmaildeleted.com']==defaults('batchgmaildeleted.com')+retained('batchgmaildeleted.com')
     assert s.summary(record['state'])==before
 
 
-@pytest.mark.parametrize('issue',['missing-email','conflicting-dns','burned','deleted','changed-email'])
+@pytest.mark.parametrize('issue',['missing-email','conflicting-dns','burned','gmail-deleted','deleted','changed-email'])
 def test_one_domain_needs_attention_does_not_block_the_rest(batch_case,issue):
     cid,jobs,foreign,registrar=batch_case
     if issue=='missing-email':change('setup_assign',{'id':jobs[0]['id'],'email':''})
     if issue=='conflicting-dns':registrar.records['batchfirst.com'].append({'id':'999','name':'t.batchfirst.com','type':'CNAME','content':'other-tracker.com','ttl':'600'})
     record=start(cid)
     if issue=='burned':record=change('setup_stage',{'id':jobs[0]['id'],'stage':'Burned'})
+    if issue=='gmail-deleted':record=change('setup_stage',{'id':jobs[0]['id'],'stage':'Gmail deleted','confirmed_auto_renew_stopped':True})
     if issue=='deleted':record=change('setup_remove',{'id':jobs[0]['id']})
     if issue=='changed-email':record=change('setup_assign',{'id':jobs[0]['id'],'email':'changed@batchfirst.com'})
     record=step(record,cid,jobs[0]['id'])
     assert batch(record,cid)['results'][jobs[0]['id']]['status']=='needs review'
     assert not any(c[0]=='post' and 'batchfirst.com' in c[1] for c in registrar.calls)
+    if issue=='gmail-deleted':
+        assert not registrar.calls
+        replay=step(record,cid,jobs[0]['id'])
+        assert replay==record and not registrar.calls
     record=step(record,cid,jobs[1]['id'])
     assert batch(record,cid)['results'][jobs[1]['id']]['status']=='verified'
     assert batch(record,cid)['completed_at']
+
+
+def test_completed_domain_remains_in_client_dns_batch(batch_case):
+    cid,jobs,foreign,registrar=batch_case
+    change('setup_assign',{'id':jobs[0]['id'],'operator_id':people()['Dylan']})
+    change('setup_stage',{'id':jobs[0]['id'],'stage':'Setup complete'})
+    record=start(cid)
+    assert [i['id'] for i in batch(record,cid)['items']]==[jobs[0]['id'],jobs[1]['id']]
+    record=step(record,cid,jobs[0]['id'])
+    assert batch(record,cid)['results'][jobs[0]['id']]['status']=='verified'
+    assert s.find(record['state'],'setups',jobs[0]['id'])['stage']=='Setup complete'
+    assert any(c[0]=='post' and 'batchfirst.com' in c[1] for c in registrar.calls)
+
+
+def test_client_with_only_inactive_domains_cannot_start_dns_batch(batch_case):
+    cid,jobs,foreign,registrar=batch_case
+    change('setup_stage',{'id':jobs[0]['id'],'stage':'Gmail deleted','confirmed_auto_renew_stopped':True})
+    change('setup_stage',{'id':jobs[1]['id'],'stage':'Burned'})
+    before=s.board(USER)
+    with pytest.raises(HTTPException,match='Add actual domains'):start(cid)
+    assert s.board(USER)==before and not registrar.calls
 
 
 @pytest.mark.parametrize('phase',['preview','apply'])
