@@ -14,6 +14,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await page.fill('#gs-bulk-sender','me');await page.fill('#gs-bulk-domains','startedcolour.com\ncompletecolour.com\nburnedcolour.com\nqrcolour.com\nneutralcolour.com');await page.locator('#gs-bulk-panel button[type="submit"]').click();await idle();
  let model=await data();const jobs=model.state.setups.filter(j=>j.client_name==='Stage colours'),[started,complete,burned,qr,neutral]=jobs;
  const card=id=>page.locator(`[data-setup="${id}"]`),remove=id=>card(id).locator('[data-remove-setup]');
+ assert.equal(await remove(started.id).textContent(),'Remove');
  const buttonStyle=await style(remove(started.id)),neutralStyle=await style(card(neutral.id));
  await stage(started.id,'Started');assert.match(await card(started.id).getAttribute('class'),/gs-domain-started/);assert.notDeepEqual(await style(card(started.id)),neutralStyle);assert.deepEqual(await style(remove(started.id)),buttonStyle);
  assert.equal((await data()).summary.started,baseline.summary.started+1);assert.equal((await data()).summary.todo,baseline.summary.todo+5);

@@ -65,8 +65,10 @@ the tracker version without reloading over drafts.
   Purchase records snapshot the actual
   device and asset label; removing/transferring equipment preserves that history.
 - Clients can be renamed and deleted from their detail page; every domain has
-  a Delete action, including completed work. Deletion removes tracker entries
-  and preserves existing sheet rows, completion counters and physical device
+  a **Remove** action, including completed work. Its warning directs deleted Gmail
+  subscriptions to **Gmail deleted** in the Stage dropdown instead. Cancel is
+  focused first; **Remove from tracker** must be confirmed explicitly. Removing
+  a domain hides its tracker entry and preserves sheet rows, completion counters and physical device
   history. Historical sheet-entry references remain available.
 - Each domain has a **Notes** box and **Save notes** button. Notes remain saved
   when a domain is completed, burned or reopened.

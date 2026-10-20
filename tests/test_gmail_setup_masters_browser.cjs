@@ -71,7 +71,7 @@ const cookie=name=>execFileSync('.venv/bin/python',['-c',"import base64,json,sys
   for(let index=1;index<roots.length;index++)assert.equal(await group(kelton,roots[index].id,roots[index].id),slots[index]);
   await select(kelton,jobs[8].id,jobs[8].id);assert.equal(await group(kelton,jobs[8].id,jobs[8].id),slots[0],'the freed colour is available to a new master');
   // Removing a root cleans links on every child without removing those rows.
-  await select(kelton,jobs[9].id,roots[3].id);await select(kelton,jobs[10].id,roots[3].id);await card(kelton,roots[3].id).locator('[data-remove-setup]').click();await idle(kelton);
+  await select(kelton,jobs[9].id,roots[3].id);await select(kelton,jobs[10].id,roots[3].id);await card(kelton,roots[3].id).locator('[data-remove-setup]').click();await kelton.waitForFunction(()=>document.querySelector('#gs-dialog').open);await kelton.click('#gs-dialog-save');await kelton.waitForFunction(()=>!document.querySelector('#gs-dialog').open);await idle(kelton);
   for(const job of [jobs[9],jobs[10]]){await group(kelton,job.id,null);assert.equal(stored(await data(kelton),job.id).master_domain_id??null,null);}assert.equal(stored(await data(kelton),roots[3].id).archived,true);assert.equal(await selector(kelton,jobs[9].id).locator(`option[value="${roots[3].id}"]`).count(),0);
   await select(kelton,jobs[5].id,jobs[8].id);await stage(jobs[8].id,'Started');await stage(jobs[5].id,'Started');
   // A separate signed-in teammate sees the same links after refresh/reload.
