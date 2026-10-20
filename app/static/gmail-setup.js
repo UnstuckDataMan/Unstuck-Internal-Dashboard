@@ -18,6 +18,8 @@
   const name=id=>member(id)?.name||'Unallocated';
   const progress=c=>board?.client_progress?.[c?.id]||{target:c?.domain_target||c?.planned_domains||0,complete:0,actual_todo:0,remaining:c?.domain_target||c?.planned_domains||0,replacements_needed:c?.domain_target||c?.planned_domains||0};
   const missingLabel=c=>state().setups.some(j=>j.client_id===c.id&&(j.stage==='Burned'||j.archived))?'need replacing':'to add';
+  const mastersFor=clientId=>state().setups.filter(j=>!j.archived&&j.client_id===clientId&&j.master_domain_id===j.id).sort((a,b)=>a.master_color-b.master_color);
+  const masterGraph=clientId=>JSON.stringify(state().setups.filter(j=>!j.archived&&j.client_id===clientId).map(j=>[j.id,j.master_domain_id??null,j.master_color??null]).sort((a,b)=>a[0].localeCompare(b[0])));
   const memberOptions=(selected='',pool=false)=>(pool?'<option value="">Unallocated pool</option>':'<option value="">Select team member</option>')+state().members.filter(m=>m.active||m.id===selected).map(m=>`<option value="${esc(m.id)}" ${m.id===selected?'selected':''}>${esc(m.name)}${m.active?'':' (removed)'}</option>`).join('');
   const uses=d=>Math.max(d.use_count||0,d.used_at||d.status==='Used'?1:0);
   const capacity=d=>d.kind==='Phone'?(board?.summary.phone_setups??2):(board?.summary.pc_setups??1);
@@ -99,9 +101,11 @@
   }
   async function change(action,data){
     const original=state().setups.find(j=>j.id===data.id);
+    const originalMasterGraph=action==='setup_master'?masterGraph(original?.client_id):null;
     const watched=action==='setup_stage'?['stage','operator_id','device_id','email','domain','client_id','archived','purchase_at','purchase_device','device_usage_resets']:
       action==='setup_assign'?['stage','domain','client_id','archived','purchase_at','purchase_device',...('operator_id'in data||'device_id'in data?['operator_id','device_id']:[]),...('email'in data?['email']:[])]:
-      action==='setup_notes'?['notes','domain','client_id','archived']:null;
+      action==='setup_notes'?['notes','domain','client_id','archived']:
+      action==='setup_master'?['master_domain_id','master_color','domain','client_id','archived']:null;
     for(let attempt=0;attempt<3;attempt++){
       try{const result=await api('/change',{revision:board.revision,action,data});accept(result);return result;}
       catch(error){
@@ -109,7 +113,7 @@
         const latest=await api(),current=latest.state.setups.find(j=>j.id===data.id);
         accept(latest);
         if(action==='setup_stage'&&current&&!current.archived&&current.stage===data.stage)return latest;
-        if(!watched||!original||!current||current.archived||!watched.every(key=>JSON.stringify(original[key]??null)===JSON.stringify(current[key]??null))){
+        if(!watched||!original||!current||current.archived||!watched.every(key=>JSON.stringify(original[key]??null)===JSON.stringify(current[key]??null))||action==='setup_master'&&masterGraph(current.client_id)!==originalMasterGraph){
           throw Error(watched?'This domain was updated by another team member. The latest saved values are shown; review them before changing it again.':error.message);
         }
         // Retry the narrow change only if its inputs still match. Other
@@ -145,7 +149,11 @@
     const ownerLocked=burned||!planning&&(published||s.stage==='Setup complete'||Boolean(p&&s.stage==='Purchase made')),deviceLocked=burned||!planning&&Boolean(d&&(published||p&&['Purchase made','Setup complete'].includes(s.stage)));
     const options='<option value="">Device not added yet</option>'+state().devices.filter(x=>x.id===s.device_id||available(x,s.id)&&x.member_id===s.operator_id).map(x=>`<option value="${esc(x.id)}" ${x.id===s.device_id?'selected':''}>${esc(label(x)+' · '+condition(x))}</option>`).join('');
     const safeLink=sync.url&&/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]+\/edit#gid=\d+&range=A\d+$/.test(sync.url)?sync.url:null;
-    return `<article class="gs-domain${cardStage}" data-setup="${esc(s.id)}"><div class="gs-domain-head"><div><h4>${esc(s.domain)}</h4>${s.order&&s.stage==='Setup complete'?`<small class="gs-order">Completion #${s.order}</small>`:''}</div><div class="gs-domain-buttons">${!published&&!burned?`<button class="gs-small" data-edit-setup="${esc(s.id)}">Details</button>`:''}<button class="gs-small gs-danger" data-remove-setup="${esc(s.id)}">Delete</button></div></div>
+    const masters=mastersFor(s.client_id),root=masters.find(m=>m.id===s.master_domain_id),isMaster=root?.id===s.id;
+    const groupColour=root&&Number.isInteger(root.master_color)&&root.master_color>=0&&root.master_color<5?root.master_color:null;
+    const crown=isMaster?'<svg class="gs-master-crown" role="img" aria-label="Master domain" viewBox="0 0 24 24"><path d="m3 6 5 4 4-7 4 7 5-4-2 13H5Z" fill="currentColor"/><path d="M6 22h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>':'';
+    const masterOptions=`<option value="">No master domain</option><option value="${esc(s.id)}" ${isMaster?'selected':''} ${!isMaster&&masters.length>=5?'disabled':''}>${isMaster?'Master domain':masters.length>=5?'Master domain · 5 of 5 used':'Make master domain'}</option>`+masters.filter(m=>m.id!==s.id).map(m=>`<option value="${esc(m.id)}" ${root?.id===m.id?'selected':''}>Under ${esc(m.domain)}</option>`).join('');
+    return `<article class="gs-domain${cardStage}${groupColour===null?'':' gs-master-'+groupColour}" data-setup="${esc(s.id)}"${groupColour===null?'':` data-master-root="${esc(root.id)}" data-master-color="${groupColour}"`}><div class="gs-domain-head"><div class="gs-domain-name"><h4>${esc(s.domain)}${crown}</h4>${s.order&&s.stage==='Setup complete'?`<small class="gs-order">Completion #${s.order}</small>`:''}</div><div class="gs-domain-tools"><label class="gs-master-choice">Master domain<select data-set-master="${esc(s.id)}" aria-label="Master domain for ${esc(s.domain)}">${masterOptions}</select></label><div class="gs-domain-buttons">${!published&&!burned?`<button class="gs-small" data-edit-setup="${esc(s.id)}">Details</button>`:''}<button class="gs-small gs-danger" data-remove-setup="${esc(s.id)}">Delete</button></div></div></div>
       <div class="gs-domain-controls"><label>Email<input type="email" data-set-email="${esc(s.id)}" value="${esc(s.email)}" placeholder="Add sending email" maxlength="254" ${burned||published||s.stage==='Setup complete'?'disabled':''}></label><label>Setup person<select data-set-operator="${esc(s.id)}" ${ownerLocked?'disabled':''}>${memberOptions(s.operator_id)}</select></label><label class="gs-device-choice">${d?`<strong class="gs-phone-number ${deviceClass(d)}">${esc((p?.id===d.id?p.label:d.kind+' '+d.number))}</strong>`:'Device'}<select data-set-device="${esc(s.id)}" aria-label="Device for ${esc(s.domain)}" ${deviceLocked?'disabled':''}>${options}</select></label><label class="gs-stage-control">Stage<select data-set-stage="${esc(s.id)}" aria-label="Stage for ${esc(s.domain)}">${stageOptions(s.stage,Boolean(s.purchase_at))}</select></label></div>
       ${burned||!d||failure||d?.status==='Blocked'||d&&exhausted(d)?`<div class="gs-domain-meta">${burned?'<span class="gs-badge burned">Burned</span>':''}${!d?'<span class="gs-badge purchased">Device not added yet</span>':''}${failure?`<span class="gs-badge blocked">${esc(s.stage)}</span>`:''}${d?.status==='Blocked'?`<span class="gs-badge blocked">${esc(condition(d))} · do not use</span>`:d&&exhausted(d)?`<span class="gs-badge exhausted">${esc(condition(d))}</span>`:''}</div>`:''}
       ${!burned&&(app.dataset.dnsAdmin==='true'||dns||setup)?`<div class="gs-domain-dmarc">${dns?`<span class="gs-badge ${dns.status==='verified'?'complete':'blocked'}" title="${esc(dns.message)}">DMARC ${dns.status==='verified'?'verified':'needs attention'}</span>`:''}${app.dataset.dnsAdmin==='true'?`<button class="gs-small" data-setup-dns="${esc(s.id)}">${setupReady?'Recheck setup':'One-click setup'}</button>`:''}${setup?`<span class="gs-badge ${setupReady?'complete':'blocked'}" title="${esc(setup.message)}">${setupReady?'DNS ready':setup.status==='verified'?'Google mail setup needed':'DNS setup needs attention'}</span>`:''}</div>`:''}
@@ -357,8 +365,13 @@
   };
   $('gs-setup-list').oninput=e=>{const id=e.target.dataset.setNotes;if(!id)return;if(e.target.value===(state().setups.find(j=>j.id===id)?.notes||''))noteDrafts.delete(id);else noteDrafts.set(id,e.target.value);$('gs-setup-list').querySelector(`[data-notes-status="${id}"]`).textContent=noteDrafts.has(id)?'Unsaved changes':'';};
   $('gs-setup-list').onchange=e=>{
-    const input=e.target,id=input.dataset.setOperator||input.dataset.setDevice||input.dataset.setEmail||input.dataset.setStage;if(!id)return;
+    const input=e.target,id=input.dataset.setOperator||input.dataset.setDevice||input.dataset.setEmail||input.dataset.setStage||input.dataset.setMaster;if(!id)return;
     const job=state().setups.find(s=>s.id===id);
+    if(input.dataset.setMaster){
+      const next=input.value||null;if(next===(job.master_domain_id||null))return;
+      const wasMaster=job.master_domain_id===job.id;
+      return run(async()=>{try{await change('setup_master',{id,master_domain_id:next});message(wasMaster&&next!==id?'Master changed. Previously linked domains are now ungrouped.':next===id?'Master domain saved.':next?'Domain linked to its master.':'Domain ungrouped.');}finally{renderSetups();}});
+    }
     if(input.dataset.setStage){
       const next=input.value;if(next===job.stage)return;
       if(next==='Setup complete'&&(!job.email||!job.operator_id)){message(!job.email?'Add the sending email on this domain before completing setup.':'Select the setup person on this domain before completing setup.',true);renderSetups();const field=$('gs-setup-list').querySelector(`[data-set-${!job.email?'email':'operator'}="${id}"]`);field?.focus();return;}

@@ -46,6 +46,182 @@ def create_setup(owner,device_id=None,domain='cedarclients.com',email='me@cedarc
     return record,record['state']['setups'][-1]['id']
 
 
+def master_client(name='Grouping client',count=7):
+    owner=people()['Dylan']
+    client=change('client_save',{'name':name,'account_manager_id':owner,'domain_target':count})['state']['clients'][-1]
+    stem=name.lower().replace(' ','')
+    record=change('setup_bulk',{'client_id':client['id'],'domains':'\n'.join(f'{stem}{i}.com' for i in range(count)),
+        'sender_name':'me','operator_id':owner})
+    return client,[job for job in record['state']['setups'] if job['client_id']==client['id']]
+
+
+def mark_master(job_id,master_id):return change('setup_master',{'id':job_id,'master_domain_id':master_id})
+
+
+def test_master_domains_limit_is_per_client_stable_and_includes_burned_roots(board_db):
+    first,jobs=master_client()
+    assert all('master_domain_id' not in job and 'master_color' not in job for job in jobs)
+    for job in jobs[:5]:mark_master(job['id'],job['id'])
+    record=mark_master(jobs[2]['id'],jobs[2]['id']) # existing roots remain valid at the limit
+    assert [job['master_color'] for job in record['state']['setups'][:5]]==list(range(5))
+    change('setup_stage',{'id':jobs[0]['id'],'stage':'Burned'})
+    mark_master(jobs[5]['id'],jobs[1]['id'])
+    before=s.board(USER)
+    with pytest.raises(HTTPException,match='up to 5') as exc:mark_master(jobs[5]['id'],jobs[5]['id'])
+    assert exc.value.status_code==409 and not exc.value.headers
+    assert s.board(USER)==before
+    second,others=master_client('Independent grouping')
+    for job in others[:5]:mark_master(job['id'],job['id'])
+    record=s.board(USER)
+    assert [job['master_color'] for job in record['state']['setups'] if job['client_id']==second['id'] and job.get('master_domain_id')==job['id']]==list(range(5))
+    assert record['state']['setups'][0]['master_color']==0 and record['state']['setups'][0]['stage']=='Burned'
+
+
+def test_master_domain_reassignment_and_ungrouping_are_reversible_without_nested_groups(board_db):
+    client,jobs=master_client(count=5)
+    first,second,child,other,unused=jobs
+    mark_master(first['id'],first['id']);mark_master(second['id'],second['id'])
+    mark_master(child['id'],first['id']);mark_master(other['id'],first['id'])
+    record=mark_master(child['id'],second['id'])
+    assert record['state']['setups'][2]['master_domain_id']==second['id'] and 'master_color' not in record['state']['setups'][2]
+    record=mark_master(first['id'],second['id'])
+    assert record['state']['setups'][0]['master_domain_id']==second['id'] and 'master_color' not in record['state']['setups'][0]
+    assert record['state']['setups'][3]['master_domain_id'] is None # demoted root's children are detached
+    assert record['state']['setups'][2]['master_domain_id']==second['id'] # unrelated association remains
+    assert record['state']['setups'][1]['master_color']==1
+    record=mark_master(child['id'],child['id'])
+    assert record['state']['setups'][2]['master_color']==0 # first free slot, without recolouring root 2
+    record=mark_master(second['id'],None)
+    assert record['state']['setups'][0]['master_domain_id'] is None
+    assert record['state']['setups'][1]['master_domain_id'] is None and 'master_color' not in record['state']['setups'][1]
+    assert record['state']['setups'][2]['master_domain_id']==child['id'] and record['state']['setups'][2]['master_color']==0
+    record=mark_master(child['id'],None)
+    assert record['state']['setups'][2]['master_domain_id'] is None and 'master_color' not in record['state']['setups'][2]
+
+
+@pytest.mark.parametrize('target_kind',['other_client','child','unmarked','archived','missing'])
+def test_master_domain_references_fail_atomically_before_detaching_current_children(board_db,target_kind):
+    client,jobs=master_client(count=4)
+    root,child,other,plain=jobs
+    mark_master(root['id'],root['id']);mark_master(child['id'],root['id'])
+    target=plain['id']
+    if target_kind=='other_client':
+        outside,external=master_client('Other client grouping',count=1)
+        target=external[0]['id'];mark_master(target,target)
+    elif target_kind=='child':target=child['id']
+    elif target_kind=='archived':
+        mark_master(other['id'],other['id']);change('setup_remove',{'id':other['id']});target=other['id']
+    elif target_kind=='missing':target=str(uuid4())
+    before=s.board(USER)
+    with pytest.raises(HTTPException):mark_master(root['id'],target)
+    assert s.board(USER)==before
+
+
+def test_deleting_master_detaches_active_children_and_reuses_only_its_colour_slot(board_db):
+    client,jobs=master_client(count=8)
+    for job in jobs[:5]:mark_master(job['id'],job['id'])
+    for job in jobs[5:]:mark_master(job['id'],jobs[2]['id'])
+    change('setup_stage',{'id':jobs[6]['id'],'stage':'Burned'})
+    change('setup_remove',{'id':jobs[7]['id']})
+    record=change('setup_remove',{'id':jobs[2]['id']})
+    rows=record['state']['setups']
+    assert rows[5]['master_domain_id'] is None and rows[6]['master_domain_id'] is None
+    assert rows[6]['stage']=='Burned' and rows[7]['archived'] # archived history need not be rewritten
+    assert [rows[i]['master_color'] for i in (0,1,3,4)]==[0,1,3,4]
+    record=mark_master(jobs[5]['id'],jobs[5]['id'])
+    assert record['state']['setups'][5]['master_color']==2
+    change('client_remove',{'id':client['id']})
+    before=s.board(USER)
+    with pytest.raises(HTTPException):mark_master(jobs[5]['id'],None)
+    assert s.board(USER)==before
+
+
+@pytest.mark.parametrize('stage',['Not started','Started','Purchase made','Setup complete','Failed at QR','Failed at payment','Burned'])
+def test_master_labels_never_change_workflow_device_dns_sheet_history_or_capacity(board_db,monkeypatch,stage):
+    owner=people()['Dylan'];phone=devices(owner)['state']['devices'][0]
+    record,jid=create_setup(owner,phone['id'])
+    change('setup_notes',{'id':jid,'notes':'Keep this account note'})
+    change('setup_stage',{'id':jid,'stage':stage})
+    record=s.board(USER)
+    record['state']['setups'][0]['dns_setup']={'status':'verified','destination':'https://example.com'}
+    if stage=='Setup complete':record['state']['setups'][0]['sync']={'status':'synced','row':42,'url':'https://example.com/old-sheet-row'}
+    store.save(USER,record['state'],record['revision'])
+    before=s.board(USER);plan=s.summary(copy.deepcopy(before['state']));progress=s.result(before)['client_progress']
+    monkeypatch.setattr(sheets,'publish',lambda *args:pytest.fail('Master labels cannot publish to Google Sheets'))
+    monkeypatch.setattr(s,'set_stage',lambda *args:pytest.fail('Master labels cannot change the setup stage'))
+    monkeypatch.setattr(s,'grow_client_target',lambda *args:pytest.fail('Master labels cannot change domain demand'))
+    marked=mark_master(jid,jid)
+    assert marked['state']['setups'][0]['master_color']==0
+    cleared=mark_master(jid,None)
+    actual={k:v for k,v in cleared['state']['setups'][0].items() if k not in {'master_domain_id','master_color','updated_at'}}
+    original={k:v for k,v in before['state']['setups'][0].items() if k!='updated_at'}
+    assert actual==original
+    assert cleared['state']['devices']==before['state']['devices'] and cleared['state']['clients']==before['state']['clients']
+    assert s.summary(cleared['state'])==plan and s.result(cleared)['client_progress']==progress
+
+
+def test_master_labels_survive_existing_owner_notes_details_and_stage_mutations(board_db):
+    client,jobs=master_client(count=2)
+    root,child=jobs
+    mark_master(root['id'],root['id']);mark_master(child['id'],root['id'])
+    change('setup_assign',{'id':child['id'],'operator_id':people()['Matthew']})
+    change('setup_notes',{'id':child['id'],'notes':'Still linked'})
+    change('setup_save',{'id':child['id'],'client_id':client['id'],'account_manager_id':people()['Dylan'],
+        'operator_id':people()['Matthew'],'email':child['email'],'section':'client','notes':'Edited details'})
+    change('setup_stage',{'id':child['id'],'stage':'Setup complete'})
+    record=change('setup_stage',{'id':root['id'],'stage':'Burned'})
+    assert record['state']['setups'][0]['master_domain_id']==root['id'] and record['state']['setups'][0]['master_color']==0
+    assert record['state']['setups'][1]['master_domain_id']==root['id'] and 'master_color' not in record['state']['setups'][1]
+
+
+@pytest.mark.parametrize('moving_root',[False,True])
+def test_legacy_details_move_clears_grouping_instead_of_linking_across_clients(board_db,moving_root):
+    source,jobs=master_client(count=3)
+    root,child,other=jobs
+    mark_master(root['id'],root['id']);mark_master(child['id'],root['id'])
+    moved=root if moving_root else child
+    record=change('setup_save',{'id':moved['id'],'account_manager_id':people()['Dylan'],
+        'operator_id':people()['Dylan'],'client_name':'Moved domain client','email':moved['email'],'section':'client'})
+    rows={job['id']:job for job in record['state']['setups']}
+    assert rows[moved['id']]['client_id']!=source['id']
+    assert rows[moved['id']]['master_domain_id'] is None and 'master_color' not in rows[moved['id']]
+    if moving_root:
+        assert rows[child['id']]['master_domain_id'] is None
+    else:
+        assert rows[root['id']]['master_domain_id']==root['id'] and rows[root['id']]['master_color']==0
+    for job in rows.values():
+        if job.get('master_domain_id'):
+            master=rows[job['master_domain_id']]
+            assert master['client_id']==job['client_id'] and master['master_domain_id']==master['id']
+
+
+def test_master_domain_routes_require_access_csrf_current_revision_and_server_selected_colour(client,board_db,monkeypatch):
+    group,jobs=master_client(count=2);root,child=jobs
+    user=None
+    monkeypatch.setattr(auth,'get_session_user',lambda request:user)
+    payload={'revision':s.board(USER)['revision'],'action':'setup_master','data':{'id':root['id'],'master_domain_id':root['id']}}
+    assert client.post('/api/gmail-setup/change',json=payload).status_code==401
+    user={**OTHER,'tools':[]}
+    assert client.post('/api/gmail-setup/change',json=payload).status_code==403
+    user={**OTHER}
+    rejected=client.post('/api/gmail-setup/change',json=payload)
+    assert rejected.status_code==403 and rejected.headers['X-Gmail-Session']=='refresh'
+    client.headers['X-Domain-CSRF']=client.get('/api/gmail-setup/session').json()['csrf']
+    saved=client.post('/api/gmail-setup/change',json=payload)
+    assert saved.status_code==200 and saved.json()['state']['setups'][0]['master_color']==0
+    before=s.board(USER)
+    stale=client.post('/api/gmail-setup/change',json={**payload,'data':{'id':root['id'],'master_domain_id':None}})
+    assert stale.status_code==409 and stale.headers['X-Gmail-Conflict']=='revision'
+    assert s.board(USER)==before
+    for data in ({'id':child['id']},{'id':child['id'],'master_domain_id':''},
+        {'id':child['id'],'master_domain_id':root['id'],'master_color':4}):
+        response=client.post('/api/gmail-setup/change',json={'revision':before['revision'],'action':'setup_master','data':data})
+        assert response.status_code==400 and s.board(USER)==before
+    linked=client.post('/api/gmail-setup/change',json={'revision':before['revision'],'action':'setup_master',
+        'data':{'id':child['id'],'master_domain_id':root['id']}})
+    assert linked.status_code==200 and s.board(USER)['state']['setups'][1]['master_domain_id']==root['id']
+
+
 def test_shared_board_roster_scope_and_no_fake_stock(board_db):
     initial=s.board(USER)
     assert len(initial['state']['members'])==3 and initial['state']['devices']==[]

@@ -70,6 +70,14 @@ the tracker version without reloading over drafts.
   history. Historical sheet-entry references remain available.
 - Each domain has a **Notes** box and **Save notes** button. Notes remain saved
   when a domain is completed, burned or reopened.
+- The optional **Master domain** dropdown groups domains within a single client.
+  Choose **Make master domain** for up to five masters per client, then select
+  **Under [domain]** on related domains. A crown identifies each master; its
+  solid left-hand colour strip is shared by linked domains. Stage backgrounds
+  remain visible. Choose **No master domain** to undo a selection. Demoting,
+  reassigning or deleting a master ungroups its linked domains; other masters
+  retain their colours. Grouping is shared tracking metadata and leaves setup
+  progress, device capacity, DNS, forwarding and manual sheet updates unchanged.
 - Add actual inventory in batches of 0–10 phones and 0–10 PCs per person, with
   labels Phone 1–10 and PC 1–10 plus stable physical asset IDs. The unallocated pool
   supports stock awaiting assignment. No imaginary devices are seeded.

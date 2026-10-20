@@ -16,6 +16,7 @@ FAILURES = {'Failed at QR': 'QR code', 'Failed at payment': 'Payment'}
 DEVICE_STATUSES = ('Unused', 'Used', 'Blocked')
 RESERVE_CONTINGENCY = 10
 DEFAULT_CAPACITY = {'Phone': 2, 'PC': 1}
+MAX_MASTER_DOMAINS = 5
 LEASE_SECONDS = 180
 
 
@@ -106,6 +107,44 @@ def grow_client_target(state, client):
     client['domain_target'] = max(client.get('domain_target', 0), healthy)
     if healthy:
         client['planned_domains'] = 0
+
+
+def detach_master_children(state, master):
+    for job in state['setups']:
+        if job['id'] != master['id'] and job.get('client_id') == master['client_id'] \
+                and not job.get('archived') and job.get('master_domain_id') == master['id']:
+            job.update(master_domain_id=None, updated_at=now())
+            job.pop('master_color', None)
+
+
+def set_master_domain(state, job, master_id):
+    """Change grouping labels without changing a domain's setup workflow."""
+    find(state, 'clients', job['client_id'], True)
+    roots = [row for row in state['setups'] if row.get('client_id') == job['client_id']
+             and not row.get('archived') and row.get('master_domain_id') == row['id']]
+    if master_id == job['id']:
+        existing = job.get('master_domain_id') == job['id']
+        if not existing and len(roots) >= MAX_MASTER_DOMAINS:
+            raise HTTPException(409, 'Each client can have up to 5 master domains. Remove a Master label before adding another.')
+        color = job.get('master_color') if existing else None
+        if type(color) is not int or not 0 <= color < MAX_MASTER_DOMAINS:
+            used = {root.get('master_color') for root in roots if root['id'] != job['id']}
+            color = next((value for value in range(MAX_MASTER_DOMAINS) if value not in used), None)
+            if color is None:
+                raise HTTPException(409, 'No master domain colour is available. Remove a Master label before adding another.')
+        job.update(master_domain_id=job['id'], master_color=color, updated_at=now())
+        return
+    if master_id is not None:
+        master = find(state, 'setups', master_id, True)
+        if master.get('client_id') != job['client_id']:
+            raise HTTPException(409, 'Choose a master domain from this client.')
+        if master.get('master_domain_id') != master['id']:
+            raise HTTPException(409, 'Choose an existing master domain. Domains cannot link through another child domain.')
+    # Validate the new destination before touching the previous group's labels.
+    if job.get('master_domain_id') == job['id']:
+        detach_master_children(state, job)
+    job.update(master_domain_id=master_id, updated_at=now())
+    job.pop('master_color', None)
 
 
 def find(state, collection, identifier, active=False):
@@ -618,6 +657,13 @@ def mutate(user, expected, action, data):
             if client is None:
                 client = {'id': new_id(), 'name': display_name, 'section': data['section'], 'account_manager_id': manager['id'], 'operator_id': operator['id'] if operator else None, 'created_at': now()}
                 state['clients'].append(client)
+        if current.get('client_id') and current['client_id'] != client['id']:
+            # Legacy forms can resolve a different client by name. Group labels
+            # must never follow that move across client boundaries.
+            if current.get('master_domain_id') == current['id']:
+                detach_master_children(state, current)
+            current['master_domain_id'] = None
+            current.pop('master_color', None)
         current['client_id'] = client['id']
         client['planned_domains'] = 0
         current.update(domain=domain, email=email, client_name=text(data.get('client_name'), 'Client name', False),
@@ -653,8 +699,13 @@ def mutate(user, expected, action, data):
         if not isinstance(data.get('notes'), str) or len(data['notes']) > 1000:
             raise HTTPException(400, 'Keep notes to 1,000 characters or fewer.')
         job.update(notes=data['notes'], updated_at=now())
+    elif action == 'setup_master':
+        job = find(state, 'setups', data['id'], True)
+        set_master_domain(state, job, data['master_domain_id'])
     elif action == 'setup_remove':
         job = find(state, 'setups', data['id'], True)
+        if job.get('master_domain_id') == job['id']:
+            detach_master_children(state, job)
         job.update(archived=True, deleted_at=now())
     else:
         raise HTTPException(400, 'Unknown tracker action.')
