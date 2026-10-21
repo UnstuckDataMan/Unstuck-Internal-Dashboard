@@ -788,7 +788,7 @@
 <nav class="tab-bar">
   <button class="tab active" data-tab="invoices">Invoices</button>
   <button class="tab" data-tab="clients">Clients</button>
-  <button class="tab" data-tab="insights">Insights</button>
+  <button class="tab" data-tab="insights">CRO Insights</button>
   <button class="tab" data-tab="amperf">AM Performance</button>
   <button class="tab" data-tab="commissions">Commissions</button>
   <button class="tab" data-tab="settings">Settings</button>
@@ -6092,7 +6092,7 @@ const RPT_NAME = { visual: 'Visual report', stats: 'Stats report' };
 // process (Visual or Stats, PDF or Google Doc, include/exclude sections) are shared, so every tool works identically.
 const RPT_DEFS = {
   insights: {
-    stateKey: 'insExport', heading: 'Export insights report', short: 'Insights', file: 'Insights',
+    stateKey: 'insExport', heading: 'Export CRO Insights report', short: 'CRO Insights', file: 'CRO Insights',
     sections: RPT_SECTIONS, visualOnly: ['predict'],
     notes: {
       stats: 'The stats report leaves out the Client performance indicator — it is an interactive tool, not a set of stats.',
@@ -7546,7 +7546,7 @@ const CC_ROUTE_CONFIG = {
   '/credit-control':       { title: 'Credit Control', allowedTabs: ['invoices', 'clients'], defaultTab: 'invoices' },
   '/commission':           { title: 'Commission', allowedTabs: ['commissions'], defaultTab: 'commissions' },
   '/operational-settings': { title: 'Operational Settings', allowedTabs: ['settings'], defaultTab: 'settings', tabLabels: { settings: 'Operational Settings' } },
-  '/insights':             { title: 'Insights', allowedTabs: ['insights'], defaultTab: 'insights' },
+  '/insights':             { title: 'CRO Insights', allowedTabs: ['insights'], defaultTab: 'insights' },
   '/am-performance':       { title: 'AM Performance', allowedTabs: ['amperf'], defaultTab: 'amperf' },
 };
 const _ccRouteCfg = CC_ROUTE_CONFIG[location.pathname];
@@ -7623,16 +7623,31 @@ function applyDashboardChrome(cfg) {
       letter-spacing: -.02em; color: #f0eeff;
     }
     .dash-right { min-width: 140px; display: flex; align-items: center; justify-content: flex-end; }
+    body > header.dash-topbar.cro-insights-header {
+      height: auto; min-height: 96px; padding: 20px 28px;
+      display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 20px;
+    }
+    body > header.dash-topbar.cro-insights-header .dash-title {
+      font-size: 36px; line-height: 1.2; margin: 0;
+    }
     @media (max-width: 640px) {
       body > header.dash-topbar { padding: 0 16px; }
       .dash-left, .dash-right { min-width: 0; }
       .dash-label { display: none; }
+      body > header.dash-topbar.cro-insights-header {
+        padding: 12px 16px 18px; grid-template-columns: 1fr 1fr; gap: 12px;
+      }
+      body > header.dash-topbar.cro-insights-header .dash-title {
+        grid-column: 1 / -1; grid-row: 2; font-size: 28px;
+      }
+      .cro-insights-header .dash-right { grid-column: 2; grid-row: 1; }
     }`;
   document.head.appendChild(css);
 
   const hdr = document.querySelector('body > header');
   const save = document.getElementById('save-ind');
   hdr.classList.add('dash-topbar');
+  hdr.classList.toggle('cro-insights-header', cfg.defaultTab === 'insights');
   hdr.innerHTML = `
     <div class="dash-left">
       <button class="dash-back" onclick="history.back()" title="Go back" aria-label="Go back">
