@@ -6913,7 +6913,8 @@ function renderInsRetentionDetail(bodyEl, filteredClients) {
   const chartChurnW = weightedChurn(chartPts);
   const avgNew = chartPts.length ? avgOf(chartPts.map(r => r.newClients || 0)) : null;
   const avgLeft = chartPts.length ? avgOf(chartPts.map(r => r.lost || 0)) : null;
-  const avgNet = chartPts.length ? avgOf(chartPts.map(r => (r.newClients || 0) - (r.lost || 0))) : null;
+  const totalNet = chartPts.length ? chartPts.reduce((sum, r) => sum + (r.newClients || 0) - (r.lost || 0), 0) : null;
+  const avgNet = totalNet == null ? null : totalNet / chartPts.length;
   const netDisplay = avgNet == null ? null : Number(avgNet.toFixed(1));
   const chartRangeLabel = chartPts.length ? `${monthLabelShort(chartPts[0].m)} → ${monthLabelShort(chartPts[chartPts.length - 1].m)}` : 'No data shown';
 
@@ -6951,6 +6952,11 @@ function renderInsRetentionDetail(bodyEl, filteredClients) {
           <div class="v" style="color:${netDisplay > 0 ? 'var(--success)' : netDisplay < 0 ? 'var(--danger)' : 'var(--text)'}">${netDisplay != null ? (netDisplay > 0 ? '+' : '') + netDisplay.toFixed(1) : '—'}</div>
           <div class="l">Net client growth</div>
           <div class="s">per month</div>
+        </div>
+        <div class="range-result" title="Total new clients minus total clients left over the months the chart below is currently showing">
+          <div class="v" style="color:${totalNet > 0 ? 'var(--success)' : totalNet < 0 ? 'var(--danger)' : 'var(--text)'}">${totalNet != null ? (totalNet > 0 ? '+' : '') + totalNet : '—'}</div>
+          <div class="l">Net clients total</div>
+          <div class="s">selected period</div>
         </div>
       </div>
     </div>
