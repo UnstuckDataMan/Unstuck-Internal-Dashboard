@@ -600,6 +600,14 @@
     </div>
     {% endif %}
 
+    {% if report and (report.snapshot or {}).get('growth_planner') %}
+    <div class="card">
+      {% set growth_endpoint = portal_path ~ '/' ~ token ~ '/growth-plan/' ~ report.id %}
+      {% set growth_portal = true %}
+      {% include 'partials/pulse_growth.html' %}
+    </div>
+    {% endif %}
+
     {% if report and report.body %}
     <div class="card note-card">
       <h2>{{ heading }} Report &amp; Analytics</h2>
@@ -629,3 +637,4 @@
 {% include "partials/pulse_animate.html" %}
 </body>
 </html>
+

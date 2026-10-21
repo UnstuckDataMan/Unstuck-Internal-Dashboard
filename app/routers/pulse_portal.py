@@ -1,11 +1,12 @@
 """
-Client-facing portal — read-only funnel for one client, reached by magic link.
+Client-facing portal — frozen reports for one client, reached by magic link.
 
 This is the only part of the dashboard a non-staff user ever sees, so it is the
 only part with its own access rules. Three properties matter:
 
-  1. **Read-only by construction.** The router exposes GET routes only. There is
-     no mutation a client could reach even with a valid token.
+  1. **Frozen reports.** This router exposes GET routes only. The separately
+     scoped pulse_growth router permits edits solely to an activated planner;
+     clients cannot mutate reports or activate/include a planner themselves.
 
   2. **Token-scoped, not user-scoped.** A token resolves to exactly one
      client_id, and every query is filtered by that id (and the agency id) taken
@@ -252,3 +253,4 @@ async def portal(request: Request, token: str, report: str = Query("")):
         "has_icp": False, "total_sent": 0, "email_sent": 0,
     })
     return _private(templates.TemplateResponse("portal.html", context))
+

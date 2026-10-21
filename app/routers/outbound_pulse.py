@@ -1887,7 +1887,20 @@ def report_snapshot(client_id: str, start: date, end: date) -> dict:
         "ab":         _report_ab_winners(client_id, start, end),
         "icp":        _report_icp(client_id, start, end),
         "taken_at":   datetime.now(timezone.utc).isoformat(),
+        "growth_planner": _include_growth_planner(client_id),
     }
+
+
+def _include_growth_planner(client_id: str) -> bool:
+    # Optional feature: old installations and unactivated clients keep their
+    # existing report flow. The portal separately enforces current activation.
+    from app.utils.pulse import growth_store
+    try:
+        plan = growth_store.get(client_id)
+        return bool(plan and plan.get('enabled') and plan.get('include_in_reports'))
+    except Exception:
+        logger.warning('Growth planner unavailable while publishing for %s', client_id)
+        return False
 
 
 def _report_icp(client_id: str, start: date, end: date) -> dict:
@@ -2226,3 +2239,4 @@ async def clients_json():
         return JSONResponse(store.list_clients())
     except PulseNotReady as exc:
         return JSONResponse({"error": str(exc)}, status_code=503)
+

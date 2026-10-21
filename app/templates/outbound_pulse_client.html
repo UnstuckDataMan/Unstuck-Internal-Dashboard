@@ -61,6 +61,7 @@
        ("campaigns",   "Campaigns"),
        ("copy",        "Winning copy"),
        ("quality",     "Lead quality"),
+       ("growth",      "Growth planner"),
        ("reports",     "Reports"),
      ] %}
   <button type="button" class="pulse-tab{% if loop.first %} is-active{% endif %}"
@@ -499,6 +500,15 @@
 </section>
 
 <!-- ── Reports ────────────────────────────────────────────────────────── -->
+<section id="ctab-growth" class="pulse-tab-panel" role="tabpanel"
+         aria-labelledby="ctab-btn-growth" hidden>
+  <div class="pulse-panel">
+    {% set growth_endpoint = '/api/outbound-pulse/clients/' ~ client.id ~ '/growth-plan' %}
+    {% set growth_portal = false %}
+    {% include 'partials/pulse_growth.html' %}
+  </div>
+</section>
+
 <section id="ctab-reports" class="pulse-tab-panel" role="tabpanel"
          aria-labelledby="ctab-btn-reports" hidden>
 <div class="pulse-panel">
@@ -522,8 +532,9 @@
 <div class="pulse-panel">
   <h3>Client portal access</h3>
   <p class="panel-hint">
-    A read-only link to this client's funnel — no login, no access to anything
-    else. The link is shown once when created; after that it can only be revoked
+    A link to this client's reports — no login, no access to other clients.
+    Campaign figures are read-only; an activated growth planner can be edited
+    by the client. The link is shown once when created; after that it can only be revoked
     and re-issued, because only its hash is stored.
   </p>
   <form hx-post="/api/outbound-pulse/clients/{{ client.id }}/access"
@@ -659,3 +670,4 @@
 
 {% endif %}
 {% endblock %}
+

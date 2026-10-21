@@ -1,0 +1,74 @@
+"""Validation for the optional client growth planner. No reporting data is mutated."""
+from datetime import date
+import math
+import uuid
+
+MAX_AMOUNT = 1_000_000_000
+
+
+def number(value, label, maximum=MAX_AMOUNT):
+    if isinstance(value, bool):
+        raise ValueError(f'{label} must be a number.')
+    try:
+        value = float(value)
+    except (ValueError, TypeError):
+        raise ValueError(f'Enter {label.lower()}.') from None
+    if not math.isfinite(value) or value < 0 or value > maximum:
+        raise ValueError(f'{label} must be between 0 and {maximum:,.0f}.')
+    return value
+
+
+def day(value, label):
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        raise ValueError(f'Enter a valid {label.lower()}.') from None
+
+
+def validate(data, today):
+    if not isinstance(data, dict):
+        raise ValueError('Enter your business figures.')
+    mode = data.get('mode', 'monthly')
+    if mode not in ('monthly', 'project'):
+        raise ValueError('Choose Monthly or Project.')
+    currency = data.get('currency', 'GBP')
+    if currency not in ('GBP', 'USD', 'EUR'):
+        raise ValueError('Choose GBP, USD or EUR.')
+    start = day(data.get('measurement_start'), 'lead tracking start date')
+    if start > today:
+        raise ValueError('Lead tracking cannot start in the future.')
+    conversions = data.get('conversions', [])
+    if not isinstance(conversions, list) or len(conversions) > 500:
+        raise ValueError('Enter at most 500 conversions.')
+    clean = []
+    ids = set()
+    for row in conversions:
+        if not isinstance(row, dict):
+            raise ValueError('Check each conversion.')
+        landed = day(row.get('landed'), 'conversion date')
+        if landed < start or landed > today:
+            raise ValueError('Conversion dates must fall between the tracking start date and today.')
+        amount = number(row.get('amount'), 'Conversion amount')
+        if amount <= 0:
+            raise ValueError('Each conversion needs an amount above zero.')
+        key = str(row.get('id') or uuid.uuid4())
+        if len(key) > 80 or key in ids:
+            raise ValueError('Each conversion must have a unique ID.')
+        ids.add(key)
+        clean.append({'id': key, 'landed': landed.isoformat(), 'amount': amount,
+                      'name': str(row.get('name') or '')[:120]})
+    return {
+        'mode': mode, 'currency': currency, 'measurement_start': start.isoformat(),
+        'annual_churn': number(data.get('annual_churn'), 'Annual churn', 100),
+        'current_revenue': number(data.get('current_revenue'), 'Current revenue'),
+        'goal_12': number(data.get('goal_12'), '12-month revenue goal'),
+        'goal_24': number(data.get('goal_24'), '24-month revenue goal'),
+        'monthly_leads': number(data.get('monthly_leads'), 'Monthly lead target', 1_000_000),
+        'conversions': clean,
+    }
+
+
+def defaults(today):
+    return {'mode': 'monthly', 'currency': 'GBP', 'measurement_start': today.replace(day=1).isoformat(),
+            'annual_churn': 0, 'current_revenue': 0, 'goal_12': 0, 'goal_24': 0,
+            'monthly_leads': 0, 'conversions': []}
