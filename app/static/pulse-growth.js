@@ -90,6 +90,27 @@
         revenueChart(values,labels,{bars:!monthly,caption:'Recorded revenue by month'})+
         `<p class="gp-note">${monthly?'Monthly value × months paid, starting in the month landed. Record paid months only; future revenue appears in the forecast below.':'Each project value is counted once, in the month it landed.'}</p>`;
     }
+    function analyse(d,result){
+      const host=q('[data-gp-analysis]'),average=q('[data-gp-average-leads]');
+      if(!Number.isFinite(result.averageMonthlyLeads)){average.textContent='Refresh generated leads to see the monthly average.';host.textContent='Add your recorded conversions and refresh leads to see how your lead volume compares with your revenue goals.';return;}
+      average.innerHTML=`<strong>${num(result.averageMonthlyLeads)}</strong>Average leads generated per month<p class="gp-note">${d.leads.start} to ${d.leads.as_of}. Partial months are prorated.</p>`;
+      if(!result.ready){host.textContent='Add a conversion to compare your lead volume with your revenue goals.';return;}
+      if(!form.checkValidity()){host.textContent='Complete the fields above to update your analysis.';return;}
+      if(!d.goal_12&&!d.goal_24){host.textContent='Enter your 12- and 24-month revenue goals to compare them with your current lead volume.';return;}
+      const required=Math.max(result.needed12||0,result.needed24||0),pace=result.averageMonthlyLeads;
+      const current=window.pulseGrowthCalculate({...d,monthly_leads:pace});
+      let copy=`You currently average ${num(pace)} leads per month, with ${num(result.leadsPerSale)} leads per sale. `;
+      if(result.needed12===null||result.needed24===null){
+        copy+='The revenue goals exceed the lead range this forecast can calculate. Review the goals, sale value and leads-to-sales performance before setting a lead target.';
+      }else if(current.at12+0.01<d.goal_12||current.at24+0.01<d.goal_24){
+        copy+=`Current lead volume is below what the revenue goals require. At the recorded sales performance, aim for at least ${num(required,0)} leads per month to meet both goals. `;
+        copy+=d.monthly_leads<required?'Your chosen lead target is also below that level. Increase lead volume, or improve lead quality and sales follow-up so fewer leads are needed per sale.':'Your chosen lead target covers that requirement; focus on reaching it consistently while maintaining leads-to-sales performance.';
+      }else{
+        copy+='Current lead volume is sufficient for both revenue goals under these assumptions. ';
+        copy+=d.monthly_leads<required?`Your chosen lead target is lower than the ${num(required,0)} leads per month required, so raise it to keep the plan on track.`:'Maintain lead volume and review new sales and churn regularly to keep the forecast up to date.';
+      }
+      host.textContent=copy;
+    }
     function render(){
       if(!state)return;const d=data(),monthly=d.mode==='monthly';
       q('[data-gp-current-label]').textContent=monthly?'Current monthly revenue':'Current annual revenue';
@@ -113,6 +134,7 @@
       const salesInput=q('[data-gp-sales]');
       if(targetBasis==='leads'&&result.ready)salesInput.value=Number((d.monthly_leads*result.rate*12).toFixed(2));
       salesInput.disabled=busy;
+      analyse(d,result);
       q('[data-gp-metrics]').replaceChildren();
       if(!form.checkValidity()||!result.ready){q('[data-gp-forecast]').textContent=result.message||'Complete the fields above to see your forecast.';return;}
       q('[data-gp-metrics]').innerHTML=`<div class="gp-metric"><strong>${num(result.leadsPerSale)}</strong>leads per sale</div><div class="gp-metric"><strong>${money(result.average)}</strong>average ${monthly?'monthly':'project'} sale value</div>`+(result.showRate?`<div class="gp-metric"><strong>${num(result.rate*100)}%</strong>lead-to-sale conversion</div>`:'');

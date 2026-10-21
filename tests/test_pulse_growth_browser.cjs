@@ -25,6 +25,8 @@ const start={staff:true,can_activate:true,csrf:'test-csrf',today:'2026-10-21',ve
  await page.goto('https://growth.test/');await page.locator('[data-gp-form]').waitFor({state:'visible'});
  assert((await page.locator('[data-gp-metrics]').innerText()).includes('100'));
  assert(!(await page.locator('[data-gp-metrics]').innerText()).includes('%'));
+ assert((await page.locator('[data-gp-average-leads]').innerText()).includes('10.3'));
+ assert((await page.locator('[data-gp-analysis]').innerText()).includes('below what the revenue goals require'));
  assert((await page.locator('[data-gp-forecast]').innerText()).includes('£22,000'));
  await page.locator('[data-gp-activate]').click();assert(await page.locator('dialog').isVisible());
  await page.locator('[data-gp-confirm]').click();assert.equal(posts.length,0);
@@ -70,5 +72,7 @@ const start={staff:true,can_activate:true,csrf:'test-csrf',today:'2026-10-21',ve
  await page.screenshot({path:'/workspace/scratch/growth-planner-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.screenshot({path:'/workspace/scratch/growth-planner-mobile.png',fullPage:true});
+ await page.locator('[name=goal_12]').fill('0');await page.locator('[name=goal_24]').fill('0');
+ assert((await page.locator('[data-gp-analysis]').innerText()).includes('Enter your 12- and 24-month'));
  assert.deepEqual(errors,[]);await browser.close();console.log('PASS: activation popup, live forecasts, save/reload, 3% display rule, project labels and mobile layout.');
 })();

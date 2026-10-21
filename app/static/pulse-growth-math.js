@@ -4,11 +4,22 @@
   'use strict';
   function calculate(data) {
     const leads = data.leads;
-    if (!leads || leads.start !== data.measurement_start || !Number.isFinite(leads.count) || leads.count <= 0)
+    if (!leads || leads.start !== data.measurement_start || !Number.isFinite(leads.count) || leads.count < 0)
       return {ready:false, message:'Refresh generated leads to calculate your forecast.'};
+    // Prorate partial calendar months so a short first/last month is not
+    // treated as a whole month's lead generation.
+    const from=new Date(leads.start+'T00:00:00Z'),until=new Date(leads.as_of+'T00:00:00Z');
+    let observedMonths=0;
+    for(let cursor=new Date(Date.UTC(from.getUTCFullYear(),from.getUTCMonth(),1));cursor<=until;){
+      const next=new Date(Date.UTC(cursor.getUTCFullYear(),cursor.getUTCMonth()+1,1));
+      const days=(next-cursor)/86400000;
+      const overlap=Math.max(0,(Math.min(+next,+until+86400000)-Math.max(+cursor,+from))/86400000);
+      observedMonths+=overlap/days;cursor=next;
+    }
+    const averageMonthlyLeads=observedMonths>0?leads.count/observedMonths:0;
     const sales = data.conversions.filter(c=>c.landed >= leads.start && c.landed <= leads.as_of);
-    if (!sales.length) return {ready:false, message:'Record a conversion within the lead measurement period to start forecasting.'};
-    if (sales.length > leads.count) return {ready:false, message:'There are more conversions than generated leads. Check the tracking dates and refresh leads.'};
+    if (!sales.length) return {ready:false, averageMonthlyLeads, message:'Record a conversion within the lead measurement period to start forecasting.'};
+    if (sales.length > leads.count) return {ready:false, averageMonthlyLeads, message:'There are more conversions than generated leads. Check the tracking dates and refresh leads.'};
     const values = [data.annual_churn,data.current_revenue,data.goal_12,data.goal_24,data.monthly_leads,...sales.map(c=>c.amount)];
     if (!values.every(v=>Number.isFinite(v) && v>=0) || data.annual_churn>100 || !['monthly','project'].includes(data.mode))
       return {ready:false,message:'Check the business figures and conversion amounts.'};
@@ -43,7 +54,7 @@
       return lo;
     }
     return {ready:true, count:sales.length, totalCount:data.conversions.length,
-      rate, showRate:rate>=0.03, leadsPerSale:1/rate, average,
+      rate, averageMonthlyLeads, observedMonths, showRate:rate>=0.03, leadsPerSale:1/rate, average,
       ...project(data.monthly_leads), needed12:needed(data.goal_12,'at12'),needed24:needed(data.goal_24,'at24')};
   }
   if(typeof module!=='undefined'&&module.exports)module.exports=calculate;

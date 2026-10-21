@@ -29,3 +29,9 @@ for(const mode of ['monthly','project']) {
  for(let leads=0;leads<200;leads++){const out=calculate(data({mode,annual_churn:90,monthly_leads:leads}));assert(out.at24>=previous);previous=out.at24;}
 }
 console.log('PASS: monthly/project forecasts, annual churn, expected sales, reciprocal metrics, 3% threshold, date alignment and minimum lead targets.');
+
+// Full and partial months use the same observed window as the sales metric.
+r=calculate(data({leads:{start:'2026-01-01',as_of:'2026-02-28',count:100}}));assert.equal(r.averageMonthlyLeads,50);
+r=calculate(data({leads:{start:'2026-01-01',as_of:'2026-01-15',count:30},conversions:[{landed:'2026-01-02',amount:100}]}));assert(Math.abs(r.averageMonthlyLeads-62)<1e-8);
+
+assert.equal(calculate(data({conversions:[],leads:{start:'2026-01-01',as_of:'2026-01-31',count:0}})).averageMonthlyLeads,0);
