@@ -8,7 +8,7 @@ Apply `migrations/pulse_growth_plans.sql` to the dashboard database before deplo
 
 Link the client's Performance Tracker in Lead quality. Set a tracking start date matching the entered conversions, then refresh generated leads. Only dated tracker rows in that window count. The planner's window is independent of other dashboard date filters.
 
-An account manager (reviewer role) or admin records at least one actual conversion and confirms both activation questions. Activation enables inclusion; publishing or re-publishing a report adds its planner flag. Unchecking inclusion or deactivating removes portal access, including older reports. Existing reports without the flag stay unchanged. Staff can save a draft before activation.
+An account manager (reviewer role) or admin records at least one actual conversion and confirms both activation questions. Activation enables inclusion immediately at the bottom of all published reports for this client. Unchecking inclusion or deactivating removes portal access, including older reports. Older published reports also show the live tool once it is enabled; their campaign figures stay unchanged. Staff can save a draft before activation.
 
 ## Inputs and forecasts
 
@@ -29,3 +29,5 @@ Clients with a valid, unrevoked report link can edit the included live planner. 
 - `node tests/test_pulse_growth_browser.cjs` (Playwright and Chromium required; `CHROMIUM_PATH` overrides `/usr/bin/chromium`)
 
 The CSRF token does not expire during editing and is independent of session-cookie updates from concurrent requests. While the page is visible and recently edited, a five-minute keepalive renews the existing authenticated session. Saves refresh the token without overwriting inputs or record versions. Real sign-outs or expired access links still require authentication; failed saves preserve the form.
+
+Conversions use month selectors and currency-labelled values. Retainers record months paid (whole months, starting at the landed month, never extending beyond the current month); generated revenue is monthly value times paid months. Projects count their value once. Recorded revenue has its own monthly chart and total, separate from forecasts. Both charts label currencies and calendar months, with exact values on points/bars. Retainers use lines; projects use bars.

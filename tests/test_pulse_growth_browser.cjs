@@ -35,9 +35,20 @@ const start={staff:true,can_activate:true,csrf:'test-csrf',today:'2026-10-21',ve
  await page.locator('[name=monthly_leads]').fill('200');assert((await page.locator('[data-gp-forecast]').innerText()).includes('£34,000'));
  await page.locator('[data-gp-save]').click();await page.waitForFunction(()=>document.querySelector('[data-gp-save-status]').textContent==='All changes saved');
  await page.reload();await page.locator('[data-gp-form]').waitFor({state:'visible'});assert.equal(await page.locator('[name=monthly_leads]').inputValue(),'200');
+ await page.locator('[name=mode]').selectOption('monthly');
+ await page.locator('[data-months]').fill('4');
+ assert((await page.locator('[data-gp-earned]').innerText()).includes('£4,000'));
+ assert.equal(await page.locator('[data-gp-earned] svg circle').count(),5);
+ await page.locator('[name=currency]').selectOption('USD');
+ assert.equal(await page.locator('[data-amount-label]').innerText(),'Monthly value ($)');
+ assert((await page.locator('[data-gp-earned]').innerText()).includes('$4,000'));
+ await page.locator('[name=mode]').selectOption('project');
+ assert((await page.locator('[data-gp-earned]').innerText()).includes('$1,000'));
+ assert(await page.locator('[data-gp-earned] svg rect').count()>0);
+ await page.locator('[name=currency]').selectOption('GBP');
  // The percentage appears only once the observed rate reaches 3%.
- await page.locator('[data-gp-add]').click();let row=page.locator('.gp-conversion').last();await row.locator('[data-landed]').fill('2026-07-01');await row.locator('[data-amount]').fill('1000');
- await page.locator('[data-gp-add]').click();row=page.locator('.gp-conversion').last();await row.locator('[data-landed]').fill('2026-08-01');await row.locator('[data-amount]').fill('1000');
+ await page.locator('[data-gp-add]').click();let row=page.locator('.gp-conversion').last();await row.locator('[data-landed]').fill('2026-07');await row.locator('[data-amount]').fill('1000');
+ await page.locator('[data-gp-add]').click();row=page.locator('.gp-conversion').last();await row.locator('[data-landed]').fill('2026-08');await row.locator('[data-amount]').fill('1000');
  assert((await page.locator('[data-gp-metrics]').innerText()).includes('3%'));
  await page.locator('[data-gp-sales]').fill('72');assert.equal(await page.locator('[name=monthly_leads]').inputValue(),'200');
  await page.locator('[name=monthly_leads]').fill('300');assert.equal(await page.locator('[data-gp-sales]').inputValue(),'108');

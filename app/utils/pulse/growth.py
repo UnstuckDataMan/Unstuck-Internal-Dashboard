@@ -50,6 +50,12 @@ def validate(data, today):
         landed = day(row.get('landed'), 'conversion date')
         if landed < start or landed > today:
             raise ValueError('Conversion dates must fall between the tracking start date and today.')
+        months = number(row.get('months', 1), 'Months paid', 1200)
+        if months < 1 or not months.is_integer():
+            raise ValueError('Months paid must be a whole number of at least one.')
+        elapsed = (today.year-landed.year)*12 + today.month-landed.month+1
+        if mode == 'monthly' and months > elapsed:
+            raise ValueError('Months paid cannot extend beyond the current month.')
         amount = number(row.get('amount'), 'Conversion amount')
         if amount <= 0:
             raise ValueError('Each conversion needs an amount above zero.')
@@ -57,7 +63,7 @@ def validate(data, today):
         if len(key) > 80 or key in ids:
             raise ValueError('Each conversion must have a unique ID.')
         ids.add(key)
-        clean.append({'id': key, 'landed': landed.isoformat(), 'amount': amount,
+        clean.append({'id': key, 'landed': landed.isoformat(), 'amount': amount, 'months': int(months),
                       'name': str(row.get('name') or '')[:120]})
     return {
         'mode': mode, 'currency': currency, 'measurement_start': start.isoformat(),

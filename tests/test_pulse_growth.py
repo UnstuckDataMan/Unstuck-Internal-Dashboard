@@ -184,3 +184,25 @@ def test_annual_sales_can_be_saved_before_conversion_data(client, planner):
     assert response.status_code==200
     assert response.json()['data']['annual_sales']==72
     assert response.json()['data']['target_basis']=='sales'
+
+
+@pytest.mark.parametrize('months', [0, 1.5, -1, 6])
+def test_rejects_invalid_paid_months(months):
+    data=plan_data();data['conversions'][0]['months']=months
+    with pytest.raises(ValueError):growth.validate(data,TODAY)
+
+
+def test_months_paid_preserved():
+    data=plan_data();data['conversions'][0]['months']=4
+    assert growth.validate(data,TODAY)['conversions'][0]['months']==4
+
+
+def test_activation_applies_to_existing_published_reports(client,planner,monkeypatch):
+    headers=start(client);activate(client,headers)
+    monkeypatch.setattr(routes.store,'published_reports',lambda client:[{'id':'published','snapshot':{}}])
+    assert client.get('/r/valid/growth-plan/published').status_code==200
+    from app.routers.pulse_portal import _growth_visible
+    assert _growth_visible(CLIENT)
+    planner[CLIENT]['include_in_reports']=False
+    assert not _growth_visible(CLIENT)
+    assert client.get('/r/valid/growth-plan/published').status_code==404

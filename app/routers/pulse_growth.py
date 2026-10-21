@@ -159,7 +159,7 @@ def _portal_client(token, report_id):
         raise HTTPException(404, 'Planner unavailable.')
     client_id = str(access['client_id'])
     _client(client_id)
-    if not any(str(r['id']) == report_id and (r.get('snapshot') or {}).get('growth_planner')
+    if not any(str(r['id']) == report_id
                for r in store.published_reports(client_id)):
         raise HTTPException(404, 'Planner unavailable.')
     row = growth_store.get(client_id)

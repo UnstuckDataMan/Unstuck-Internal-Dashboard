@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="/static/pulse-growth.css?v=2">
+<link rel="stylesheet" href="/static/pulse-growth.css?v=3">
 <div class="growth-planner" data-growth-planner data-endpoint="{{ growth_endpoint }}" data-portal="{{ 'true' if growth_portal else 'false' }}">
   <div class="gp-top"><div><h2>CRO Insights</h2><p>A simple view of the leads and sales needed to grow your business.</p></div><span data-gp-state></span></div>
   <p class="gp-message" data-gp-message role="status" aria-live="polite">Loading planner…</p>
@@ -8,7 +8,7 @@
       <p data-gp-activation-note>Start with a landed conversion. Your account manager can activate this planner after delivery manager approval.</p>
       <div class="gp-actions"><button type="button" data-gp-activate>Activate</button><button type="button" data-gp-deactivate hidden>Deactivate</button>
       <label data-gp-inclusion-label hidden><input type="checkbox" data-gp-inclusion> Show in client reports</label></div>
-      <small>After activation, publish or re-publish a report to include the planner. Deactivation removes access from existing reports too.</small>
+      <small>After activation, CRO Insights appears at the bottom of this client’s published reports. Deactivation removes it from those reports.</small>
     </div>
     <p class="gp-note" data-gp-portal-note hidden>This is a live planning workspace shared with your account manager. Saving updates the planner across your reports; published campaign figures stay as they were.</p>
     <section class="gp-section"><h3>1. Your business</h3>
@@ -27,6 +27,7 @@
       <div class="gp-conversions" data-gp-conversions></div>
       <button type="button" data-gp-add>+ Add conversion</button>
       <div class="gp-metrics" data-gp-metrics></div>
+      <div data-gp-earned aria-live="polite"></div>
     </section>
     <section class="gp-section"><h3>3. Growth forecast</h3>
       <div class="gp-fields"><label>Sales target per year<input name="annual_sales" data-gp-sales type="number" min="0" max="12000000" step="any"><small>Enter your target at any time. Leads and forecasts update once conversion data is available.</small></label>
@@ -46,5 +47,5 @@
     <div class="gp-actions"><button type="button" data-gp-cancel>Cancel</button><button type="button" data-gp-confirm>Activate</button></div>
   </dialog>
 </div>
-<script src="/static/pulse-growth-math.js?v=2" defer></script>
-<script src="/static/pulse-growth.js?v=2" defer></script>
+<script src="/static/pulse-growth-math.js?v=3" defer></script>
+<script src="/static/pulse-growth.js?v=3" defer></script>

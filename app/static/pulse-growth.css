@@ -13,3 +13,6 @@
 .growth-planner dialog{background:#20172f;color:#eeeafa;border:1px solid #8060a5;border-radius:16px;max-width:440px;width:calc(100% - 32px);padding:26px}.growth-planner dialog::backdrop{background:rgba(0,0,0,.7)}.growth-planner dialog label{flex-direction:row;align-items:center;margin:20px 0}.growth-planner dialog h3{margin-top:0}.growth-planner [data-gp-dialog-error]{color:#ffb4b4}
 @media(max-width:800px){.gp-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.gp-conversion{grid-template-columns:1fr 1fr}.gp-section{padding:16px}}
 @media(max-width:480px){.gp-fields{grid-template-columns:1fr}.gp-top{align-items:start}.gp-top h2{font-size:22px}.gp-conversion{padding-bottom:12px;border-bottom:1px solid var(--gp-border)}.gp-metrics,.gp-outcomes{grid-template-columns:1fr}}
+
+.gp-chart-scroll{overflow-x:auto;max-width:100%;margin-top:16px}.gp-sale-total strong{display:block;color:#c4b5fd}.gp-conversion{grid-template-columns:1.2fr 1fr 1fr .65fr 1fr auto}
+@media(max-width:1000px){.gp-conversion{grid-template-columns:repeat(2,minmax(0,1fr))}}

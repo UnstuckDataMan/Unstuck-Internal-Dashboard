@@ -181,6 +181,15 @@ def _snapshot_view(report: dict, tracker_url: str = "") -> dict:
 # /r/ is the short form a client is actually sent. /portal/ stays because
 # links already handed out use it, and a report link that stops working is a
 # client emailing their account manager about a broken report.
+def _growth_visible(client_id):
+    from app.utils.pulse import growth_store
+    try:
+        row = growth_store.get(client_id)
+        return bool(row and row.get('enabled') and row.get('include_in_reports'))
+    except Exception:
+        return False
+
+
 @router.get("/r/{token}")
 @router.get("/portal/{token}")
 async def portal(request: Request, token: str, report: str = Query("")):
@@ -235,6 +244,7 @@ async def portal(request: Request, token: str, report: str = Query("")):
         # silently move a /r/ link onto /portal/.
         "portal_path": path,
         "report":      current,
+        "growth_visible": bool(current) and _growth_visible(client_id),
         "heading":     report_heading(current) if current else "",
         # Newer is earlier in the list, so "previous" is the higher index.
         "newer":       reports[index - 1] if index > 0 else None,
