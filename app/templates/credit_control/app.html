@@ -4802,7 +4802,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
         ${projKey}
       </div>`;
 
-  // Three simple boxes above the chart: what it is, this month's value, and the % change on last month.
+  // Summary boxes above the chart; average client value appears only when its chart tab is selected.
   // They double as the selector — clicking one switches the chart to it.
   const curRow = byMonthRow.get(monthKey), prevKey = addMonths(monthKey, -1), prevRow = byMonthRow.get(prevKey);
   const curAvg = curRow && curRow.count ? curRow.mrr / curRow.count : null;
@@ -4817,7 +4817,7 @@ function renderInsRevenueDetail(bodyEl, filteredClients) {
       <div class="l" style="margin:0 0 4px">${label} <span style="text-transform:none; letter-spacing:0; font-weight:500">· ${curShort}</span></div><div class="v">${valueHtml}</div><div class="s" style="margin-top:4px">${changeInner}</div></button>`;
   const metricBoxesHtml = `<div class="stats" style="margin-bottom:14px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px">
       ${metricBox('mrr', `Monthly revenue (${insTerm('MRR')})`, fmtMoney(monthExpected), changeHtml(pctChange(monthExpected, landedForMonth(prevKey)), `This month's MRR (expected to land) against ${monthLabel(prevKey)}'s MRR as plotted on the chart (cash that landed)`))}
-      ${metricBox('avg', 'Average value per client', curAvg != null ? fmtMoney(curAvg) : '—', changeHtml(pctChange(curAvg, prevAvg), 'Against last month'))}
+      ${metric === 'avg' ? metricBox('avg', 'Average value per client', curAvg != null ? fmtMoney(curAvg) : '—', changeHtml(pctChange(curAvg, prevAvg), 'Against last month')) : ''}
       ${metricBox('vol', 'Clients invoiced', curRow ? String(curRow.count) : '—', changeHtml(pctChange(curRow ? curRow.count : null, prevRow ? prevRow.count : null), 'Against last month'))}
       ${metricBox('sales', 'New clients', curRow ? String(curRow.newClients || 0) : '—', changeHtml(pctChange(curRow ? (curRow.newClients || 0) : null, prevRow ? (prevRow.newClients || 0) : null), 'Against last month'))}
     </div>`;
