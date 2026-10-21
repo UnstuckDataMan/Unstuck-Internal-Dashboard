@@ -7633,6 +7633,10 @@ function applyDashboardChrome(cfg) {
     body > header.dash-topbar.cro-insights-header .dash-title {
       font-size: 36px; line-height: 1.2; margin: 0;
     }
+    .cro-insights-logo {
+      display: block; width: 260px; height: 44px; max-width: 100%; margin: 0 auto;
+      object-fit: cover; object-position: center;
+    }
     @media (max-width: 640px) {
       body > header.dash-topbar { padding: 0 16px; }
       .dash-left, .dash-right { min-width: 0; }
@@ -7644,6 +7648,7 @@ function applyDashboardChrome(cfg) {
         grid-column: 1 / -1; grid-row: 2; font-size: 28px;
       }
       .cro-insights-header .dash-right { grid-column: 2; grid-row: 1; }
+      .cro-insights-logo { width: 220px; height: 38px; }
     }`;
   document.head.appendChild(css);
 
@@ -7663,7 +7668,7 @@ function applyDashboardChrome(cfg) {
         <span class="dash-label">Dashboard</span>
       </a>
     </div>
-    <h1 class="dash-title">${cfg.title}</h1>
+    <h1 class="dash-title">${cfg.defaultTab === 'insights' ? '<img class="cro-insights-logo" src="/static/img/cro-insights-logo.png" alt="CRO Insights" width="260" height="44">' : cfg.title}</h1>
     <div class="dash-right"></div>`;
   hdr.querySelector('.dash-right').appendChild(save);
 
