@@ -2,6 +2,9 @@
 import json
 import logging
 import secrets
+import os
+import hmac
+import hashlib
 from datetime import date, datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -29,14 +32,18 @@ def _staff(request, client_id):
     return user
 
 
+# Keep CSRF independent of the signed session cookie. Concurrent dashboard
+# requests can return older session cookies and discard newly added fields.
+_CSRF_SECRET = os.environ.get('SESSION_SECRET') or secrets.token_urlsafe(32)
+
+
 def _csrf(request, check=False):
-    if check:
-        expected = request.session.get('growth_csrf', '')
-        if not expected or not secrets.compare_digest(expected, request.headers.get('X-Growth-CSRF', '')):
-            raise HTTPException(403, 'Your session expired. Reload the planner before saving.')
-    else:
-        request.session.setdefault('growth_csrf', secrets.token_urlsafe(32))
-    return request.session.get('growth_csrf', '')
+    identity = str((request.session.get('user') or {}).get('email', ''))
+    scope = json.dumps([request.url.path, identity], separators=(',', ':'))
+    token = hmac.new(_CSRF_SECRET.encode(), scope.encode(), hashlib.sha256).hexdigest()
+    if check and not secrets.compare_digest(token, request.headers.get('X-Growth-CSRF', '')):
+        raise HTTPException(403, 'Could not verify this save. Please try again; your entries are still here.')
+    return token
 
 
 def _view(request, row, *, staff=False, can_activate=False):

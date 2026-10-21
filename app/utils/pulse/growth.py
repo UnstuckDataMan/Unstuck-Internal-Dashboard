@@ -34,6 +34,8 @@ def validate(data, today):
     currency = data.get('currency', 'GBP')
     if currency not in ('GBP', 'USD', 'EUR'):
         raise ValueError('Choose GBP, USD or EUR.')
+    if data.get('target_basis', 'leads') not in ('leads', 'sales'):
+        raise ValueError('Choose a sales or lead target.')
     start = day(data.get('measurement_start'), 'lead tracking start date')
     if start > today:
         raise ValueError('Lead tracking cannot start in the future.')
@@ -63,6 +65,8 @@ def validate(data, today):
         'current_revenue': number(data.get('current_revenue'), 'Current revenue'),
         'goal_12': number(data.get('goal_12'), '12-month revenue goal'),
         'goal_24': number(data.get('goal_24'), '24-month revenue goal'),
+        'annual_sales': number(data.get('annual_sales', 0), 'Annual sales target', 12_000_000),
+        'target_basis': data.get('target_basis', 'leads'),
         'monthly_leads': number(data.get('monthly_leads'), 'Monthly lead target', 1_000_000),
         'conversions': clean,
     }
@@ -71,4 +75,4 @@ def validate(data, today):
 def defaults(today):
     return {'mode': 'monthly', 'currency': 'GBP', 'measurement_start': today.replace(day=1).isoformat(),
             'annual_churn': 0, 'current_revenue': 0, 'goal_12': 0, 'goal_24': 0,
-            'monthly_leads': 0, 'conversions': []}
+            'monthly_leads': 0, 'annual_sales': 0, 'target_basis': 'leads', 'conversions': []}

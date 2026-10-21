@@ -39,8 +39,23 @@ const start={staff:true,can_activate:true,csrf:'test-csrf',today:'2026-10-21',ve
  await page.locator('[data-gp-add]').click();let row=page.locator('.gp-conversion').last();await row.locator('[data-landed]').fill('2026-07-01');await row.locator('[data-amount]').fill('1000');
  await page.locator('[data-gp-add]').click();row=page.locator('.gp-conversion').last();await row.locator('[data-landed]').fill('2026-08-01');await row.locator('[data-amount]').fill('1000');
  assert((await page.locator('[data-gp-metrics]').innerText()).includes('3%'));
- await page.locator('[data-gp-sales]').fill('6');assert.equal(await page.locator('[name=monthly_leads]').inputValue(),'200');
- await page.locator('[name=monthly_leads]').fill('300');assert.equal(await page.locator('[data-gp-sales]').inputValue(),'9');
+ await page.locator('[data-gp-sales]').fill('72');assert.equal(await page.locator('[name=monthly_leads]').inputValue(),'200');
+ await page.locator('[name=monthly_leads]').fill('300');assert.equal(await page.locator('[data-gp-sales]').inputValue(),'108');
+ // Annual target remains editable without lead data and survives saving.
+ await page.locator('[data-gp-sales]').fill('72');
+ await page.locator('[data-gp-save]').click();await page.waitForFunction(()=>document.querySelector('[data-gp-save-status]').textContent==='All changes saved');
+ await page.reload();await page.locator('[data-gp-form]').waitFor({state:'visible'});
+ assert.equal(await page.locator('[data-gp-sales]').inputValue(),'72');
+ state.data.leads=null;
+ await page.reload();await page.locator('[data-gp-form]').waitFor({state:'visible'});
+ assert(await page.locator('[data-gp-sales]').isEnabled());
+ await page.locator('[data-gp-sales]').fill('120');
+ await page.locator('[data-gp-save]').click();await page.waitForFunction(()=>document.querySelector('[data-gp-save-status]').textContent==='All changes saved');
+ assert.equal(state.data.annual_sales,120);
+ state.data.leads=start.data.leads;
+ await page.reload();await page.locator('[data-gp-form]').waitFor({state:'visible'});
+ assert.equal(await page.locator('[data-gp-sales]').inputValue(),'120');
+ assert.equal(await page.locator('[name=monthly_leads]').inputValue(),'334');
  await page.screenshot({path:'/workspace/scratch/growth-planner-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.screenshot({path:'/workspace/scratch/growth-planner-mobile.png',fullPage:true});

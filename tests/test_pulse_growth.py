@@ -11,7 +11,7 @@ CLIENT = 'client-one'
 def plan_data():
     return dict(mode='monthly', currency='GBP', measurement_start='2026-01-01',
                 annual_churn=10, current_revenue=10000, goal_12=20000, goal_24=30000,
-                monthly_leads=100, conversions=[dict(id='sale1', name='First sale', landed='2026-06-01', amount=1000)])
+                monthly_leads=100, annual_sales=12, target_basis='leads', conversions=[dict(id='sale1', name='First sale', landed='2026-06-01', amount=1000)])
 
 
 @pytest.mark.parametrize('key,value', [('annual_churn',101), ('annual_churn',-1),
@@ -157,3 +157,30 @@ def test_report_inclusion_requires_active_opt_in(planner):
     for enabled,included,expected in [(False,False,False),(True,False,False),(True,True,True)]:
         planner[CLIENT]={'enabled':enabled,'include_in_reports':included}
         assert _include_growth_planner(CLIENT) is expected
+
+
+def test_csrf_survives_older_session_cookie(client, planner):
+    headers=start(client)
+    # AUTH_DISABLED fixture: simulate another response dropping the newly
+    # introduced CSRF session field, without changing authenticated identity.
+    client.cookies.clear()
+    assert activate(client,headers).status_code==200
+
+
+def test_csrf_is_bound_to_client_route(client, planner):
+    headers=start(client)
+    from starlette.requests import Request
+    request=Request({'type':'http','method':'POST','path':'/api/outbound-pulse/clients/other/growth-plan',
+        'headers':[(b'x-growth-csrf',headers['X-Growth-CSRF'].encode())], 'session':{}})
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException):routes._csrf(request,check=True)
+
+
+def test_annual_sales_can_be_saved_before_conversion_data(client, planner):
+    headers=start(client)
+    data=plan_data();data.update(annual_sales=72,target_basis='sales',conversions=[])
+    response=client.post(f'/api/outbound-pulse/clients/{CLIENT}/growth-plan',headers=headers,
+        json={'action':'save','version':0,'data':data})
+    assert response.status_code==200
+    assert response.json()['data']['annual_sales']==72
+    assert response.json()['data']['target_basis']=='sales'

@@ -3,13 +3,13 @@
   function init(root){
     if(root.dataset.ready)return;root.dataset.ready='true';
     const q=s=>root.querySelector(s),form=q('[data-gp-form]'),dialog=q('[data-gp-dialog]');
-    let state=null,busy=false,dirty=false;
-    const fields=['mode','currency','measurement_start','annual_churn','current_revenue','goal_12','goal_24','monthly_leads'];
+    let state=null,busy=false,dirty=false,targetBasis='leads',lastActivity=Date.now();
+    const fields=['mode','currency','measurement_start','annual_churn','current_revenue','goal_12','goal_24','monthly_leads','annual_sales'];
     const field=n=>form.elements.namedItem(n);
     function message(text,error=false){q('[data-gp-message]').textContent=text;q('[data-gp-message]').dataset.error=String(error);}
     function money(n){return new Intl.NumberFormat('en-GB',{style:'currency',currency:field('currency').value,maximumFractionDigits:0}).format(n);}
     function num(n,d=1){return n.toLocaleString('en-GB',{maximumFractionDigits:d});}
-    function markDirty(){dirty=true;q('[data-gp-save-status]').textContent='Unsaved changes';}
+    function markDirty(){lastActivity=Date.now();dirty=true;q('[data-gp-save-status]').textContent='Unsaved changes';}
     function row(conversion={}){
       const el=document.createElement('div');el.className='gp-conversion';el.dataset.id=conversion.id||crypto.randomUUID();
       el.innerHTML='<label>Sale / client <small>optional</small><input data-name maxlength="120"></label><label>Date landed<input data-landed type="date" required></label><label><span data-amount-label>Amount</span><input data-amount type="number" min="0.01" max="1000000000" step="0.01" required></label><button type="button" aria-label="Remove conversion">Remove</button>';
@@ -23,10 +23,10 @@
     function data(){
       const d={};fields.forEach(n=>d[n]=['mode','currency','measurement_start'].includes(n)?field(n).value:Number(field(n).value));
       d.conversions=Array.from(q('[data-gp-conversions]').children).map(el=>({id:el.dataset.id,name:el.querySelector('[data-name]').value,landed:el.querySelector('[data-landed]').value,amount:Number(el.querySelector('[data-amount]').value)}));
-      d.leads=state.data.leads;return d;
+      d.leads=state.data.leads;d.target_basis=targetBasis;return d;
     }
     function apply(next){
-      state=next;fields.forEach(n=>field(n).value=next.data[n]);field('measurement_start').max=next.today;
+      state=next;targetBasis=next.data.target_basis||'leads';fields.forEach(n=>field(n).value=next.data[n]??0);field('measurement_start').max=next.today;
       q('[data-gp-conversions]').replaceChildren();next.data.conversions.forEach(row);
       q('[data-gp-staff]').hidden=!next.staff;q('[data-gp-portal-note]').hidden=next.staff;
       q('[data-gp-activate]').hidden=!next.can_activate||next.enabled;
@@ -54,23 +54,42 @@
       const leads=d.leads;
       q('[data-gp-source]').textContent=leads&&leads.start===d.measurement_start?`${num(leads.count,0)} leads · ${leads.start} to ${leads.as_of} · Performance Tracker. Ask your AM to refresh when newer leads arrive.`:'Set the tracking start date, then refresh generated leads. The page’s other date filters do not change this planner.';
       const slider=q('[data-gp-slider]');slider.max=Math.max(500,Math.ceil(d.monthly_leads/100)*100);slider.value=d.monthly_leads;
-      const result=window.pulseGrowthCalculate(d);
+      let result=window.pulseGrowthCalculate(d);
+      if(result.ready&&targetBasis==='sales'&&field('annual_sales').value!==''&&field('annual_sales').validity.valid){
+        d.monthly_leads=Math.ceil(d.annual_sales/(12*result.rate)-1e-9);
+        field('monthly_leads').value=d.monthly_leads;
+        slider.max=Math.max(500,Math.ceil(d.monthly_leads/100)*100);slider.value=d.monthly_leads;
+        result=window.pulseGrowthCalculate(d);
+      }
       const salesInput=q('[data-gp-sales]');
-      if(document.activeElement!==salesInput)salesInput.value=result.ready?Number((d.monthly_leads*result.rate).toFixed(2)):'';
-      salesInput.disabled=!result.ready||busy;
+      if(targetBasis==='leads'&&result.ready)salesInput.value=Number((d.monthly_leads*result.rate*12).toFixed(2));
+      salesInput.disabled=busy;
       q('[data-gp-metrics]').replaceChildren();
       if(!form.checkValidity()||!result.ready){q('[data-gp-forecast]').textContent=result.message||'Complete the fields above to see your forecast.';return;}
       q('[data-gp-metrics]').innerHTML=`<div class="gp-metric"><strong>${num(result.leadsPerSale)}</strong>leads per sale</div><div class="gp-metric"><strong>${money(result.average)}</strong>average ${monthly?'monthly':'project'} sale value</div>`+(result.showRate?`<div class="gp-metric"><strong>${num(result.rate*100)}%</strong>lead-to-sale conversion</div>`:'');
       if(result.count!==result.totalCount){const note=document.createElement('p');note.className='gp-note';note.textContent=`Forecast uses ${result.count} conversions through ${leads.as_of}. Later conversions will count after your account manager refreshes leads.`;q('[data-gp-metrics]').appendChild(note);}
       const target=(period,value,goal,needed)=>`<div class="gp-outcome"><h4>${period}</h4><strong>${money(value)}${monthly?'/mo':''}</strong><p>Goal: ${money(goal)}${monthly?'/mo':''}</p><p>${needed==null?'Goal exceeds this planner’s lead range.':`${num(needed,0)} leads/month needed at your observed results.`}</p>${needed!=null?`<button type="button" data-gp-use="${needed}">Try this lead target</button>`:''}</div>`;
       q('[data-gp-forecast]').innerHTML='<div class="gp-outcomes">'+target('12 months',result.at12,d.goal_12,result.needed12)+target('24 months',result.at24,d.goal_24,result.needed24)+'</div>'+chart(result.timeline,d);
-      q('[data-gp-forecast]').querySelectorAll('[data-gp-use]').forEach(button=>button.onclick=()=>{field('monthly_leads').value=button.dataset.gpUse;markDirty();render();});
+      q('[data-gp-forecast]').querySelectorAll('[data-gp-use]').forEach(button=>button.onclick=()=>{targetBasis='leads';field('monthly_leads').value=button.dataset.gpUse;markDirty();render();});
     }
     async function load(){
       message('Loading planner…');q('[data-gp-reload]').hidden=true;
       try{const response=await fetch(root.dataset.endpoint,{credentials:'same-origin',cache:'no-store'});const next=await response.json();if(!response.ok){if(response.status===404&&root.dataset.portal==='true'){root.remove();return;}throw Error(next.error||next.detail||'Could not load the planner.');}apply(next);message('');}
       catch(e){message(e.message,true);q('[data-gp-reload]').hidden=false;}
     }
+    async function renewSession(){
+      // Refresh authentication/CSRF only; never replace unsaved fields or versions.
+      const response=await fetch(root.dataset.endpoint,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});
+      if(response.status===401||response.redirected)throw Error('Please sign in again in another tab, then save here. Your entries are still on this page.');
+      const next=await response.json();
+      if(!response.ok)throw Error(next.error||next.detail||'Could not reconnect. Your entries are still here; try saving again.');
+      state.csrf=next.csrf;
+    }
+    setInterval(()=>{
+      if(state&&!busy&&document.visibilityState==='visible'&&Date.now()-lastActivity<10*60*1000){
+        renewSession().catch(e=>message(e.message,true));
+      }
+    },5*60*1000);
     async function save(action){
       if(busy)return;if(action!=='deactivate'&&!form.reportValidity())return;
       if(action==='activate'&&(!q('[data-gp-approved]').checked||!q('[data-gp-converted]').checked)){q('[data-gp-dialog-error]').textContent='Confirm both questions before activating.';return;}
@@ -79,21 +98,19 @@
       const payload={action,version:state.version,data:action==='deactivate'?state.data:data(),include_in_reports:q('[data-gp-inclusion]').checked,delivery_approved:q('[data-gp-approved]').checked,has_conversion:q('[data-gp-converted]').checked};
       // Avoid accepting edits while the in-flight save owns this version.
       form.querySelectorAll('input,select').forEach(el=>el.disabled=true);
-      try{const response=await fetch(root.dataset.endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Growth-CSRF':state.csrf},body:JSON.stringify(payload)});const next=await response.json();if(!response.ok){if(response.status===409)q('[data-gp-reload]').hidden=false;throw Error(next.error||next.detail||'Could not save.');}apply(next);dialog.close();message(action==='activate'?'Activated. Publish or re-publish a report to include the planner.':'Saved.');}
+      try{await renewSession();const response=await fetch(root.dataset.endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Growth-CSRF':state.csrf},body:JSON.stringify(payload)});const next=await response.json();if(!response.ok){if(response.status===409)q('[data-gp-reload]').hidden=false;throw Error(next.error||next.detail||'Could not save.');}apply(next);dialog.close();message(action==='activate'?'Activated. Publish or re-publish a report to include the planner.':'Saved.');}
       catch(e){message(e.message,true);q('[data-gp-dialog-error]').textContent=e.message;}
       finally{busy=false;root.querySelectorAll('button').forEach(b=>b.disabled=false);form.querySelectorAll('input,select').forEach(el=>el.disabled=false);render();}
     }
     form.addEventListener('input',event=>{
-      if(event.target.matches('[data-gp-sales]')){
-        const result=window.pulseGrowthCalculate(data());
-        if(result.ready&&event.target.value!==''&&event.target.validity.valid)field('monthly_leads').value=Math.ceil(Number(event.target.value)/result.rate-1e-9);
-      }
+      if(event.target.matches('[data-gp-sales]'))targetBasis='sales';
+      if(event.target===field('monthly_leads'))targetBasis='leads';
       markDirty();render();
     });
     form.addEventListener('submit',event=>{event.preventDefault();save('save');});
     q('[data-gp-add]').onclick=()=>{row();markDirty();render();};
     q('[data-gp-refresh]').onclick=()=>save('refresh');
-    q('[data-gp-slider]').oninput=event=>{field('monthly_leads').value=event.target.value;markDirty();render();};
+    q('[data-gp-slider]').oninput=event=>{targetBasis='leads';field('monthly_leads').value=event.target.value;markDirty();render();};
     q('[data-gp-activate]').onclick=()=>{if(!form.reportValidity())return;q('[data-gp-approved]').checked=false;q('[data-gp-converted]').checked=false;q('[data-gp-dialog-error]').textContent='';dialog.showModal();};
     q('[data-gp-confirm]').onclick=()=>save('activate');q('[data-gp-cancel]').onclick=()=>dialog.close();
     q('[data-gp-deactivate]').onclick=()=>save('deactivate');
