@@ -7636,7 +7636,12 @@ function applyDashboardChrome(cfg) {
       letter-spacing: -.02em; margin: 0; white-space: nowrap;
     }
     .cro-insights-mark {
-      display: block; width: 34px; height: auto; flex: 0 0 auto;
+      display: block; position: relative; width: 34px; aspect-ratio: 50 / 48;
+      overflow: hidden; flex: 0 0 auto;
+    }
+    .cro-insights-mark img {
+      position: absolute; display: block; width: 691.719745%; max-width: none; height: auto;
+      left: -39.490446%; top: -58.71815%;
     }
     @media (max-width: 640px) {
       body > header.dash-topbar { padding: 0 16px; }
@@ -7669,7 +7674,7 @@ function applyDashboardChrome(cfg) {
         <span class="dash-label">Dashboard</span>
       </a>
     </div>
-    <h1 class="dash-title">${cfg.defaultTab === 'insights' ? '<img class="cro-insights-mark" src="data:image/png;base64,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" alt="" width="50" height="48"><span>CRO Insights</span>' : cfg.title}</h1>
+    <h1 class="dash-title">${cfg.defaultTab === 'insights' ? '<span class="cro-insights-mark" aria-hidden="true"><img src="/static/img/cro-insights-logo.png" alt="" width="2172" height="724"></span><span>CRO Insights</span>' : cfg.title}</h1>
     <div class="dash-right"></div>`;
   hdr.querySelector('.dash-right').appendChild(save);
 
