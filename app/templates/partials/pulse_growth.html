@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="/static/pulse-growth.css?v=4">
+<link rel="stylesheet" href="/static/pulse-growth.css?v=5">
 <div class="growth-planner" data-growth-planner data-endpoint="{{ growth_endpoint }}" data-portal="{{ 'true' if growth_portal else 'false' }}">
   <div class="gp-top"><div><h2>CRO Insights</h2><p>A simple view of the leads and sales needed to grow your business.</p></div><span data-gp-state></span></div>
   <p class="gp-message" data-gp-message role="status" aria-live="polite">Loading planner…</p>
@@ -30,14 +30,13 @@
       <div data-gp-earned aria-live="polite"></div>
     </section>
     <section class="gp-section"><h3>3. Growth forecast</h3>
-      <div class="gp-metric" data-gp-average-leads></div>
       <div class="gp-fields"><label>Sales target per year<input name="annual_sales" data-gp-sales type="number" min="0" max="12000000" step="any"><small>Enter your target at any time. Leads and forecasts update once conversion data is available.</small></label>
       <label class="gp-lead-target">Leads per month target<input name="monthly_leads" type="number" min="0" max="1000000" step="1" required></label></div>
       <input type="range" data-gp-slider min="0" max="500" step="1" aria-label="Monthly lead target">
       <div data-gp-forecast aria-live="polite"></div>
       <p class="gp-note">Planning estimates use expected average sales, your recorded sale values and annual churn. Results are not guaranteed; lead-to-sale timing can affect early results. Revenue already included in your current figure is not added again.</p>
     </section>
-    <section class="gp-section"><h3>What this means</h3><div data-gp-analysis aria-live="polite"></div></section>
+    <section class="gp-section"><h3>Your growth plan</h3><label>Goal to focus on<select data-gp-focus><option value="12">12 months</option><option value="24">24 months</option></select></label><div data-gp-analysis aria-live="polite"></div></section>
     <div class="gp-save"><button type="submit" data-gp-save>Save planner</button><span data-gp-save-status>Changes are shared only when saved.</span></div>
   </form>
   <dialog data-gp-dialog aria-labelledby="gp-approval-heading">
@@ -49,5 +48,5 @@
     <div class="gp-actions"><button type="button" data-gp-cancel>Cancel</button><button type="button" data-gp-confirm>Activate</button></div>
   </dialog>
 </div>
-<script src="/static/pulse-growth-math.js?v=4" defer></script>
-<script src="/static/pulse-growth.js?v=4" defer></script>
+<script src="/static/pulse-growth-math.js?v=5" defer></script>
+<script src="/static/pulse-growth.js?v=5" defer></script>

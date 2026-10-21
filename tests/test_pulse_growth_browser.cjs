@@ -25,8 +25,13 @@ const start={staff:true,can_activate:true,csrf:'test-csrf',today:'2026-10-21',ve
  await page.goto('https://growth.test/');await page.locator('[data-gp-form]').waitFor({state:'visible'});
  assert((await page.locator('[data-gp-metrics]').innerText()).includes('100'));
  assert(!(await page.locator('[data-gp-metrics]').innerText()).includes('%'));
- assert((await page.locator('[data-gp-average-leads]').innerText()).includes('10.3'));
- assert((await page.locator('[data-gp-analysis]').innerText()).includes('below what the revenue goals require'));
+ assert.equal(await page.locator('[data-gp-average-leads]').count(),0);
+ assert((await page.locator('[data-gp-analysis]').innerText()).includes('at 12 months'));
+ const twelve=await page.locator('[data-gp-analysis]').innerText();
+ await page.locator('[data-gp-focus]').selectOption('24');
+ assert((await page.locator('[data-gp-analysis]').innerText()).includes('at 24 months'));
+ assert.notEqual(await page.locator('[data-gp-analysis]').innerText(),twelve);
+ await page.locator('[data-gp-focus]').selectOption('12');
  assert((await page.locator('[data-gp-forecast]').innerText()).includes('£22,000'));
  await page.locator('[data-gp-activate]').click();assert(await page.locator('dialog').isVisible());
  await page.locator('[data-gp-confirm]').click();assert.equal(posts.length,0);
@@ -38,7 +43,13 @@ const start={staff:true,can_activate:true,csrf:'test-csrf',today:'2026-10-21',ve
  await page.locator('[data-gp-save]').click();await page.waitForFunction(()=>document.querySelector('[data-gp-save-status]').textContent==='All changes saved');
  await page.reload();await page.locator('[data-gp-form]').waitFor({state:'visible'});assert.equal(await page.locator('[name=monthly_leads]').inputValue(),'200');
  await page.locator('[name=mode]').selectOption('monthly');
- await page.locator('[data-months]').fill('4');
+ assert((await page.locator('[data-gp-earned]').innerText()).includes('£5,000'));
+ assert.equal(await page.locator('[data-gp-earned] svg circle').evaluateAll(nodes=>new Set(nodes.map(n=>n.getAttribute('cy'))).size),1);
+ await page.locator('[data-amount]').fill('15000');
+ const ticks=await page.locator('[data-gp-earned] svg text').allTextContents();
+ assert(ticks.includes('£5k')&&ticks.includes('£10k')&&ticks.includes('£15k'));
+ await page.locator('[data-amount]').fill('1000');
+ await page.locator('[data-months]').fill('2026-09');
  assert((await page.locator('[data-gp-earned]').innerText()).includes('£4,000'));
  assert.equal(await page.locator('[data-gp-earned] svg circle').count(),5);
  await page.locator('[name=currency]').selectOption('USD');
@@ -73,6 +84,6 @@ const start={staff:true,can_activate:true,csrf:'test-csrf',today:'2026-10-21',ve
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.screenshot({path:'/workspace/scratch/growth-planner-mobile.png',fullPage:true});
  await page.locator('[name=goal_12]').fill('0');await page.locator('[name=goal_24]').fill('0');
- assert((await page.locator('[data-gp-analysis]').innerText()).includes('Enter your 12- and 24-month'));
+ assert((await page.locator('[data-gp-analysis]').innerText()).includes('Enter your 12-month'));
  assert.deepEqual(errors,[]);await browser.close();console.log('PASS: activation popup, live forecasts, save/reload, 3% display rule, project labels and mobile layout.');
 })();

@@ -186,15 +186,17 @@ def test_annual_sales_can_be_saved_before_conversion_data(client, planner):
     assert response.json()['data']['target_basis']=='sales'
 
 
-@pytest.mark.parametrize('months', [0, 1.5, -1, 6])
-def test_rejects_invalid_paid_months(months):
-    data=plan_data();data['conversions'][0]['months']=months
+@pytest.mark.parametrize('end_month', ['2026-05','2026-11','bad','2026-9'])
+def test_rejects_invalid_retainer_end_month(end_month):
+    data=plan_data();data['conversions'][0]['end_month']=end_month
     with pytest.raises(ValueError):growth.validate(data,TODAY)
 
 
-def test_months_paid_preserved():
-    data=plan_data();data['conversions'][0]['months']=4
-    assert growth.validate(data,TODAY)['conversions'][0]['months']==4
+def test_active_retainer_and_end_month_preserved():
+    data=plan_data()
+    assert growth.validate(data,TODAY)['conversions'][0]['end_month']==''
+    data['conversions'][0]['end_month']='2026-09'
+    assert growth.validate(data,TODAY)['conversions'][0]['end_month']=='2026-09'
 
 
 def test_activation_applies_to_existing_published_reports(client,planner,monkeypatch):

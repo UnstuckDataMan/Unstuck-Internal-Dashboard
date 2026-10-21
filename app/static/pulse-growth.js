@@ -12,19 +12,20 @@
     function markDirty(){lastActivity=Date.now();dirty=true;q('[data-gp-save-status]').textContent='Unsaved changes';}
     function row(conversion={}){
       const el=document.createElement('div');el.className='gp-conversion';el.dataset.id=conversion.id||crypto.randomUUID();
-      el.innerHTML='<label>Sale / client <small>optional</small><input data-name maxlength="120"></label><label>Month landed<input data-landed type="month" required></label><label><span data-amount-label>Amount</span><input data-amount type="number" min="0.01" max="1000000000" step="0.01" required></label><label data-months-label>Months paid<input data-months type="number" min="1" max="1200" step="1" required></label><div class="gp-sale-total"><small>Revenue generated</small><strong data-sale-total></strong></div><button type="button" aria-label="Remove conversion">Remove</button>';
+      el.innerHTML='<label>Sale / client <small>optional</small><input data-name maxlength="120"></label><label>Month landed<input data-landed type="month" required></label><label><span data-amount-label>Amount</span><input data-amount type="number" min="0.01" max="1000000000" step="0.01" required></label><label data-months-label>End month<input data-months type="month"><small>Leave blank while active</small></label><div class="gp-sale-total"><small>Revenue generated</small><strong data-sale-total></strong></div><button type="button" aria-label="Remove conversion">Remove</button>';
       el.querySelector('[data-name]').value=conversion.name||'';
       el.querySelector('[data-landed]').value=(conversion.landed||'').slice(0,7);
       el.querySelector('[data-landed]').max=state.today.slice(0,7);
       el.dataset.originalLanded=conversion.landed||'';
-      el.querySelector('[data-months]').value=conversion.months??1;
+      el.querySelector('[data-months]').value=conversion.end_month||'';
+      el.querySelector('[data-months]').max=state.today.slice(0,7);
       el.querySelector('[data-amount]').value=conversion.amount??'';
       el.querySelector('button').onclick=()=>{el.remove();markDirty();render();};
       q('[data-gp-conversions]').appendChild(el);
     }
     function data(){
       const d={};fields.forEach(n=>d[n]=['mode','currency','measurement_start'].includes(n)?field(n).value:Number(field(n).value));
-      d.conversions=Array.from(q('[data-gp-conversions]').children).map(el=>({id:el.dataset.id,name:el.querySelector('[data-name]').value,landed:el.dataset.originalLanded.slice(0,7)===el.querySelector('[data-landed]').value?el.dataset.originalLanded:el.querySelector('[data-landed]').value+'-01',amount:Number(el.querySelector('[data-amount]').value),months:Number(el.querySelector('[data-months]').value)}));
+      d.conversions=Array.from(q('[data-gp-conversions]').children).map(el=>({id:el.dataset.id,name:el.querySelector('[data-name]').value,landed:el.dataset.originalLanded.slice(0,7)===el.querySelector('[data-landed]').value?el.dataset.originalLanded:el.querySelector('[data-landed]').value+'-01',amount:Number(el.querySelector('[data-amount]').value),end_month:el.querySelector('[data-months]').value}));
       d.leads=state.data.leads;d.target_basis=targetBasis;return d;
     }
     function apply(next){
@@ -44,13 +45,17 @@
       return date.toLocaleDateString('en-GB',{month:'short',year:'2-digit',timeZone:'UTC'});
     }
     function revenueChart(values,labels,{bars=false,goals=null,caption='Revenue by month'}={}){
-      const max=Math.max(...values,...(goals?goals.map(g=>g.value):[]),1)*1.1;
+      const peak=Math.max(...values,...(goals?goals.map(g=>g.value):[]),1);
+      const rough=peak/4,power=Math.pow(10,Math.floor(Math.log10(rough)));
+      const step=[1,2,5,10].map(n=>n*power).find(n=>n>=rough);
+      const max=Math.ceil(peak/step)*step;
+      const symbol={GBP:'£',USD:'$',EUR:'€'}[field('currency').value];
+      const axis=v=>symbol+(v>=1000000?num(v/1000000)+'m':v>=1000?num(v/1000)+'k':num(v));
       const left=88,width=Math.max(672,values.length*30),end=left+width;
       const x=i=>left+(i+.5)*width/values.length,y=v=>180-v/max*140;
       let svg=`<svg class="gp-chart" style="min-width:${end+24}px" viewBox="0 0 ${end+24} 250" role="img" aria-label="${caption}">`;
-      for(let i=0;i<=4;i++){
-        const value=max*i/4;
-        svg+=`<path d="M${left} ${y(value)}H${end}" stroke="#393149"/><text x="${left-10}" y="${y(value)+4}" text-anchor="end">${money(value)}</text>`;
+      for(let value=0;value<=max;value+=step){
+        svg+=`<path d="M${left} ${y(value)}H${end}" stroke="#393149"/><text x="${left-10}" y="${y(value)+4}" text-anchor="end">${axis(value)}</text>`;
       }
       if(!bars)svg+=`<path d="${values.map((v,i)=>(i?'L':'M')+x(i)+','+y(v)).join(' ')}" fill="none" stroke="#b69aff" stroke-width="3"/>`;
       values.forEach((v,i)=>{
@@ -67,48 +72,40 @@
     }
     function earned(d){
       const host=q('[data-gp-earned]'),monthly=d.mode==='monthly';
-      const rows=Array.from(q('[data-gp-conversions]').children);
-      rows.forEach(el=>{
+      const monthIndex=s=>Number(s.slice(0,4))*12+Number(s.slice(5,7))-1;
+      const now=monthIndex(state.today);
+      const duration=c=>monthly?Math.max(0,(c.end_month?monthIndex(c.end_month):now)-monthIndex(c.landed)+1):1;
+      Array.from(q('[data-gp-conversions]').children).forEach((el,i)=>{
         const input=el.querySelector('[data-months]');input.disabled=!monthly||busy;
         el.querySelector('[data-months-label]').hidden=!monthly;
-        const landed=el.querySelector('[data-landed]').value;
-        input.max=landed?Math.max(1,(Number(state.today.slice(0,4))-Number(landed.slice(0,4)))*12+Number(state.today.slice(5,7))-Number(landed.slice(5,7))+1):1200;
-        const amount=Number(el.querySelector('[data-amount]').value),months=monthly?Number(input.value):1;
-        el.querySelector('[data-sale-total]').textContent=money(amount*months);
+        input.min=el.querySelector('[data-landed]').value;
+        el.querySelector('[data-sale-total]').textContent=money(d.conversions[i].amount*duration(d.conversions[i]));
       });
       const recorded=d.conversions;
       if(!recorded.length){host.textContent='Add a conversion to see revenue generated.';return;}
-      const monthIndex=s=>Number(s.slice(0,4))*12+Number(s.slice(5,7))-1;
-      const now=monthIndex(state.today),start=Math.min(...recorded.map(c=>monthIndex(c.landed)));
-      if(!Number.isFinite(start)||now-start>1200||recorded.some(c=>!/^\d{4}-\d{2}-\d{2}$/.test(c.landed)||monthIndex(c.landed)>now||c.amount<=0||!Number.isFinite(c.amount)||(monthly&&(!Number.isInteger(c.months)||c.months<1||monthIndex(c.landed)+c.months-1>now)))){
-        host.textContent='Enter a value and valid month for each conversion. Months paid must not extend beyond this month.';return;
+      const start=Math.min(...recorded.map(c=>monthIndex(c.landed)));
+      if(!Number.isFinite(start)||now-start>1200||recorded.some(c=>!/^\d{4}-\d{2}-\d{2}$/.test(c.landed)||monthIndex(c.landed)>now||c.amount<=0||!Number.isFinite(c.amount)||(monthly&&c.end_month&&(monthIndex(c.end_month)<monthIndex(c.landed)||monthIndex(c.end_month)>now)))){
+        host.textContent='Enter a value and valid months for each conversion.';return;
       }
       const values=Array(now-start+1).fill(0);
-      recorded.forEach(c=>{for(let i=0;i<(monthly?c.months:1);i++)values[monthIndex(c.landed)-start+i]+=c.amount;});
+      recorded.forEach(c=>{for(let i=0;i<duration(c);i++)values[monthIndex(c.landed)-start+i]+=c.amount;});
       const total=values.reduce((a,b)=>a+b,0),labels=values.map((_,i)=>monthLabel(start-now+i));
-      host.innerHTML=`<h4>Revenue generated from recorded conversions</h4><div class="gp-metric"><strong>${money(total)}</strong>Total recorded revenue</div>`+
+      host.innerHTML=`<h4>Revenue generated from recorded conversions</h4><div class="gp-metric"><strong>${money(total)}</strong>${monthly?'Revenue to date at recorded monthly values':'Total recorded revenue'}</div>`+
         revenueChart(values,labels,{bars:!monthly,caption:'Recorded revenue by month'})+
-        `<p class="gp-note">${monthly?'Monthly value × months paid, starting in the month landed. Record paid months only; future revenue appears in the forecast below.':'Each project value is counted once, in the month it landed.'}</p>`;
+        `<p class="gp-note">${monthly?'Active retainers repeat at their monthly value from the month landed through this month. Enter an end month when a retainer stops. This shows contracted revenue, not payment receipts.':'Each project value is counted once, in the month it landed.'}</p>`;
     }
     function analyse(d,result){
-      const host=q('[data-gp-analysis]'),average=q('[data-gp-average-leads]');
-      if(!Number.isFinite(result.averageMonthlyLeads)){average.textContent='Refresh generated leads to see the monthly average.';host.textContent='Add your recorded conversions and refresh leads to see how your lead volume compares with your revenue goals.';return;}
-      average.innerHTML=`<strong>${num(result.averageMonthlyLeads)}</strong>Average leads generated per month<p class="gp-note">${d.leads.start} to ${d.leads.as_of}. Partial months are prorated.</p>`;
-      if(!result.ready){host.textContent='Add a conversion to compare your lead volume with your revenue goals.';return;}
-      if(!form.checkValidity()){host.textContent='Complete the fields above to update your analysis.';return;}
-      if(!d.goal_12&&!d.goal_24){host.textContent='Enter your 12- and 24-month revenue goals to compare them with your current lead volume.';return;}
-      const required=Math.max(result.needed12||0,result.needed24||0),pace=result.averageMonthlyLeads;
-      const current=window.pulseGrowthCalculate({...d,monthly_leads:pace});
-      let copy=`You currently average ${num(pace)} leads per month, with ${num(result.leadsPerSale)} leads per sale. `;
-      if(result.needed12===null||result.needed24===null){
-        copy+='The revenue goals exceed the lead range this forecast can calculate. Review the goals, sale value and leads-to-sales performance before setting a lead target.';
-      }else if(current.at12+0.01<d.goal_12||current.at24+0.01<d.goal_24){
-        copy+=`Current lead volume is below what the revenue goals require. At the recorded sales performance, aim for at least ${num(required,0)} leads per month to meet both goals. `;
-        copy+=d.monthly_leads<required?'Your chosen lead target is also below that level. Increase lead volume, or improve lead quality and sales follow-up so fewer leads are needed per sale.':'Your chosen lead target covers that requirement; focus on reaching it consistently while maintaining leads-to-sales performance.';
-      }else{
-        copy+='Current lead volume is sufficient for both revenue goals under these assumptions. ';
-        copy+=d.monthly_leads<required?`Your chosen lead target is lower than the ${num(required,0)} leads per month required, so raise it to keep the plan on track.`:'Maintain lead volume and review new sales and churn regularly to keep the forecast up to date.';
-      }
+      const host=q('[data-gp-analysis]');
+      if(!result.ready){host.textContent='Add your conversions and refresh leads to build a plan for your revenue goals.';return;}
+      if(!form.checkValidity()){host.textContent='Complete the fields above to update your growth plan.';return;}
+      const period=Number(q('[data-gp-focus]').value),goal=d['goal_'+period],needed=result['needed'+period];
+      if(!goal){host.textContent=`Enter your ${period}-month revenue goal to see the leads needed to work towards it.`;return;}
+      const basis=d.mode==='monthly'?' per month':period===12?' over the next 12 months':' in year two';
+      if(needed===null){host.textContent=`Your ${period}-month goal is ${money(goal)}${basis}. This is beyond the lead range this planner models. Explore a higher average sale value or stronger leads-to-sales performance to build an achievable plan.`;return;}
+      let copy=`To reach ${money(goal)}${basis} at ${period} months, plan for approximately ${num(needed,0)} leads per month — ${num(needed*period,0)} leads over ${period} months — based on your recorded sale values, leads per sale and churn. `;
+      if(needed===0)copy='Your existing revenue is projected to cover this goal under the current churn assumption. Additional sales offer room to grow further. ';
+      else if(d.monthly_leads>=needed)copy+='Your selected lead target supports this goal under the current assumptions. Keep building on this pace and review new conversions as they land.';
+      else copy+=`Building towards ${num(needed,0)} leads per month provides a clear route to this goal. Improving lead quality and sales follow-up can also reduce the number of leads needed per sale.`;
       host.textContent=copy;
     }
     function render(){
@@ -173,6 +170,7 @@
       catch(e){message(e.message,true);q('[data-gp-dialog-error]').textContent=e.message;}
       finally{busy=false;root.querySelectorAll('button').forEach(b=>b.disabled=false);form.querySelectorAll('input,select').forEach(el=>el.disabled=false);render();}
     }
+    q('[data-gp-focus]').onchange=()=>render();
     form.addEventListener('input',event=>{
       if(event.target.matches('[data-gp-sales]'))targetBasis='sales';
       if(event.target===field('monthly_leads'))targetBasis='leads';
