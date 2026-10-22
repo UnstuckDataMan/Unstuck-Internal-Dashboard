@@ -18,11 +18,11 @@ function calculate(d){
  const rate=ready?sales.length/leads.count:0,pace=ready?sales.length/months:0;
  const retention=Math.pow(1-d.annual_churn/100,1/12);
  function project(salesPerMonth){
-  let revenue=d.current_revenue;const points=[revenue*12];
+  let revenue=d.current_revenue;const points=[revenue];
   for(let m=1;m<=horizon*12;m++){
    revenue=d.mode==='monthly'?revenue*retention+salesPerMonth*d.average_value:
      d.current_revenue*Math.pow(retention,m)+salesPerMonth*d.average_value;
-   points.push(revenue*12);
+   points.push(revenue);
   }return points;
  }
  const baseline=project(0),unit=project(1),forecast=ready?project(pace):null;

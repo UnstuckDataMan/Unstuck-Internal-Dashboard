@@ -65,11 +65,11 @@ def validate(data, today):
         clean.append({'id': key, 'landed': landed.isoformat(), 'amount': amount, 'end_month': end_month,
                       'name': str(row.get('name') or '')[:120]})
     extra = {}
-    if data.get('schema_version') == 2:
+    if data.get('schema_version') in (2, 3):
         goals = data.get('goals')
         if not isinstance(goals, list) or len(goals) != 5:
             raise ValueError('Enter up to five yearly revenue goals.')
-        extra = {'schema_version': 2,
+        extra = {'schema_version': data['schema_version'],
                  'average_value': number(data.get('average_value'), 'Average customer value'),
                  'goals': [None if v is None or v == '' else number(v, 'Yearly revenue goal') for v in goals]}
     return {

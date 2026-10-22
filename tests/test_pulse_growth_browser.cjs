@@ -24,10 +24,10 @@ const start={staff:true,can_activate:true,csrf:'test-csrf',today:'2026-10-21',ve
  });
  await page.goto('https://growth.test/');await page.locator('[data-gp-form]').waitFor({state:'visible'});
 
- assert.equal(await page.locator('[data-goal="1"]').inputValue(),'240000');
- assert.equal(await page.locator('[data-goal="2"]').inputValue(),'360000');
+ assert.equal(await page.locator('[data-goal="1"]').inputValue(),'20,000');
+ assert.equal(await page.locator('[data-goal="2"]').inputValue(),'30,000');
  assert.equal(await page.locator('[data-goal="3"]').inputValue(),'');
- assert.equal(await page.locator('[name=average_value]').inputValue(),'1000');
+ assert.equal(await page.locator('[name=average_value]').inputValue(),'1,000');
  assert((await page.locator('[data-gp-forecast]').innerText()).includes('Year 2'));
  assert(!(await page.locator('[data-gp-forecast]').innerText()).includes('Year 3'));
  assert((await page.locator('[data-gp-metrics]').innerText()).includes('Leads per deal'));
@@ -36,12 +36,21 @@ const start={staff:true,can_activate:true,csrf:'test-csrf',today:'2026-10-21',ve
  await page.locator('[data-gp-focus]').selectOption('2');assert((await page.locator('[data-gp-analysis]').innerText()).includes('Year 2'));
  await page.locator('[data-goal="5"]').fill('1000000');assert((await page.locator('[data-gp-forecast]').innerText()).includes('Year 5'));
  await page.locator('[data-gp-save]').click();await page.waitForFunction(()=>document.querySelector('[data-gp-save-status]').textContent==='All changes saved');
- assert.equal(state.data.schema_version,2);assert.equal(state.data.goals[2],null);assert.equal(state.data.goals[4],1000000);
- await page.reload();await page.locator('[data-gp-form]').waitFor({state:'visible'});assert.equal(await page.locator('[data-goal="5"]').inputValue(),'1000000');
+ assert.equal(state.data.schema_version,3);assert.equal(state.data.goals[2],null);assert.equal(state.data.goals[4],1000000);
+ await page.reload();await page.locator('[data-gp-form]').waitFor({state:'visible'});assert.equal(await page.locator('[data-goal="5"]').inputValue(),'1,000,000');
  await page.locator('[data-gp-activate]').click();await page.locator('[data-gp-confirm]').click();assert(await page.locator('dialog').isVisible());
  await page.locator('[data-gp-approved]').check();await page.locator('[data-gp-converted]').check();await page.locator('[data-gp-confirm]').click();await page.locator('dialog').waitFor({state:'hidden'});
  assert(state.enabled);
  assert((await page.locator('body').innerText()).includes('Unstuck activity should work alongside'));
+ await page.locator('[name=current_revenue]').fill('50,000.50');
+ await page.locator('[name=currency]').selectOption('USD');
+ assert.equal(await page.locator('[name=current_revenue]').inputValue(),'50,000.50');
+ assert((await page.locator('[data-gp-average-label]').innerText()).includes('($)'));
+ await page.locator('[data-gp-save]').click();await page.waitForFunction(()=>document.querySelector('[data-gp-save-status]').textContent==='All changes saved');
+ assert.equal(state.data.current_revenue,50000.5);assert.equal(state.data.currency,'USD');
+ await page.locator('[name=current_revenue]').fill('1,2');
+ assert.equal(await page.locator('[name=current_revenue]').evaluate(el=>el.validity.valid),false);
+ await page.locator('[name=current_revenue]').fill('50,000');await page.locator('[name=currency]').selectOption('GBP');
  await page.screenshot({path:'/workspace/scratch/cro-simple-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.screenshot({path:'/workspace/scratch/cro-simple-mobile.png',fullPage:true});

@@ -10,27 +10,39 @@ function init(root){
  const money=n=>new Intl.NumberFormat('en-GB',{style:'currency',currency:field('currency').value,maximumFractionDigits:0}).format(n);
  const message=(s,error=false)=>{q('[data-gp-message]').textContent=s;q('[data-gp-message]').dataset.error=String(error);};
  const markDirty=()=>{lastActivity=Date.now();dirty=true;q('[data-gp-save-status]').textContent='Unsaved changes';};
+ const numeric=value=>Number(String(value).replace(/,/g,''));
+ function validateMoney(el){
+  const value=el.value.trim();
+  const valid=!value||/^(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]{1,2})?$/.test(value);
+  const n=numeric(value),minimum=el.hasAttribute('data-amount')?0.01:0;
+  el.setCustomValidity(valid&&(!value||(n>=minimum&&n<=1000000000))?'':'Enter a valid amount, such as 50,000 or 50,000.50.');
+ }
+ function formatMoneyInput(el){
+  validateMoney(el);
+  if(el.value.trim()&&el.validity.valid)el.value=numeric(el.value).toLocaleString('en-GB',{minimumFractionDigits:numeric(el.value)%1?2:0,maximumFractionDigits:2});
+ }
  function normalized(d){
-  if(d.schema_version===2)return d;
+  if(d.schema_version===3)return d;
+  if(d.schema_version===2)return {...d,schema_version:3,goals:d.goals.map(v=>v===null?null:Math.round(v/12*100)/100)};
   const recurring=d.mode!=='project',sales=d.conversions||[];
-  return {...d,schema_version:2,current_revenue:recurring?d.current_revenue:Math.round(d.current_revenue/12*100)/100,
+  return {...d,schema_version:3,current_revenue:recurring?d.current_revenue:Math.round(d.current_revenue/12*100)/100,
    average_value:sales.length?Math.round(sales.reduce((s,c)=>s+c.amount,0)/sales.length*100)/100:0,
-   goals:[d.goal_12?d.goal_12*(recurring?12:1):null,d.goal_24?d.goal_24*(recurring?12:1):null,null,null,null]};
+   goals:[d.goal_12?Math.round(d.goal_12/(recurring?1:12)*100)/100:null,d.goal_24?Math.round(d.goal_24/(recurring?1:12)*100)/100:null,null,null,null]};
  }
  function row(c={}){
   const el=document.createElement('div');el.className='gp-conversion gp-simple-deal';el.dataset.id=c.id||crypto.randomUUID();el.dataset.originalLanded=c.landed||'';el.dataset.endMonth=c.end_month||'';
-  el.innerHTML='<label>Deal / customer <small>optional</small><input data-name maxlength="120"></label><label>Month won<input data-landed type="month" required></label><label><span data-amount-label>Monthly value</span><input data-amount type="number" min="0.01" max="1000000000" step="0.01" required></label><button type="button">Remove</button>';
+  el.innerHTML='<label>Deal / customer <small>optional</small><input data-name maxlength="120"></label><label>Month won<input data-landed type="month" required></label><label><span data-amount-label>Monthly value</span><input data-amount data-money type="text" inputmode="decimal" required></label><button type="button">Remove</button>';
   el.querySelector('[data-name]').value=c.name||'';el.querySelector('[data-landed]').value=(c.landed||'').slice(0,7);el.querySelector('[data-landed]').max=state.today.slice(0,7);el.querySelector('[data-amount]').value=c.amount??'';
   el.querySelector('button').onclick=()=>{el.remove();markDirty();render();};q('[data-gp-conversions]').appendChild(el);
  }
  function data(){
-  const d={schema_version:2,goal_12:0,goal_24:0,monthly_leads:0,annual_sales:0,target_basis:'leads'};
-  fields.forEach(n=>d[n]=['mode','currency','measurement_start'].includes(n)?field(n).value:Number(field(n).value));
-  d.goals=Array.from(root.querySelectorAll('[data-goal]')).map(el=>el.value===''?null:Number(el.value));
+  const d={schema_version:3,goal_12:0,goal_24:0,monthly_leads:0,annual_sales:0,target_basis:'leads'};
+  fields.forEach(n=>d[n]=['mode','currency','measurement_start'].includes(n)?field(n).value:numeric(field(n).value));
+  d.goals=Array.from(root.querySelectorAll('[data-goal]')).map(el=>el.value===''?null:numeric(el.value));
   d.conversions=Array.from(q('[data-gp-conversions]').children).map(el=>{
    const month=el.querySelector('[data-landed]').value;
    const landed=el.dataset.originalLanded.slice(0,7)===month?el.dataset.originalLanded:month===d.measurement_start.slice(0,7)?d.measurement_start:month+'-01';
-   return {id:el.dataset.id,name:el.querySelector('[data-name]').value,landed,amount:Number(el.querySelector('[data-amount]').value),end_month:el.dataset.endMonth};
+   return {id:el.dataset.id,name:el.querySelector('[data-name]').value,landed,amount:numeric(el.querySelector('[data-amount]').value),end_month:el.dataset.endMonth};
   });d.leads=state.data.leads;return d;
  }
  function apply(next){
@@ -43,22 +55,25 @@ function init(root){
   q('[data-gp-inclusion-label]').hidden=!next.enabled;q('[data-gp-inclusion]').checked=next.include_in_reports;
   q('[data-gp-refresh]').hidden=!next.staff;q('[data-gp-state]').textContent=next.enabled?'Active':'Draft — staff only';
   q('[data-gp-activation-note]').textContent=next.enabled?'CRO Insights is active. It appears at the bottom of this client’s reports when included.':'Record a deal, then activate after delivery manager approval.';
+  root.querySelectorAll('[data-money]').forEach(formatMoneyInput);
   form.hidden=false;dirty=false;q('[data-gp-save-status]').textContent='All changes saved';render();
  }
  function chart(r,d){
-  const maxValue=Math.max(d.current_revenue*12,...r.baseline,...(r.forecast||[]),...r.goals.map(g=>g.value),1),rough=maxValue/4,power=10**Math.floor(Math.log10(rough)),step=[1,2,5,10].map(n=>n*power).find(n=>n>=rough),top=Math.ceil(maxValue/step)*step;
+  const maxValue=Math.max(d.current_revenue,...r.baseline,...(r.forecast||[]),...r.goals.map(g=>g.value),1),rough=maxValue/4,power=10**Math.floor(Math.log10(rough)),step=[1,2,5,10].map(n=>n*power).find(n=>n>=rough),top=Math.ceil(maxValue/step)*step;
   const symbol={GBP:'£',USD:'$',EUR:'€'}[d.currency],axis=n=>symbol+(n>=1e6?num(n/1e6)+'m':n>=1000?num(n/1000)+'k':num(n));
   const x=m=>90+m/(r.horizon*12)*570,y=n=>190-n/top*150;
-  let svg='<svg class="gp-chart" viewBox="0 0 700 240" role="img" aria-label="Annualised revenue: forecast and selected yearly goals">';
+  let svg='<svg class="gp-chart" viewBox="0 0 700 240" role="img" aria-label="Monthly revenue: forecast and selected yearly goals">';
   for(let v=0;v<=top;v+=step)svg+=`<path d="M90 ${y(v)}H660" stroke="#393149"/><text x="80" y="${y(v)+4}" text-anchor="end">${axis(v)}</text>`;
   const points=r.forecast||r.baseline;
   svg+=`<path d="${points.map((v,i)=>(i?'L':'M')+x(i)+','+y(v)).join(' ')}" fill="none" stroke="#b69aff" stroke-width="3" ${r.forecast?'':'stroke-dasharray="5 5"'}/>`;
   for(let yr=0;yr<=r.horizon;yr++){svg+=`<text x="${x(yr*12)}" y="216" text-anchor="middle">${yr?'Year '+yr:'Now'}</text><circle cx="${x(yr*12)}" cy="${y(points[yr*12])}" r="4" fill="#b69aff"><title>${yr?'Year '+yr:'Now'}: ${money(points[yr*12])}</title></circle>`;}
   r.goals.forEach(g=>svg+=`<circle cx="${x(g.year*12)}" cy="${y(g.value)}" r="6" fill="#33d9cd"><title>Year ${g.year} goal: ${money(g.value)}</title></circle>`);
-  return svg+'</svg><p class="gp-note">Annualised revenue · Purple: '+(r.forecast?'forecast at the observed Unstuck deal pace':'existing revenue after churn; add deal data for a growth forecast')+' · Turquoise: your goals</p>';
+  return svg+'</svg><p class="gp-note">Monthly revenue · Purple: '+(r.forecast?'forecast at the observed Unstuck deal pace':'existing revenue after churn; add deal data for a growth forecast')+' · Turquoise: your goals</p>';
  }
  function render(){
   if(!state)return;const d=data(),symbol={GBP:'£',USD:'$',EUR:'€'}[d.currency];
+  root.querySelectorAll('[data-goal-label]').forEach((el,i)=>el.textContent='Year '+(i+1)+(d.mode==='monthly'?' MRR goal':' monthly revenue goal'));
+  q('[data-gp-goal-note]').textContent=d.mode==='monthly'?'Monthly recurring revenue you want to reach by the end of each year. Leave any unused years blank.':'Monthly business revenue you want to reach by the end of each year. Leave any unused years blank.';
   q('[data-gp-average-label]').textContent=(d.mode==='monthly'?'Average monthly revenue per customer':'Average value per project')+' ('+symbol+')';
   root.querySelectorAll('[data-amount-label]').forEach(el=>el.textContent=(d.mode==='monthly'?'Monthly value':'Project value')+' ('+symbol+')');
   q('[data-gp-count]').textContent=d.conversions.length+(d.conversions.length===1?' deal':' deals');
@@ -74,7 +89,7 @@ function init(root){
   select.disabled=!r.goals.length;select.parentElement.hidden=!r.goals.length;
   if(!r.goals.length){host.textContent='Add a goal for any year to explore the customers and leads needed. You can start with Years 1 and 2 and add later years when ready.';return;}
   const g=r.goals.find(g=>String(g.year)===select.value);
-  let copy=`Your Year ${g.year} goal is ${money(g.value)} in annualised revenue (${money(g.value/12)} per month). `;
+  let copy=`Your Year ${g.year} goal is ${money(g.value)} per month by the end of Year ${g.year}. `;
   if(!g.gap)copy+='Existing revenue is projected to cover this goal under your churn assumption. New customers provide room to grow further.';
   else if(g.dealsPerMonth===null)copy+='Enter an average customer value above zero to calculate the new business needed.';
   else{
@@ -118,7 +133,8 @@ function init(root){
     }
 
  q('[data-gp-focus]').onchange=()=>render();
- form.addEventListener('input',()=>{markDirty();render();});
+ form.addEventListener('input',event=>{if(event.target.matches('[data-money]'))validateMoney(event.target);markDirty();render();});
+ form.addEventListener('focusout',event=>{if(event.target.matches('[data-money]')){formatMoneyInput(event.target);render();}});
  form.addEventListener('submit',event=>{event.preventDefault();save('save');});
  q('[data-gp-add]').onclick=()=>{row();markDirty();render();};
  q('[data-gp-refresh]').onclick=()=>save('refresh');

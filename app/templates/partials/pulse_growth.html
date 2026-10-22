@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="/static/pulse-growth.css?v=6">
+<link rel="stylesheet" href="/static/pulse-growth.css?v=8">
 <div class="growth-planner" data-growth-planner data-endpoint="{{ growth_endpoint }}" data-portal="{{ 'true' if growth_portal else 'false' }}">
   <div class="gp-top"><div><h2>CRO Insights</h2><p>A simple view of the leads and sales needed to grow your business.</p></div><span data-gp-state></span></div>
   <p class="gp-message" data-gp-message role="status" aria-live="polite">Loading planner…</p>
@@ -11,17 +11,17 @@
       <small>After activation, CRO Insights appears at the bottom of this client’s published reports. Deactivation removes it from those reports.</small>
     </div>
     <p class="gp-note" data-gp-portal-note hidden>This is a live planning workspace shared with your account manager. Saving updates the planner across your reports; published campaign figures stay as they were.</p>
+    <label class="gp-currency">Currency<select name="currency"><option value="GBP">£ GBP</option><option value="USD">USD ($)</option><option value="EUR">€ EUR</option></select></label>
     <section class="gp-section"><h3>1. Your business and goals</h3>
       <div class="gp-fields">
-        <label>Current monthly business revenue<input name="current_revenue" type="number" min="0" max="1000000000" step="0.01" required></label>
-        <label><span data-gp-average-label>Average monthly revenue per customer</span><input name="average_value" type="number" min="0" max="1000000000" step="0.01" required><small>Used to estimate the value of future customers.</small></label>
+        <label>Current monthly business revenue<input name="current_revenue" type="text" inputmode="decimal" data-money required></label>
+        <label><span data-gp-average-label>Average monthly revenue per customer</span><input name="average_value" type="text" inputmode="decimal" data-money required><small>Used to estimate the value of future customers.</small></label>
         <label>Annual churn (%)<input name="annual_churn" type="number" min="0" max="100" step="0.1" required><small>Estimated share of existing revenue lost each year.</small></label>
-        <label>Currency<select name="currency"><option>GBP</option><option>USD</option><option>EUR</option></select></label>
         <label>Sales model<select name="mode"><option value="monthly">Monthly retainers</option><option value="project">One-off projects</option></select></label>
       </div>
-      <p class="gp-note">Enter annual revenue goals for the years you want to plan. Leave other years blank. Each goal is your monthly revenue at that point × 12, not the total collected during that year.</p>
+      <p class="gp-note" data-gp-goal-note>Monthly recurring revenue you want to reach by the end of each year. Leave any unused years blank.</p>
       <div class="gp-fields gp-goals">
-        {% for year in [1, 2, 3, 4, 5] %}<label>Year {{ year }} revenue goal<input data-goal="{{ year }}" type="number" min="0" max="1000000000" step="0.01" placeholder="Optional"></label>{% endfor %}
+        {% for year in [1, 2, 3, 4, 5] %}<label><span data-goal-label>Year {{ year }} MRR goal</span><input data-goal="{{ year }}" type="text" inputmode="decimal" data-money placeholder="Optional"></label>{% endfor %}
       </div>
     </section>
     <section class="gp-section"><h3>2. Deals won through Unstuck <span data-gp-count></span></h3>
@@ -49,5 +49,5 @@
     <div class="gp-actions"><button type="button" data-gp-cancel>Cancel</button><button type="button" data-gp-confirm>Activate</button></div>
   </dialog>
 </div>
-<script src="/static/pulse-growth-math.js?v=6" defer></script>
-<script src="/static/pulse-growth.js?v=6" defer></script>
+<script src="/static/pulse-growth-math.js?v=8" defer></script>
+<script src="/static/pulse-growth.js?v=8" defer></script>
