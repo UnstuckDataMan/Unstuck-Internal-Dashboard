@@ -21,7 +21,7 @@ function calculate(d){
   let revenue=d.current_revenue;const points=[revenue];
   for(let m=1;m<=horizon*12;m++){
    revenue=d.mode==='monthly'?revenue*retention+salesPerMonth*d.average_value:
-     d.current_revenue*Math.pow(retention,m)+salesPerMonth*d.average_value;
+     d.current_revenue*Math.pow(retention,m)+salesPerMonth*d.average_value*12;
    points.push(revenue);
   }return points;
  }

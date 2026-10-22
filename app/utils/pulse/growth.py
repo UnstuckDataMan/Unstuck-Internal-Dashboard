@@ -65,7 +65,7 @@ def validate(data, today):
         clean.append({'id': key, 'landed': landed.isoformat(), 'amount': amount, 'end_month': end_month,
                       'name': str(row.get('name') or '')[:120]})
     extra = {}
-    if data.get('schema_version') in (2, 3):
+    if data.get('schema_version') in (2, 3, 4):
         goals = data.get('goals')
         if not isinstance(goals, list) or len(goals) != 5:
             raise ValueError('Enter up to five yearly revenue goals.')

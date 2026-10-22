@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="/static/pulse-growth.css?v=8">
+<link rel="stylesheet" href="/static/pulse-growth.css?v=9">
 <div class="growth-planner" data-growth-planner data-endpoint="{{ growth_endpoint }}" data-portal="{{ 'true' if growth_portal else 'false' }}">
   <div class="gp-top"><div><h2>CRO Insights</h2><p>A simple view of the leads and sales needed to grow your business.</p></div><span data-gp-state></span></div>
   <p class="gp-message" data-gp-message role="status" aria-live="polite">Loading planner…</p>
@@ -14,18 +14,18 @@
     <label class="gp-currency">Currency<select name="currency"><option value="GBP">£ GBP</option><option value="USD">USD ($)</option><option value="EUR">€ EUR</option></select></label>
     <section class="gp-section"><h3>1. Your business and goals</h3>
       <div class="gp-fields">
-        <label>Current monthly business revenue<input name="current_revenue" type="text" inputmode="decimal" data-money required></label>
-        <label><span data-gp-average-label>Average monthly revenue per customer</span><input name="average_value" type="text" inputmode="decimal" data-money required><small>Used to estimate the value of future customers.</small></label>
+        <label>Current revenue per year<input name="current_revenue" type="text" inputmode="decimal" data-money required></label>
+        <label><span data-gp-average-label>Average annual revenue per customer</span><input name="average_value" type="text" inputmode="decimal" data-money required><small>Used to estimate the value of future customers.</small></label>
         <label>Annual churn (%)<input name="annual_churn" type="number" min="0" max="100" step="0.1" required><small>Estimated share of existing revenue lost each year.</small></label>
-        <label>Sales model<select name="mode"><option value="monthly">Monthly retainers</option><option value="project">One-off projects</option></select></label>
+        <label>Sales model<select name="mode"><option value="monthly">Retainers</option><option value="project">One-off projects</option></select></label>
       </div>
-      <p class="gp-note" data-gp-goal-note>Monthly recurring revenue you want to reach by the end of each year. Leave any unused years blank.</p>
+      <p class="gp-note" data-gp-goal-note>Annual revenue you want to reach by the end of each year. Leave any unused years blank.</p>
       <div class="gp-fields gp-goals">
-        {% for year in [1, 2, 3, 4, 5] %}<label><span data-goal-label>Year {{ year }} MRR goal</span><input data-goal="{{ year }}" type="text" inputmode="decimal" data-money placeholder="Optional"></label>{% endfor %}
+        {% for year in [1, 2, 3, 4, 5] %}<label><span data-goal-label>Year {{ year }} annual revenue goal</span><input data-goal="{{ year }}" type="text" inputmode="decimal" data-money placeholder="Optional"></label>{% endfor %}
       </div>
     </section>
     <section class="gp-section"><h3>2. Deals won through Unstuck <span data-gp-count></span></h3>
-      <p class="gp-note">Add one row per deal. The deal count and leads per deal are calculated for you.</p>
+      <p class="gp-note">Add one row per deal. Enter the annual value for retainers (monthly fee × 12), or the full value of a one-off project. Deal count and leads per deal are calculated for you.</p>
       <div class="gp-conversions" data-gp-conversions></div>
       <button type="button" data-gp-add>+ Add deal</button>
       <details><summary>Lead tracking details</summary><div class="gp-tracking"><label>Track leads from<input name="measurement_start" type="date" required></label><button type="button" data-gp-refresh>Refresh generated leads</button><p data-gp-source></p></div></details>
@@ -49,5 +49,5 @@
     <div class="gp-actions"><button type="button" data-gp-cancel>Cancel</button><button type="button" data-gp-confirm>Activate</button></div>
   </dialog>
 </div>
-<script src="/static/pulse-growth-math.js?v=8" defer></script>
-<script src="/static/pulse-growth.js?v=8" defer></script>
+<script src="/static/pulse-growth-math.js?v=9" defer></script>
+<script src="/static/pulse-growth.js?v=9" defer></script>

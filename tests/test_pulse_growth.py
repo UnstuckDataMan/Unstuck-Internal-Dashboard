@@ -210,8 +210,9 @@ def test_activation_applies_to_existing_published_reports(client,planner,monkeyp
     assert client.get('/r/valid/growth-plan/published').status_code==404
 
 
-def test_optional_five_year_goals():
-    data=plan_data();data.update(schema_version=2,average_value=500,goals=[120000,200000,None,None,None])
+@pytest.mark.parametrize("schema_version", [2,3,4])
+def test_optional_five_year_goals(schema_version):
+    data=plan_data();data.update(schema_version=schema_version,average_value=500,goals=[120000,200000,None,None,None])
     clean=growth.validate(data,TODAY)
     assert clean['goals']==[120000,200000,None,None,None]
     assert clean['average_value']==500
