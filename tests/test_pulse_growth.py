@@ -208,3 +208,21 @@ def test_activation_applies_to_existing_published_reports(client,planner,monkeyp
     planner[CLIENT]['include_in_reports']=False
     assert not _growth_visible(CLIENT)
     assert client.get('/r/valid/growth-plan/published').status_code==404
+
+
+def test_optional_five_year_goals():
+    data=plan_data();data.update(schema_version=2,average_value=500,goals=[120000,200000,None,None,None])
+    clean=growth.validate(data,TODAY)
+    assert clean['goals']==[120000,200000,None,None,None]
+    assert clean['average_value']==500
+    for bad in ([1,2], [1,2,-1,None,None], [1,2,True,None,None]):
+        data['goals']=bad
+        with pytest.raises(ValueError):growth.validate(data,TODAY)
+
+
+def test_new_plan_round_trip(client,planner):
+    headers=start(client);data=plan_data()
+    data.update(schema_version=2,average_value=750,goals=[120000,None,None,None,500000])
+    response=client.post(f'/api/outbound-pulse/clients/{CLIENT}/growth-plan',headers=headers,json={'version':0,'data':data})
+    assert response.status_code==200
+    assert response.json()['data']['goals']==[120000,None,None,None,500000]

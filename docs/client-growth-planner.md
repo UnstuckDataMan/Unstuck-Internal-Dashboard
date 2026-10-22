@@ -1,35 +1,23 @@
-# Client CRO Insights
+# Reporting CRO Insights
 
-The CRO Insights tab sits between Lead quality and Reports. It is separate from agency CRO Insights.
+This optional reporting section is separate from the agency's main CRO tool. It appears at the bottom of all published reports for a client once an AM activates it and includes it in reports. Existing report links continue to work.
 
-## Setup and publishing
+## Simple inputs
 
-Apply `migrations/pulse_growth_plans.sql` to the dashboard database before deploying. The app requires its existing Supabase service-role key. The new table has RLS enabled, no anonymous/authenticated grants, and server-only access scoped to agency and client. No existing report rows are migrated.
+Current monthly business revenue, average monthly revenue per customer (or average one-off project value), annual revenue churn, and optional Year 1–5 goals. Goals are annualised revenue at that point: monthly revenue × 12, not cumulative cash collected. Blank years remain null. The graph ends at the last entered year, defaulting to two years if no goals exist.
 
-Link the client's Performance Tracker in Lead quality. Set a tracking start date matching the entered conversions, then refresh generated leads. Only dated tracker rows in that window count. The planner's window is independent of other dashboard date filters.
+One row represents one Unstuck deal, with an optional name, month won and value. The count is automatic. Lead measurement settings are under an expandable section. AMs refresh the existing linked Performance Tracker; client users cannot replace server-owned lead volumes.
 
-An account manager (reviewer role) or admin records at least one actual conversion and confirms both activation questions. Activation enables inclusion immediately at the bottom of all published reports for this client. Unchecking inclusion or deactivating removes portal access, including older reports. Older published reports also show the live tool once it is enabled; their campaign figures stay unchanged. Staff can save a draft before activation.
+## Forecast and analysis
 
-## Inputs and forecasts
+Leads per deal uses only conversions inside the saved lead window. Forecast sales pace is matched conversions divided by calendar months in that window (partial months prorated). The model compounds annual churn monthly and adds expected new customer revenue using the user's average value. Retainers recur; one-off projects count once. Current revenue already includes historical deals, so those deals are never added again.
 
-Business figures, annual churn, individual conversion dates/values, 12/24-month revenue goals, and monthly lead and annual sales targets are editable in place. Changing the sales target calculates the required whole number of leads; editing leads recalculates expected sales. The chosen target basis is saved: annual sales stay fixed when editing sales, while lead-driven plans derive annual sales from the monthly lead target. Annual sales can be entered and saved before lead or conversion data is available. Save planner persists edits; other open editors must reload after a version conflict.
+A single graph shows annualised revenue at that pace and the supplied goals. Without matched lead/deal data it shows an explicitly labelled churn-only baseline, not an invented growth forecast. Selected-goal analysis calculates the monthly and total deals needed to close the gap and translates these into leads using observed leads per deal. It explicitly frames this as an illustration if Unstuck alone filled the gap. A permanent note says Unstuck should work alongside existing activity and other sources of growth. The tool never displays conversion-rate percentages.
 
-Only conversions within the saved lead snapshot window are used. Later conversions are identified and included after an AM refreshes leads. The server ignores submitted lead counts. A failed refresh never substitutes invented leads.
-
-Observed rate = conversions / generated leads. Leads per sale = generated leads / conversions. Below 3%, only leads per sale is displayed. At 3% and above, the percentage also appears. Calculations always use the actual rate.
-
-Monthly retention = `(1 - annual_churn / 100) ** (1 / 12)`. Forecasts use expected average sales, allowing fractional averages without promising fractional actual sales. Monthly mode retains the prior month's revenue then adds new sales at their average monthly value. Project mode counts new sales once; current annual baseline is spread over months and reduced by retention. The year-two project result sums months 13–24. Current revenue already includes historical conversions, so those are never added again. Suggested lead targets use this same model and are capped at one million leads/month.
-
-Clients with a valid, unrevoked report link can edit the included live planner. Campaign report snapshots remain immutable. Clients cannot activate, change the measurement window, change inclusion or supply lead volumes. Both staff and client writes require a signed, route- and user-bound CSRF token and current record version.
+The new plan stores schema_version=2, average_value, and five nullable goals in the existing JSON data column. Previous monthly goals are converted to annualised figures on load; previous project current revenue is converted from annual to monthly. Original data is not rewritten until saved. Activation, CSRF protection, optimistic concurrency, client scoping, and session renewal remain intact. Main CRO Insights code is unchanged.
 
 ## Verification
 
 - `.venv/bin/python -m pytest tests/test_pulse_growth.py tests/test_outbound_pulse.py tests/test_pulse_tracker.py -q`
 - `node tests/test_pulse_growth_math.cjs`
-- `node tests/test_pulse_growth_browser.cjs` (Playwright and Chromium required; `CHROMIUM_PATH` overrides `/usr/bin/chromium`)
-
-The CSRF token does not expire during editing and is independent of session-cookie updates from concurrent requests. While the page is visible and recently edited, a five-minute keepalive renews the existing authenticated session. Saves refresh the token without overwriting inputs or record versions. Real sign-outs or expired access links still require authentication; failed saves preserve the form.
-
-Conversions use month selectors and currency-labelled values. Retainers continue at their monthly value through the current month unless an end month is entered. Historical `months` fields are no longer used to infer cancellation. This is contracted revenue, not verified cash receipts. Projects count once. The charts use rounded currency ticks (for example $5k, $10k, $15k).
-
-The closing analysis focuses on the selected 12- or 24-month goal. It states the required monthly and total lead volumes using the forecast model and offers constructive next steps. It does not display historical average lead volume or a low conversion percentage, and does not promise the goal will be achieved.
+- `node tests/test_pulse_growth_browser.cjs` (Playwright and Chromium required)

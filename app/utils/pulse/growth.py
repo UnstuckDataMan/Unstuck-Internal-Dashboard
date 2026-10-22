@@ -64,7 +64,16 @@ def validate(data, today):
         ids.add(key)
         clean.append({'id': key, 'landed': landed.isoformat(), 'amount': amount, 'end_month': end_month,
                       'name': str(row.get('name') or '')[:120]})
+    extra = {}
+    if data.get('schema_version') == 2:
+        goals = data.get('goals')
+        if not isinstance(goals, list) or len(goals) != 5:
+            raise ValueError('Enter up to five yearly revenue goals.')
+        extra = {'schema_version': 2,
+                 'average_value': number(data.get('average_value'), 'Average customer value'),
+                 'goals': [None if v is None or v == '' else number(v, 'Yearly revenue goal') for v in goals]}
     return {
+        **extra,
         'mode': mode, 'currency': currency, 'measurement_start': start.isoformat(),
         'annual_churn': number(data.get('annual_churn'), 'Annual churn', 100),
         'current_revenue': number(data.get('current_revenue'), 'Current revenue'),

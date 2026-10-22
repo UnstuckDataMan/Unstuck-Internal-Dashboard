@@ -1,145 +1,91 @@
 (function(){
-  'use strict';
-  function init(root){
-    if(root.dataset.ready)return;root.dataset.ready='true';
-    const q=s=>root.querySelector(s),form=q('[data-gp-form]'),dialog=q('[data-gp-dialog]');
-    let state=null,busy=false,dirty=false,targetBasis='leads',lastActivity=Date.now();
-    const fields=['mode','currency','measurement_start','annual_churn','current_revenue','goal_12','goal_24','monthly_leads','annual_sales'];
-    const field=n=>form.elements.namedItem(n);
-    function message(text,error=false){q('[data-gp-message]').textContent=text;q('[data-gp-message]').dataset.error=String(error);}
-    function money(n){return new Intl.NumberFormat('en-GB',{style:'currency',currency:field('currency').value,maximumFractionDigits:0}).format(n);}
-    function num(n,d=1){return n.toLocaleString('en-GB',{maximumFractionDigits:d});}
-    function markDirty(){lastActivity=Date.now();dirty=true;q('[data-gp-save-status]').textContent='Unsaved changes';}
-    function row(conversion={}){
-      const el=document.createElement('div');el.className='gp-conversion';el.dataset.id=conversion.id||crypto.randomUUID();
-      el.innerHTML='<label>Sale / client <small>optional</small><input data-name maxlength="120"></label><label>Month landed<input data-landed type="month" required></label><label><span data-amount-label>Amount</span><input data-amount type="number" min="0.01" max="1000000000" step="0.01" required></label><label data-months-label>End month<input data-months type="month"><small>Leave blank while active</small></label><div class="gp-sale-total"><small>Revenue generated</small><strong data-sale-total></strong></div><button type="button" aria-label="Remove conversion">Remove</button>';
-      el.querySelector('[data-name]').value=conversion.name||'';
-      el.querySelector('[data-landed]').value=(conversion.landed||'').slice(0,7);
-      el.querySelector('[data-landed]').max=state.today.slice(0,7);
-      el.dataset.originalLanded=conversion.landed||'';
-      el.querySelector('[data-months]').value=conversion.end_month||'';
-      el.querySelector('[data-months]').max=state.today.slice(0,7);
-      el.querySelector('[data-amount]').value=conversion.amount??'';
-      el.querySelector('button').onclick=()=>{el.remove();markDirty();render();};
-      q('[data-gp-conversions]').appendChild(el);
-    }
-    function data(){
-      const d={};fields.forEach(n=>d[n]=['mode','currency','measurement_start'].includes(n)?field(n).value:Number(field(n).value));
-      d.conversions=Array.from(q('[data-gp-conversions]').children).map(el=>({id:el.dataset.id,name:el.querySelector('[data-name]').value,landed:el.dataset.originalLanded.slice(0,7)===el.querySelector('[data-landed]').value?el.dataset.originalLanded:el.querySelector('[data-landed]').value+'-01',amount:Number(el.querySelector('[data-amount]').value),end_month:el.querySelector('[data-months]').value}));
-      d.leads=state.data.leads;d.target_basis=targetBasis;return d;
-    }
-    function apply(next){
-      state=next;targetBasis=next.data.target_basis||'leads';fields.forEach(n=>field(n).value=next.data[n]??0);field('measurement_start').max=next.today;
-      q('[data-gp-conversions]').replaceChildren();next.data.conversions.forEach(row);
-      q('[data-gp-staff]').hidden=!next.staff;q('[data-gp-portal-note]').hidden=next.staff;
-      q('[data-gp-activate]').hidden=!next.can_activate||next.enabled;
-      q('[data-gp-deactivate]').hidden=!next.can_activate||!next.enabled;
-      q('[data-gp-inclusion-label]').hidden=!next.enabled;q('[data-gp-inclusion]').checked=next.include_in_reports;
-      q('[data-gp-refresh]').hidden=!next.staff;field('measurement_start').readOnly=!next.staff;
-      q('[data-gp-activation-note]').textContent=next.enabled?'Activated after delivery manager approval. Choose whether this planner is shown in client reports.':'Save your business figures and at least one landed conversion, then activate after delivery manager approval.';
-      q('[data-gp-state]').textContent=next.enabled?'Active':'Draft — staff only';q('[data-gp-state]').className='gp-state';
-      form.hidden=false;dirty=false;q('[data-gp-save-status]').textContent='All changes saved';render();
-    }
-    function monthLabel(index){
-      const date=new Date(Date.UTC(Number(state.today.slice(0,4)),Number(state.today.slice(5,7))-1+index,1));
-      return date.toLocaleDateString('en-GB',{month:'short',year:'2-digit',timeZone:'UTC'});
-    }
-    function revenueChart(values,labels,{bars=false,goals=null,caption='Revenue by month'}={}){
-      const peak=Math.max(...values,...(goals?goals.map(g=>g.value):[]),1);
-      const rough=peak/4,power=Math.pow(10,Math.floor(Math.log10(rough)));
-      const step=[1,2,5,10].map(n=>n*power).find(n=>n>=rough);
-      const max=Math.ceil(peak/step)*step;
-      const symbol={GBP:'£',USD:'$',EUR:'€'}[field('currency').value];
-      const axis=v=>symbol+(v>=1000000?num(v/1000000)+'m':v>=1000?num(v/1000)+'k':num(v));
-      const left=88,width=Math.max(672,values.length*30),end=left+width;
-      const x=i=>left+(i+.5)*width/values.length,y=v=>180-v/max*140;
-      let svg=`<svg class="gp-chart" style="min-width:${end+24}px" viewBox="0 0 ${end+24} 250" role="img" aria-label="${caption}">`;
-      for(let value=0;value<=max;value+=step){
-        svg+=`<path d="M${left} ${y(value)}H${end}" stroke="#393149"/><text x="${left-10}" y="${y(value)+4}" text-anchor="end">${axis(value)}</text>`;
-      }
-      if(!bars)svg+=`<path d="${values.map((v,i)=>(i?'L':'M')+x(i)+','+y(v)).join(' ')}" fill="none" stroke="#b69aff" stroke-width="3"/>`;
-      values.forEach((v,i)=>{
-        const title=`${labels[i]}: ${money(v)}`;
-        svg+=bars?`<rect x="${x(i)-width/values.length*.32}" y="${y(v)}" width="${width/values.length*.64}" height="${180-y(v)}" rx="3" fill="#b69aff" tabindex="0"><title>${title}</title></rect>`:`<circle cx="${x(i)}" cy="${y(v)}" r="4" fill="#b69aff" tabindex="0"><title>${title}</title></circle>`;
-        svg+=`<text transform="translate(${x(i)},198) rotate(-45)" text-anchor="end">${labels[i]}</text>`;
-      });
-      (goals||[]).forEach(g=>svg+=`<circle cx="${x(g.index)}" cy="${y(g.value)}" r="6" fill="#33d9cd" tabindex="0"><title>${labels[g.index]} goal: ${money(g.value)}</title></circle>`);
-      return '<div class="gp-chart-scroll">'+svg+'</svg></div>';
-    }
-    function chart(values,d){
-      return revenueChart(values,values.map((_,i)=>monthLabel(i)),{bars:d.mode==='project',goals:[{index:12,value:d.goal_12},{index:24,value:d.goal_24}],caption:d.mode==='monthly'?'Forecast monthly recurring revenue':'Forecast annual revenue, rolling 12 months'})+
-        `<p class="gp-note">Purple: ${d.mode==='monthly'?'forecast monthly recurring revenue':'forecast annual revenue (rolling 12 months)'} · Turquoise: your goals · Scroll to see every month.</p>`;
-    }
-    function earned(d){
-      const host=q('[data-gp-earned]'),monthly=d.mode==='monthly';
-      const monthIndex=s=>Number(s.slice(0,4))*12+Number(s.slice(5,7))-1;
-      const now=monthIndex(state.today);
-      const duration=c=>monthly?Math.max(0,(c.end_month?monthIndex(c.end_month):now)-monthIndex(c.landed)+1):1;
-      Array.from(q('[data-gp-conversions]').children).forEach((el,i)=>{
-        const input=el.querySelector('[data-months]');input.disabled=!monthly||busy;
-        el.querySelector('[data-months-label]').hidden=!monthly;
-        input.min=el.querySelector('[data-landed]').value;
-        el.querySelector('[data-sale-total]').textContent=money(d.conversions[i].amount*duration(d.conversions[i]));
-      });
-      const recorded=d.conversions;
-      if(!recorded.length){host.textContent='Add a conversion to see revenue generated.';return;}
-      const start=Math.min(...recorded.map(c=>monthIndex(c.landed)));
-      if(!Number.isFinite(start)||now-start>1200||recorded.some(c=>!/^\d{4}-\d{2}-\d{2}$/.test(c.landed)||monthIndex(c.landed)>now||c.amount<=0||!Number.isFinite(c.amount)||(monthly&&c.end_month&&(monthIndex(c.end_month)<monthIndex(c.landed)||monthIndex(c.end_month)>now)))){
-        host.textContent='Enter a value and valid months for each conversion.';return;
-      }
-      const values=Array(now-start+1).fill(0);
-      recorded.forEach(c=>{for(let i=0;i<duration(c);i++)values[monthIndex(c.landed)-start+i]+=c.amount;});
-      const total=values.reduce((a,b)=>a+b,0),labels=values.map((_,i)=>monthLabel(start-now+i));
-      host.innerHTML=`<h4>Revenue generated from recorded conversions</h4><div class="gp-metric"><strong>${money(total)}</strong>${monthly?'Revenue to date at recorded monthly values':'Total recorded revenue'}</div>`+
-        revenueChart(values,labels,{bars:!monthly,caption:'Recorded revenue by month'})+
-        `<p class="gp-note">${monthly?'Active retainers repeat at their monthly value from the month landed through this month. Enter an end month when a retainer stops. This shows contracted revenue, not payment receipts.':'Each project value is counted once, in the month it landed.'}</p>`;
-    }
-    function analyse(d,result){
-      const host=q('[data-gp-analysis]');
-      if(!result.ready){host.textContent='Add your conversions and refresh leads to build a plan for your revenue goals.';return;}
-      if(!form.checkValidity()){host.textContent='Complete the fields above to update your growth plan.';return;}
-      const period=Number(q('[data-gp-focus]').value),goal=d['goal_'+period],needed=result['needed'+period];
-      if(!goal){host.textContent=`Enter your ${period}-month revenue goal to see the leads needed to work towards it.`;return;}
-      const basis=d.mode==='monthly'?' per month':period===12?' over the next 12 months':' in year two';
-      if(needed===null){host.textContent=`Your ${period}-month goal is ${money(goal)}${basis}. This is beyond the lead range this planner models. Explore a higher average sale value or stronger leads-to-sales performance to build an achievable plan.`;return;}
-      let copy=`To reach ${money(goal)}${basis} at ${period} months, plan for approximately ${num(needed,0)} leads per month — ${num(needed*period,0)} leads over ${period} months — based on your recorded sale values, leads per sale and churn. `;
-      if(needed===0)copy='Your existing revenue is projected to cover this goal under the current churn assumption. Additional sales offer room to grow further. ';
-      else if(d.monthly_leads>=needed)copy+='Your selected lead target supports this goal under the current assumptions. Keep building on this pace and review new conversions as they land.';
-      else copy+=`Building towards ${num(needed,0)} leads per month provides a clear route to this goal. Improving lead quality and sales follow-up can also reduce the number of leads needed per sale.`;
-      host.textContent=copy;
-    }
-    function render(){
-      if(!state)return;const d=data(),monthly=d.mode==='monthly';
-      q('[data-gp-current-label]').textContent=monthly?'Current monthly revenue':'Current annual revenue';
-      q('[data-gp-goal12-label]').textContent=monthly?'Monthly revenue goal in 12 months':'Revenue goal for the next 12 months';
-      q('[data-gp-goal24-label]').textContent=monthly?'Monthly revenue goal in 24 months':'Annual revenue goal for year two';
-      q('[data-gp-basis-note]').textContent=monthly?'Enter monthly recurring amounts. Annual churn is spread across the year and applies to existing revenue and retained new customers.':'Enter annual business revenue and the full one-off value of each project. Project sales count once; churn reduces the existing business revenue baseline. The 24-month goal is revenue in months 13–24.';
-      const symbol={GBP:'£',USD:'$',EUR:'€'}[d.currency];
-      root.querySelectorAll('[data-amount-label]').forEach(el=>el.textContent=(monthly?'Monthly value':'Project value')+' ('+symbol+')');
-      earned(d);
-      q('[data-gp-count]').textContent=`${d.conversions.length} recorded`;
-      const leads=d.leads;
-      q('[data-gp-source]').textContent=leads&&leads.start===d.measurement_start?`${num(leads.count,0)} leads · ${leads.start} to ${leads.as_of} · Performance Tracker. Ask your AM to refresh when newer leads arrive.`:'Set the tracking start date, then refresh generated leads. The page’s other date filters do not change this planner.';
-      const slider=q('[data-gp-slider]');slider.max=Math.max(500,Math.ceil(d.monthly_leads/100)*100);slider.value=d.monthly_leads;
-      let result=window.pulseGrowthCalculate(d);
-      if(result.ready&&targetBasis==='sales'&&field('annual_sales').value!==''&&field('annual_sales').validity.valid){
-        d.monthly_leads=Math.ceil(d.annual_sales/(12*result.rate)-1e-9);
-        field('monthly_leads').value=d.monthly_leads;
-        slider.max=Math.max(500,Math.ceil(d.monthly_leads/100)*100);slider.value=d.monthly_leads;
-        result=window.pulseGrowthCalculate(d);
-      }
-      const salesInput=q('[data-gp-sales]');
-      if(targetBasis==='leads'&&result.ready)salesInput.value=Number((d.monthly_leads*result.rate*12).toFixed(2));
-      salesInput.disabled=busy;
-      analyse(d,result);
-      q('[data-gp-metrics]').replaceChildren();
-      if(!form.checkValidity()||!result.ready){q('[data-gp-forecast]').textContent=result.message||'Complete the fields above to see your forecast.';return;}
-      q('[data-gp-metrics]').innerHTML=`<div class="gp-metric"><strong>${num(result.leadsPerSale)}</strong>leads per sale</div><div class="gp-metric"><strong>${money(result.average)}</strong>average ${monthly?'monthly':'project'} sale value</div>`+(result.showRate?`<div class="gp-metric"><strong>${num(result.rate*100)}%</strong>lead-to-sale conversion</div>`:'');
-      if(result.count!==result.totalCount){const note=document.createElement('p');note.className='gp-note';note.textContent=`Forecast uses ${result.count} conversions through ${leads.as_of}. Later conversions will count after your account manager refreshes leads.`;q('[data-gp-metrics]').appendChild(note);}
-      const target=(period,value,goal,needed)=>`<div class="gp-outcome"><h4>${period}</h4><strong>${money(value)}${monthly?'/mo':''}</strong><p>Goal: ${money(goal)}${monthly?'/mo':''}</p><p>${needed==null?'Goal exceeds this planner’s lead range.':`${num(needed,0)} leads/month needed at your observed results.`}</p>${needed!=null?`<button type="button" data-gp-use="${needed}">Try this lead target</button>`:''}</div>`;
-      q('[data-gp-forecast]').innerHTML='<div class="gp-outcomes">'+target('12 months',result.at12,d.goal_12,result.needed12)+target('24 months',result.at24,d.goal_24,result.needed24)+'</div>'+chart(result.timeline,d);
-      q('[data-gp-forecast]').querySelectorAll('[data-gp-use]').forEach(button=>button.onclick=()=>{targetBasis='leads';field('monthly_leads').value=button.dataset.gpUse;markDirty();render();});
-    }
+'use strict';
+function init(root){
+ if(root.dataset.ready)return;root.dataset.ready='true';
+ const q=s=>root.querySelector(s),form=q('[data-gp-form]'),dialog=q('[data-gp-dialog]');
+ let state=null,busy=false,dirty=false,lastActivity=Date.now();
+ const fields=['mode','currency','measurement_start','annual_churn','current_revenue','average_value'];
+ const field=n=>form.elements.namedItem(n);
+ const num=(n,d=1)=>n.toLocaleString('en-GB',{maximumFractionDigits:d});
+ const money=n=>new Intl.NumberFormat('en-GB',{style:'currency',currency:field('currency').value,maximumFractionDigits:0}).format(n);
+ const message=(s,error=false)=>{q('[data-gp-message]').textContent=s;q('[data-gp-message]').dataset.error=String(error);};
+ const markDirty=()=>{lastActivity=Date.now();dirty=true;q('[data-gp-save-status]').textContent='Unsaved changes';};
+ function normalized(d){
+  if(d.schema_version===2)return d;
+  const recurring=d.mode!=='project',sales=d.conversions||[];
+  return {...d,schema_version:2,current_revenue:recurring?d.current_revenue:Math.round(d.current_revenue/12*100)/100,
+   average_value:sales.length?Math.round(sales.reduce((s,c)=>s+c.amount,0)/sales.length*100)/100:0,
+   goals:[d.goal_12?d.goal_12*(recurring?12:1):null,d.goal_24?d.goal_24*(recurring?12:1):null,null,null,null]};
+ }
+ function row(c={}){
+  const el=document.createElement('div');el.className='gp-conversion gp-simple-deal';el.dataset.id=c.id||crypto.randomUUID();el.dataset.originalLanded=c.landed||'';el.dataset.endMonth=c.end_month||'';
+  el.innerHTML='<label>Deal / customer <small>optional</small><input data-name maxlength="120"></label><label>Month won<input data-landed type="month" required></label><label><span data-amount-label>Monthly value</span><input data-amount type="number" min="0.01" max="1000000000" step="0.01" required></label><button type="button">Remove</button>';
+  el.querySelector('[data-name]').value=c.name||'';el.querySelector('[data-landed]').value=(c.landed||'').slice(0,7);el.querySelector('[data-landed]').max=state.today.slice(0,7);el.querySelector('[data-amount]').value=c.amount??'';
+  el.querySelector('button').onclick=()=>{el.remove();markDirty();render();};q('[data-gp-conversions]').appendChild(el);
+ }
+ function data(){
+  const d={schema_version:2,goal_12:0,goal_24:0,monthly_leads:0,annual_sales:0,target_basis:'leads'};
+  fields.forEach(n=>d[n]=['mode','currency','measurement_start'].includes(n)?field(n).value:Number(field(n).value));
+  d.goals=Array.from(root.querySelectorAll('[data-goal]')).map(el=>el.value===''?null:Number(el.value));
+  d.conversions=Array.from(q('[data-gp-conversions]').children).map(el=>{
+   const month=el.querySelector('[data-landed]').value;
+   const landed=el.dataset.originalLanded.slice(0,7)===month?el.dataset.originalLanded:month===d.measurement_start.slice(0,7)?d.measurement_start:month+'-01';
+   return {id:el.dataset.id,name:el.querySelector('[data-name]').value,landed,amount:Number(el.querySelector('[data-amount]').value),end_month:el.dataset.endMonth};
+  });d.leads=state.data.leads;return d;
+ }
+ function apply(next){
+  next.data=normalized(next.data);state=next;fields.forEach(n=>field(n).value=next.data[n]??0);
+  root.querySelectorAll('[data-goal]').forEach((el,i)=>el.value=next.data.goals[i]??'');
+  field('measurement_start').max=next.today;field('measurement_start').readOnly=!next.staff;
+  q('[data-gp-conversions]').replaceChildren();next.data.conversions.forEach(row);
+  q('[data-gp-staff]').hidden=!next.staff;q('[data-gp-portal-note]').hidden=next.staff;
+  q('[data-gp-activate]').hidden=!next.can_activate||next.enabled;q('[data-gp-deactivate]').hidden=!next.can_activate||!next.enabled;
+  q('[data-gp-inclusion-label]').hidden=!next.enabled;q('[data-gp-inclusion]').checked=next.include_in_reports;
+  q('[data-gp-refresh]').hidden=!next.staff;q('[data-gp-state]').textContent=next.enabled?'Active':'Draft — staff only';
+  q('[data-gp-activation-note]').textContent=next.enabled?'CRO Insights is active. It appears at the bottom of this client’s reports when included.':'Record a deal, then activate after delivery manager approval.';
+  form.hidden=false;dirty=false;q('[data-gp-save-status]').textContent='All changes saved';render();
+ }
+ function chart(r,d){
+  const maxValue=Math.max(d.current_revenue*12,...r.baseline,...(r.forecast||[]),...r.goals.map(g=>g.value),1),rough=maxValue/4,power=10**Math.floor(Math.log10(rough)),step=[1,2,5,10].map(n=>n*power).find(n=>n>=rough),top=Math.ceil(maxValue/step)*step;
+  const symbol={GBP:'£',USD:'$',EUR:'€'}[d.currency],axis=n=>symbol+(n>=1e6?num(n/1e6)+'m':n>=1000?num(n/1000)+'k':num(n));
+  const x=m=>90+m/(r.horizon*12)*570,y=n=>190-n/top*150;
+  let svg='<svg class="gp-chart" viewBox="0 0 700 240" role="img" aria-label="Annualised revenue: forecast and selected yearly goals">';
+  for(let v=0;v<=top;v+=step)svg+=`<path d="M90 ${y(v)}H660" stroke="#393149"/><text x="80" y="${y(v)+4}" text-anchor="end">${axis(v)}</text>`;
+  const points=r.forecast||r.baseline;
+  svg+=`<path d="${points.map((v,i)=>(i?'L':'M')+x(i)+','+y(v)).join(' ')}" fill="none" stroke="#b69aff" stroke-width="3" ${r.forecast?'':'stroke-dasharray="5 5"'}/>`;
+  for(let yr=0;yr<=r.horizon;yr++){svg+=`<text x="${x(yr*12)}" y="216" text-anchor="middle">${yr?'Year '+yr:'Now'}</text><circle cx="${x(yr*12)}" cy="${y(points[yr*12])}" r="4" fill="#b69aff"><title>${yr?'Year '+yr:'Now'}: ${money(points[yr*12])}</title></circle>`;}
+  r.goals.forEach(g=>svg+=`<circle cx="${x(g.year*12)}" cy="${y(g.value)}" r="6" fill="#33d9cd"><title>Year ${g.year} goal: ${money(g.value)}</title></circle>`);
+  return svg+'</svg><p class="gp-note">Annualised revenue · Purple: '+(r.forecast?'forecast at the observed Unstuck deal pace':'existing revenue after churn; add deal data for a growth forecast')+' · Turquoise: your goals</p>';
+ }
+ function render(){
+  if(!state)return;const d=data(),symbol={GBP:'£',USD:'$',EUR:'€'}[d.currency];
+  q('[data-gp-average-label]').textContent=(d.mode==='monthly'?'Average monthly revenue per customer':'Average value per project')+' ('+symbol+')';
+  root.querySelectorAll('[data-amount-label]').forEach(el=>el.textContent=(d.mode==='monthly'?'Monthly value':'Project value')+' ('+symbol+')');
+  q('[data-gp-count]').textContent=d.conversions.length+(d.conversions.length===1?' deal':' deals');
+  q('[data-gp-source]').textContent=d.leads&&d.leads.start===d.measurement_start?`${num(d.leads.count,0)} leads · ${d.leads.start} to ${d.leads.as_of}`:'Refresh leads for the same period as the deals recorded.';
+  const host=q('[data-gp-analysis]');
+  if(!form.checkValidity()){q('[data-gp-forecast]').textContent='Complete your business figures and deal values to update the plan.';q('[data-gp-metrics]').replaceChildren();host.textContent='Your growth plan will update as you complete the figures above.';return;}
+  const r=window.pulseGrowthCalculate(d);
+  q('[data-gp-metrics]').innerHTML=`<div class="gp-metric"><strong>${d.conversions.length}</strong>Deals recorded</div>`+(r.ready?`<div class="gp-metric"><strong>${num(r.leadsPerDeal)}</strong>Leads per deal</div><div class="gp-metric"><strong>${money(r.dealValue)}</strong>Average recorded ${d.mode==='monthly'?'monthly':'project'} deal value</div>`:'');
+  q('[data-gp-forecast]').innerHTML=chart(r,d);
+  const select=q('[data-gp-focus]'),previous=select.value;
+  select.replaceChildren(...r.goals.map(g=>new Option('Year '+g.year+' — '+money(g.value),String(g.year))));
+  if(r.goals.some(g=>String(g.year)===previous))select.value=previous;
+  select.disabled=!r.goals.length;select.parentElement.hidden=!r.goals.length;
+  if(!r.goals.length){host.textContent='Add a goal for any year to explore the customers and leads needed. You can start with Years 1 and 2 and add later years when ready.';return;}
+  const g=r.goals.find(g=>String(g.year)===select.value);
+  let copy=`Your Year ${g.year} goal is ${money(g.value)} in annualised revenue (${money(g.value/12)} per month). `;
+  if(!g.gap)copy+='Existing revenue is projected to cover this goal under your churn assumption. New customers provide room to grow further.';
+  else if(g.dealsPerMonth===null)copy+='Enter an average customer value above zero to calculate the new business needed.';
+  else{
+   copy+=`Closing the remaining gap would take about ${num(g.dealsPerMonth)} new ${d.mode==='monthly'?'customers':'projects'} per month, or ${num(g.totalDeals,0)} over ${g.year} ${g.year===1?'year':'years'}, at your entered average value. `;
+   if(r.ready)copy+=`If Unstuck alone filled that gap, the observed leads per deal suggest around ${num(g.leadsPerMonth,0)} leads per month (${num(g.leadsPerMonth*g.year*12,0)} in total). `;
+   else copy+='Refresh leads and record a deal to translate this into lead requirements. ';
+   if(r.ready)copy+=r.forecast[g.year*12]>=g.value?'The observed Unstuck pace supports this goal under these assumptions.':'This gives us a clear planning target to build towards together. Strong follow-up, customer retention and other growth channels can help close the gap.';
+  }
+  if(r.count!==r.totalCount)copy+=' Only deals within the refreshed lead period are used for leads-per-deal calculations.';
+  host.textContent=copy;
+ }
     async function load(){
       message('Loading planner…');q('[data-gp-reload]').hidden=true;
       try{const response=await fetch(root.dataset.endpoint,{credentials:'same-origin',cache:'no-store'});const next=await response.json();if(!response.ok){if(response.status===404&&root.dataset.portal==='true'){root.remove();return;}throw Error(next.error||next.detail||'Could not load the planner.');}apply(next);message('');}
@@ -170,22 +116,18 @@
       catch(e){message(e.message,true);q('[data-gp-dialog-error]').textContent=e.message;}
       finally{busy=false;root.querySelectorAll('button').forEach(b=>b.disabled=false);form.querySelectorAll('input,select').forEach(el=>el.disabled=false);render();}
     }
-    q('[data-gp-focus]').onchange=()=>render();
-    form.addEventListener('input',event=>{
-      if(event.target.matches('[data-gp-sales]'))targetBasis='sales';
-      if(event.target===field('monthly_leads'))targetBasis='leads';
-      markDirty();render();
-    });
-    form.addEventListener('submit',event=>{event.preventDefault();save('save');});
-    q('[data-gp-add]').onclick=()=>{row();markDirty();render();};
-    q('[data-gp-refresh]').onclick=()=>save('refresh');
-    q('[data-gp-slider]').oninput=event=>{targetBasis='leads';field('monthly_leads').value=event.target.value;markDirty();render();};
-    q('[data-gp-activate]').onclick=()=>{if(!form.reportValidity())return;q('[data-gp-approved]').checked=false;q('[data-gp-converted]').checked=false;q('[data-gp-dialog-error]').textContent='';dialog.showModal();};
-    q('[data-gp-confirm]').onclick=()=>save('activate');q('[data-gp-cancel]').onclick=()=>dialog.close();
-    q('[data-gp-deactivate]').onclick=()=>save('deactivate');
-    q('[data-gp-reload]').onclick=()=>{if(!dirty||confirm('Discard unsaved changes and load the saved planner?'))load();};
-    window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
-    load();
-  }
-  document.querySelectorAll('[data-growth-planner]').forEach(init);
+
+ q('[data-gp-focus]').onchange=()=>render();
+ form.addEventListener('input',()=>{markDirty();render();});
+ form.addEventListener('submit',event=>{event.preventDefault();save('save');});
+ q('[data-gp-add]').onclick=()=>{row();markDirty();render();};
+ q('[data-gp-refresh]').onclick=()=>save('refresh');
+ q('[data-gp-activate]').onclick=()=>{if(!form.reportValidity())return;q('[data-gp-approved]').checked=false;q('[data-gp-converted]').checked=false;q('[data-gp-dialog-error]').textContent='';dialog.showModal();};
+ q('[data-gp-confirm]').onclick=()=>save('activate');q('[data-gp-cancel]').onclick=()=>dialog.close();
+ q('[data-gp-deactivate]').onclick=()=>save('deactivate');
+ q('[data-gp-reload]').onclick=()=>{if(!dirty||confirm('Discard unsaved changes and load the saved plan?'))load();};
+ window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
+ load();
+}
+document.querySelectorAll('[data-growth-planner]').forEach(init);
 })();
