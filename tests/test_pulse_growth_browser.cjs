@@ -59,6 +59,15 @@ const start={staff:true,can_activate:true,csrf:'test-csrf',today:'2026-10-21',ve
   assert.equal(await page.locator('[data-amount]').inputValue(),'12,000');
  }
  await page.screenshot({path:'/workspace/scratch/cro-simple-desktop.png',fullPage:true});
+ await page.addStyleTag({content:'main{max-width:782px}'});
+ const tops=await page.locator('.gp-business input').evaluateAll(els=>els.slice(0,2).map(el=>el.getBoundingClientRect().top));
+ assert.equal(tops[0],tops[1]);
+ const goalTops=await page.locator('[data-goal]').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().top));
+ assert.equal(new Set(goalTops).size,1);
+ await page.screenshot({path:'/workspace/scratch/cro-report-layout.png',fullPage:true});
+ await page.addStyleTag({content:'main{max-width:560px}'});
+ const rows=await page.locator('[data-goal]').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().top));
+ assert.equal(rows[0],rows[2]);assert.equal(rows[3],rows[4]);assert(rows[3]>rows[2]);
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.screenshot({path:'/workspace/scratch/cro-simple-mobile.png',fullPage:true});
  assert.deepEqual(errors,[]);await browser.close();console.log('PASS: legacy conversion, optional goals, five-year chart, goal selection, saving, activation and mobile layout.');

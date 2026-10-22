@@ -73,7 +73,7 @@ function init(root){
  }
  function render(){
   if(!state)return;const d=data(),symbol={GBP:'£',USD:'$',EUR:'€'}[d.currency];
-  root.querySelectorAll('[data-goal-label]').forEach((el,i)=>el.textContent='Year '+(i+1)+' annual revenue goal');
+  root.querySelectorAll('[data-goal-label]').forEach((el,i)=>el.textContent='Year '+(i+1));
   q('[data-gp-goal-note]').textContent='Annual revenue you want the business to reach by the end of each year. Leave any unused years blank. All money figures use annual values.';
   q('[data-gp-average-label]').textContent=(d.mode==='monthly'?'Average annual revenue per customer':'Average value per project')+' ('+symbol+')';
   root.querySelectorAll('[data-amount-label]').forEach(el=>el.textContent=(d.mode==='monthly'?'Annual value':'Project value')+' ('+symbol+')');
