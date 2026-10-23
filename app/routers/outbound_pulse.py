@@ -1630,51 +1630,70 @@ async def set_campaign_copy_source(
             return _ab_panel(request, client_id, rng, bucket=bucket,
                              error="Choose both a territory and an industry — "
                                    "a Copy Bank entry is the pair.")
-        if not _save_copy_source(client_id, campaign_ref, territory, industry):
-            return _ab_panel(request, client_id, rng, bucket=bucket,
-                             error="Could not record that copy source. The "
-                                   "details are in the server log.")
+        problem = _save_copy_source(client_id, campaign_ref, territory, industry)
+        if problem:
+            return _ab_panel(request, client_id, rng, bucket=bucket, error=problem)
         return _ab_panel(request, client_id, rng, bucket=bucket)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 
 
 def _save_copy_source(client_id: str, campaign_ref: str,
-                      territory: str, industry: str) -> bool:
-    """PATCH the campaigns row, scoped to this client.
+                      territory: str, industry: str) -> str:
+    """PATCH the campaigns row, scoped to this client. "" when it worked.
 
     Scoped on client_id as well as id: the campaign ref arrives from the
     browser, and a copy source belongs to the client whose Copy Bank it names.
+
+    COUNTED, NOT READ BACK. This asked for `return=representation` and treated
+    an empty body as "matched nothing" — but with `return=representation`
+    PostgREST re-selects the row it just wrote, and under a policy that does
+    not hand that row back the body is empty even though the update applied.
+    The result was the worst kind of failure message: one that appears over a
+    change that actually saved. `count=exact` reports rows affected in a
+    header instead, which no select policy can suppress, and it is how the
+    rest of this codebase counts.
+
+    Anything that leaves the count unknowable is reported as success. A write
+    that probably worked must not be announced as a failure, which is the
+    mistake being fixed here.
     """
-    from app.utils.supabase import SUPABASE_URL, sb_headers
+    from app.utils.supabase import SUPABASE_URL, parse_total, sb_headers
 
     import requests as http
 
     if not SUPABASE_URL:
-        return False
+        return "This server has no database configured, so nothing was saved."
     try:
         r = http.patch(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             params={"id": f"eq.{campaign_ref}", "client_id": f"eq.{client_id}"},
-            headers={**sb_headers(), "Prefer": "return=representation"},
+            headers={**sb_headers(), "Prefer": "return=minimal, count=exact"},
             json={"copy_territory": territory, "copy_industry": industry},
             timeout=15,
         )
     except Exception as exc:
         logger.warning("Pulse A/B: could not set copy source on %s: %s",
                        campaign_ref, exc)
-        return False
+        return f"The database could not be reached: {exc}"
+
     if r.status_code >= 400:
+        detail = (r.text or "").strip()[:200]
         logger.warning("Pulse A/B: copy source rejected for %s: %s %s",
-                       campaign_ref, r.status_code, r.text[:200])
-        return False
-    # An empty body means the filter matched nothing — a campaign id that is
-    # not this client's, or no longer exists. Reporting that as success would
-    # leave the panel unchanged with no explanation.
-    try:
-        return bool(r.json())
-    except Exception:
-        return False
+                       campaign_ref, r.status_code, detail)
+        # The likeliest 400 by far, and the one worth naming: the columns are
+        # added by migrations/add_campaign_copy_source.sql.
+        if "copy_territory" in detail or "copy_industry" in detail:
+            return ("This database has no copy_territory/copy_industry columns "
+                    "yet — run migrations/add_campaign_copy_source.sql.")
+        return f"The database refused the change ({r.status_code}): {detail}"
+
+    if "Content-Range" not in r.headers:
+        return ""        # saved; the count is simply not knowable here
+    if parse_total(r.headers):
+        return ""
+    return ("That campaign was not found against this client, so nothing was "
+            "changed. It may have been deleted, or moved to another client.")
 
 
 @router.post("/api/outbound-pulse/clients/{client_id}/copy")

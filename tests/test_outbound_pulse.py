@@ -6964,16 +6964,82 @@ def test_a_copy_source_needs_both_halves(client, fake_sb, monkeypatch):
 
 def test_a_campaign_that_is_not_this_clients_is_reported_not_silently_ignored(
         client, fake_sb, monkeypatch):
-    """PostgREST returns 200 with an empty body when the filter matches
-    nothing. Reporting that as success left the panel unchanged with no
-    explanation for why."""
+    """Nothing matched, so nothing changed, and the panel has to say which."""
     _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
     _bank(fake_sb)
-    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(
+        200, [], headers={"Content-Range": "*/0"}))
     r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
                     data={"campaign_ref": "someone-elses", "territory": "uk",
                           "industry": "msp"})
-    assert "Could not record that copy source" in r.text
+    assert "was not found against this client" in r.text
+
+
+def test_the_copy_source_is_counted_rather_than_read_back(
+        client, fake_sb, monkeypatch):
+    """It asked for `return=representation` and treated an empty body as "no
+    rows". But that option makes PostgREST re-SELECT the row it just wrote,
+    and a policy that does not hand the row back leaves the body empty even
+    though the update applied — so a save that worked was announced as a
+    failure. The count comes from a header no select policy can suppress."""
+    from tests.conftest import param_values
+
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(
+        200, [], headers={"Content-Range": "0-0/1"}))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "mc1", "territory": "uk",
+                          "industry": "msp"})
+    assert r.status_code == 200
+    assert "not found" not in r.text and "refused" not in r.text
+
+    call = fake_sb.calls_to("PATCH", "campaigns")[0]
+    prefer = call["headers"].get("Prefer", "")
+    assert "count=exact" in prefer
+    assert "return=representation" not in prefer
+    assert param_values(call, "client_id") == [f"eq.{CLIENT}"]
+
+
+def test_a_save_whose_outcome_is_unknowable_is_not_called_a_failure(
+        client, fake_sb, monkeypatch):
+    """No Content-Range means the count could not be established, not that
+    the write failed. Claiming failure over a change that saved is the bug
+    being fixed, so the benefit of the doubt goes to the write."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(204, []))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "mc1", "territory": "uk",
+                          "industry": "msp"})
+    assert "not found" not in r.text and "refused" not in r.text
+
+
+def test_a_missing_copy_source_column_names_the_migration(
+        client, fake_sb, monkeypatch):
+    """The columns arrive with a migration somebody has to paste in, and
+    "check the server log" is no use to the person reading the screen."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(
+        400, [], text="column \"copy_territory\" of relation \"campaigns\" does not exist"))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "mc1", "territory": "uk",
+                          "industry": "msp"})
+    assert "add_campaign_copy_source.sql" in r.text
+
+
+def test_a_refused_change_quotes_what_the_database_said(
+        client, fake_sb, monkeypatch):
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(
+        403, [], text="permission denied for table campaigns"))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "mc1", "territory": "uk",
+                          "industry": "msp"})
+    assert "403" in r.text
+    assert "permission denied for table campaigns" in r.text
 
 
 # ── Copy 1, Copy 2: a number derived from the label, never from the result ───
