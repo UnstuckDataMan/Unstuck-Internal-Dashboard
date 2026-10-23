@@ -416,7 +416,7 @@ _CHANNELS: dict[str, tuple[str, str]] = {
     "linkedin":     ("meet_alfred", "LinkedIn"),
     "meet alfred":  ("meet_alfred", "LinkedIn"),
     "meetalfred":   ("meet_alfred", "LinkedIn"),
-    "manual":       ("manual", "DNC & Merger"),
+    "manual":       ("manual", "Manual"),
     "email":        ("smartlead", "Smartlead"),
 }
 

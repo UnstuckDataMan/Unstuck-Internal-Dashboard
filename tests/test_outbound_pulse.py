@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import re
 import pytest
 
 from tests.conftest import FakeResponse
@@ -3368,17 +3369,35 @@ def test_a_level_result_is_reported_as_level_not_as_a_coin_flip():
     assert "level" in out["reason"]
 
 
-def test_no_positive_responses_means_no_winner():
-    from app.utils.pulse.abtest import _decide
+def test_replies_decide_when_nothing_has_been_graded_yet(client, fake_sb, monkeypatch):
+    """A manual campaign is graded by hand, and an account manager marks Reply
+    long before anyone goes back and marks Lead or Interested. The old rule
+    bailed out whenever every positive count was zero, so those campaigns
+    reported "no variation is ahead" indefinitely while sitting on a perfectly
+    clear difference in replies."""
+    from app.utils.pulse import abtest
 
-    out = _decide([
-        {"variant": "A", "is_baseline": True, "sent": 500, "reply": 6,
-         "positive": 0, "unsubscribe": 2},
-        {"variant": "B", "is_baseline": False, "sent": 500, "reply": 2,
-         "positive": 0, "unsubscribe": 1},
+    block = abtest._decide([
+        {"variant": "S1/B1", "sent": 300, "reply": 30, "positive": 0,
+         "unsubscribe": 0},
+        {"variant": "S1/B2", "sent": 300, "reply": 6, "positive": 0,
+         "unsubscribe": 0},
     ])
-    assert out["winner"] is None
-    assert "No positive responses" in out["reason"]
+    assert block["winner"] == "S1/B1"
+    assert block["decided_on"] == "reply"
+    assert block["winner_label"] == "Copy 1"
+
+
+def test_no_responses_at_all_means_no_winner():
+    """Silence is not a result."""
+    from app.utils.pulse import abtest
+
+    block = abtest._decide([
+        {"variant": "S1/B1", "sent": 300, "reply": 0, "positive": 0, "unsubscribe": 0},
+        {"variant": "S1/B2", "sent": 300, "reply": 0, "positive": 0, "unsubscribe": 0},
+    ])
+    assert block["winner"] is None
+    assert "No replies yet" in block["reason"]
 
 
 def test_a_clear_result_names_a_winner_and_gives_rates():
@@ -3464,7 +3483,9 @@ def test_the_ab_panel_says_manual_figures_are_not_windowed(client, fake_sb, monk
     monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
 
     body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
-    assert "Manual \u00b7 all time" in body or "Manual · all time" in body
+    # The heading names the bucket now: "Manual" alone no longer says
+    # whether these are the campaigns running or the ones already done.
+    assert "Manual \u00b7 live campaigns \u00b7 all time" in body
     assert "whole life" in body
 
 
@@ -4186,9 +4207,20 @@ def test_hand_entry_is_a_different_source_from_the_dnc_tool():
     assert labels[normalize.SOURCE_MANUAL] != labels[normalize.SOURCE_HAND_ENTRY]
 
 
-def test_no_source_is_labelled_just_manual():
-    """That word is what made the two confusable. Each is named by provenance."""
-    assert "Manual" not in normalize.SOURCE_LABELS.values()
+def test_the_two_hand_run_sources_are_told_apart():
+    """Both are run by a person, so the risk is reading one figure as the
+    other: "Manual" is the DNC & Merger tool's campaigns, counted from its own
+    records, and "Entered by hand" is a number an account manager typed in off
+    another dashboard. The labels have to be unmistakable for each other.
+
+    This test used to forbid the word "Manual" outright, which is what the
+    team actually calls that tool — so the dashboard was the only place
+    using a different name for it. The distinction being protected is between
+    the two, not the absence of a word."""
+    labels = normalize.SOURCE_LABELS
+    assert labels[normalize.SOURCE_MANUAL] == "Manual"
+    assert labels[normalize.SOURCE_HAND_ENTRY] == "Entered by hand"
+    assert len(set(labels.values())) == len(labels)
 
 
 def test_the_dnc_source_key_is_unchanged():
@@ -4682,7 +4714,7 @@ def test_the_manual_winner_joins_the_report_too():
     }
     out = winners_for_report([], manual)
     assert len(out) == 1
-    assert out[0]["campaign"] == "Manual campaigns"
+    assert out[0]["campaign"] == "Email campaigns"
 
 
 def test_the_winner_is_frozen_into_the_snapshot(client, fake_sb, monkeypatch):
@@ -4750,17 +4782,17 @@ def test_the_report_shows_the_winner_below_reply_outcomes(client, fake_sb):
     _portal_routes(fake_sb, reports=[report])
 
     body = client.get("/r/valid-token").text
-    assert "What worked best" in body
+    assert "Best Performing Copy" in body
     assert "Quick question about" in body
     assert "Short and direct." in body
-    assert body.index("Reply outcomes") < body.index("What worked best")
+    assert body.index("Reply outcomes") < body.index("Best Performing Copy")
 
 
 def test_a_report_published_before_ab_existed_still_renders(client, fake_sb):
     _portal_routes(fake_sb)        # its snapshot has no "ab" key at all
     r = client.get("/r/valid-token")
     assert r.status_code == 200
-    assert "What worked best" not in r.text
+    assert "Best Performing Copy" not in r.text
 
 
 # ── Recording what a variant said ───────────────────────────────────────────
@@ -4889,7 +4921,11 @@ def test_the_recorded_copy_key_cannot_collide_with_a_dict_method():
     assert not hasattr({}, "variant_copy")
     ab = (pathlib.Path(__file__).resolve().parents[1] / "app" / "templates"
           / "partials" / "pulse_ab.html").read_text(encoding="utf-8")
-    assert "v.copy" not in ab
+    # The hazard is `v.copy` ON ITS OWN, not any key that starts with it:
+    # dict has a `copy` method and no `copy_label`, so `v.copy_label` is safe
+    # and a bare substring check flags it falsely.
+    assert not hasattr({}, "copy_label")
+    assert not re.search(r"v\.copy\b(?!_)", ab)
     assert "v.variant_copy" in ab
 
 
@@ -5339,7 +5375,7 @@ def test_the_winning_variants_copy_is_read_out_of_the_copy_bank(client, fake_sb,
     assert "Quick one about your MSP" in body
     assert "Saw you run MSP." in body
     assert "From the Copy Bank" in body
-    assert "Add the copy for S1/B1" not in body
+    assert "Add the copy for Copy 1" not in body
 
 
 def test_the_copy_bank_entry_is_looked_up_by_what_the_merge_recorded(client, fake_sb, monkeypatch):
@@ -5451,7 +5487,7 @@ def test_copy_typed_for_one_campaign_does_not_leak_to_another(client, fake_sb, m
     ]))
     body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
     assert body.count("Only for the first campaign") == 2   # shown once, prefilled once
-    assert "Add the copy for S1/B1" in body                  # the other campaign
+    assert "Add the copy for Copy 1" in body                  # the other campaign
 
 
 def test_copy_recorded_for_every_campaign_still_shows_under_each(client, fake_sb, monkeypatch):
@@ -5469,7 +5505,7 @@ def test_copy_recorded_for_every_campaign_still_shows_under_each(client, fake_sb
          "entered_by": "Sarah"},
     ]))
     body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
-    assert "Add the copy for S1/B1" not in body
+    assert "Add the copy for Copy 1" not in body
 
 
 def test_the_breakdown_reads_each_sheet_once(monkeypatch):
@@ -5567,7 +5603,7 @@ def test_a_report_published_before_the_breakdown_still_replays(monkeypatch):
                       "positive_rate": 1.9, "variant_copy": None}],
     }
     out = winners_for_report([], combined)
-    assert out[0]["campaign"] == "Manual campaigns"
+    assert out[0]["campaign"] == "Email campaigns"
 
 
 def test_a_campaign_with_no_copy_source_resolves_nothing(client, fake_sb, monkeypatch):
@@ -5579,7 +5615,7 @@ def test_a_campaign_with_no_copy_source_resolves_nothing(client, fake_sb, monkey
     ])
     r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
     assert r.status_code == 200
-    assert "Add the copy for S1/B1" in r.text
+    assert "Add the copy for Copy 1" in r.text
     assert "different Copy Bank entries" not in r.text
 
 
@@ -5637,7 +5673,7 @@ def test_a_copy_bank_read_failure_does_not_take_the_panel_down(client, fake_sb, 
                   lambda call: FakeResponse(500, {"message": "nope"}))
     r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
     assert r.status_code == 200
-    assert "Add the copy for S1/B1" in r.text
+    assert "Add the copy for Copy 1" in r.text
 
 
 def test_copy_banks_own_lookup_still_falls_back_to_the_bizdev_key(client, fake_sb):
@@ -6928,13 +6964,518 @@ def test_a_copy_source_needs_both_halves(client, fake_sb, monkeypatch):
 
 def test_a_campaign_that_is_not_this_clients_is_reported_not_silently_ignored(
         client, fake_sb, monkeypatch):
-    """PostgREST returns 200 with an empty body when the filter matches
-    nothing. Reporting that as success left the panel unchanged with no
-    explanation for why."""
+    """Nothing matched, so nothing changed, and the panel has to say which."""
     _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
     _bank(fake_sb)
-    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(200, []))
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(
+        200, [], headers={"Content-Range": "*/0"}))
     r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
                     data={"campaign_ref": "someone-elses", "territory": "uk",
                           "industry": "msp"})
-    assert "Could not record that copy source" in r.text
+    assert "was not found against this client" in r.text
+
+
+def test_the_copy_source_is_counted_rather_than_read_back(
+        client, fake_sb, monkeypatch):
+    """It asked for `return=representation` and treated an empty body as "no
+    rows". But that option makes PostgREST re-SELECT the row it just wrote,
+    and a policy that does not hand the row back leaves the body empty even
+    though the update applied — so a save that worked was announced as a
+    failure. The count comes from a header no select policy can suppress."""
+    from tests.conftest import param_values
+
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(
+        200, [], headers={"Content-Range": "0-0/1"}))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "mc1", "territory": "uk",
+                          "industry": "msp"})
+    assert r.status_code == 200
+    assert "not found" not in r.text and "refused" not in r.text
+
+    call = fake_sb.calls_to("PATCH", "campaigns")[0]
+    prefer = call["headers"].get("Prefer", "")
+    assert "count=exact" in prefer
+    assert "return=representation" not in prefer
+    assert param_values(call, "client_id") == [f"eq.{CLIENT}"]
+
+
+def test_a_save_whose_outcome_is_unknowable_is_not_called_a_failure(
+        client, fake_sb, monkeypatch):
+    """No Content-Range means the count could not be established, not that
+    the write failed. Claiming failure over a change that saved is the bug
+    being fixed, so the benefit of the doubt goes to the write."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(204, []))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "mc1", "territory": "uk",
+                          "industry": "msp"})
+    assert "not found" not in r.text and "refused" not in r.text
+
+
+def test_a_missing_copy_source_column_names_the_migration(
+        client, fake_sb, monkeypatch):
+    """The columns arrive with a migration somebody has to paste in, and
+    "check the server log" is no use to the person reading the screen."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(
+        400, [], text="column \"copy_territory\" of relation \"campaigns\" does not exist"))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "mc1", "territory": "uk",
+                          "industry": "msp"})
+    assert "add_campaign_copy_source.sql" in r.text
+
+
+def test_a_refused_change_quotes_what_the_database_said(
+        client, fake_sb, monkeypatch):
+    _manual_ab(fake_sb, monkeypatch, campaigns=_NO_SOURCE)
+    _bank(fake_sb)
+    fake_sb.route("PATCH", "campaigns", lambda call: FakeResponse(
+        403, [], text="permission denied for table campaigns"))
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy-source",
+                    data={"campaign_ref": "mc1", "territory": "uk",
+                          "industry": "msp"})
+    assert "403" in r.text
+    assert "permission denied for table campaigns" in r.text
+
+
+# ── Copy 1, Copy 2: a number derived from the label, never from the result ───
+
+def _variants(*rows):
+    """(label, sent, reply, positive) tuples as _decide wants them."""
+    return [{"variant": label, "sent": sent, "reply": reply,
+             "positive": positive, "unsubscribe": 0} for label, sent, reply, positive in rows]
+
+
+def test_copy_numbers_follow_the_copy_bank_indexes_not_the_table_order():
+    """S1/B2 comes before S2/B1 because subject 1 comes before subject 2 —
+    which string comparison gets right only by accident and gets wrong as soon
+    as there are ten of them."""
+    from app.utils.pulse.abtest import number_variants
+
+    assert number_variants(["S2/B1", "S1/B2", "S1/B1"]) == {
+        "S1/B1": 1, "S1/B2": 2, "S2/B1": 3}
+    assert number_variants(["S10/B1", "S2/B1"]) == {"S2/B1": 1, "S10/B1": 2}
+
+
+def test_smartlead_letters_number_in_order():
+    from app.utils.pulse.abtest import number_variants
+
+    assert number_variants(["B", "A", "C"]) == {"A": 1, "B": 2, "C": 3}
+
+
+def test_an_unrecognised_label_numbers_last_and_keeps_its_own_text():
+    """Somebody typed something into the sheet's A/B Variant column. It still
+    needs a number, and it must not push the real ones around."""
+    from app.utils.pulse.abtest import number_variants
+
+    out = number_variants(["", "whatever", "S1/B1"])
+    assert out["S1/B1"] == 1
+    assert out["whatever"] == 2
+    assert out[""] == 3
+
+
+def test_the_copy_number_does_not_move_when_a_different_variation_wins():
+    """The obvious wrong implementation numbers the variants after _decide has
+    sorted them, so Copy 1 becomes whichever is winning today. A number that
+    moves is worse than no number: two people would be discussing different
+    copy using the same word."""
+    from app.utils.pulse import abtest
+
+    ahead = abtest._decide(_variants(("S1/B1", 300, 30, 12), ("S1/B2", 300, 8, 2)))
+    behind = abtest._decide(_variants(("S1/B1", 300, 8, 2), ("S1/B2", 300, 30, 12)))
+    numbers = {v["variant"]: v["copy_no"] for v in ahead["variants"]}
+    assert numbers == {v["variant"]: v["copy_no"] for v in behind["variants"]}
+    assert ahead["winner"] == "S1/B1" and behind["winner"] == "S1/B2"
+
+
+def test_the_sheets_own_code_stays_beside_the_number(client, fake_sb, monkeypatch):
+    """S2/B1 is what the account manager reads in the sheet, so the dashboard
+    has to keep showing it or the two cannot be cross-referenced."""
+    _manual_ab(fake_sb, monkeypatch)
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "Copy 1" in body
+    assert "S1/B1" in body
+
+
+# ── The winner rule ──────────────────────────────────────────────────────────
+
+def test_a_variation_sent_to_fewer_people_can_still_win():
+    """Ranking on the raw positive count hands the verdict to whichever
+    variation went to more people — the one thing an A/B test exists to
+    control for."""
+    from app.utils.pulse import abtest
+
+    block = abtest._decide(_variants(("S1/B1", 100, 12, 8), ("S1/B2", 400, 20, 12)))
+    assert block["winner"] == "S1/B1"          # 8% against 3%
+    assert block["decided_on"] == "positive"
+
+
+def test_a_leader_inside_the_noise_is_not_called():
+    """10 positives against 9 is not a result."""
+    from app.utils.pulse import abtest
+
+    block = abtest._decide(_variants(("S1/B1", 300, 30, 10), ("S1/B2", 300, 30, 9)))
+    assert block["winner"] is None
+    assert "too close to call" in block["reason"]
+
+
+def test_a_couple_of_positives_is_not_enough_to_call():
+    from app.utils.pulse import abtest
+
+    block = abtest._decide(_variants(("S1/B1", 300, 9, 2), ("S1/B2", 300, 2, 0)))
+    assert block["winner"] is None
+    assert "not enough to call a winner" in block["reason"]
+
+
+def test_the_two_leading_variations_each_need_their_own_volume():
+    """The 40-send floor is a total across variants, so three arms clear it on
+    13 sends each. On rates that is noise with a percentage sign."""
+    from app.utils.pulse import abtest
+
+    block = abtest._decide(_variants(("S1/B1", 20, 8, 5), ("S1/B2", 20, 2, 0),
+                                     ("S2/B1", 20, 1, 0)))
+    assert block["winner"] is None
+    assert "sends each" in block["reason"]
+
+
+def test_a_variation_nobody_was_sent_does_not_block_a_verdict():
+    """A third arm with a handful of sends must not veto a decision between
+    two arms with hundreds."""
+    from app.utils.pulse import abtest
+
+    block = abtest._decide(_variants(("S1/B1", 300, 40, 20), ("S1/B2", 300, 10, 4),
+                                     ("S2/B1", 3, 0, 0)))
+    assert block["winner"] == "S1/B1"
+
+
+# ── Sends are sends, allocation is allocation ────────────────────────────────
+
+def test_a_live_campaigns_rates_are_against_what_was_actually_sent():
+    """The merge writes every prospect onto the sheet up front and ticks Send
+    Status as each goes out, so a running campaign's allocation is its
+    eventual size. Rates against allocation divide by people nobody has
+    emailed yet."""
+    from app.utils.pulse import abtest
+
+    totals = {}
+    abtest._add_row(totals, {"variant": "S1/B1", "total": 500, "sent": 100,
+                             "reply": 10, "positive": 5, "unsubscribe": 0,
+                             "lead": 5, "interested": 0})
+    row = totals["S1/B1"]
+    assert row["sent"] == 100 and row["allocated"] == 500
+    block = abtest._decide([row])
+    assert block["variants"][0]["reply_rate"] == 10.0      # not 2.0
+
+
+def test_a_sheet_with_no_send_status_column_falls_back_to_allocation():
+    """Older sheets have no Send Status. Allocation is then the best number
+    available and is better than reporting zero sends."""
+    from app.utils.pulse import abtest
+
+    totals = {}
+    abtest._add_row(totals, {"variant": "S1/B1", "total": 80, "reply": 4,
+                             "positive": 2, "unsubscribe": 0, "lead": 2,
+                             "interested": 0})
+    assert totals["S1/B1"]["sent"] == 80
+
+
+# ── The campaigns that are running are the ones shown ────────────────────────
+
+def _campaign(cid, sheet, **kw):
+    row = {"id": cid, "sheet_id": sheet, "campaign_name": cid,
+           "created_at": "2026-01-01T00:00:00+00:00", "completed_at": None,
+           "completed": False, "paused": False,
+           "total_prospects": 500, "sent_count": 100,
+           "copy_territory": "uk", "copy_industry": "msp"}
+    row.update(kw)
+    return row
+
+
+def _finished(cid, sheet):
+    return _campaign(cid, sheet, completed_at="2026-02-01T00:00:00+00:00",
+                     sent_count=500)
+
+
+def test_the_campaign_running_right_now_is_the_one_shown(client, fake_sb, monkeypatch):
+    """THE REGRESSION TEST. The listing ordered by completed_at.desc.nullslast
+    and took the first eight — so every campaign still running sorted BELOW
+    every finished one and was cut off before a single sheet was read. A
+    client with eight finished campaigns never saw a verdict on the one they
+    were actually sending."""
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    rows = [_finished(f"done{i}", f"old{i}") for i in range(9)]
+    rows.append(_campaign("running", "live-sheet"))
+    fake_sb.route("GET", "campaigns", lambda call: FakeResponse(200, rows))
+
+    read = []
+    monkeypatch.setattr(google_sheets, "read_ab_stats",
+                        lambda sid: read.append(sid) or [])
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
+    assert read == ["live-sheet"]
+
+
+def test_the_campaign_list_is_not_ordered_by_completion(client, fake_sb, monkeypatch):
+    """Ordering by completion before classifying is what hid them."""
+    from tests.conftest import param_values
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
+    fake_sb.route("GET", "campaigns", lambda call: FakeResponse(200, []))
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
+
+    call = fake_sb.calls_to("GET", "campaigns")[-1]
+    assert param_values(call, "order") == ["created_at.desc"]
+    assert int(param_values(call, "limit")[0]) > 8
+
+
+def test_past_campaigns_are_not_read_until_they_are_asked_for(
+        client, fake_sb, monkeypatch):
+    """Each one is a Google Sheets read on a budget shared with the hourly
+    sync, so history is opt-in."""
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    fake_sb.route("GET", "campaigns", lambda call: FakeResponse(200, [
+        _campaign("running", "live-sheet"), _finished("done", "old-sheet")]))
+
+    read = []
+    monkeypatch.setattr(google_sheets, "read_ab_stats",
+                        lambda sid: read.append(sid) or [])
+    client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab")
+    assert read == ["live-sheet"]
+
+    read.clear()
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab?show=past").text
+    assert read == ["old-sheet"]
+    assert "past campaigns" in body
+
+
+def test_the_toggle_counts_what_it_will_fetch(client, fake_sb, monkeypatch):
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
+    fake_sb.route("GET", "campaigns", lambda call: FakeResponse(200, [
+        _campaign("running", "live-sheet"),
+        _finished("a", "s1"), _finished("b", "s2"), _finished("c", "s3")]))
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "Show 3 past campaigns" in body
+    assert 'id="pulse-ab-past"' in body
+
+
+def test_nothing_running_says_so_rather_than_looking_broken(
+        client, fake_sb, monkeypatch):
+    """"No campaigns running" and "no A/B data" are different answers."""
+    from app.utils import google_sheets
+    from app.utils.pulse import smartlead
+
+    _detail_routes(fake_sb)
+    monkeypatch.setattr(smartlead, "is_configured", lambda: False)
+    monkeypatch.setattr(google_sheets, "read_ab_stats", lambda sid: [])
+    fake_sb.route("GET", "campaigns",
+                  lambda call: FakeResponse(200, [_finished("done", "old")]))
+    body = client.get(f"/api/outbound-pulse/clients/{CLIENT}/ab").text
+    assert "No campaigns running for this client right now." in body
+    assert "Show 1 past campaign" in body
+
+
+def test_a_paused_campaign_counts_as_live():
+    """It has not finished, and the copy on it is what resumes."""
+    from app.utils import campaign_status
+
+    assert not campaign_status.is_finished(_campaign("p", "s", paused=True))
+    assert campaign_status.is_finished(_finished("d", "s"))
+
+
+def test_a_campaign_that_has_sent_everything_is_finished():
+    """completed_at is stamped by the sync, so a campaign that reached its
+    total before the sync next ran would otherwise still read as live."""
+    from app.utils import campaign_status
+
+    assert campaign_status.is_finished(
+        _campaign("x", "s", total_prospects=500, sent_count=500))
+
+
+def test_an_unknown_smartlead_status_is_treated_as_live():
+    """The column holds whatever Smartlead sent, plus "imported" and "unknown"
+    from our own code. An allow-list would hide campaigns the day Smartlead
+    added a word — the exact failure this split exists to fix."""
+    from app.utils.pulse import abtest
+
+    assert abtest.smartlead_bucket("ACTIVE") == "live"
+    assert abtest.smartlead_bucket("paused") == "live"
+    assert abtest.smartlead_bucket("something-new") == "live"
+    assert abtest.smartlead_bucket("COMPLETED") == "past"
+    assert abtest.smartlead_bucket("DRAFTED") == "hidden"
+
+
+def test_saving_copy_on_a_past_campaign_re_renders_the_past_section(
+        client, fake_sb, monkeypatch):
+    """Both sections are on screen at once. A form that targeted the live
+    panel would swap it and take the past section the reader is looking at
+    down with it."""
+    _manual_ab(fake_sb, monkeypatch, campaigns=[_finished("mc1", "s1")])
+    _copy_routes(fake_sb)
+    r = client.post(f"/api/outbound-pulse/clients/{CLIENT}/copy",
+                    data={"source_tool": "manual", "variant_key": "S1/B1",
+                          "campaign_ref": "mc1", "subject": "Hi",
+                          "body": "<p>Hello</p>", "range": "30d",
+                          "show": "past"})
+    assert r.status_code == 200
+    assert "past campaigns" in r.text
+    assert 'hx-target="#pulse-ab-past"' in r.text
+    assert 'name="show" value="past"' in r.text
+
+
+# ── The source is called Manual ──────────────────────────────────────────────
+
+def test_the_dnc_source_is_labelled_manual_everywhere_it_shows(client, fake_sb):
+    """The team calls it manual outreach, so the dashboard was the only place
+    using a different name for it."""
+    _source_routes(fake_sb, _MIXED)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert 'data-source="manual"' in body
+    assert "DNC &amp; Merger tool</option>" not in body
+    panel = body.split('data-source-panel="manual"', 1)[1].split('data-source-panel=', 1)[0]
+    assert "DNC &amp; Merger" not in panel.split("<p class=\"pulse-meta\"")[0]
+
+
+def test_the_separate_dnc_tool_keeps_its_own_name(client):
+    """Only the reporting label moved. The DNC & Merger tool is still called
+    that on the nav and in its own pages, and a blind find-and-replace would
+    have renamed a tool nobody asked to rename."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    index = (root / "app" / "templates" / "index.html").read_text(encoding="utf-8")
+    assert "DNC &amp; Merger" in index or "DNC & Merger" in index
+
+
+# ── The client's report does not name our tooling ────────────────────────────
+
+def test_the_report_does_not_tell_a_client_which_tool_sent_their_email(
+        client, fake_sb):
+    """Smartlead and the DNC & Merger tool both send email. Which one did is
+    our business, not theirs."""
+    _portal_routes(fake_sb, reports=[{
+        "id": "sep", "client_id": CLIENT, "period_start": "2026-09-01",
+        "period_end": "2026-09-30", "title": "", "body": "",
+        "status": "published", "published_at": "2026-10-01T09:00:00+00:00",
+        "created_by": "", "created_at": "2026-10-01T09:00:00+00:00",
+        "updated_at": None,
+        "snapshot": {"version": 1,
+                     "counts": {"sent": 900, "replied": 30, "lead": 4},
+                     "by_channel": {}, "trend": {"unit": "day", "buckets": []},
+                     "ab": [], "icp": {}},
+    }])
+    body = client.get("/r/valid-token").text
+    assert "Manual leads" not in body
+    assert "Other leads" in body
+    assert "Smartlead" not in body
+    assert "Meet Alfred" not in body
+
+
+def test_a_report_already_published_stops_saying_manual_campaigns(client, fake_sb):
+    """The name is frozen in the snapshot, so it can only be fixed on the way
+    out \u2014 rewriting it would mean re-publishing every report ever sent."""
+    _portal_routes(fake_sb, reports=[{
+        "id": "sep", "client_id": CLIENT, "period_start": "2026-09-01",
+        "period_end": "2026-09-30", "title": "", "body": "",
+        "status": "published", "published_at": "2026-10-01T09:00:00+00:00",
+        "created_by": "", "created_at": "2026-10-01T09:00:00+00:00",
+        "updated_at": None,
+        "snapshot": {"version": 1, "counts": {"sent": 900, "replied": 30},
+                     "by_channel": {}, "trend": {"unit": "day", "buckets": []},
+                     "icp": {},
+                     "ab": [{"label": "Version S1/B1",
+                             "campaign": "Manual campaigns",
+                             "subject": "Hi", "body": "<p>Hello</p>",
+                             "reply_rate": 3.3, "positive_rate": 1.1,
+                             "sent": 300, "basis": ""}]},
+    }])
+    body = client.get("/r/valid-token").text
+    assert "Manual campaigns" not in body
+    assert "Email campaigns" in body
+    # The frozen label itself is untouched: it is what the client was sent.
+    assert "Version S1/B1" in body
+
+
+def test_the_internal_outcome_label_still_names_its_source(client, fake_sb):
+    """Internally, knowing a lead came from the DNC tool is the useful part."""
+    _source_routes(fake_sb, _MIXED)
+    body = client.get(f"/outbound-pulse/clients/{CLIENT}").text
+    assert "Manual leads" in body
+
+
+# ── LinkedIn leads come from the Performance Tracker ─────────────────────────
+
+def test_linkedin_leads_on_the_report_come_from_the_tracker(client, fake_sb):
+    """The funnel only knows the monthly figures somebody typed in. The sheet
+    is graded lead by lead, so it is the better authority."""
+    _portal_routes(fake_sb, reports=[{
+        "id": "sep", "client_id": CLIENT, "period_start": "2026-09-01",
+        "period_end": "2026-09-30", "title": "", "body": "",
+        "status": "published", "published_at": "2026-10-01T09:00:00+00:00",
+        "created_by": "", "created_at": "2026-10-01T09:00:00+00:00",
+        "updated_at": None,
+        "snapshot": {"version": 1,
+                     "counts": {"sent": 1000, "replied": 40, "meeting_booked": 2},
+                     "by_channel": {"linkedin": {"sent": 400, "replied": 20,
+                                                 "meeting_booked": 2}},
+                     "trend": {"unit": "day", "buckets": []}, "ab": [],
+                     "icp": dict(_ICP_BLOCK, channel=[
+                         {"key": "meet_alfred", "label": "LinkedIn",
+                          "count": 9, "pct": 20.0},
+                         {"key": "smartlead", "label": "Smartlead",
+                          "count": 36, "pct": 80.0}])},
+    }])
+    body = client.get("/r/valid-token").text
+    card = body.split("<h2>LinkedIn</h2>", 1)[1]
+    assert ">9<" in card                      # the tracker's count, not the funnel's 2
+    assert "2.2%" in card                     # 9 of 400 connection requests
+
+
+def test_a_client_with_no_tracker_keeps_the_funnels_linkedin_leads(client, fake_sb):
+    """Nothing graded is not the same as nothing happened."""
+    _portal_routes(fake_sb, reports=[{
+        "id": "sep", "client_id": CLIENT, "period_start": "2026-09-01",
+        "period_end": "2026-09-30", "title": "", "body": "",
+        "status": "published", "published_at": "2026-10-01T09:00:00+00:00",
+        "created_by": "", "created_at": "2026-10-01T09:00:00+00:00",
+        "updated_at": None,
+        "snapshot": {"version": 1,
+                     "counts": {"sent": 1000, "replied": 40, "meeting_booked": 2},
+                     "by_channel": {"linkedin": {"sent": 400, "replied": 20,
+                                                 "meeting_booked": 2}},
+                     "trend": {"unit": "day", "buckets": []}, "ab": [], "icp": {}},
+    }])
+    card = client.get("/r/valid-token").text.split("<h2>LinkedIn</h2>", 1)[1]
+    assert ">2<" in card
+
+
+def test_a_tracker_with_no_linkedin_rows_reports_none_rather_than_falling_back():
+    """A sheet that HAS leads in the period and none on LinkedIn is answering
+    the question, not declining to."""
+    from app.utils.pulse.normalize import tracker_leads
+
+    icp = {"total": 40, "channel": [{"key": "smartlead", "label": "Smartlead",
+                                     "count": 40, "pct": 100.0}]}
+    assert tracker_leads(icp, "meet_alfred") == 0
+    # No sheet, or nothing in the period: the funnel is still the only source.
+    assert tracker_leads({}, "meet_alfred") is None
+    assert tracker_leads({"total": 0, "channel": []}, "meet_alfred") is None

@@ -314,7 +314,7 @@ def test_sheet_channels_map_onto_the_apps_own_names():
     assert tracker.clean_channel("Smartlead")[0] == "smartlead"
     assert tracker.clean_channel("LinkedIn")[0] == "meet_alfred"
     assert tracker.clean_channel("Meet Alfred")[0] == "meet_alfred"
-    assert tracker.clean_channel("Manual") == ("manual", "DNC & Merger")
+    assert tracker.clean_channel("Manual") == ("manual", "Manual")
 
 
 def test_a_blank_channel_is_its_own_bucket_so_the_split_adds_up(parsed):

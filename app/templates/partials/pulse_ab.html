@@ -7,6 +7,9 @@
 
 {% if error %}<div class="err-box" style="margin-bottom:12px">{{ error }}</div>{% endif %}
 
+{% set live = bucket != "past" %}
+{% set swap_target = "#pulse-ab-past" if bucket == "past" else "#pulse-ab" %}
+
 {% macro copy_row(block, v, source, campaign) %}
 {# Smartlead reports a subject per sequence STEP, not per variant, and a manual
    variant is a Copy Bank index like "S2/B1" — so a winner is routinely known
@@ -45,18 +48,21 @@
   {% else %}
   <button type="button" class="note-act is-go"
           onclick="pulseEditCopy('{{ source }}-{{ campaign | replace(' ', '_') }}-{{ v.variant | replace('/', '_') }}')">
-    Add the copy for {{ v.variant }}
+    Add the copy for {{ v.copy_label or v.variant }}
   </button>
   {% endif %}
 
   <form class="ab-copy-form" hidden
         id="copy-{{ source }}-{{ campaign | replace(' ', '_') }}-{{ v.variant | replace('/', '_') }}"
         hx-post="/api/outbound-pulse/clients/{{ client_id }}/copy"
-        hx-target="#pulse-ab" hx-swap="innerHTML">
+        hx-target="{{ swap_target }}" hx-swap="innerHTML">
     <input type="hidden" name="source_tool" value="{{ source }}">
+    {# The RAW label, never the number. This is the identity key for
+       pulse_copy_variants; "Copy 2" is only ever a thing to read. #}
     <input type="hidden" name="variant_key" value="{{ v.variant }}">
     <input type="hidden" name="campaign_ref" value="{{ campaign }}">
     <input type="hidden" name="range" value="{{ range_key }}">
+    <input type="hidden" name="show" value="{{ bucket }}">
     <label class="report-field report-field-wide" style="margin-bottom:10px">
       <span>Subject line</span>
       <input type="text" name="subject" maxlength="300"
@@ -96,11 +102,22 @@
     {% for v in block.variants %}
     <tr class="{% if block.winner == v.variant %}is-winner{% endif %}">
       <td>
-        <b>{{ v.variant }}</b>
+        {# The number is what the team compares; the code beside it is what
+           the campaign sheet's own A/B Variant column holds, so the row can
+           still be found in the sheet. Dropping it would make the dashboard
+           impossible to cross-reference. #}
+        <b>{{ v.copy_label or v.variant }}</b>
+        {% if v.copy_label %}<span class="ab-code"
+             title="The campaign sheet's A/B Variant column">{{ v.variant }}</span>{% endif %}
         {% if v.is_baseline %}<span class="ab-tag">baseline</span>{% endif %}
         {% if block.winner == v.variant %}<span class="ab-tag is-win">winner</span>{% endif %}
       </td>
-      <td>{{ "{:,}".format(v.sent) }}</td>
+      <td>
+        {{ "{:,}".format(v.sent) }}
+        {%- if (v.allocated or 0) > v.sent %}
+        <span class="ab-code" title="Prospects on the sheet who have not been emailed yet">of {{ "{:,}".format(v.allocated) }}</span>
+        {%- endif %}
+      </td>
       <td>{{ "{:,}".format(v.reply) }}</td>
       <td>{{ v.reply_rate | pulse_pct }}</td>
       <td>{{ "{:,}".format(v.positive) }}</td>
@@ -114,12 +131,21 @@
 {# "We cannot tell yet" is a useful answer; a coin flip dressed as a result is
    not. #}
 <p class="pulse-meta ab-reason">{{ block.reason }}</p>
+{% elif block.decided_on == "reply" %}
+{# Decided on replies because nothing has been graded yet. Worth saying: it is
+   both a weaker verdict and a nudge to go and grade the sheet. #}
+<p class="pulse-meta ab-reason">
+  Decided on replies — nothing on this campaign has been marked Lead or
+  Interested yet.
+</p>
 {% endif %}
 {% endmacro %}
 
 <div class="ab-section">
   <div class="ab-head">
-    <p class="section-label" style="margin:0">Smartlead · {{ range.label | lower }}</p>
+    <p class="section-label" style="margin:0">
+      Smartlead · {{ "live campaigns" if live else "past campaigns" }} · {{ range.label | lower }}
+    </p>
     <span class="pulse-meta">Decided on Smartlead's own positive replies</span>
   </div>
 
@@ -129,8 +155,10 @@
 
   {% if not smartlead_steps %}
   <p class="pulse-meta">
-    No sequence variants for this client in this range. Smartlead only reports
-    a variant where a step has been split into more than one version.
+    {% if live %}No sequence variants on a running campaign in this range.
+    {% else %}No sequence variants on a past campaign in this range.{% endif %}
+    Smartlead only reports a variant where a step has been split into more
+    than one version.
   </p>
   {% else %}
   {% for step in smartlead_steps %}
@@ -149,8 +177,9 @@
   {% endfor %}
   {% if smartlead_more %}
   <p class="pulse-meta ab-note">
-    Showing the most recent campaigns; {{ smartlead_more }} more not read, because
-    each one is a separate request to Smartlead.
+    {{ smartlead_more }} further {{ "live" if live else "past" }}
+    campaign{{ "" if smartlead_more == 1 else "s" }} not read, because each one
+    is a separate request to Smartlead.
   </p>
   {% endif %}
   {% endif %}
@@ -158,7 +187,9 @@
 
 <div class="ab-section">
   <div class="ab-head">
-    <p class="section-label" style="margin:0">Manual · all time</p>
+    <p class="section-label" style="margin:0">
+      Manual · {{ "live campaigns" if live else "past campaigns" }} · all time
+    </p>
     <span class="pulse-meta">Decided on your Lead and Interested statuses</span>
   </div>
 
@@ -175,9 +206,12 @@
   {% if not manual.campaigns %}
   <p class="pulse-meta">
     {% if manual.sheets_read %}
-    No copy variations recorded on this client's campaign sheets.
+    No copy variations recorded on {{ "a running" if live else "a past" }}
+    campaign's sheet.
+    {% elif live %}
+    No campaigns running for this client right now.
     {% else %}
-    No readable campaign sheets for this client.
+    No readable past campaign sheets for this client.
     {% endif %}
   </p>
   {% else %}
@@ -232,6 +266,14 @@
   </div>
   {% endfor %}
 
+  {% if manual_more %}
+  <p class="pulse-meta ab-note">
+    {{ manual_more }} further {{ "live" if live else "past" }}
+    campaign{{ "" if manual_more == 1 else "s" }} not read, because each one is
+    a read of its campaign sheet.
+  </p>
+  {% endif %}
+
   {# Combined underneath, where a single campaign is too small to call on its
      own. Shown only when there is more than one campaign to add up. #}
   {% if manual.campaigns | length > 1 and manual.combined.variants %}
@@ -254,8 +296,10 @@
   {% endif %}
 
   <p class="pulse-meta ab-note">
-    Variations are Copy Bank combinations — <b>S2/B1</b> is subject 2 with body 1,
-    looked up against the entry the merge recorded.
+    <b>Copy 1</b>, <b>Copy 2</b> and so on number the variations within one
+    campaign. The code beside each is what that campaign's sheet holds in its
+    <b>A/B Variant</b> column: <b>S2/B1</b> is subject 2 with body 1 of the
+    Copy Bank entry the merge recorded.
     Copy saved against a campaign applies to that campaign only.
     {% if manual.copy_note %}{{ manual.copy_note }}{% endif %}
     {% if manual.sheets_skipped %}
@@ -265,6 +309,30 @@
   </p>
   {% endif %}
 </div>
+
+
+{% if live and past_count %}
+{# Past campaigns cost one sheet read or one Smartlead call each, so they are
+   fetched only when somebody asks. Into their OWN target, not over the top of
+   this panel: re-rendering live would re-run every Smartlead call for a
+   campaign the reader can already see. #}
+<div class="ab-past-toggle">
+  <button type="button" class="btn btn-download"
+          hx-get="/api/outbound-pulse/clients/{{ client_id }}/ab?show=past"
+          hx-include="#range-select, #date-from, #date-to"
+          hx-target="#pulse-ab-past"
+          hx-swap="innerHTML"
+          hx-indicator="#ab-past-spinner"
+          hx-on::after-request="this.remove()">
+    Show {{ past_count }} past campaign{{ "" if past_count == 1 else "s" }}
+  </button>
+  <div id="ab-past-spinner" class="spinner htmx-indicator">
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    Reading past campaigns&hellip;
+  </div>
+</div>
+<div id="pulse-ab-past" style="margin-top:18px"></div>
+{% endif %}
 
 <script>
   window.pulseEditCopy = function (id, open) {

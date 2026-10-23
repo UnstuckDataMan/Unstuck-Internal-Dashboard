@@ -107,6 +107,36 @@
     <div class="trk-legend" data-trk-legend></div>
   </div>
 
+  {% if channel_rates %}
+  {# Graded leads over what each tool sent. Not recomputed by the browser's
+     filters, unlike everything below it: the sends behind the denominator are
+     not in the rows that were shipped, so a filtered numerator over an
+     unfiltered denominator would be a rate of nothing. #}
+  <div class="trk-card" style="margin-bottom:16px">
+    <div class="trk-block-head">
+      <p class="trk-block-title">Lead rate by channel</p>
+      <span class="trk-block-note">Graded leads over sends · {{ range.label | lower }}, not filtered</span>
+    </div>
+    <div class="trk-rates">
+      {%- for r in channel_rates %}
+      <div class="trk-rate">
+        <span class="trk-rate-name">{{ r.label }}</span>
+        <span class="trk-rate-figs">
+          <b>{{ r.rate | pulse_pct }}</b>
+          {{ "{:,}".format(r.leads) }} of {{ "{:,}".format(r.sent) }} sent
+        </span>
+      </div>
+      {%- endfor %}
+    </div>
+    <p class="pulse-meta" style="margin-top:10px;line-height:1.55">
+      LinkedIn sends are whatever was typed in for the month and are recorded
+      against the 1st of it, so a range that cuts through a month either
+      counts all of them or none — while the leads above it are dated
+      properly. Read that rate as a direction, not a figure.
+    </p>
+  </div>
+  {% endif %}
+
   <div class="trk-grid">
     {% for field, title in [("seniority", "Seniority reached"),
                             ("headcount", "Company size"),

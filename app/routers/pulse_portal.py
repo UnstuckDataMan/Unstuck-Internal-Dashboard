@@ -34,6 +34,8 @@ from app.utils.pulse import store
 from app.utils.pulse import template_filters
 from app.utils.pulse.reports import report_heading
 from app.utils.pulse.normalize import (
+    SOURCE_MEET_ALFRED,
+    tracker_leads,
     CHANNEL_LINKEDIN,
     EVENT_SENT,
     funnel_with_rates,
@@ -95,6 +97,28 @@ def _denied(request: Request, message: str) -> HTMLResponse:
     return _private(response)
 
 
+# Frozen into snapshots published before the client report stopped naming
+# our tooling. The value is in the database, so it can only be fixed on the
+# way out.
+_TOOL_NAMES = {"Manual campaigns": "Email campaigns"}
+
+
+def _client_safe_ab(rows: list) -> list:
+    """The winning-copy rows with any tool name scrubbed from the campaign.
+
+    A client has no use for knowing which of our tools sent their email, and
+    "Manual campaigns" told them. New reports never write it; this is for the
+    ones already published, which render from a snapshot that cannot be
+    rewritten without re-publishing every report ever sent.
+    """
+    out = []
+    for row in rows:
+        name = str((row or {}).get("campaign") or "")
+        out.append(dict(row, campaign=_TOOL_NAMES[name]) if name in _TOOL_NAMES
+                   else row)
+    return out
+
+
 def _tracker_url(client_id: str) -> str:
     """The sheet currently linked for this client, or "".
 
@@ -151,6 +175,7 @@ def _snapshot_view(report: dict, tracker_url: str = "") -> dict:
     # published before this split render correctly too.
     linkedin = (snapshot.get("by_channel") or {}).get(CHANNEL_LINKEDIN) or {}
     email = without(counts, linkedin)
+    icp = _with_tracker_link(snapshot.get("icp") or {}, tracker_url)
     return {
         "counts":     email,
         "funnel":     funnel_with_rates(email),
@@ -158,17 +183,23 @@ def _snapshot_view(report: dict, tracker_url: str = "") -> dict:
         # A client who has never been run on LinkedIn gets no card at all,
         # rather than a card of zeros implying we tried and nothing happened.
         "has_linkedin": any((linkedin.get(k) or 0) > 0 for k in linkedin),
+        # LINKEDIN LEADS COME FROM THE TRACKER WHERE THERE IS ONE. The funnel
+        # only knows the monthly figures an account manager typed in, and the
+        # one thing that is actually graded lead by lead is the Performance
+        # Tracker sheet. It has no sends column, so the rate is still the
+        # tracker's leads over the funnel's connection requests.
+        "linkedin_leads": tracker_leads(icp, SOURCE_MEET_ALFRED),
         "trend":      snapshot.get("trend") or {"unit": "day", "buckets": []},
         # Absent from any report published before A/B was captured, which is
         # why every field here is read defensively rather than indexed.
-        "ab":         snapshot.get("ab") or [],
+        "ab":         _client_safe_ab(snapshot.get("ab") or []),
         # Absent from every report published before lead quality existed, so
         # read for what it is rather than indexed.
-        "icp":        _with_tracker_link(snapshot.get("icp") or {}, tracker_url),
+        "icp":        icp,
         # Gate on leads rather than on the key: a period the sheet covers but
         # has nothing in gets no card, instead of a card of zeros that reads
         # as a campaign that failed.
-        "has_icp":    bool((snapshot.get("icp") or {}).get("total")),
+        "has_icp":    bool(icp.get("total")),
         # Both platforms: this is the "did anything happen at all" gate, and a
         # client run only on LinkedIn must not be told there was no activity.
         "total_sent": counts.get(EVENT_SENT, 0) or 0,
@@ -259,6 +290,7 @@ async def portal(request: Request, token: str, report: str = Query("")):
     }
     context.update(_snapshot_view(current, _tracker_url(client_id)) if current else {
         "counts": {}, "funnel": [], "linkedin": {}, "has_linkedin": False,
+        "linkedin_leads": None,
         "trend": {"unit": "day", "buckets": []}, "ab": [], "icp": {},
         "has_icp": False, "total_sent": 0, "email_sent": 0,
     })

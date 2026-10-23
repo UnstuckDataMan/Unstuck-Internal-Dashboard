@@ -34,6 +34,7 @@ from app.utils.pulse import (
     store,
     sync as pulse_sync,
 )
+from app.utils import campaign_status
 from app.utils import copy_bank as shared_copy_bank
 from app.utils import google_sheets
 from app.utils.pulse.reports import report_heading
@@ -1240,6 +1241,11 @@ async def reset_exclusions(request: Request,
 # the range are asked for, and only when someone opens the panel.
 _AB_MAX_CAMPAIGNS = 8
 
+# How many campaign ROWS to list before classifying them. Not a display limit
+# and not a cost: one PostgREST request returns the lot. It only stops a
+# pathological client from pulling thousands of rows into memory.
+_AB_MAX_ROWS = 300
+
 
 def manual_campaigns(client_id: str) -> list[dict]:
     """This client's DNC & Merger campaigns, newest first.
@@ -1280,16 +1286,69 @@ def manual_campaigns(client_id: str) -> list[dict]:
         return []
 
 
-def _manual_ab_campaigns(client_id: str) -> list[dict]:
-    """This client's manual campaigns, as the A/B breakdown needs them.
+def _manual_ab_campaigns(client_id: str, bucket: str = "live") -> dict:
+    """This client's manual campaigns for one bucket, as the A/B panel needs them.
 
-    Read straight from the mail-merge `campaigns` table rather than through
-    Pulse: manual campaigns are that tool's records, and Pulse only ever reads
-    their aggregates.
+    Returns {"campaigns", "more", "other"}: the ones to read, how many more are
+    in this bucket than we will read, and how many are in the other one.
+
+    WHY THIS USED TO HIDE THE CAMPAIGNS THAT MATTERED. The query ordered by
+    `completed_at.desc.nullslast` and took the first 8. A campaign still
+    running has no completion date, so `nullslast` sorted every live campaign
+    BELOW every finished one — and the limit then cut them off. Any client with
+    eight finished campaigns had the running ones silently dropped before a
+    single sheet was read, which is why winners "were not being identified".
+    Ordering by completion was the bug; nothing here sorts by it before the
+    rows have been classified.
+
+    CLASSIFIED IN PYTHON, NOT IN THE QUERY. "Finished" is partly
+    `sent_count >= total_prospects`, which PostgREST cannot express, and
+    `completed`/`paused` are not on every deployment. So the whole
+    client-scoped list comes back — tens of rows, one request, the same cost
+    as before — and app.utils.campaign_status decides.
 
     `ref` is the campaign row's id rather than its name. Copy written down
     against a campaign is keyed by it, and a renamed campaign must not lose
     the copy somebody typed for it.
+    """
+    rows = _manual_campaign_rows(client_id)
+    live, past = [], []
+    for row in rows:
+        if not row.get("sheet_id"):
+            continue
+        (past if campaign_status.is_finished(row) else live).append(row)
+    # Only the finished pile has a meaningful completion date to sort on.
+    past.sort(key=lambda r: str(r.get("completed_at") or r.get("created_at") or ""),
+              reverse=True)
+
+    if bucket == "all":
+        # Everything, live first. Used when publishing a report: a period's
+        # winners include campaigns that finished inside it, and the cap still
+        # applies because each one is a sheet read.
+        chosen, other = live + past, []
+    else:
+        chosen, other = (live, past) if bucket != "past" else (past, live)
+    return {
+        "campaigns": [{
+            "ref":          str(row.get("id") or row.get("sheet_id") or ""),
+            "name":         str(row.get("campaign_name") or ""),
+            "sheet_id":     str(row.get("sheet_id") or ""),
+            "territory":    str(row.get("copy_territory") or ""),
+            "industry":     str(row.get("copy_industry") or ""),
+            "completed_at": str(row.get("completed_at") or ""),
+        } for row in chosen[:_AB_MAX_CAMPAIGNS]],
+        "more":  max(0, len(chosen) - _AB_MAX_CAMPAIGNS),
+        "other": len(other),
+    }
+
+
+def _manual_campaign_rows(client_id: str) -> list[dict]:
+    """The raw campaigns rows, through the richest select the database accepts.
+
+    PostgREST rejects the whole request over one unknown column, and the
+    copy-source and status columns are each missing on some deployments, so
+    this walks from the richest select to the poorest. Losing a column costs a
+    breakdown, never the panel.
     """
     from app.utils.supabase import SUPABASE_URL, sb_headers
 
@@ -1297,64 +1356,36 @@ def _manual_ab_campaigns(client_id: str) -> list[dict]:
 
     if not SUPABASE_URL:
         return []
-    try:
-        r = http.get(
-            f"{SUPABASE_URL}/rest/v1/campaigns",
-            params={
-                "select":    ("id,sheet_id,campaign_name,completed_at,"
-                              "copy_territory,copy_industry"),
-                "client_id": f"eq.{client_id}",
-                "order":     "completed_at.desc.nullslast",
-                "limit":     str(_AB_MAX_CAMPAIGNS),
-            },
-            headers=sb_headers(),
-            timeout=15,
-        )
-        if r.status_code >= 400:
-            # The copy-source columns may not be migrated here. Fall back to
-            # the ids alone: the breakdown is still worth showing without the
-            # copy, and losing the whole panel over it would not be.
-            return _manual_ab_campaigns_without_copy(client_id)
-        rows = r.json()
-    except Exception as exc:
-        logger.warning("Pulse A/B: could not list campaigns for %s: %s", client_id, exc)
-        return []
-    return [{
-        "ref":       str(row.get("id") or row.get("sheet_id") or ""),
-        "name":      str(row.get("campaign_name") or ""),
-        "sheet_id":  str(row.get("sheet_id") or ""),
-        "territory": str(row.get("copy_territory") or ""),
-        "industry":  str(row.get("copy_industry") or ""),
-    } for row in rows if row.get("sheet_id")]
+    base = "id,sheet_id,campaign_name,created_at"
+    tiers = [f"{base},copy_territory,copy_industry,{tier}"
+             for tier in campaign_status.SELECT_TIERS]
+    # Last resort: no copy source either. The breakdown is still worth showing
+    # without it, and losing the whole panel over it would not be.
+    tiers += [f"{base},{tier}" for tier in campaign_status.SELECT_TIERS]
 
-
-def _manual_ab_campaigns_without_copy(client_id: str) -> list[dict]:
-    from app.utils.supabase import SUPABASE_URL, sb_headers
-
-    import requests as http
-
-    try:
-        r = http.get(
-            f"{SUPABASE_URL}/rest/v1/campaigns",
-            params={
-                "select":    "id,sheet_id,campaign_name",
-                "client_id": f"eq.{client_id}",
-                "limit":     str(_AB_MAX_CAMPAIGNS),
-            },
-            headers=sb_headers(),
-            timeout=15,
-        )
-        if r.status_code >= 400:
+    for select in tiers:
+        try:
+            r = http.get(
+                f"{SUPABASE_URL}/rest/v1/campaigns",
+                params={
+                    "select":    select,
+                    "client_id": f"eq.{client_id}",
+                    # Newest first, and NOT by completion — see the note above.
+                    # A cap rather than a display limit: the bucket is chosen
+                    # after these rows are classified.
+                    "order":     "created_at.desc",
+                    "limit":     str(_AB_MAX_ROWS),
+                },
+                headers=sb_headers(),
+                timeout=15,
+            )
+        except Exception as exc:
+            logger.warning("Pulse A/B: could not list campaigns for %s: %s",
+                           client_id, exc)
             return []
-        rows = r.json()
-    except Exception:
-        return []
-    return [{
-        "ref":       str(row.get("id") or row.get("sheet_id") or ""),
-        "name":      str(row.get("campaign_name") or ""),
-        "sheet_id":  str(row.get("sheet_id") or ""),
-        "territory": "", "industry": "",
-    } for row in rows if row.get("sheet_id")]
+        if r.status_code < 400:
+            return r.json()
+    return []
 
 
 def _copy_index(client_id: str) -> dict[tuple[str, str, str], dict]:
@@ -1460,7 +1491,17 @@ def _attach_manual_copy(client_id: str, breakdown: dict, copy_index: dict) -> st
     return ""
 
 
-def _ab_panel(request: Request, client_id: str, rng: dict, error: str = ""):
+def _ab_bucket(value: str) -> str:
+    """"live" or "past" — anything else is live.
+
+    Validated rather than passed through: the value reaches a dict lookup and
+    an unknown key would be a 500 on a panel that is meant to degrade.
+    """
+    return "past" if str(value or "").lower() == "past" else "live"
+
+
+def _ab_panel(request: Request, client_id: str, rng: dict, error: str = "",
+              bucket: str = "live"):
     """Winning copy variation, per source.
 
     Deliberately two separate verdicts. Smartlead decides on its own positive
@@ -1472,8 +1513,17 @@ def _ab_panel(request: Request, client_id: str, rng: dict, error: str = ""):
     copy_index = _copy_index(client_id)
 
     smartlead_steps, smartlead_error = [], ""
-    campaigns = store.list_campaigns(client_id=client_id,
-                                     source_tool=SOURCE_SMARTLEAD)
+    # Bucketed here rather than in the query: status holds whatever Smartlead
+    # sent, PostgREST's eq. is case-sensitive, and filtering on a literal
+    # would drop every campaign the day Smartlead changed its casing. The list
+    # is one client's, so this is tens of rows.
+    buckets: dict[str, list[dict]] = {"live": [], "past": []}
+    for row in store.list_campaigns(client_id=client_id,
+                                    source_tool=SOURCE_SMARTLEAD):
+        where = abtest.smartlead_bucket(row.get("status", ""))
+        if where != "hidden":
+            buckets[where].append(row)
+    campaigns = buckets[bucket]
 
     if not smartlead.is_configured():
         smartlead_error = "No Smartlead API key is set, so variants cannot be read."
@@ -1498,7 +1548,8 @@ def _ab_panel(request: Request, client_id: str, rng: dict, error: str = ""):
                         variant["variant"])
                 smartlead_steps.append(step)
 
-    manual = abtest.manual_breakdown(_manual_ab_campaigns(client_id))
+    listing = _manual_ab_campaigns(client_id, bucket)
+    manual = abtest.manual_breakdown(listing["campaigns"])
     manual["copy_note"] = _attach_manual_copy(client_id, manual, copy_index)
 
     # Offered so a campaign whose copy source was never recorded can have one
@@ -1518,7 +1569,11 @@ def _ab_panel(request: Request, client_id: str, rng: dict, error: str = ""):
         "smartlead_error":  smartlead_error,
         "smartlead_more":   max(0, len(campaigns) - _AB_MAX_CAMPAIGNS),
         "manual":           manual,
+        "manual_more":      listing["more"],
         "copy_options":     copy_options,
+        "bucket":           bucket,
+        # What the "show past" toggle offers, and whether to offer it at all.
+        "past_count":       listing["other"] + len(buckets["past"]),
         "range":            rng,
         "range_key":        rng["preset"],
         "error":            error,
@@ -1532,10 +1587,12 @@ async def client_ab_tests(
     range:     str = Query("30d"),
     date_from: str = Query(""),
     date_to:   str = Query(""),
+    show:      str = Query("live"),
 ):
     try:
         return _ab_panel(request, client_id,
-                         _resolve_range(range, date_from, date_to))
+                         _resolve_range(range, date_from, date_to),
+                         bucket=_ab_bucket(show))
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 
@@ -1548,6 +1605,7 @@ async def set_campaign_copy_source(
     territory:    str = Form(""),
     industry:     str = Form(""),
     range:        str = Form("30d"),
+    show:         str = Form("live"),
     user:         dict = Depends(auth.require_login),
 ):
     """Record which Copy Bank entry a manual campaign was built from.
@@ -1563,59 +1621,79 @@ async def set_campaign_copy_source(
     because that is where the merge writes it and a second home would drift.
     """
     rng = _resolve_range(range, "", "")
+    bucket = _ab_bucket(show)
     try:
         if not campaign_ref:
-            return _ab_panel(request, client_id, rng,
+            return _ab_panel(request, client_id, rng, bucket=bucket,
                              error="That campaign could not be identified.")
         if not territory or not industry:
-            return _ab_panel(request, client_id, rng,
+            return _ab_panel(request, client_id, rng, bucket=bucket,
                              error="Choose both a territory and an industry — "
                                    "a Copy Bank entry is the pair.")
-        if not _save_copy_source(client_id, campaign_ref, territory, industry):
-            return _ab_panel(request, client_id, rng,
-                             error="Could not record that copy source. The "
-                                   "details are in the server log.")
-        return _ab_panel(request, client_id, rng)
+        problem = _save_copy_source(client_id, campaign_ref, territory, industry)
+        if problem:
+            return _ab_panel(request, client_id, rng, bucket=bucket, error=problem)
+        return _ab_panel(request, client_id, rng, bucket=bucket)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 
 
 def _save_copy_source(client_id: str, campaign_ref: str,
-                      territory: str, industry: str) -> bool:
-    """PATCH the campaigns row, scoped to this client.
+                      territory: str, industry: str) -> str:
+    """PATCH the campaigns row, scoped to this client. "" when it worked.
 
     Scoped on client_id as well as id: the campaign ref arrives from the
     browser, and a copy source belongs to the client whose Copy Bank it names.
+
+    COUNTED, NOT READ BACK. This asked for `return=representation` and treated
+    an empty body as "matched nothing" — but with `return=representation`
+    PostgREST re-selects the row it just wrote, and under a policy that does
+    not hand that row back the body is empty even though the update applied.
+    The result was the worst kind of failure message: one that appears over a
+    change that actually saved. `count=exact` reports rows affected in a
+    header instead, which no select policy can suppress, and it is how the
+    rest of this codebase counts.
+
+    Anything that leaves the count unknowable is reported as success. A write
+    that probably worked must not be announced as a failure, which is the
+    mistake being fixed here.
     """
-    from app.utils.supabase import SUPABASE_URL, sb_headers
+    from app.utils.supabase import SUPABASE_URL, parse_total, sb_headers
 
     import requests as http
 
     if not SUPABASE_URL:
-        return False
+        return "This server has no database configured, so nothing was saved."
     try:
         r = http.patch(
             f"{SUPABASE_URL}/rest/v1/campaigns",
             params={"id": f"eq.{campaign_ref}", "client_id": f"eq.{client_id}"},
-            headers={**sb_headers(), "Prefer": "return=representation"},
+            headers={**sb_headers(), "Prefer": "return=minimal, count=exact"},
             json={"copy_territory": territory, "copy_industry": industry},
             timeout=15,
         )
     except Exception as exc:
         logger.warning("Pulse A/B: could not set copy source on %s: %s",
                        campaign_ref, exc)
-        return False
+        return f"The database could not be reached: {exc}"
+
     if r.status_code >= 400:
+        detail = (r.text or "").strip()[:200]
         logger.warning("Pulse A/B: copy source rejected for %s: %s %s",
-                       campaign_ref, r.status_code, r.text[:200])
-        return False
-    # An empty body means the filter matched nothing — a campaign id that is
-    # not this client's, or no longer exists. Reporting that as success would
-    # leave the panel unchanged with no explanation.
-    try:
-        return bool(r.json())
-    except Exception:
-        return False
+                       campaign_ref, r.status_code, detail)
+        # The likeliest 400 by far, and the one worth naming: the columns are
+        # added by migrations/add_campaign_copy_source.sql.
+        if "copy_territory" in detail or "copy_industry" in detail:
+            return ("This database has no copy_territory/copy_industry columns "
+                    "yet — run migrations/add_campaign_copy_source.sql.")
+        return f"The database refused the change ({r.status_code}): {detail}"
+
+    if "Content-Range" not in r.headers:
+        return ""        # saved; the count is simply not knowable here
+    if parse_total(r.headers):
+        return ""
+    return ("That campaign was not found against this client, so nothing was "
+            "changed. It may have been deleted, or moved to another client.")
 
 
 @router.post("/api/outbound-pulse/clients/{client_id}/copy")
@@ -1628,6 +1706,7 @@ async def save_variant_copy(
     subject:      str = Form(""),
     body:         str = Form(""),
     range:        str = Form("30d"),
+    show:         str = Form("live"),
     user:         dict = Depends(auth.require_login),
 ):
     """Write down what a variant actually said.
@@ -1638,16 +1717,17 @@ async def save_variant_copy(
     what lets the client's report show the message rather than a letter.
     """
     rng = _resolve_range(range, "", "")
+    bucket = _ab_bucket(show)
     try:
         if not variant_key:
-            return _ab_panel(request, client_id, rng,
+            return _ab_panel(request, client_id, rng, bucket=bucket,
                              error="That variant could not be identified.")
         clean_subject = subject.strip()[:300]
         # Sanitised here, at the one point markup crosses from an author to a
         # reader: this body renders on a client-facing report.
         clean_body = richtext.sanitize(body)
         if not clean_subject and not richtext.to_text(clean_body):
-            return _ab_panel(request, client_id, rng,
+            return _ab_panel(request, client_id, rng, bucket=bucket,
                              error="Add a subject line or some copy.")
         if not store.upsert_copy_variant(
                 client_id=client_id,
@@ -1657,10 +1737,10 @@ async def save_variant_copy(
                 subject=clean_subject,
                 body=clean_body,
                 entered_by=user.get("name", "") or user.get("email", "")):
-            return _ab_panel(request, client_id, rng,
+            return _ab_panel(request, client_id, rng, bucket=bucket,
                              error="Could not save that copy. The details are "
                                    "in the server log.")
-        return _ab_panel(request, client_id, rng)
+        return _ab_panel(request, client_id, rng, bucket=bucket)
     except PulseNotReady as exc:
         return _not_ready_box(exc)
 
@@ -1841,10 +1921,59 @@ def _tracker_panel(request: Request, client_id: str, rng: dict):
             "top_rated_from": tracker.TOP_RATED_FROM,
         },
         "in_range": len(scoped),
+        # A lead rate per channel, graded leads over what each tool actually
+        # sent. This panel is where it belongs: the sheet is already read
+        # here, and the funnel sends are one database query. Putting it on the
+        # always-rendered LinkedIn panel would cost a Google read on every
+        # page view, against a 55/min budget shared with the hourly sync.
+        "channel_rates": _tracker_channel_rates(client_id, rng,
+                                                tracker.summarise(scoped)),
         "from":     rng["from"].isoformat() if rng.get("from") else "",
         "to":       rng["to"].isoformat() if rng.get("to") else "",
     })
     return templates.TemplateResponse("partials/pulse_tracker.html", context)
+
+
+def _tracker_channel_rates(client_id: str, rng: dict, summary: dict) -> list[dict]:
+    """Graded leads per channel over the sends that tool reported.
+
+    Two numbers from two places, and they are only comparable because the
+    tracker's Channel column normalises to the same source keys the funnel
+    uses. Never raises: this is an extra line on a panel that works without it.
+
+    THE DENOMINATORS ARE NOT ALL ALIKE, and the panel says so. LinkedIn sends
+    are typed in a month at a time and dated to the 1st, so a range cutting
+    through a month gives a whole-or-nothing denominator against a numerator
+    that is correctly prorated. A rate is only shown where there is something
+    to divide by.
+    """
+    try:
+        by_source = store.funnel_by_source(
+            client_id=client_id, date_from=rng.get("from"), date_to=rng.get("to"))
+    except Exception as exc:
+        logger.warning("Pulse tracker: no sends to rate against for %s: %s",
+                       client_id, exc)
+        return []
+
+    out = []
+    for row in summary.get("channel") or []:
+        key = row.get("key") or ""
+        # Hand-entered LinkedIn figures and the Meet Alfred CSV are the same
+        # platform under two source keys, so the sends add up.
+        keys = ((SOURCE_MEET_ALFRED, SOURCE_HAND_ENTRY)
+                if key == SOURCE_MEET_ALFRED else (key,))
+        sent = sum((by_source.get(k) or {}).get(EVENT_SENT, 0) or 0 for k in keys)
+        if not sent:
+            continue
+        out.append({
+            "key":   key,
+            "label": row.get("label") or key,
+            "leads": row.get("count") or 0,
+            "sent":  sent,
+            "rate":  (row.get("count") or 0) * 100.0 / sent,
+        })
+    out.sort(key=lambda r: r["rate"], reverse=True)
+    return out
 
 
 @router.get("/api/outbound-pulse/clients/{client_id}/tracker/leads")
@@ -1989,7 +2118,11 @@ def _report_ab_winners(client_id: str, start: date, end: date) -> list[dict]:
         logger.warning("Pulse: A/B unavailable for the report on %s: %s",
                        client_id, exc)
     try:
-        breakdown = abtest.manual_breakdown(_manual_ab_campaigns(client_id))
+        # Every campaign, not just the live ones: a report covers a period,
+        # and the campaigns that ran in it have usually finished by the time
+        # it is written.
+        breakdown = abtest.manual_breakdown(
+            _manual_ab_campaigns(client_id, bucket="all")["campaigns"])
         _attach_manual_copy(client_id, breakdown, copy_index)
         # Per campaign, not combined. A campaign is one send of one Copy Bank
         # entry, so its winner is a verdict the client can act on; the
