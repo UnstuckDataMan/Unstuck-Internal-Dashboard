@@ -52,6 +52,11 @@ def register(env) -> None:
     env.filters["pulse_lead_rate"] = lead_rate
     env.filters["pulse_reply_rate"] = reply_rate
     env.filters["pulse_outcomes"] = outcome_breakdown
+    # The client's report, where a stage must not name the tool that produced
+    # it. Its own filter rather than an argument at the call site, so the two
+    # audiences cannot be mixed up by someone editing one template.
+    env.filters["pulse_outcomes_client"] = lambda counts: outcome_breakdown(
+        counts, client_safe=True)
     env.filters["pulse_rates"] = headline_rates
     env.filters["pulse_interest_rate"] = interest_rate
     env.filters["pulse_unsubs"] = unsubscribe_count

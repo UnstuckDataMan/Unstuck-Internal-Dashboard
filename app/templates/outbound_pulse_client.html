@@ -46,7 +46,7 @@
     <option value="" {% if not channel %}selected{% endif %}>Both</option>
     <option value="email" {% if channel == "email" %}selected{% endif %}>Email (Smartlead)</option>
     <option value="linkedin" {% if channel == "linkedin" %}selected{% endif %}>LinkedIn (Meet Alfred)</option>
-    <option value="manual" {% if channel == "manual" %}selected{% endif %}>DNC &amp; Merger tool</option>
+    <option value="manual" {% if channel == "manual" %}selected{% endif %}>Manual</option>
     <option value="hand_entry" {% if channel == "hand_entry" %}selected{% endif %}>Entered by hand</option>
   </select>
 </div>
@@ -180,9 +180,9 @@
   <div class="pulse-panel">
     <h3>Busiest campaigns</h3>
     <p class="panel-hint">
-      By sends. Campaigns run through the DNC &amp; Merger tool cannot be
-      ranked here — their outcomes are recorded against the client rather than
-      the campaign, so there is no per-campaign funnel to sort them by.
+      By sends. Anything run by hand is missing here — those outcomes are
+      recorded against the client rather than the campaign, so there is no
+      per-campaign funnel to sort them by.
     </p>
     <div class="top-camps">
       {%- for row in campaign_rows[:3] %}
@@ -301,7 +301,8 @@
         </p>
         {% elif s.key == "manual" %}
         <p class="pulse-meta" style="line-height:1.6">
-          From the DNC &amp; Merger tool. A lead is a prospect marked
+          From the DNC &amp; Merger tool, which the team runs by hand. A lead
+          is a prospect marked
           <b>Lead</b> on the campaign sheet; Interested is the <b>Interested</b>
           status.
         </p>
@@ -309,11 +310,11 @@
           Leads are dated by when the hourly sync recorded them, and are stored
           one per domain per client — so a domain that becomes a lead twice
           counts once, and these totals read slightly lower than the
-          per-campaign figures in the DNC &amp; Merger tool.
+          per-campaign figures in the tool itself.
         </p>
         <p class="pulse-meta" style="margin-top:10px;line-height:1.6">
           The sheet's <b>Reply</b> status carries no date, so manual replies are
-          not shown here. They remain in the DNC &amp; Merger tool.
+          not shown here. They remain in the tool itself.
         </p>
         {% else %}
         <p class="pulse-meta" style="line-height:1.6">
@@ -408,7 +409,8 @@
 <!-- ── Manual campaigns ───────────────────────────────────────────────── -->
 <div class="pulse-section">
   <p class="section-label">Manual campaigns</p>
-  {# From the DNC &amp; Merger tool. These cannot appear in the table above:
+  {# Run by hand through the DNC &amp; Merger tool. These cannot appear in
+     the table above:
      their outcomes are recorded against the client rather than the campaign,
      so the funnel has no per-campaign figures to show for them. #}
   <div class="tbl-wrap">
@@ -437,7 +439,7 @@
   </div>
   <p class="pulse-meta" style="margin-top:10px;line-height:1.55">
     Outcomes for these are counted against the client, not the campaign, so
-    their leads and replies appear under <b>DNC &amp; Merger</b> on the
+    their leads and replies appear under <b>Manual</b> on the
     <b>Performance</b> tab rather than row by row here.
   </p>
 </div>

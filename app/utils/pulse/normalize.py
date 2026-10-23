@@ -99,7 +99,8 @@ LEAD_STAGES: tuple[str, ...] = (
 # already frozen into published reports.
 RESPONSE_STAGES: tuple[str, ...] = (EVENT_REPLIED, EVENT_UNSUBSCRIBED)
 
-# Campaigns run through the DNC & Merger tool. The KEY must not change: it is
+# Campaigns run through the DNC & Merger tool, labelled "Manual" because that
+# is what the team calls them. The KEY must not change: it is
 # written into pulse_manual_daily and into the by_source block of every report
 # snapshot already on disk. Only its label moved.
 SOURCE_MANUAL = "manual"
@@ -114,7 +115,7 @@ SOURCE_HAND_ENTRY = "hand_entry"
 SOURCE_LABELS: dict[str, str] = {
     "smartlead":       "Smartlead",
     "meet_alfred":     "Meet Alfred",
-    SOURCE_MANUAL:     "DNC & Merger",
+    SOURCE_MANUAL:     "Manual",
     SOURCE_HAND_ENTRY: "Entered by hand",
 }
 
@@ -537,17 +538,31 @@ def headline_rates(counts: dict[str, int]) -> list[dict]:
     return rows
 
 
-def outcome_breakdown(counts: dict[str, int]) -> list[dict]:
+# What a stage is called on a client's report, where it differs. A client
+# has no use for which of our tools sent their email — it is all email to
+# them — and "Manual leads" names a tool. "Leads" is taken: it is the third
+# stage of the funnel directly above this card, and two tiles with that word
+# on one page read as the same number twice.
+CLIENT_STAGE_LABELS: dict[str, str] = {
+    EVENT_MANUAL_LEAD: "Other leads",
+}
+
+
+def outcome_breakdown(counts: dict[str, int], client_safe: bool = False) -> list[dict]:
     """The three reply outcomes side by side, each with its share of replies.
 
     Shown as a breakdown rather than as funnel stages: the categories are
     mutually exclusive, so "Meeting requests as a % of Interested" would be a
     meaningless step rate.
+
+    `client_safe` swaps in the labels above. The internal pages keep the
+    provenance in the name, because on those it is the useful part.
     """
+    labels = {**STAGE_LABELS, **CLIENT_STAGE_LABELS} if client_safe else STAGE_LABELS
     replied = counts.get(EVENT_REPLIED, 0) or 0
     return [{
         "key":        stage,
-        "label":      STAGE_LABELS[stage],
+        "label":      labels[stage],
         "value":      counts.get(stage, 0) or 0,
         "of_replies": _rate(counts.get(stage, 0) or 0, replied),
         "of_sent":    None,
@@ -561,7 +576,7 @@ def outcome_breakdown(counts: dict[str, int]) -> list[dict]:
         # Always shown, including at zero: "no unsubscribes" is a result worth
         # seeing, unlike a category a source cannot produce.
         "key":        EVENT_UNSUBSCRIBED,
-        "label":      STAGE_LABELS[EVENT_UNSUBSCRIBED],
+        "label":      labels[EVENT_UNSUBSCRIBED],
         "value":      unsubscribe_count(counts),
         # Of sends, not of replies. An unsubscribe is not one of the mutually
         # exclusive reply categories, so a share of replies could exceed 100%.
@@ -574,13 +589,36 @@ def outcome_breakdown(counts: dict[str, int]) -> list[dict]:
         # report a bounce, so a permanent "0 bounces" on a Smartlead-only
         # client reads as a broken number rather than as good news.
         "key":        EVENT_BOUNCED,
-        "label":      STAGE_LABELS[EVENT_BOUNCED],
+        "label":      labels[EVENT_BOUNCED],
         "value":      bounce_count(counts),
         "of_replies": None,
         "of_sent":    bounce_rate(counts),
         "is_lead":    False,
         "is_negative": True,
     }] if bounce_count(counts) else [])
+
+
+def tracker_leads(icp: dict, source_tool: str) -> int | None:
+    """Leads the Performance Tracker recorded for one source, or None.
+
+    The tracker is the team's own grading sheet and is the better authority on
+    LinkedIn than the funnel is: a connection that turns into a conversation
+    gets a row there, while the funnel only knows what an account manager
+    typed into the monthly figures. Its Channel column already normalises to
+    this app's source keys, so no mapping is needed here.
+
+    None means "the tracker has nothing to say" — no sheet linked, or
+    nothing in the period — and the caller should keep using the funnel. A
+    tracker that HAS rows but none for this source returns 0, which is a real
+    answer and not the same thing.
+    """
+    rows = (icp or {}).get("channel")
+    if not (icp or {}).get("total") or rows is None:
+        return None
+    for row in rows:
+        if row.get("key") == source_tool:
+            return int(row.get("count") or 0)
+    return 0
 
 
 def funnel_with_rates(counts: dict[str, int]) -> list[dict]:

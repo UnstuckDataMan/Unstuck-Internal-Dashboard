@@ -1264,7 +1264,8 @@ def read_ab_stats(sheet_id: str) -> list[dict]:
     records = _get_all_records(ws, sheet_id, value_render_option="UNFORMATTED_VALUE")
 
     stats: dict = defaultdict(
-        lambda: {"total": 0, "lead": 0, "interested": 0, "reply": 0, "unsubscribe": 0}
+        lambda: {"total": 0, "sent": 0, "lead": 0, "interested": 0,
+                 "reply": 0, "unsubscribe": 0}
     )
 
     for r in records:
@@ -1275,6 +1276,12 @@ def read_ab_stats(sheet_id: str) -> list[dict]:
 
         status = str(r.get("Lead Status", "")).strip()
         stats[variant]["total"] += 1
+        # Allocated and sent are the same number once a campaign has finished,
+        # and very different while it is running: the merge writes every row
+        # up front and Send Status is ticked as each one goes out. A reply
+        # rate against allocation divides by people nobody has emailed yet.
+        if _is_sent(r.get("Send Status", "")):
+            stats[variant]["sent"] += 1
         if status == "Lead":
             stats[variant]["lead"] += 1
         elif status == "Interested":
@@ -1290,6 +1297,7 @@ def read_ab_stats(sheet_id: str) -> list[dict]:
         result.append({
             "variant":     variant,
             "total":       s["total"],
+            "sent":        s["sent"],
             "lead":        s["lead"],
             "interested":  s["interested"],
             "reply":       s["reply"],

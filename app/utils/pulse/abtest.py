@@ -33,6 +33,57 @@ logger = logging.getLogger(__name__)
 # this it is reported but never called a winner.
 MIN_SENDS_FOR_A_WINNER = 40
 
+# The total above is a sum ACROSS variants, so the volume it implies per arm
+# shrinks as arms are added — three arms clear 40 on 14 sends each, which is
+# nothing. Ranking on a rate makes that actively dangerous (1 reply from 3 is
+# 33%), so the leader and the runner-up must each clear a floor of their own.
+# Only those two: a third arm somebody sent to a handful of people must not
+# block a verdict between two arms with hundreds.
+MIN_SENDS_PER_VARIANT = 25
+
+# And the leader needs enough of whatever decided it. Two positives is a
+# coincidence.
+MIN_WINS_FOR_A_WINNER = 3
+
+# How far ahead the leader has to be, as a share of the runner-up's rate.
+# Without this, 10 positives against 9 reads as a decisive result.
+MIN_RELATIVE_LEAD = 0.20
+
+
+def variant_sort_key(label: str) -> tuple[int, int, int, str]:
+    """Order a variant label the way the copy behind it is ordered.
+
+    "S2/B1" sorts by its Copy Bank indexes, so S1/B1 < S1/B2 < S2/B1 regardless
+    of how the strings compare. A Smartlead letter has no indexes and sorts
+    alphabetically after them. Anything else sorts last, on its raw text.
+    """
+    from app.utils.copy_bank import parse_variant
+
+    subject_idx, body_idx = parse_variant(label)
+    text = str(label or "")
+    if subject_idx is not None and body_idx is not None:
+        return (0, subject_idx, body_idx, text)
+    if text.strip():
+        return (1, 0, 0, text.strip().upper())
+    return (2, 0, 0, text)
+
+
+def number_variants(labels) -> dict[str, int]:
+    """{label: 1-based number}, in variant_sort_key order.
+
+    "S2/B1" tells a reader which Copy Bank row to open and nothing about which
+    message it is; "Copy 2" is what the team actually compares. The number is
+    DERIVED from the label rather than stored, so it needs no table and cannot
+    drift — and it is derived from the label rather than from the ranking, so
+    the copy that was Copy 2 yesterday is still Copy 2 when it starts winning.
+
+    Dense and 1-based over the labels present. Scoped by the caller to one
+    comparison unit — a Smartlead step, or one manual campaign — because
+    those are the only sets whose members are ever measured against each other.
+    """
+    unique = sorted(set(str(label) for label in labels), key=variant_sort_key)
+    return {label: i for i, label in enumerate(unique, start=1)}
+
 
 def _rate(value: int, base: int) -> float | None:
     return round(value * 100.0 / base, 1) if base else None
@@ -41,21 +92,43 @@ def _rate(value: int, base: int) -> float | None:
 def _decide(variants: list[dict]) -> dict:
     """Rank variants and name a winner, or say why there isn't one.
 
-    Sorted by the positive count, then by replies. A tie or too little volume
-    is reported as such: "we cannot tell yet" is a useful answer and a coin
-    flip dressed as a result is not.
+    RANKED ON RATES, NOT COUNTS. The old rule sorted on the raw positive count,
+    which hands the verdict to whichever variation happened to be sent to more
+    people — the one thing an A/B test is supposed to control for. Counts
+    remain as tiebreakers, so equal rates still order by volume.
+
+    DECIDED ON POSITIVES WHERE THERE ARE ANY, OTHERWISE ON REPLIES. A manual
+    campaign is graded by hand, and an account manager marks Reply long before
+    anyone goes back and marks Lead or Interested. The old rule bailed out
+    whenever every positive count was zero, so those campaigns reported "no
+    variation is ahead" indefinitely while sitting on a perfectly clear
+    difference in replies. `decided_on` says which measure was used.
+
+    A tie, too little volume, or a lead inside the noise is reported as such:
+    "we cannot tell yet" is a useful answer and a coin flip dressed as a result
+    is not.
     """
+    numbers = number_variants(v["variant"] for v in variants)
     for row in variants:
         row["positive_rate"] = _rate(row["positive"], row["sent"])
         row["reply_rate"] = _rate(row["reply"], row["sent"])
-    variants.sort(key=lambda v: (v["positive"], v["reply"], v["sent"]), reverse=True)
+        row["copy_no"] = numbers[str(row["variant"])]
+        row["copy_label"] = f"Copy {row['copy_no']}"
 
     total_sent = sum(v["sent"] for v in variants)
+    # Whichever measure decides, every gate below reads the same two fields.
+    graded = any(v["positive"] for v in variants)
+    measure = "positive" if graded else "reply"
+    variants.sort(reverse=True, key=lambda v: (
+        v[f"{measure}_rate"] or 0.0, v[measure], v["sent"]))
+
     out = {
-        "variants":   variants,
-        "total_sent": total_sent,
-        "winner":     None,
-        "reason":     "",
+        "variants":     variants,
+        "total_sent":   total_sent,
+        "winner":       None,
+        "winner_label": "",
+        "decided_on":   measure,
+        "reason":       "",
     }
     if len(variants) < 2:
         out["reason"] = "Only one variation has been sent, so there is nothing to compare."
@@ -64,20 +137,66 @@ def _decide(variants: list[dict]) -> dict:
         out["reason"] = (f"Too little volume to call — {total_sent} sent across "
                          f"{len(variants)} variations.")
         return out
-    best = variants[0]
-    if best["positive"] == 0:
-        out["reason"] = "No positive responses yet, so no variation is ahead."
+
+    best, runner = variants[0], variants[1]
+    if not best[measure]:
+        out["reason"] = "No replies yet, so no variation is ahead."
         return out
-    joint = [v for v in variants
-             if v["positive"] == best["positive"] and v["reply"] == best["reply"]]
-    if len(joint) > 1:
-        out["reason"] = f"{len(joint)} variations are level on positive responses."
+    if best[measure] < MIN_WINS_FOR_A_WINNER:
+        noun = "positive response" if measure == "positive" else "reply"
+        out["reason"] = (f"{best[measure]} {noun}"
+                         f"{'' if best[measure] == 1 else 's'} is not enough to "
+                         f"call a winner.")
         return out
+    thin = [v for v in (best, runner) if v["sent"] < MIN_SENDS_PER_VARIANT]
+    if thin:
+        out["reason"] = (f"The two leading variations need at least "
+                         f"{MIN_SENDS_PER_VARIANT} sends each before this can be "
+                         f"called; one has {min(v['sent'] for v in thin)}.")
+        return out
+
+    best_rate = best[f"{measure}_rate"] or 0.0
+    runner_rate = runner[f"{measure}_rate"] or 0.0
+    if best_rate == runner_rate:
+        joint = [v for v in variants if (v[f"{measure}_rate"] or 0.0) == best_rate]
+        out["reason"] = f"{len(joint)} variations are level."
+        return out
+    if runner_rate and (best_rate - runner_rate) / runner_rate < MIN_RELATIVE_LEAD:
+        out["reason"] = (f"{best['copy_label']} and {runner['copy_label']} are "
+                         f"within {best_rate - runner_rate:.1f} points of each "
+                         f"other — too close to call.")
+        return out
+
     out["winner"] = best["variant"]
+    out["winner_label"] = best["copy_label"]
     return out
 
 
 # ── Smartlead ─────────────────────────────────────────────────────────────────
+
+# A campaign Smartlead reports as finished. Anything else that is not skipped
+# outright counts as live, PAUSED included: a paused campaign has not finished
+# and its result is still the current one.
+FINISHED_STATUSES = frozenset({"COMPLETED", "STOPPED"})
+
+
+def smartlead_bucket(status: str) -> str:
+    """"hidden" | "past" | "live" for a Smartlead campaign status.
+
+    ANYTHING UNRECOGNISED IS LIVE. The column holds whatever Smartlead sent,
+    plus "imported" and "unknown" written by our own code, so an allow-list of
+    live statuses would quietly hide campaigns whenever Smartlead added a word
+    — which is the exact failure this split was introduced to fix. Erring
+    the other way shows a finished campaign one bucket too early, which a
+    reader can see and dismiss.
+    """
+    from app.utils.pulse.sync import SKIP_STATUSES
+
+    value = str(status or "").upper()
+    if value in SKIP_STATUSES:        # DRAFTED, ARCHIVED: never ran, or filed away
+        return "hidden"
+    return "past" if value in FINISHED_STATUSES else "live"
+
 
 def smartlead_variants(external_campaign_id: str, start: date, end: date) -> list[dict]:
     """Per-step variant stats for one Smartlead campaign, over a window.
@@ -115,6 +234,10 @@ def smartlead_variants(external_campaign_id: str, start: date, end: date) -> lis
                 "variant":     str(variant.get("variant_label") or variant.get("id") or "?"),
                 "is_baseline": bool(variant.get("is_baseline")),
                 "sent":        sent,
+                # Smartlead reports what went out, so there is no allocation
+                # behind it that has not been sent yet. Carried all the same,
+                # so every variant dict has the same shape.
+                "allocated":   sent,
                 "reply":       int(stats.get("reply_count") or 0),
                 "positive":    int(stats.get("positive_reply_count") or 0),
                 "unsubscribe": int(stats.get("unsubscribed_count") or 0),
@@ -154,7 +277,15 @@ def winners_for_report(steps: list[dict],
             continue
         copy = best.get("variant_copy") or {}
         out.append({
-            "label":         f"Version {step['winner']}",
+            # The number the team uses for it. The `or` covers a block handed
+            # in by a caller that never went through _decide — the replay
+            # path below does exactly that — which keeps the old wording
+            # rather than inventing a number out of nothing.
+            "label":         step.get("winner_label") or f"Version {step['winner']}",
+            # The underlying code, so a future reader of a frozen snapshot can
+            # tell which variation "Copy 2" was. Reports published before this
+            # carry no such key and render exactly as they did.
+            "variant":       step["winner"],
             "campaign":      step.get("campaign", ""),
             # Written-down copy wins over the step's subject: Smartlead reports
             # one subject for the whole step, so it is the same string for
@@ -179,11 +310,13 @@ def winners_for_report(steps: list[dict],
             continue
         copy = best.get("variant_copy") or {}
         out.append({
-            "label":         f"Version {block['winner']}",
-            # Named per campaign now. "Manual campaigns" was accurate when
-            # there was one combined verdict and would be a lie against a
-            # figure that covers one campaign.
-            "campaign":      block.get("name") or "Manual campaigns",
+            "label":         block.get("winner_label") or f"Version {block['winner']}",
+            "variant":       block["winner"],
+            # Named per campaign now. The old fallback was "Manual campaigns",
+            # accurate when there was one combined verdict — but it also
+            # told a client which of our tools sent their email, which is a
+            # distinction they have no use for. It is all email to them.
+            "campaign":      block.get("name") or "Email campaigns",
             "subject":       copy.get("subject", ""),
             "body":          copy.get("body", ""),
             "reply_rate":    best.get("reply_rate"),
@@ -200,13 +333,28 @@ _MANUAL_BASIS = "your Lead and Interested statuses"
 
 
 def _blank_variant(key: str) -> dict:
-    return {"variant": key, "is_baseline": False, "sent": 0, "reply": 0,
-            "positive": 0, "unsubscribe": 0, "lead": 0, "interested": 0}
+    return {"variant": key, "is_baseline": False, "sent": 0, "allocated": 0,
+            "reply": 0, "positive": 0, "unsubscribe": 0, "lead": 0,
+            "interested": 0}
 
 
 def _add_row(totals: dict[str, dict], row: dict) -> None:
+    """Fold one sheet's variant row into a running total.
+
+    SENT AND ALLOCATED ARE DIFFERENT NUMBERS WHILE A CAMPAIGN IS RUNNING. The
+    merge writes every prospect up front and ticks Send Status as each one goes
+    out, so a live campaign's allocation is its eventual size, not its reach.
+    `total` was used as `sent` for as long as the panel only ever showed
+    finished campaigns, where the two agree; it stops being true the moment a
+    live one is on screen.
+
+    Falls back to `total` for a sheet with no Send Status column, which is the
+    old behaviour and the right answer when nothing better is available.
+    """
     agg = totals.setdefault(row["variant"], _blank_variant(row["variant"]))
-    agg["sent"] += row.get("total", 0)
+    allocated = row.get("total", 0) or 0
+    agg["sent"] += row.get("sent", allocated) or 0
+    agg["allocated"] += allocated
     for field in ("reply", "positive", "unsubscribe", "lead", "interested"):
         agg[field] += row.get(field, 0)
 

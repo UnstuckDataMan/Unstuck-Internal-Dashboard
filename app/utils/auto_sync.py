@@ -21,6 +21,7 @@ from datetime import datetime as _datetime, timedelta as _timedelta, timezone as
 
 import requests as http_req
 
+from app.utils import campaign_status
 from app.utils.dates import today_utc
 from app.utils.supabase import (
     SUPABASE_URL,
@@ -614,15 +615,13 @@ _CAMPAIGN_SELECT_TIERS = (
 
 
 def _campaign_status(c: dict) -> str:
-    """Classify a campaign row as active / paused / past (best-effort — falls
-    back gracefully when the status columns aren't in the fetched select)."""
-    if c.get("paused"):
-        return "paused"
-    total = c.get("total_prospects") or 0
-    sent  = c.get("sent_count") or 0
-    if c.get("completed") or c.get("completed_at") or (total > 0 and sent >= total):
-        return "past"
-    return "active"
+    """Classify a campaign row as active / paused / past.
+
+    Moved to app/utils/campaign_status so the reporting tool decides which
+    campaigns are live by the same rule this does, rather than by a second
+    copy of it that could drift.
+    """
+    return campaign_status.status_of(c)
 
 
 # Only one full run at a time — a trigger (hourly tick or a manual "Run now")

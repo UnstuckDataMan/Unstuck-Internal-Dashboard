@@ -394,7 +394,7 @@
         {{ counts | pulse_lead_rate | pulse_pct }} of emails sent.
       </p>
       <div class="outcomes">
-        {% for o in counts | pulse_outcomes %}
+        {% for o in counts | pulse_outcomes_client %}
         <div class="outcome{% if o.is_lead %} is-lead{% endif %}{% if o.is_negative %} is-negative{% endif %}">
           <div class="outcome-value" data-ticker>{{ "{:,}".format(o.value) }}</div>
           <div class="outcome-label">{{ o.label }}</div>
@@ -405,7 +405,7 @@
 
     {% if ab %}
     <div class="card">
-      <h2>What worked best</h2>
+      <h2>Best Performing Copy</h2>
       <p class="hint">
         Where we ran more than one version of a message, the one that performed
         best over this period.
@@ -447,10 +447,10 @@
     {% endif %}{# email_sent #}
 
     {% if has_linkedin %}
-    {# Its own card, not a row in the funnel above. LinkedIn outreach runs on
-       Meet Alfred, where the unit is a connection request rather than an
-       email and an "open" is a connection being accepted. Rates are quoted
-       against connection requests, so nothing here is averaged with email. #}
+    {# Its own card, not a row in the funnel above: on LinkedIn the unit is a
+       connection request rather than an email, and an "open" is a connection
+       being accepted. Rates are quoted against connection requests, so
+       nothing here is averaged with email. #}
     <div class="card">
       <h2>LinkedIn</h2>
       <p class="hint">
@@ -473,14 +473,16 @@
           <div class="li-value" data-ticker>{{ "{:,}".format(linkedin.get("replied", 0)) }}</div>
           <div class="li-label">Replies</div>
         </div>
+{%- set li_leads = linkedin_leads if linkedin_leads is not none else (linkedin | pulse_leads) %}
+{%- set li_sent = linkedin.get("sent", 0) or 0 %}
         <div class="li-stat is-lead">
-          <div class="li-value" data-ticker>{{ "{:,}".format(linkedin | pulse_leads) }}</div>
+          <div class="li-value" data-ticker>{{ "{:,}".format(li_leads) }}</div>
           <div class="li-label">Leads</div>
         </div>
       </div>
       <div class="li-rates">
         <span><b>{{ linkedin | pulse_reply_rate | pulse_pct }}</b> reply rate</span>
-        <span><b>{{ linkedin | pulse_lead_rate | pulse_pct }}</b> lead rate</span>
+        <span><b>{{ (li_leads * 100.0 / li_sent) | pulse_pct if li_sent else "—" }}</b> lead rate</span>
         {% if linkedin.get("unsubscribed") %}
         <span><b>{{ "{:,}".format(linkedin.get("unsubscribed", 0)) }}</b> opted out</span>
         {% endif %}
