@@ -417,6 +417,13 @@ def mutate(user, expected, action, data):
             from .dns_setup import destination_url
             website = text(data['website_url'], 'Client website', False)
             metadata['website_url'] = destination_url(website, '') if website else ''
+        if 'card_last4' in data:
+            last4 = data['card_last4']
+            if last4 is None:
+                last4 = ''
+            if not isinstance(last4, str) or last4 and not re.fullmatch(r'[0-9]{4}', last4):
+                raise HTTPException(400, 'Enter exactly four card digits, or leave blank.')
+            metadata['card_last4'] = last4
         planned = 0 if current and any(j.get('client_id') == current['id'] for j in state['setups']) else target
         client_name = re.sub(r'\s+', ' ', text(data['name'], 'Client name'))
         key = client_key(data['section'], client_name)
@@ -427,6 +434,13 @@ def mutate(user, expected, action, data):
         find(state, 'members', data['account_manager_id'], data['account_manager_id'] != (current or {}).get('account_manager_id'))
         if data.get('operator_id'):
             find(state, 'members', data['operator_id'], True)
+        client_id = current['id'] if current else new_id()
+        # Creation and password setup share one CAS save. Empty optional form
+        # fields never remove a credential; removal has its own explicit action.
+        password = data.get('password')
+        if password is not None and password != '':
+            from . import passwords
+            metadata.update(password_ciphertext=passwords.seal(user, client_id, password), password_updated_at=now())
         if current:
             if current['section'] != data['section']:
                 raise HTTPException(409, 'The sheet section cannot change. Create a separate client for a different section.')
@@ -441,7 +455,7 @@ def mutate(user, expected, action, data):
                            operator_id=data.get('operator_id', current.get('operator_id')), planned_domains=planned,
                            domain_target=target, updated_at=now(), **metadata)
         else:
-            state['clients'].append({'id': new_id(), 'name': client_name, 'section': data['section'],
+            state['clients'].append({'id': client_id, 'name': client_name, 'section': data['section'],
                                      'account_manager_id': data['account_manager_id'], 'operator_id': data.get('operator_id'),
                                      'planned_domains': planned, 'domain_target': target, 'created_at': now(), **metadata})
     elif action == 'client_password':

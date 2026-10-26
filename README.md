@@ -72,6 +72,11 @@ the tracker version without reloading over drafts.
   history. Historical sheet-entry references remain available.
 - Each domain has a **Notes** box and **Save notes** button. Notes remain saved
   when a domain is completed, burned or reopened.
+- **Add client** accepts an optional password and **Card last 4 digits**. The
+  password is encrypted in the same atomic save that creates the client. The
+  card field stores exactly four digits, including leading zeros; use **Edit
+  client** to change or clear it. The last four digits appear in the client's
+  key information at the top. Existing clients can leave both fields unset.
 - Each client's details include an optional password input with **Save**,
   **Show / Hide** and **Remove**. Passwords are masked by default; saved values
   are encrypted server-side and omitted from shared board responses. A current

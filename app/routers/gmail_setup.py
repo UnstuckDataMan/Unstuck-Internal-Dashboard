@@ -56,6 +56,8 @@ class Client(Strict):
     sender_full_name: str | None = Field(None, max_length=150)
     website_url: str | None = Field(None, max_length=2048)
     account_manager_email: str | None = Field(None, max_length=254)
+    card_last4: str | None = Field(None, max_length=4, strict=True)
+    password: str | None = Field(None, max_length=1024, strict=True)
 
 
 class Setup(Strict):
