@@ -310,6 +310,7 @@ def _readai_panel(request: Request, client_id: str, *, notice: str = "", error: 
         "busy": analysing or building,
         "failed": failed,
         "labels": labels,
+        "clocks": _citation_clocks(meetings, overview),
         "domains": domains,
         "readai_ready": bool(_webhook_secret()),
         "ai_ready": llm.is_configured(),
@@ -358,18 +359,47 @@ async def meeting_transcript(request: Request, meeting_id: str, block: int = Que
     })
 
 
+def _clock(start_ms, origin_ms) -> str:
+    """"12:05": how far into the call a block starts. Measured from the first
+    block, here and on the summary's source links, so the two always agree."""
+    if not isinstance(start_ms, int) or not isinstance(origin_ms, int):
+        return ""
+    seconds = max(0, (start_ms - origin_ms) // 1000)
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
 def _with_clock(blocks: list[dict]) -> list[dict]:
-    """Each block with "12:05", its offset from the start of the meeting."""
-    starts = [b.get("start_ms") for b in blocks if isinstance(b.get("start_ms"), int)]
-    origin = min(starts) if starts else None
-    out = []
-    for b in blocks:
-        clock = ""
-        if origin is not None and isinstance(b.get("start_ms"), int):
-            seconds = max(0, (b["start_ms"] - origin) // 1000)
-            clock = f"{seconds // 60}:{seconds % 60:02d}"
-        out.append({**b, "clock": clock})
-    return out
+    """Each block with its time in the call."""
+    origin = blocks[0].get("start_ms") if blocks else None
+    return [{**b, "clock": _clock(b.get("start_ms"), origin)} for b in blocks]
+
+
+def _citation_clocks(meetings: list[dict], overview: dict) -> dict[str, str]:
+    """"meeting_id:block" -> "12:05" for every passage the panel links to.
+
+    A point often cites two passages from one meeting; with only the meeting's
+    name and date on each link they read as duplicates.
+    """
+    wanted: dict[str, set] = {}
+    for key in ("successes", "pain_points"):
+        for item in overview.get(key) or []:
+            for ref in item.get("refs") or []:
+                wanted.setdefault(str(ref.get("meeting_id")), set()).add(ref.get("block"))
+    for m in meetings:
+        for p in m["positives"] + m["negatives"]:
+            wanted.setdefault(m["id"], set()).add(p.get("block"))
+    clocks = {}
+    for meeting_id, blocks in wanted.items():
+        try:
+            starts = ms.block_starts(meeting_id, blocks)
+        except PulseNotReady:
+            continue  # the links still work, just without the time
+        for block, start in starts.items():
+            if block >= 0:
+                clock = _clock(start, starts.get(-1))
+                if clock:
+                    clocks[f"{meeting_id}:{block}"] = clock
+    return clocks
 
 
 def _after_meeting_change(request: Request, view: str, client_id: str, notice: str = ""):

@@ -641,3 +641,28 @@ def test_a_persistent_minute_limit_names_the_limit(monkeypatch):
     with pytest.raises(llm.LLMError, match="per-minute request limit .*limit 3"):
         llm.complete_json("s", "u", schema={}, schema_name="x")
     assert len(calls) == llm._MAX_ATTEMPTS
+
+
+def test_source_links_carry_the_time_in_the_call(client, fake_sb, monkeypatch):
+    """Two passages from one meeting must not read as the same link twice."""
+    monkeypatch.setenv("READ_AI_WEBHOOK_SECRET", SECRET)
+    _clients_route(fake_sb)
+    meeting = {"id": MEETING, "client_id": CLIENT, "title": "Weekly catch-up",
+               "start_time": "2026-09-29T10:00:00+00:00", "analysis_status": "done",
+               "analysis": {"positives": [{"point": "Fintech converted", "block": 1, "quote": "q"}],
+                            "negatives": [{"point": "Too junior", "block": 2, "quote": "q"}]}}
+    def meetings(call):
+        select = dict(call["params"]).get("select", "")
+        if "->" in select:
+            assert "b1:transcript->1->start_ms" in select and "b2:transcript->2->start_ms" in select
+            return FakeResponse(200, [{"id": MEETING, "o": 1000, "b1": 6000, "b2": 761000}])
+        return FakeResponse(200, [meeting])
+    fake_sb.route("GET", "pulse_meetings", meetings)
+    fake_sb.route("GET", "pulse_meeting_insights", lambda call: FakeResponse(200, [
+        {"status": "done", "meeting_ids": [MEETING], "overview": {"summary": "s", "successes": [],
+         "pain_points": [{"point": "Mixed", "refs": [{"meeting_id": MEETING, "block": 1, "quote": "q"},
+                                                     {"meeting_id": MEETING, "block": 2, "quote": "q"}]}]}}]))
+    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/read-ai")
+    assert "Weekly catch-up · 29 Sep · 0:05" in r.text
+    assert "Weekly catch-up · 29 Sep · 12:40" in r.text
+    assert "View at 12:40" in r.text

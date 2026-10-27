@@ -88,7 +88,10 @@
               {% for r in item.refs %}
               <button type="button" class="ra-src"
                       data-transcript-url="/api/outbound-pulse/read-ai/meetings/{{ r.meeting_id }}?block={{ r.block }}"
-                      title="“{{ r.quote }}”">{{ labels.get(r.meeting_id, "Meeting") }}</button>
+                      title="“{{ r.quote }}”">
+                {{- labels.get(r.meeting_id, "Meeting") -}}
+                {%- set at = clocks.get(r.meeting_id ~ ":" ~ r.block) %}{% if at %} · {{ at }}{% endif -%}
+              </button>
               {% endfor %}
             </span>
           </li>
@@ -161,7 +164,9 @@
           <span class="ra-srcs">
             <button type="button" class="ra-src"
                     data-transcript-url="/api/outbound-pulse/read-ai/meetings/{{ m.id }}?block={{ p.block }}"
-                    title="“{{ p.quote }}”">View in transcript</button>
+                    title="“{{ p.quote }}”">
+              {%- set at = clocks.get(m.id ~ ":" ~ p.block) %}{{ "View at " ~ at if at else "View in transcript" -}}
+            </button>
           </span>
         </li>
         {% endfor %}
