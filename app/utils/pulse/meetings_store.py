@@ -121,6 +121,28 @@ def list_client_meetings(client_id: str, *, with_transcript: bool = False) -> li
     return _rows(r)
 
 
+def block_starts(meeting_id: str, blocks) -> dict[int, int]:
+    """Start times (ms) of a few transcript blocks, without fetching the transcript.
+
+    PostgREST's JSON arrows pick out just those values, so labelling a
+    citation with its time in the call costs a few bytes rather than the
+    whole transcript. Key -1 is the first block's start, the call's origin.
+    """
+    wanted = sorted({b for b in blocks if isinstance(b, int) and b >= 0})[:60]
+    if not wanted:
+        return {}
+    select = ",".join(["id", "o:transcript->0->start_ms"]
+                      + [f"b{b}:transcript->{b}->start_ms" for b in wanted])
+    rows = _rows(_request("get", MEETINGS, params=_scope(
+        id=f"eq.{meeting_id}", select=select, limit="1")))
+    row = rows[0] if rows else {}
+    out = {b: int(row[f"b{b}"]) for b in wanted
+           if isinstance(row.get(f"b{b}"), (int, float)) and not isinstance(row.get(f"b{b}"), bool)}
+    if isinstance(row.get("o"), (int, float)) and not isinstance(row.get("o"), bool):
+        out[-1] = int(row["o"])
+    return out
+
+
 def list_recent(limit: int = 15) -> list[dict]:
     """The latest meetings received, whatever happened to them."""
     r = _request("get", MEETINGS, params=_scope(
