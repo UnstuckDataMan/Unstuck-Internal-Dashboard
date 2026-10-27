@@ -7,9 +7,9 @@ import re
 from app.utils import client_benchmarks as legacy
 
 BANDS = legacy.BANDS
-METHODOLOGY_VERSION = 4
-SEGMENTS = [('Small businesses', '1–200', (0, 1, 2)),
-            ('Mid-market', '201–1,000', (3, 4)),
+METHODOLOGY_VERSION = 5
+SEGMENTS = [('Small businesses', '1–50', (0, 1)),
+            ('Mid-market', '51–1,000', (2, 3, 4)),
             ('Enterprise', '1,001+', (5, 6, 7))]
 MIN_CLIENTS = 3
 MIN_EXPOSURE = 6

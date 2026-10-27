@@ -43,7 +43,7 @@ def test_refresh_change_and_allocation_change_propagate(isolated,monkeypatch):
 def test_failure_retains_persisted_success_and_marks_stale(isolated,monkeypatch):
     monkeypatch.setattr(live,'fetch_tabs',lambda:(tabs(),metadata()))
     first=live.get_report()
-    assert first['methodology_version']==model.METHODOLOGY_VERSION==4
+    assert first['methodology_version']==model.METHODOLOGY_VERSION==5
     assert live.cache_path().exists()
     assert (live.cache_path().stat().st_mode & 0o777)==0o600
     monkeypatch.setattr(live,'_snapshot',None)
@@ -52,7 +52,8 @@ def test_failure_retains_persisted_success_and_marks_stale(isolated,monkeypatch)
     monkeypatch.setattr(live,'fetch_tabs',fail)
     stale=live.get_report()
     assert stale['stale']
-    assert stale['methodology_version']==4
+    assert stale['methodology_version']==5
+    assert stale['groups']==first['groups']
     assert stale['synced_at']==first['synced_at']
     assert 'PRIVATE KEY CONTENT' not in json.dumps(stale)
     assert 'audit' not in stale and 'reconciliation' not in stale
@@ -60,19 +61,22 @@ def test_failure_retains_persisted_success_and_marks_stale(isolated,monkeypatch)
     assert live.get_report(internal=True)['audit'][0]['client']=='private client'
 
 
-def test_previous_tiers_are_not_restored_from_custom_cache_on_failed_sync(isolated,monkeypatch):
+@pytest.mark.parametrize('version,tiers', [
+    (3, [('1–50',[0,1]), ('51–500',[2,3]), ('501+',[4,5,6,7])]),
+    (4, [('1–200',[0,1,2]), ('201–1,000',[3,4]), ('1,001+',[5,6,7])]),
+])
+def test_previous_tiers_are_not_restored_from_custom_cache_on_failed_sync(isolated,monkeypatch,version,tiers):
     previous=model.calculate(tabs())
-    previous.update(methodology_version=3,synced_at=live.now())
-    previous['groups'][0].update(headcount='1–50',bands=[0,1])
-    previous['groups'][1].update(headcount='51–500',bands=[2,3])
-    previous['groups'][2].update(headcount='501+',bands=[4,5,6,7])
+    previous.update(methodology_version=version,synced_at=live.now())
+    for group,(headcount,bands) in zip(previous['groups'],tiers):
+        group.update(headcount=headcount,bands=bands)
     live.persist(previous)
     monkeypatch.setattr(live,'fetch_tabs',lambda: (_ for _ in ()).throw(SourceError('Unavailable')))
 
     with pytest.raises(SourceError,match='Unavailable'):
         live.get_report()
     assert live._snapshot is None
-    assert json.loads(live.cache_path().read_text())['methodology_version']==3
+    assert json.loads(live.cache_path().read_text())['methodology_version']==version
 
 
 def test_default_cache_filename_tracks_model_version(monkeypatch):

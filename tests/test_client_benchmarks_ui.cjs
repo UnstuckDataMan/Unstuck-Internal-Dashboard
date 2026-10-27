@@ -37,8 +37,8 @@ const descendants = (element, tag) => element.children.flatMap(child => [
 ]);
 const snapshot = () => ({
   groups: [
-    { label: 'Small businesses', headcount: '1–200', average: 7.6981, display: '~8', sufficient: true, estimated: true },
-    { label: 'Mid-market', headcount: '201–1,000', average: 2.6634, display: '~3', sufficient: true, estimated: true },
+    { label: 'Small businesses', headcount: '1–50', average: 8.6911, display: '~9', sufficient: true, estimated: true },
+    { label: 'Mid-market', headcount: '51–1,000', average: 3.8013, display: '~4', sufficient: true, estimated: true },
     { label: 'Enterprise', headcount: '1,001+', average: 2.8254, display: '~3', sufficient: true, estimated: true },
   ],
   period: ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'],
@@ -90,7 +90,7 @@ async function main() {
   let forecastUpdates = 0;
   ui.form.addEventListener('input', () => { forecastUpdates++; });
   ui.buttons()[1].dispatchEvent(new UiEvent('click'));
-  assert.equal(ui.leads.value, '3', 'Apply the displayed whole-lead planning figure, not the underlying average');
+  assert.equal(ui.leads.value, '4', 'Apply the displayed whole-lead planning figure, not the underlying average');
   assert.equal(forecastUpdates, 1, 'The input event must bubble so the existing forecast recalculates');
   assert.equal(ui.selection.textContent, 'Based on Mid-market · Apr 2026 — Sept 2026');
   assert.equal(ui.leads.focused, true);
@@ -129,7 +129,7 @@ async function main() {
   assert.equal(descendants(insufficient.elements['bench-groups'].children[1], 'button').length, 0);
   assert.equal((await mount(snapshot(), false)).buttons().length, 0, 'Standalone benchmarks must not expose calculator actions');
   const rounded = await mount();
-  for (const [index, expected] of ['8', '3', '3'].entries()) {
+  for (const [index, expected] of ['9', '4', '3'].entries()) {
     rounded.buttons()[index].dispatchEvent(new UiEvent('click'));
     assert.equal(rounded.leads.value, expected, 'Every tier must apply its displayed planning figure');
   }
