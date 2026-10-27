@@ -90,7 +90,7 @@ async function main() {
   let forecastUpdates = 0;
   ui.form.addEventListener('input', () => { forecastUpdates++; });
   ui.buttons()[1].dispatchEvent(new UiEvent('click'));
-  assert.equal(ui.leads.value, '4.19', 'Apply the source average to input precision, not the displayed ~5');
+  assert.equal(ui.leads.value, '5', 'Apply the displayed whole-lead planning figure, not the underlying average');
   assert.equal(forecastUpdates, 1, 'The input event must bubble so the existing forecast recalculates');
   assert.equal(ui.selection.textContent, 'Based on Mid-market · Apr 2026 — Sept 2026');
   assert.equal(ui.leads.focused, true);
@@ -108,7 +108,7 @@ async function main() {
   assert.equal(ui.selection.textContent, '');
   assert.equal(forecastUpdates, 2, 'Refreshing data must not dispatch a forecast update');
   ui.buttons()[1].dispatchEvent(new UiEvent('click'));
-  assert.equal(ui.leads.value, '6.30', 'A subsequent deliberate apply uses the refreshed source');
+  assert.equal(ui.leads.value, '7', 'A subsequent deliberate apply uses the refreshed rounded display');
   ui.form.dispatchEvent(new UiEvent('reset'));
   assert.equal(ui.selection.textContent, '', 'Reset must clear the selected benchmark context');
 
@@ -128,6 +128,11 @@ async function main() {
   assert.equal(insufficient.buttons().length, 2);
   assert.equal(descendants(insufficient.elements['bench-groups'].children[1], 'button').length, 0);
   assert.equal((await mount(snapshot(), false)).buttons().length, 0, 'Standalone benchmarks must not expose calculator actions');
-  console.log('Benchmark UI checks passed: freshness/sample gates, source-average application, bubbling updates, manual edits, refresh, reset and standalone isolation.');
+  const rounded = await mount();
+  for (const [index, expected] of ['9', '5', '3'].entries()) {
+    rounded.buttons()[index].dispatchEvent(new UiEvent('click'));
+    assert.equal(rounded.leads.value, expected, 'Every tier must apply its displayed planning figure');
+  }
+  console.log('Benchmark UI checks passed: freshness/sample gates, rounded planning figures, bubbling updates, manual edits, refresh, reset and standalone isolation.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -39,8 +39,8 @@
           use.type = 'button';
           use.setAttribute('aria-label', `Use ${group.label} benchmark in forecast`);
           use.addEventListener('click', () => {
-            // Use the source average at input precision, never the whole-lead planning display.
-            calculator.value = group.average.toFixed(2);
+            // Apply the displayed whole-lead planning figure; retain the source average in the report.
+            calculator.value = group.display.slice(1);
             calculator.dispatchEvent(new Event('input', {bubbles:true}));
             if (selection) selection.textContent = `Based on ${group.label} · ${month(data.period[0])} — ${month(data.period.at(-1))}`;
             calculator.focus();
