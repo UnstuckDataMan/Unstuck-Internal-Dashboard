@@ -159,6 +159,9 @@ def get_report(internal=False):
         if _snapshot is None:
             raise source.SourceError(_error or 'No successful source synchronisation is available yet.')
         result = deepcopy(_snapshot)
+        # Reformat compatible cached calculations without discarding a last-good snapshot.
+        for group in result['groups']:
+            group['display'] = model.display_rate(group)
         age = (datetime.now(timezone.utc)-datetime.fromisoformat(result['synced_at'])).total_seconds()
         result.update(stale=bool(_error or age > INTERVAL*2), sync_error=_error, polling_minutes=30)
         if age > 7*86400:

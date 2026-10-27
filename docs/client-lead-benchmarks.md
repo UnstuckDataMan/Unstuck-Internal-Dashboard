@@ -126,17 +126,26 @@ are labelled Estimated inputs. One client supplying over half the leads triggers
 a dominance note, not deletion of that client's results. Leave-one-client-out
 rates are available in Methodology.
 
-If every sub-band meets the thresholds and their rates differ by at least one,
-show the range of whole-number-rounded sub-band rates. Otherwise show a rounded
-approximate pooled rate (or <1). These ranges are not confidence intervals.
+Display policy uses pooled rates, never a forced target. Small businesses and
+Mid-market display the adjacent whole numbers bracketing the pooled average
+(e.g. 4.19 → 4–5); an exact whole number is shown once. Enterprise displays the
+nearest approximate whole number (e.g. 2.56 → ~3). Positive rates below one show
+<1. These are rounded estimates, not observed outcome ranges or confidence
+intervals. Compatible cached snapshots are reformatted on read, preserving
+last-good data while preventing an obsolete display string from persisting.
+
+The branded main page shows only the three company-size tiers, six-month period,
+estimated-input/sample qualifications, freshness and a short indicative-results
+note. The in-depth Methodology section is removed. Detailed calculations,
+reconciliation and source warnings remain accessible through the protected audit
+API for internal review.
 
 The public API omits client identities, evidence and per-client reconciliation.
 The admin-only `/api/client-benchmarks/audit` returns each client/month's activity,
 allocation, included/recorded leads and exclusion reasons, plus Monthly leads
 comparison rows. Duplicate Monthly leads totals are omitted rather than summed;
-report definition differences can cause discrepancies. The expandable UI shows
-sample sizes, verified/estimated exposure, missing data, sync status, and the six
-preliminary research comparisons. Preliminary numbers never enter calculations.
+report definition differences can cause discrepancies. The internal audit includes sample sizes, verified/estimated exposure, missing
+data, sync status, and the six preliminary research comparisons. Preliminary numbers never enter calculations.
 
 ## Validation and limits
 

@@ -411,7 +411,11 @@ def test_benchmark_failure_leaves_roi_and_home_available(client, monkeypatch):
 
 def test_average_client_data_page_is_google_only(client):
     page = client.get('/client-benchmarks').text
-    assert 'Average Monthly Leads by Target Company Size' in page
+    assert 'Average monthly leads.' in page
+    assert 'Company-size tier' in page
+    assert 'benchmark-method' not in page
+    assert 'bench-comparison' not in page
+    assert 'bench-samples' not in page
     assert 'id="bench-groups"' in page
     for removed in ['id="bench-file"', 'Excel snapshot', 'Strong-performing examples', 'id="bench-average"', 'id="bench-table"', 'id="bench-print"']:
         assert removed not in page

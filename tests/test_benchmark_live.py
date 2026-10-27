@@ -138,3 +138,13 @@ def test_old_snapshot_withholds_headline_numbers(isolated,monkeypatch):
     r=live.get_report()
     assert r['stale']
     assert all(g['display']=='Data too old' for g in r['groups'])
+
+
+def test_cached_display_is_updated_without_changing_underlying_rate(isolated,monkeypatch):
+    monkeypatch.setattr(live,'fetch_tabs',lambda:(tabs(),metadata()))
+    live.get_report()
+    group=live._snapshot['groups'][1]
+    group.update(average=4.19,sufficient=True,display='3–5')
+    updated=live.get_report()['groups'][1]
+    assert updated['display']=='4–5'
+    assert updated['average']==4.19

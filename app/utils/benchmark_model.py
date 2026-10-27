@@ -16,6 +16,21 @@ EXCLUDED = {'unstuck', 'unstuck agency', 'eri', 'eri institute', 'economic resea
 CONTROL_HEADERS = ['Client', 'Month', 'Activity status', 'Allocation source', *BANDS, 'Evidence']
 
 
+def display_rate(group):
+    """Presentation only: rounded pooled estimates, not empirical spread/CI."""
+    if not group['sufficient'] or group['average'] is None:
+        return 'Insufficient data'
+    value = group['average']
+    if value == 0:
+        return '0'
+    if value < 1:
+        return '<1'
+    if group['label'] == 'Enterprise':
+        return f'~{math.floor(value + 0.5)}'
+    low, high = math.floor(value), math.ceil(value)
+    return str(low) if low == high else f'{low}–{high}'
+
+
 def normal(value):
     return legacy._normal(value)
 
@@ -274,18 +289,8 @@ def calculate(tabs, today=None):
     groups = []
     for label, headcount, indices in SEGMENTS:
         result = summary(indices, base)
-        subs = [summary((i,), result['months']) for i in indices]
         result.update(label=label, headcount=headcount, bands=list(indices))
-        display = 'Insufficient data'
-        if result['sufficient']:
-            value = result['average']
-            display = f'~{math.floor(value+0.5)}' if value >= 0.5 else ('<1' if value > 0 else '0')
-            if len(subs) > 1 and all(s['sufficient'] for s in subs):
-                rates = [s['average'] for s in subs]
-                low, high = math.floor(min(rates)+0.5), math.floor(max(rates)+0.5)
-                if high > low and max(rates)-min(rates) >= 1:
-                    display = f'{low}–{high}'
-        result['display'] = display
+        result['display'] = display_rate(result)
         result['confidence'] = 'Insufficient sample' if not result['sufficient'] else 'Estimated inputs' if result['estimated'] else 'Supported sample'
         if result['dominant_client_lead_share'] > .5:
             result['confidence'] += ' · one client contributes over half the leads'
