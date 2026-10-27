@@ -37,8 +37,8 @@ const descendants = (element, tag) => element.children.flatMap(child => [
 ]);
 const snapshot = () => ({
   groups: [
-    { label: 'Small businesses', headcount: '1–50', average: 8.6911, display: '~9', sufficient: true, estimated: true },
-    { label: 'Mid-market', headcount: '51–1,000', average: 3.8013, display: '~4', sufficient: true, estimated: true },
+    { label: 'Small businesses', headcount: '1–100', average: 8.2836, display: '~9', sufficient: true, estimated: true },
+    { label: 'Mid-market', headcount: '100–1,000', average: 3.5633, display: '~4', sufficient: true, estimated: true },
     { label: 'Enterprise', headcount: '1,001+', average: 2.8254, display: '~3', sufficient: true, estimated: true },
   ],
   period: ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'],
@@ -51,7 +51,7 @@ async function mount(report = snapshot(), embedded = true, newMarkup = true) {
     elements['bench-' + name] = new Element();
   }
   if (newMarkup) {
-    for (const [name, text] of Object.entries({headline:'Average monthly leads.','intro-copy':'Recent client performance, grouped by company size.',metric:'Average leads',caption:'Average monthly leads by company size'})) {
+    for (const [name, text] of Object.entries({headline:'Average monthly leads.','intro-copy':'Recent client performance, grouped by company size.',metric:'Average leads/month',caption:'Average monthly leads by company size'})) {
       elements['bench-' + name] = new Element();
       elements['bench-' + name].textContent = text;
     }
@@ -162,7 +162,7 @@ async function main() {
   assert.deepEqual(scaled.values(), ['~27','~12','~9']);
   assert.equal(scaleButton.attributes['aria-pressed'], 'true');
   assert.equal(scaled.elements['bench-headline'].textContent, 'Scaled monthly leads.');
-  assert.equal(scaled.elements['bench-metric'].textContent, 'Scaled leads');
+  assert.equal(scaled.elements['bench-metric'].textContent, 'Scaled leads/month');
   assert.equal(scaled.elements['bench-intro-copy'].textContent, 'Explore a 3× lead-volume scenario for your campaign.');
   assert.match(scaled.elements['bench-caption'].textContent, /Scaled scenario/);
   assert.equal(scaled.buttons()[1].attributes['aria-label'], 'Use Mid-market scaled scenario in forecast');
@@ -190,7 +190,7 @@ async function main() {
   assert.deepEqual(scaled.values(), ['~9','~7','~3']);
   assert.equal(scaleButton.attributes['aria-pressed'], 'false');
   assert.equal(scaled.elements['bench-headline'].textContent, 'Average monthly leads.');
-  assert.equal(scaled.elements['bench-metric'].textContent, 'Average leads');
+  assert.equal(scaled.elements['bench-metric'].textContent, 'Average leads/month');
   assert.equal(scaled.elements['bench-intro-copy'].textContent, 'Recent client performance, grouped by company size.');
   assert.doesNotMatch(scaled.elements['bench-note'].textContent, /Scaled scenario/);
   assert.equal(scaled.selection.textContent, '');

@@ -7,10 +7,16 @@ import re
 from app.utils import client_benchmarks as legacy
 
 BANDS = legacy.BANDS
-METHODOLOGY_VERSION = 5
-SEGMENTS = [('Small businesses', '1–50', (0, 1)),
-            ('Mid-market', '51–1,000', (2, 3, 4)),
+METHODOLOGY_VERSION = 6
+SEGMENTS = [('Small businesses', '1–100', (0, 1, 2)),
+            ('Mid-market', '100–1,000', (2, 3, 4)),
             ('Enterprise', '1,001+', (5, 6, 7))]
+SEGMENT_FRACTIONS = {'Small businesses': {2: 50 / 150}, 'Mid-market': {2: 101 / 150}}
+SIZE_SPLIT_ASSUMPTION = (
+    'The 51–200 source band is assumed uniform by integer headcount: 50/150 of its leads and '
+    'exposure belong to 1–100, and 101/150 to 100–1,000. Headcount 100 intentionally overlaps '
+    'both tiers; tier totals must not be added. This split is estimated, not measured.'
+)
 MIN_CLIENTS = 3
 MIN_EXPOSURE = 6
 EXCLUDED = {'unstuck', 'unstuck agency', 'eri', 'eri institute', 'economic research institute', 'eri economic research institute'}
@@ -255,12 +261,16 @@ def calculate(tabs, today=None):
                           'unknown_size_leads': sum(r['band'] is None for r in rows),
                           'evidence': entry['evidence'] if entry else 'Undated backend weights; bounded first/last qualifying lead observations (activity proxy, not a verified campaign schedule).'})
 
-    def summary(indices, months):
-        eligible = [a for a in audit if a['month'] in months and a['eligible'] and sum(a['weights'][i] for i in indices) > 0]
+    def summary(indices, months, fractions=None):
+        fractions = fractions or {}
+        factors = {i: fractions.get(i, 1) for i in indices}
+        eligible = [a for a in audit if a['month'] in months and a['eligible'] and sum(a['weights'][i] * factors[i] for i in indices) > 0]
         totals, per_client = Counter(), defaultdict(lambda: [0, 0.0])
+        estimated_size_split = False
         for a in eligible:
-            exposure = sum(a['weights'][i] for i in indices)
-            leads = sum(a['band_leads'][i] for i in indices)
+            exposure = sum(a['weights'][i] * factors[i] for i in indices)
+            leads = sum(a['band_leads'][i] * factors[i] for i in indices)
+            estimated_size_split |= any(factors[i] != 1 and a['weights'][i] > 0 for i in indices)
             totals['leads'] += leads
             totals['exposure'] += exposure
             totals[a['allocation_source']] += exposure
@@ -278,11 +288,14 @@ def calculate(tabs, today=None):
                 'allocation_percent': {k: 100*totals[k]/exposure if exposure else 0 for k in ('outreach','approved','estimated')},
                 'dominant_client_lead_share': max((v[0]/leads for v in per_client.values()), default=0) if leads else 0,
                 'leave_one_client_out': [min(without), max(without)] if without else [],
-                'estimated': bool(estimated_activity or totals['estimated']), 'months': months}
+                'estimated': bool(estimated_activity or totals['estimated'] or estimated_size_split), 'months': months}
     groups = []
     for label, headcount, indices in SEGMENTS:
-        result = summary(indices, base)
-        result.update(label=label, headcount=headcount, bands=list(indices))
+        fractions = SEGMENT_FRACTIONS.get(label, {})
+        result = summary(indices, base, fractions)
+        result.update(label=label, headcount=headcount, bands=list(indices),
+                      band_fractions={BANDS[i]: fractions.get(i, 1) for i in indices},
+                      size_split_assumption=SIZE_SPLIT_ASSUMPTION if fractions else None)
         result['display'] = display_rate(result)
         result['confidence'] = 'Insufficient sample' if not result['sufficient'] else 'Estimated inputs' if result['estimated'] else 'Supported sample'
         if result['dominant_client_lead_share'] > .5:

@@ -10,7 +10,7 @@
   const normalCopy = {
     headline: get('headline')?.textContent || 'Average monthly leads.',
     'intro-copy': get('intro-copy')?.textContent || 'Recent client performance, grouped by the size of companies they target.',
-    metric: get('metric')?.textContent || 'Average leads',
+    metric: get('metric')?.textContent || 'Average leads/month',
     caption: get('caption')?.textContent || 'Average monthly leads by target company size',
   };
   const stamp = value => new Date(value).toLocaleString('en-GB', {timeZone:'Europe/London',dateStyle:'medium',timeStyle:'short'});
@@ -30,7 +30,7 @@
     const copy = scaled ? {
       headline: 'Scaled monthly leads.',
       'intro-copy': 'Explore a 3× lead-volume scenario for your campaign.',
-      metric: 'Scaled leads',
+      metric: 'Scaled leads/month',
       caption: 'Scaled scenario: three times the benchmark lead volumes by target company size',
     } : normalCopy;
     for (const [key, text] of Object.entries(copy)) if (get(key)) get(key).textContent = text;

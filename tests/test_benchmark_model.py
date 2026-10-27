@@ -47,10 +47,10 @@ def test_pooled_weighted_exposure_includes_zero_and_does_not_average_client_rate
     result = m.calculate(dataset(rows,rules),TODAY)
     small = result['groups'][0]
     assert small['qualifying_leads']==5
-    assert small['equivalent_months']==2
-    assert small['average']==2.5
+    assert small['equivalent_months']==pytest.approx(2.2)
+    assert small['average']==pytest.approx(5/2.2)
     assert small['verified_live_client_months']==3
-    assert result['groups'][1]['equivalent_months']==1
+    assert result['groups'][1]['equivalent_months']==pytest.approx(2*(.3*101/150+.2))
     assert result['groups'][1]['average']==0
     assert small['display']=='Insufficient data'
 
@@ -58,7 +58,7 @@ def test_pooled_weighted_exposure_includes_zero_and_does_not_average_client_rate
 def test_normalise_all_eight_before_grouping_and_effective_month_overrides():
     r=m.calculate(dataset([lead(),lead(when='2026-08-10',band='1001-5000')],
         [control(weights=[40,40,10,10,10,10,10,10]),control(period='2026-08',weights=[0,0,0,0,0,1,0,0],basis='outreach')]),TODAY)
-    assert r['groups'][0]['equivalent_months']==pytest.approx(80/140)
+    assert r['groups'][0]['equivalent_months']==pytest.approx((80+10*50/150)/140)
     assert r['groups'][2]['equivalent_months']==pytest.approx(30/140+1)
     assert r['groups'][2]['qualifying_leads']==1
     assert r['groups'][2]['allocation_percent']['outreach']>0
@@ -114,8 +114,7 @@ def test_control_duplicate_invalid_and_conflicting_weights_fail_closed():
     assert m.norm_weights([float('nan'),0,0,0,0,0,0,0]) is None
 
 
-def test_all_boundaries_are_nonoverlapping():
-    assert [i for _,_,indices in m.SEGMENTS for i in indices]==list(range(8))
+def test_source_bands_remain_unchanged_despite_overlapping_display_tiers():
     assert [m.legacy.band_index(str(n)) for n in (10,11,50,51,200,201,500,501,1000,1001)]==[0,1,1,2,2,3,3,4,4,5]
 
 
@@ -140,25 +139,89 @@ def test_dominance_and_leave_one_out_are_reported_not_removed():
     assert 'over half' in small['confidence']
 
 
-def test_three_segments_group_at_50_and_1000_without_boundary_overlap():
+def test_display_tiers_split_source_band_symmetrically_without_changing_audit_or_references():
     rows = [lead(band='11-50',email='small@example.com'),
             lead(band='51-200',email='mid@example.com'), lead(band='201-500'),
             lead(band='501-1000',email='a@example.com'), lead(band='1001-5000',email='b@example.com')]
     r = m.calculate(dataset(rows, [control(weights=[0,.2,.2,.2,.2,.2,0,0])]), TODAY)
     assert [(g['label'],g['headcount']) for g in r['groups']] == [
-        ('Small businesses','1–50'),('Mid-market','51–1,000'),('Enterprise','1,001+')]
-    assert r['groups'][0]['qualifying_leads'] == 1
-    assert r['groups'][0]['equivalent_months'] == .2
-    assert r['groups'][1]['qualifying_leads'] == 3
-    assert r['groups'][1]['equivalent_months'] == pytest.approx(.6)
+        ('Small businesses','1–100'),('Mid-market','100–1,000'),('Enterprise','1,001+')]
+    assert r['groups'][0]['qualifying_leads'] == pytest.approx(1+50/150)
+    assert r['groups'][0]['equivalent_months'] == pytest.approx(.2+.2*50/150)
+    assert r['groups'][1]['qualifying_leads'] == pytest.approx(2+101/150)
+    assert r['groups'][1]['equivalent_months'] == pytest.approx(.4+.2*101/150)
+    assert r['groups'][0]['average'] == pytest.approx(5)
+    assert r['groups'][1]['average'] == pytest.approx(5)
     assert r['groups'][2]['qualifying_leads'] == 1
     assert r['groups'][2]['equivalent_months'] == .2
     assert r['groups'][2]['average'] == 5
     assert r['period'] == ['2026-04','2026-05','2026-06','2026-07','2026-08','2026-09']
-    assert r['methodology_version'] == m.METHODOLOGY_VERSION == 5
+    assert r['methodology_version'] == m.METHODOLOGY_VERSION == 6
+    assert r['audit'][0]['band_leads'] == [0,1,1,1,1,1,0,0]
+    assert r['audit'][0]['recorded_band_leads'] == [0,1,1,1,1,1,0,0]
+    assert r['audit'][0]['weights'] == [0,.2,.2,.2,.2,.2,0,0]
+    assert r['bands'][2]['qualifying_leads'] == 1
+    assert r['bands'][2]['equivalent_months'] == .2
+    assert r['bands'][2]['average'] == 5
+    assert not r['bands'][2]['estimated']
+    assert r['groups'][0]['band_fractions'][m.BANDS[2]] == 50/150
+    assert r['groups'][1]['band_fractions'][m.BANDS[2]] == 101/150
+    assert 'Headcount 100 intentionally overlaps' in r['groups'][0]['size_split_assumption']
+    assert r['groups'][2]['size_split_assumption'] is None
+    assert r['groups'][0]['estimated'] and r['groups'][1]['estimated']
     # The 1,001+ reference now matches the enterprise display segment.
     assert r['bands'][-1]['qualifying_leads'] == 1
     assert r['bands'][-1]['equivalent_months'] == .2
+
+
+def test_fractional_split_pools_leads_exposure_and_per_client_diagnostics_including_quiet_months():
+    rows = []
+    for client, band, count in [('A','51-200',9), ('B','1-10',3), ('B','51-200',3),
+                                ('C','201-500',6), ('C','51-200',3)]:
+        rows.extend(lead(client,band=band,email=f'{band}-{i}@example.com') for i in range(count))
+    periods = [f'2026-{i:02}' for i in range(4,10)]
+    rules = [control('A',period=p,weights=[0,0,1,0,0,0,0,0]) for p in periods]
+    rules += [control('B',period=p,weights=[.5,0,.5,0,0,0,0,0]) for p in periods[-3:]]
+    rules += [control('C',period=p,weights=[.25,0,.5,.25,0,0,0,0]) for p in periods]
+    result = m.calculate(dataset(rows,rules),TODAY)
+    small, mid, _ = result['groups']
+    assert small['qualifying_leads'] == pytest.approx(8)
+    assert small['equivalent_months'] == pytest.approx(6.5)
+    assert small['average'] == pytest.approx(8/6.5)
+    assert small['dominant_client_lead_share'] == pytest.approx(4/8)
+    assert small['leave_one_client_out'] == pytest.approx([4/4.5,7/4])
+    assert mid['qualifying_leads'] == pytest.approx(16.1)
+    assert mid['equivalent_months'] == pytest.approx(8.57)
+    assert mid['average'] == pytest.approx(16.1/8.57)
+    assert mid['dominant_client_lead_share'] == pytest.approx(8.02/16.1)
+    assert mid['leave_one_client_out'] == pytest.approx([8.08/5.05,10.04/4.53])
+    for group in (small,mid):
+        assert group['clients'] == 3
+        assert group['sufficient']
+        assert group['verified_live_client_months'] == 15
+        assert group['estimated_live_client_months'] == 0
+        assert group['estimated']
+        assert group['confidence'] == 'Estimated inputs'
+        assert group['allocation_percent']['approved'] == pytest.approx(100)
+    assert result['bands'][2]['qualifying_leads'] == 15
+    assert result['bands'][2]['equivalent_months'] == pytest.approx(10.5)
+    assert result['bands'][2]['average'] == pytest.approx(15/10.5)
+    assert result['minimum_clients'] == 3
+    assert result['minimum_equivalent_months'] == 6
+
+
+def test_unallocated_source_band_does_not_trigger_split_or_estimated_status():
+    rules = [control(c,period=p) for c in ['A','B','C'] for p in ['2026-07','2026-08']]
+    result = m.calculate(dataset([lead(band='51-200')],rules),TODAY)
+    small, mid, _ = result['groups']
+    assert small['average'] == 0
+    assert small['sufficient']
+    assert not small['estimated']
+    assert small['confidence'] == 'Supported sample'
+    assert mid['average'] is None
+    assert not mid['estimated']
+    assert mid['display'] == 'Insufficient data'
+    assert result['quality']['unallocated_segment_leads'] == 1
 
 
 @pytest.mark.parametrize('label,rate,sufficient,expected', [

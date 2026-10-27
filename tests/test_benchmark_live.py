@@ -43,7 +43,7 @@ def test_refresh_change_and_allocation_change_propagate(isolated,monkeypatch):
 def test_failure_retains_persisted_success_and_marks_stale(isolated,monkeypatch):
     monkeypatch.setattr(live,'fetch_tabs',lambda:(tabs(),metadata()))
     first=live.get_report()
-    assert first['methodology_version']==model.METHODOLOGY_VERSION==5
+    assert first['methodology_version']==model.METHODOLOGY_VERSION==6
     assert live.cache_path().exists()
     assert (live.cache_path().stat().st_mode & 0o777)==0o600
     monkeypatch.setattr(live,'_snapshot',None)
@@ -52,7 +52,7 @@ def test_failure_retains_persisted_success_and_marks_stale(isolated,monkeypatch)
     monkeypatch.setattr(live,'fetch_tabs',fail)
     stale=live.get_report()
     assert stale['stale']
-    assert stale['methodology_version']==5
+    assert stale['methodology_version']==6
     assert stale['groups']==first['groups']
     assert stale['synced_at']==first['synced_at']
     assert 'PRIVATE KEY CONTENT' not in json.dumps(stale)
@@ -64,6 +64,7 @@ def test_failure_retains_persisted_success_and_marks_stale(isolated,monkeypatch)
 @pytest.mark.parametrize('version,tiers', [
     (3, [('1–50',[0,1]), ('51–500',[2,3]), ('501+',[4,5,6,7])]),
     (4, [('1–200',[0,1,2]), ('201–1,000',[3,4]), ('1,001+',[5,6,7])]),
+    (5, [('1–50',[0,1]), ('51–1,000',[2,3,4]), ('1,001+',[5,6,7])]),
 ])
 def test_previous_tiers_are_not_restored_from_custom_cache_on_failed_sync(isolated,monkeypatch,version,tiers):
     previous=model.calculate(tabs())
