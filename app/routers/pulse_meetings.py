@@ -455,22 +455,61 @@ async def retry_meeting(request: Request, meeting_id: str):
 
 # ── Inbox ─────────────────────────────────────────────────────────────────────
 
+_STATUS_LABELS = {
+    "matched": ("Filed", "success"),
+    "manual": ("Filed", "success"),
+    "ambiguous": ("Waiting to assign", "warning"),
+    "unmatched": ("Waiting to assign", "warning"),
+    "ignored": ("Ignored", ""),
+}
+
+
+def _attendee_note(m: dict) -> str:
+    """Why a meeting was filed where it was, in the attendees' terms."""
+    people = m.get("participants") or []
+    if not people:
+        return "Read AI sent no attendees"
+    if m["domains"]:
+        return ", ".join(m["domains"])
+    if any(p.get("email") for p in people):
+        return "only Unstuck or personal email addresses"
+    return "no attendee emails from Read AI"
+
+
 def _inbox_panel(request: Request, *, notice: str = ""):
+    """Meetings waiting for a client, plus the latest arrivals and what happened.
+
+    The recent list is what shows the webhook is working: without it, a
+    meeting filed as internal, or one that never arrived, looked the same as
+    an empty inbox.
+    """
     try:
-        meetings = [_meeting_view(m) for m in ms.list_inbox()]
+        waiting = [_meeting_view(m) for m in ms.list_inbox()]
+        recent = [_meeting_view(m) for m in ms.list_recent()]
         clients = _clients()
-    except PulseNotReady:
-        # The overview page should not grow an error box for an optional
-        # integration that has not been set up.
+    except PulseNotReady as exc:
+        if getattr(exc, "kind", "") in ("missing", "setup"):
+            # Not set up yet: the overview page gets no box for it.
+            return HTMLResponse("")
+        logger.warning("Read AI inbox failed: %s", exc)
+        return templates.TemplateResponse("partials/pulse_readai_inbox.html", {
+            "request": request, "error": True, "waiting": [], "recent": [],
+            "clients": [], "notice": notice, "readai_ready": bool(_webhook_secret()),
+        })
+    if not waiting and not recent and not notice and not _webhook_secret():
         return HTMLResponse("")
-    if not meetings and not notice:
-        return HTMLResponse("")
-    names = {str(c["id"]): c["name"] for c in clients}
-    for m in meetings:
+    names = {str(c["id"]): c["name"] for c in store.list_clients()}
+    for m in waiting + recent:
         m["candidates"] = [{"id": str(i), "name": names.get(str(i), "")}
                            for i in m.get("candidate_client_ids") or [] if str(i) in names]
+        m["client_name"] = names.get(str(m.get("client_id") or ""), "")
+        m["status_label"], m["status_tone"] = _STATUS_LABELS.get(
+            m.get("match_status"), ("Waiting to assign", "warning"))
+        m["attendees"] = _attendee_note(m)
+        m["received"] = _date(m.get("received_at"))
     return templates.TemplateResponse("partials/pulse_readai_inbox.html", {
-        "request": request, "meetings": meetings, "clients": clients, "notice": notice,
+        "request": request, "waiting": waiting, "recent": recent, "clients": clients,
+        "notice": notice, "error": False, "readai_ready": bool(_webhook_secret()),
     })
 
 

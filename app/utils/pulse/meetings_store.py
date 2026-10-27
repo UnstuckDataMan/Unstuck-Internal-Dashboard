@@ -121,6 +121,13 @@ def list_client_meetings(client_id: str, *, with_transcript: bool = False) -> li
     return _rows(r)
 
 
+def list_recent(limit: int = 15) -> list[dict]:
+    """The latest meetings received, whatever happened to them."""
+    r = _request("get", MEETINGS, params=_scope(
+        select=LIST_COLUMNS, order="received_at.desc", limit=str(limit)))
+    return _rows(r)
+
+
 def list_inbox() -> list[dict]:
     r = _request("get", MEETINGS, params=_scope(
         client_id="is.null", match_status="in.(ambiguous,unmatched)",

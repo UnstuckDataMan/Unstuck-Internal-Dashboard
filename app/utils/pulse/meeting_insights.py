@@ -521,10 +521,16 @@ def ingest(parsed: dict) -> dict:
         # still worth keeping; it waits in the inbox for someone to assign it.
         logger.warning("Read AI: could not read client domains: %s", exc)
         clients = []
-    status, candidates = readai.match_client(parsed.get("participants") or [], clients)
-    if status == "unmatched" and not readai.external_domains(parsed.get("participants") or []):
-        # Nobody from outside the agency: an internal call, not a client meeting.
-        status = "ignored"
+    participants = parsed.get("participants") or []
+    status, candidates = readai.match_client(participants, clients)
+    if status == "unmatched":
+        if readai.is_internal(participants):
+            # Everyone on the call is from the agency: not a client meeting.
+            status = "ignored"
+        else:
+            # No domain matched, often because Read AI had no email for the
+            # client's attendees. Suggest clients the title names instead.
+            candidates = readai.title_candidates(parsed.get("title", ""), clients)
     client_id = candidates[0] if status == "matched" else None
     row = {**fields, "session_id": parsed["session_id"], "client_id": client_id,
            "match_status": status, "candidate_client_ids": candidates,

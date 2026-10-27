@@ -211,5 +211,28 @@ def match_client(participants: list[dict], clients: list[dict]) -> tuple[str, li
     return "unmatched", []
 
 
+def is_internal(participants: list[dict]) -> bool:
+    """True only when every attendee has an email at one of our own domains.
+
+    An attendee with no email is unknown, not internal: Read AI often has
+    only a name for people who joined without the calendar invite, and a
+    client call made of those must reach the inbox rather than vanish.
+    """
+    ours = agency_domains()
+    people = [p for p in participants or [] if p.get("name") or p.get("email")]
+    return bool(people) and all(normalise_domain(p.get("email", "")) in ours for p in people)
+
+
+def title_candidates(title: str, clients: list[dict]) -> list[str]:
+    """Clients named in the meeting title, as suggestions for the inbox."""
+    text = f" {re.sub(r'[^a-z0-9]+', ' ', (title or '').lower())} "
+    hits = []
+    for client in clients:
+        name = re.sub(r"[^a-z0-9]+", " ", str(client.get("name") or "").lower()).strip()
+        if len(name) >= 3 and f" {name} " in text:
+            hits.append(str(client["id"]))
+    return hits
+
+
 def looks_like_onboarding(title: str) -> bool:
     return bool(_ONBOARDING_RE.search(title or ""))

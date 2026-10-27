@@ -1,42 +1,71 @@
-{# Read AI meetings that matched no client, or more than one, on the
-   reporting overview. Rendered only when there is something to assign. #}
+{# Read AI on the reporting overview: meetings that need a client, then the
+   latest arrivals and what happened to each, so it is always possible to
+   tell whether Read AI's meetings are getting through. #}
+{% macro assign_form(m, label="Assign meeting") %}
+<form class="ra-inbox-form" hx-post="/api/outbound-pulse/read-ai/meetings/{{ m.id }}/assign"
+      hx-target="#pulse-readai-inbox" hx-swap="innerHTML">
+  <input type="hidden" name="view" value="inbox">
+  <select class="u-select" name="client_id" required aria-label="Client for {{ m.title }}">
+    <option value="">Choose a client…</option>
+    {% if m.candidates %}
+    <optgroup label="Suggested">
+      {% for c in m.candidates %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    </optgroup>
+    <optgroup label="All clients">
+    {% endif %}
+    {% for c in clients %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    {% if m.candidates %}</optgroup>{% endif %}
+  </select>
+  <button type="submit" class="u-btn u-btn--sm" hx-disabled-elt="this">{{ label }}</button>
+</form>
+{% endmacro %}
+
 <div class="pulse-panel">
-  <h3>Read AI meetings to assign</h3>
+  <h3>Read AI meetings</h3>
   <p class="panel-hint">
-    Someone from outside Unstuck was on these calls, but their email domain doesn't
-    match exactly one client. Assign each to its client, or ignore it if it isn't a
-    client meeting. Add client domains on <a href="/client-profiles">Client Profiles</a>
-    so future meetings file themselves.
+    Meetings are filed under a client when someone on the call has an email at one of
+    that client's domains on <a href="/client-profiles">Client Profiles</a>. Anything
+    that can't be matched waits here for you to assign.
   </p>
   {% if notice %}<p class="pnote" role="status">{{ notice }}</p>{% endif %}
-  {% if meetings %}
+
+  {% if error %}
+  <div class="u-state u-state--error" role="alert">
+    <p class="u-state__title">Couldn't load Read AI meetings</p>
+    <p class="u-state__text">The database didn't respond. Try again in a moment.</p>
+    <button type="button" class="u-btn u-btn--sm" hx-get="/api/outbound-pulse/read-ai/inbox"
+            hx-target="#pulse-readai-inbox" hx-swap="innerHTML" hx-disabled-elt="this">Retry</button>
+  </div>
+
+  {% elif not recent %}
+  <div class="u-state" role="status">
+    <p class="u-state__title">No meetings received from Read AI yet</p>
+    <p class="u-state__text">
+      {% if readai_ready %}
+      The webhook is set up. Meetings appear here as soon as Read AI sends one: when a
+      meeting ends, or when you push a report to the webhook from Read AI.
+      {% else %}
+      An admin connects Read AI by adding a workspace webhook and setting
+      READ_AI_WEBHOOK_SECRET in Render.
+      {% endif %}
+    </p>
+  </div>
+
+  {% else %}
+  {% if waiting %}
+  <p class="u-label ra-gap-top">To assign ({{ waiting | length }})</p>
   <ul class="ra-inbox-list">
-    {% for m in meetings %}
+    {% for m in waiting %}
     <li class="ra-inbox-item">
       <div class="ra-inbox-text">
         <span class="ra-mtitle">{{ m.title }}</span>
         <span class="ra-mdate">
-          {{ m.date }}{% if m.domains %} · {{ m.domains | join(", ") }}{% endif %}
+          {{ m.date }} · {{ m.attendees }}
           {% if m.match_status == "ambiguous" %} · matches more than one client{% endif %}
         </span>
       </div>
       <div class="ra-inbox-actions">
-        <form class="ra-inbox-form" hx-post="/api/outbound-pulse/read-ai/meetings/{{ m.id }}/assign"
-              hx-target="#pulse-readai-inbox" hx-swap="innerHTML">
-          <input type="hidden" name="view" value="inbox">
-          <select class="u-select" name="client_id" required aria-label="Client for {{ m.title }}">
-            <option value="">Choose a client…</option>
-            {% if m.candidates %}
-            <optgroup label="Suggested">
-              {% for c in m.candidates %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-            </optgroup>
-            <optgroup label="All clients">
-            {% endif %}
-            {% for c in clients %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-            {% if m.candidates %}</optgroup>{% endif %}
-          </select>
-          <button type="submit" class="u-btn u-btn--sm" hx-disabled-elt="this">Assign meeting</button>
-        </form>
+        {{ assign_form(m) }}
         <button type="button" class="u-btn u-btn--ghost u-btn--sm"
                 hx-post="/api/outbound-pulse/read-ai/meetings/{{ m.id }}/assign"
                 hx-vals='{"client_id": "ignore", "view": "inbox"}'
@@ -46,7 +75,28 @@
     </li>
     {% endfor %}
   </ul>
-  {% else %}
-  <p class="ra-none">Nothing left to assign.</p>
+  {% endif %}
+
+  <details class="ra-recent"{% if not waiting %} open{% endif %}>
+    <summary>Recently received ({{ recent | length }})</summary>
+    <ul class="ra-inbox-list">
+      {% for m in recent %}
+      <li class="ra-inbox-item">
+        <div class="ra-inbox-text">
+          <span class="ra-mtitle">{{ m.title }}</span>
+          <span class="ra-mdate">{% if m.received %}Received {{ m.received }} · {% endif %}{{ m.attendees }}</span>
+        </div>
+        <div class="ra-inbox-actions">
+          <span class="u-badge{% if m.status_tone %} u-badge--{{ m.status_tone }}{% endif %}">{{ m.status_label }}</span>
+          {% if m.client_name %}
+          <a class="u-btn u-btn--ghost u-btn--sm" href="/outbound-pulse/clients/{{ m.client_id }}#overview">{{ m.client_name }}</a>
+          {% elif m.match_status == "ignored" %}
+          {{ assign_form(m) }}
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
   {% endif %}
 </div>
