@@ -1,0 +1,40 @@
+{# The body of the transcript dialog. `highlight` is the cited block, which
+   the page script scrolls into view. #}
+<div class="tr-head">
+  <div class="tr-head-text">
+    <h2 class="tr-title" id="tr-title">{{ meeting.title if meeting else "Transcript" }}</h2>
+    {% if meeting %}
+    <p class="tr-meta">
+      {{ meeting.date }}
+      {% if meeting.report_url %} · <a href="{{ meeting.report_url }}" target="_blank" rel="noopener noreferrer">Open in Read AI</a>{% endif %}
+    </p>
+    {% endif %}
+  </div>
+  <button type="button" class="u-icon-btn" data-dialog-close aria-label="Close transcript">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+  </button>
+</div>
+<div class="tr-blocks">
+  {% if error %}
+  <div class="u-state u-state--error" role="alert">
+    <p class="u-state__title">Couldn't open the transcript</p>
+    <p class="u-state__text">{{ error }}</p>
+  </div>
+  {% elif not blocks %}
+  <div class="u-state" role="status">
+    <p class="u-state__title">No transcript</p>
+    <p class="u-state__text">Read AI didn't send a transcript for this meeting.</p>
+  </div>
+  {% else %}
+  {% for b in blocks %}
+  <div class="tr-block{% if b.i == highlight %} is-hit{% endif %}" id="tr-b{{ b.i }}"
+       {% if b.i == highlight %}data-tr-hit tabindex="-1" aria-label="Cited passage"{% endif %}>
+    <p class="tr-who">{{ b.speaker }}{% if b.clock %} <span>{{ b.clock }}</span>{% endif %}</p>
+    <p class="tr-text">{{ b.text }}</p>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>

@@ -1,0 +1,133 @@
+{# Onboarding notes, inside #pulse-onboarding on the client Overview.
+
+   Drafted by the AI from the onboarding meeting, then the account manager's
+   to edit. Once a person has saved them, a newer draft never replaces them
+   silently: it waits in the banner below until someone chooses. #}
+{% set url = "/api/outbound-pulse/clients/" ~ client_id ~ "/onboarding-notes" %}
+
+{% if notice %}<p class="pnote" role="status">{{ notice }}</p>{% endif %}
+{% if error %}<p class="pnote is-error" role="alert">{{ error }}</p>{% endif %}
+
+{% if notes.pending_draft and not editing %}
+<div class="ob-draft" role="status">
+  <p class="ob-draft-title">
+    <span class="u-badge u-badge--info">New draft</span>
+    From {{ pending_source.title if pending_source else "the onboarding meeting" }}
+  </p>
+  <p class="ob-draft-body">
+    These notes have been edited by hand, so the new draft hasn't replaced them.
+  </p>
+  <details class="ob-draft-preview">
+    <summary>Preview the draft</summary>
+    <div class="rt-out">{{ notes.pending_draft | safe }}</div>
+  </details>
+  <div class="ob-actions">
+    <button type="button" class="u-btn u-btn--sm"
+            data-confirm
+            data-confirm-title="Replace these onboarding notes?"
+            data-confirm-body="The new draft replaces the notes as they are now, including anything typed by hand. This can't be undone."
+            data-confirm-label="Use new draft"
+            hx-post="{{ url }}/draft/apply" hx-trigger="confirmed"
+            hx-vals='{"version": "{{ version }}"}'
+            hx-target="#pulse-onboarding" hx-swap="innerHTML">Use new draft</button>
+    <button type="button" class="u-btn u-btn--ghost u-btn--sm"
+            hx-post="{{ url }}/draft/dismiss" hx-vals='{"version": "{{ version }}"}'
+            hx-target="#pulse-onboarding" hx-swap="innerHTML"
+            hx-disabled-elt="this">Keep my notes</button>
+  </div>
+</div>
+{% endif %}
+
+<div class="ob-view" data-ob-view{% if editing %} hidden{% endif %}>
+  {% if has_body %}
+  <div class="rt-out ob-body">{{ notes.body | safe }}</div>
+  <p class="ob-meta">
+    {%- if source %}
+    Drafted from
+    <button type="button" class="link-btn"
+            data-transcript-url="/api/outbound-pulse/read-ai/meetings/{{ source.id }}">{{ source.title }}</button>
+    {%- if generated_at %}<span>, {{ generated_at }}.</span>{% else %}<span>.</span>{% endif %}
+    {%- endif %}
+    {%- if notes.edited_by %}
+    Last edited by {{ notes.edited_by }}{% if edited_at %}, {{ edited_at }}{% endif %}.
+    {%- endif %}
+  </p>
+  {% if drafting %}
+  <p class="ob-meta" role="status" hx-get="{{ url }}" hx-trigger="load delay:8s"
+     hx-target="#pulse-onboarding" hx-swap="innerHTML">
+    <span class="u-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+    Drafting a new version from the onboarding meeting.
+  </p>
+  {% endif %}
+
+  {% elif drafting %}
+  <div class="u-state" role="status" hx-get="{{ url }}" hx-trigger="load delay:8s"
+       hx-target="#pulse-onboarding" hx-swap="innerHTML">
+    <p class="u-state__title">
+      <span class="u-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+      Drafting notes from {{ onboarding.title if onboarding else "the onboarding meeting" }}
+    </p>
+    <p class="u-state__text">This takes about a minute. The panel updates by itself.</p>
+  </div>
+
+  {% else %}
+  <div class="u-state" role="status">
+    <p class="u-state__title">No onboarding notes yet</p>
+    <p class="u-state__text">
+      {% if onboarding %}
+      Read AI has the onboarding meeting ({{ onboarding.title }}{% if onboarding.date %}, {{ onboarding.date }}{% endif %}).
+      {% if ai_ready %}Draft the notes from it, or write them yourself.{% else %}Notes can't be drafted until OpenAI is connected, but you can write them yourself.{% endif %}
+      {% else %}
+      They're drafted automatically when Read AI sends this client's onboarding or kick-off
+      meeting. You can write them yourself now.
+      {% endif %}
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="ob-actions">
+    <button type="button" class="u-btn u-btn--sm" data-ob-open>
+      {{ "Edit notes" if has_body else "Write notes" }}
+    </button>
+    {% if onboarding %}
+    <button type="button" class="u-btn u-btn--ghost u-btn--sm"
+            hx-post="{{ url }}/regenerate" hx-target="#pulse-onboarding" hx-swap="innerHTML"
+            hx-disabled-elt="this"
+            {% if not ai_ready %}disabled title="OpenAI isn't connected. Ask an admin to add OPENAI_API_KEY in Render."
+            {% elif drafting %}disabled title="A draft is already being written."{% endif %}>
+      {{ "Redraft from meeting" if has_body else "Draft from meeting" }}
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+<form class="ob-edit" data-ob-edit{% if not editing %} hidden{% endif %}
+      hx-post="{{ url }}" hx-target="#pulse-onboarding" hx-swap="innerHTML">
+  <input type="hidden" name="version" value="{{ version }}">
+  {# The editor mirrors into this textarea; if its script never runs, the
+     textarea itself is the form control (see partials/pulse_editor.html). #}
+  <textarea name="body" class="report-body-field" hidden>{{ body_for_editor }}</textarea>
+  <div class="rt" data-rt>
+    <div class="rt-bar" role="toolbar" aria-label="Formatting">
+      <button type="button" data-cmd="bold"      title="Bold" aria-label="Bold"><b>B</b></button>
+      <button type="button" data-cmd="italic"    title="Italic" aria-label="Italic"><i>I</i></button>
+      <button type="button" data-cmd="underline" title="Underline" aria-label="Underline"><u>U</u></button>
+      <span class="rt-sep"></span>
+      <button type="button" data-cmd="formatBlock" data-arg="h3" title="Heading">Heading</button>
+      <button type="button" data-cmd="formatBlock" data-arg="p"  title="Body text">Text</button>
+      <span class="rt-sep"></span>
+      <button type="button" data-cmd="insertUnorderedList" title="Bulleted list">• List</button>
+      <button type="button" data-cmd="insertOrderedList"   title="Numbered list">1. List</button>
+      <span class="rt-sep"></span>
+      <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
+    </div>
+    <div class="rt-area" contenteditable="true" spellcheck="true" lang="en-GB"
+         role="textbox" aria-multiline="true" aria-label="Onboarding notes"></div>
+  </div>
+  <div class="ob-actions">
+    <button type="submit" class="u-btn u-btn--primary u-btn--sm" hx-disabled-elt="this">Save notes</button>
+    {# Not an hx-get: the editor rewrites `body` into every request that
+       bubbles through this form, which would put the notes in a GET URL. #}
+    <button type="button" class="u-btn u-btn--ghost u-btn--sm" data-ob-cancel="{{ url }}">Cancel</button>
+  </div>
+</form>

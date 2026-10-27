@@ -5,6 +5,9 @@
 
 {% block content %}
 {% include "pulse_styles.html" %}
+{# Design-system styles for the Read AI inbox (scoped to .ds). #}
+<link rel="stylesheet" href="/static/css/design-system.css">
+
 
 <div class="pulse-tabs" role="tablist" aria-label="Client Performance &amp; Reports sections">
   <button type="button" class="pulse-tab is-active" role="tab" id="tab-btn-reporting"
@@ -35,6 +38,12 @@
     </div>
   </div>
 </div>
+
+<!-- ── Read AI inbox: renders nothing unless a meeting needs a client ── -->
+<div id="pulse-readai-inbox" class="ds"
+     hx-get="/api/outbound-pulse/read-ai/inbox"
+     hx-trigger="load"
+     hx-swap="innerHTML"></div>
 
 <!-- ── Filters ──────────────────────────────────────────────────── -->
 <div class="pulse-toolbar">

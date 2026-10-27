@@ -1,0 +1,52 @@
+{# Read AI meetings that matched no client, or more than one, on the
+   reporting overview. Rendered only when there is something to assign. #}
+<div class="pulse-panel">
+  <h3>Read AI meetings to assign</h3>
+  <p class="panel-hint">
+    Someone from outside Unstuck was on these calls, but their email domain doesn't
+    match exactly one client. Assign each to its client, or ignore it if it isn't a
+    client meeting. Add client domains on <a href="/client-profiles">Client Profiles</a>
+    so future meetings file themselves.
+  </p>
+  {% if notice %}<p class="pnote" role="status">{{ notice }}</p>{% endif %}
+  {% if meetings %}
+  <ul class="ra-inbox-list">
+    {% for m in meetings %}
+    <li class="ra-inbox-item">
+      <div class="ra-inbox-text">
+        <span class="ra-mtitle">{{ m.title }}</span>
+        <span class="ra-mdate">
+          {{ m.date }}{% if m.domains %} · {{ m.domains | join(", ") }}{% endif %}
+          {% if m.match_status == "ambiguous" %} · matches more than one client{% endif %}
+        </span>
+      </div>
+      <div class="ra-inbox-actions">
+        <form class="ra-inbox-form" hx-post="/api/outbound-pulse/read-ai/meetings/{{ m.id }}/assign"
+              hx-target="#pulse-readai-inbox" hx-swap="innerHTML">
+          <input type="hidden" name="view" value="inbox">
+          <select class="u-select" name="client_id" required aria-label="Client for {{ m.title }}">
+            <option value="">Choose a client…</option>
+            {% if m.candidates %}
+            <optgroup label="Suggested">
+              {% for c in m.candidates %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </optgroup>
+            <optgroup label="All clients">
+            {% endif %}
+            {% for c in clients %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            {% if m.candidates %}</optgroup>{% endif %}
+          </select>
+          <button type="submit" class="u-btn u-btn--sm" hx-disabled-elt="this">Assign meeting</button>
+        </form>
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm"
+                hx-post="/api/outbound-pulse/read-ai/meetings/{{ m.id }}/assign"
+                hx-vals='{"client_id": "ignore", "view": "inbox"}'
+                hx-target="#pulse-readai-inbox" hx-swap="innerHTML"
+                hx-disabled-elt="this">Ignore</button>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="ra-none">Nothing left to assign.</p>
+  {% endif %}
+</div>
