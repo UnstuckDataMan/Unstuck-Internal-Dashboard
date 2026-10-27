@@ -6,6 +6,7 @@
   let exportSnapshot = null;
   const form = get('form');
   const scenario = get('scenario');
+  const horizon = get('horizon');
   const scenarioNames = { conservative: 'Conservative', baseline: 'Probable', optimistic: 'Optimistic' };
   const currency = get('currency');
   const mode = get('mode');
@@ -48,10 +49,15 @@
     document.querySelectorAll('[data-currency-symbol]').forEach(symbol => { symbol.textContent = code === 'USD' ? '$' : '£'; });
     set('currency-code', code);
     const selectedRate = get(scenario.value);
+    const horizonYears = Number(horizon.value);
+    const validHorizon = ['1', '3', '5'].includes(horizon.value);
+    const horizonLabel = horizonYears === 1 ? '1 year' : `${horizonYears} years`;
+    horizon.setAttribute('aria-invalid', String(!validHorizon));
     const fields = ['leads', scenario.value, 'value', 'rate'].map(get);
     for (const key of Object.keys(scenarioNames)) get(key).dataset.selected = String(key === scenario.value);
     set('scenario-name', scenarioNames[scenario.value] + ' · ' + (selectedRate.value === '' ? '—' : selectedRate.value + '%'));
-    set('top-period', label(dates[0]) + ' – ' + label(dates[11]) + ' | ' + code);
+    set('top-period', validHorizon ? label(dates[0]) + ' – ' + label(dates[horizonYears * 12 - 1]) + ' | ' + code : 'Choose a forecast period');
+    set('result-period', validHorizon ? 'Over ' + horizonLabel : 'Choose a forecast period');
     set('value-description', mode.value === 'retainer' ? 'Monthly retainer revenue per client' : 'One-off revenue per deal');
     const applyChurn = churnEnabled.checked;
     get('churn-controls').hidden = !applyChurn;
@@ -66,34 +72,38 @@
     pdf.disabled = true;
     exportSnapshot = null;
     function clear(message) {
-      ['ratio', 'revenue', 'net', 'deals'].forEach(key => set(key, '—'));
+      ['ratio', 'revenue', 'fees', 'net', 'deals'].forEach(key => set(key, '—'));
       set('summary', message);
       set('chart', 'Complete your inputs to see the revenue forecast.');
       set('months', '');
       set('years', '');
       set('timing', '');
     }
-    if (!valid.every(Boolean) || !validChurn) {
+    if (!valid.every(Boolean) || !validChurn || !validHorizon) {
       clear('Complete valid inputs to see your potential return.');
       const invalid = fields.findIndex((field, index) => field.value !== '' && !valid[index]);
       if (invalid !== -1) set('error', ['Enter a non-negative lead volume.', 'Enter a conversion rate between 0% and 100%.', 'Enter a non-negative conversion value.', 'Enter a monthly rate greater than zero.'][invalid]);
       else if (applyChurn && !validChurn) set('error', 'Enter annual churn between 0% and 100%.');
+      else if (!validHorizon) set('error', 'Choose a forecast period of 1, 3 or 5 years.');
       return;
     }
     const [leads, conversion, value, rate] = values;
     let forecast;
     try { forecast = window.roiForecast({ leads, conversion, value, rate, mode: mode.value, churn: churnValue }); }
     catch (error) { clear('Check your figures to calculate the projection.'); set('error', error.message); return; }
-    set('deals', number.format(forecast.deals));
-    set('ratio', forecast.ratio.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' : 1');
-    set('revenue', money.format(forecast.revenue));
-    set('net', money.format(forecast.net));
-    get('result').dataset.state = forecast.ratio < 1 ? 'below' : 'covered';
-    set('summary', forecast.ratio < 1 ? 'Projected annual revenue is below your annual Unstuck investment.' : 'Projected annual revenue covers your annual Unstuck investment.');
-    set('timing', `Your assumptions imply ${number.format(forecast.expectedDeals)} sales per year. This timeline books ${number.format(forecast.deals)} whole sales as they accumulate, starting with zero existing clients. ${applyChurn ? (mode.value === 'retainer' ? 'The separate churn scenario applies compound monthly retention to acquired retainer clients.' : 'The separate project churn scenario reduces future project revenue opportunities using compound monthly retention from the forecast start.') : 'Churn is off; both revenue lines are identical.'}`);
+    const selectedYear = forecast.years[horizonYears - 1];
+    const deals = forecast.timeline.slice(0, horizonYears * 12).reduce((total, row) => total + row.sales, 0);
+    set('deals', number.format(deals));
+    set('ratio', selectedYear.ratio.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' : 1');
+    set('revenue', money.format(selectedYear.accumulated));
+    set('fees', money.format(selectedYear.investment));
+    set('net', money.format(selectedYear.accumulated - selectedYear.investment));
+    get('result').dataset.state = selectedYear.ratio < 1 ? 'below' : 'covered';
+    set('summary', selectedYear.ratio < 1 ? `Projected revenue over ${horizonLabel} is below your Unstuck fees for the same period.` : `Projected revenue over ${horizonLabel} covers your Unstuck fees for the same period.`);
+    set('timing', `Your assumptions imply ${number.format(forecast.expectedDeals)} sales per year. This timeline books ${number.format(deals)} whole sales over ${horizonLabel} as they accumulate, starting with zero existing clients. ${applyChurn ? (mode.value === 'retainer' ? 'The separate churn scenario applies compound monthly retention to acquired retainer clients.' : 'The separate project churn scenario reduces future project revenue opportunities using compound monthly retention from the forecast start.') : 'Churn is off; both revenue lines are identical.'}`);
     get('years').innerHTML = forecast.years.map(row => `<tr><td>Year ${row.year}</td><td>${money.format(row.revenue)}</td><td>${money.format(row.adjustedRevenue)}</td><td>${money.format(row.accumulated)}</td><td>${row.ratio.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} : 1</td></tr>`).join('');
     drawChart(forecast, money, code);
-    exportSnapshot = { forecast, inputs: { leads, conversion, value, rate, currency: code, scenario: scenarioNames[scenario.value], mode: mode.value, churn: churnValue, churnEnabled: applyChurn }, labels: dates.map(label) };
+    exportSnapshot = { forecast, inputs: { leads, conversion, value, rate, horizon: horizonYears, currency: code, scenario: scenarioNames[scenario.value], mode: mode.value, churn: churnValue, churnEnabled: applyChurn }, labels: dates.map(label) };
     pdf.disabled = false;
   }
   pdf.addEventListener('click', async () => {
@@ -122,6 +132,7 @@
     }
   });
   scenario.addEventListener('change', update);
+  horizon.addEventListener('change', update);
   currency.addEventListener('change', () => {
     rates[previousCurrency] = get('rate').value;
     previousCurrency = currency.value === 'USD' ? 'USD' : 'GBP';
@@ -132,6 +143,7 @@
   form.addEventListener('change', update);
   form.addEventListener('submit', event => event.preventDefault());
   form.addEventListener('reset', () => setTimeout(() => {
+    horizon.value = '3';
     get('conservative').value = '3'; get('baseline').value = '5'; get('optimistic').value = '6';
     rates.GBP = '5490'; rates.USD = '7990';
     get('rate').value = rates[currency.value === 'USD' ? 'USD' : 'GBP'];

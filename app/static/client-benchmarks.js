@@ -1,6 +1,12 @@
 (function () {
   'use strict';
-  const endpoint = document.querySelector('[data-benchmark-endpoint]')?.dataset.benchmarkEndpoint || '/api/client-benchmarks';
+  const view = document.querySelector('[data-benchmark-endpoint]');
+  const endpoint = view?.dataset.benchmarkEndpoint || '/api/client-benchmarks';
+  const calculator = view?.dataset.benchmarkCalculator === 'true' ? document.getElementById('roi-leads') : null;
+  const selection = document.getElementById('roi-benchmark-selection');
+  const clearSelection = () => { if (selection) selection.textContent = ''; };
+  calculator?.addEventListener('input', clearSelection);
+  calculator?.form?.addEventListener('reset', clearSelection);
   const get = key => document.getElementById('bench-' + key);
   const stamp = value => new Date(value).toLocaleString('en-GB', {timeZone:'Europe/London',dateStyle:'medium',timeStyle:'short'});
   const month = value => new Date(value+'-01T00:00:00Z').toLocaleDateString('en-GB',{month:'short',year:'numeric',timeZone:'UTC'});
@@ -27,9 +33,23 @@
         // Keep sample limitations visible without the internal methodology detail.
         if(!group.sufficient) value.append(node('small','More campaign data needed'));
         else if(group.dominant_client_lead_share>.5) value.append(node('small','Concentrated client sample'));
+        // Only apply a published numeric benchmark; expired snapshots retain their raw rate.
+        if (calculator && /^~\d+$/.test(group.display) && group.sufficient && Number.isFinite(group.average) && group.average >= 0) {
+          const use = node('button', 'Use in forecast', 'benchmark-use');
+          use.type = 'button';
+          use.setAttribute('aria-label', `Use ${group.label} benchmark in forecast`);
+          use.addEventListener('click', () => {
+            // Use the source average at input precision, never the whole-lead planning display.
+            calculator.value = group.average.toFixed(2);
+            calculator.dispatchEvent(new Event('input', {bubbles:true}));
+            if (selection) selection.textContent = `Based on ${group.label} · ${month(data.period[0])} — ${month(data.period.at(-1))}`;
+            calculator.focus();
+          });
+          value.append(use);
+        }
         tr.append(title,size,value);return tr;
       }));
-      get('note').textContent=`Rounded six-month benchmarks${data.groups.some(g=>g.estimated)?' using estimated activity and targeting inputs':''}. Indicative, not guaranteed.`;
+      get('note').textContent=`Rounded up for planning. Six-month benchmarks${data.groups.some(g=>g.estimated)?' using estimated activity and targeting inputs':''}. Indicative, not guaranteed.`;
       get('updated').textContent=`Updated ${stamp(data.synced_at)} · London time · Syncs every ${data.polling_minutes} minutes`;
       get('stale').hidden=!data.stale;
       get('stale').textContent=`Showing the last successful snapshot; data is stale. ${data.sync_error||'A fresh source sync is pending.'}`;

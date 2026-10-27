@@ -27,6 +27,19 @@
   .expectations-page .roi-result[data-state="below"] .roi-ratio { color: #fcd34d; }
   .expectations-page .roi-forecast-note { border-color: #b99ae9; background: #b99ae909; }
   .expectations-page .roi-forecast-note p { margin: 0; font-size: 13px; }
+  .roi-horizon-control { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+  .roi-horizon-control label { font: 600 14px var(--font-display); color: #eee9f7; }
+  .roi-horizon-control .roi-select { width: auto; min-width: 100px; }
+  .roi-assumption-note { display: block; margin-top: 10px; font-size: 12px !important; line-height: 1.6; }
+  .roi-planning-note { padding-top: 16px; border-top: 1px solid #bca4ee20; }
+  .roi-disclosure summary, .roi-chart-disclosure>summary { cursor: pointer; color: #c4b5fd; font-weight: 600; }
+  .roi-disclosure summary:focus-visible, .roi-chart-disclosure>summary:focus-visible { outline: 2px solid #c4b5fd; outline-offset: 5px; }
+  .roi-disclosure p { margin-top: 14px; }
+  .roi-chart-disclosure>summary { font: 600 18px var(--font-display); }
+  .expectations-page .benchmark-use { display: inline-block; margin-top: 12px; padding: 7px 10px; border-radius: 8px; border: 1px solid #bca4ee38; background: #b99ae90c; color: #d5c5ee; font: 500 11px var(--font-display); cursor: pointer; }
+  .expectations-page .benchmark-use:hover { background: #b99ae926; border-color: #b99ae980; }
+  .expectations-page .benchmark-use:focus-visible { outline: 2px solid #c4b5fd; outline-offset: 4px; }
+  #roi-benchmark-selection { color: #89ded7; }
   .expectations-page .roi-outlook .roi-table th { background: #b99ae90c; }
   .expectations-page .roi-outlook .roi-table tr:last-child td { background: #b99ae910; }
   .expectations-page .roi-select:focus-visible, .expectations-page .roi-reset:focus-visible,
@@ -46,6 +59,7 @@
   .topbar-left { min-width: 0; }
   .topbar-right { min-width: 0; }
   .topbar-title { margin-left: 18px; font-size: 15px; text-align: right; line-height: 1.3; }
+  .expectations-page .benchmark-use { font-size: 10px; padding: 7px 6px; }
 }
 @media print {
   /* PDF/print continues to export the forecast, with its own selected assumptions. */

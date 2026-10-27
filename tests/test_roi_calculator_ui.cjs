@@ -2,9 +2,9 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const elements = {};
-const keys = ['conservative','optimistic','scenario','scenario-name','pdf','pdf-logo','form','leads','baseline','value','rate','currency','mode','churn-enabled','churn','churn-controls','years','top-period','period','chart','months','timing','currency-code','value-description','result','ratio','deals','revenue','net','summary','error'];
+const keys = ['horizon','result-period','fees','conservative','optimistic','scenario','scenario-name','pdf','pdf-logo','form','leads','baseline','value','rate','currency','mode','churn-enabled','churn','churn-controls','years','top-period','period','chart','months','timing','currency-code','value-description','result','ratio','deals','revenue','net','summary','error'];
 keys.forEach(key => { elements[key] = { value: '', textContent: '', innerHTML: '', checked: false, dataset: {}, style: {}, handlers: {}, setAttribute(key,value) { this[key] = value; }, addEventListener(key,fn) { this.handlers[key] = fn; }, get valueAsNumber() { return Number(this.value); } }; });
-Object.entries({scenario:'baseline',leads:'5.00', baseline:'5',conservative:'3',optimistic:'6', rate:'5490', currency:'GBP', mode:'project', churn:'10'}).forEach(([key,value]) => { elements[key].value = value; });
+Object.entries({horizon:'1',scenario:'baseline',leads:'5.00', baseline:'5',conservative:'3',optimistic:'6', rate:'5490', currency:'GBP', mode:'project', churn:'10'}).forEach(([key,value]) => { elements[key].value = value; });
 const symbols = [{},{}];
 let printed = 0;
 const events = {};
@@ -32,7 +32,8 @@ elements['churn-enabled'].checked=true;update();assert.equal(elements['churn-con
 elements.churn.value='101';update();assert.equal(elements.ratio.textContent,'—');
 elements.mode.value='project';elements.churn.value='10';update();assert.equal(elements.revenue.textContent,'$30,000.00');assert.equal(elements['churn-controls'].hidden,false);
 elements.rate.value='0';update();assert.equal(elements.ratio.textContent,'—');
-elements.form.handlers.reset();assert.equal(elements.rate.value,'7990');
+elements.form.handlers.reset();assert.equal(elements.rate.value,'7990');assert.equal(elements.horizon.value,'3');assert.equal(elements['result-period'].textContent,'Over 3 years');
+elements.horizon.value='1';elements.horizon.handlers.change();
 console.log('UI checks passed: editable currency defaults, currency memory, retainer mode, churn toggle, invalid inputs, chart generation and reset.');
 
 assert.equal(elements.pdf.disabled,false);
@@ -40,6 +41,7 @@ elements.pdf.handlers.click();
 assert.equal(printed,1);
 assert.equal(capturedReport.inputs.currency,'USD');
 assert.equal(capturedReport.inputs.rate,7990);
+assert.equal(capturedReport.inputs.horizon,1);
 assert.equal(details[0].open,false);
 assert.equal(context.document.title,'Expectations Setting');
 elements.value.value='';update();assert.equal(elements.pdf.disabled,true);
@@ -91,5 +93,39 @@ assert.equal(rows[1][2],'£50,951.20');assert.equal(rows[1][3],'£300,000.00');
 assert.equal(rows[4][2],'£6,368.90');assert.equal(rows[4][3],'£750,000.00');
 const template=fs.readFileSync('app/templates/roi_calculator.html','utf8');
 assert.ok(template.indexOf('<th>After churn')<template.indexOf('<th>Total added revenue'));
-assert.match(template,/roi-calculator.js\?v=expectations-1/);
+assert.match(template,/roi-calculator.js\?v=expectations-2/);
 console.log('Reported column mismatch regression passed: churn in column 3, accumulated revenue in column 4, and updated script URLs.');
+
+// The headline period changes cumulative revenue, sales and fees together.
+// Retainers must include revenue carried forward from earlier acquired clients.
+elements['churn-enabled'].checked=false;elements.value.value='10000';elements.leads.value='5';elements.baseline.value='5';elements.rate.value='5490';
+for (const [mode, horizon, revenue, fees, deals] of [
+  ['project',3,90000,197640,9], ['project',5,150000,329400,15],
+  ['retainer',3,1530000,197640,9], ['retainer',5,4350000,329400,15],
+  ['retainer',1,150000,65880,3],
+]) {
+  elements.mode.value=mode;elements.horizon.value=String(horizon);elements.horizon.handlers.change();
+  const money=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'});
+  assert.equal(elements.revenue.textContent,money.format(revenue));
+  assert.equal(elements.fees.textContent,money.format(fees));
+  assert.equal(elements.net.textContent,money.format(revenue-fees));
+  assert.equal(elements.deals.textContent,String(deals));
+  assert.equal(elements.ratio.textContent,(revenue/fees).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2})+' : 1');
+  assert.equal(elements['result-period'].textContent,`Over ${horizon} ${horizon===1?'year':'years'}`);
+  assert.equal((elements.months.innerHTML.match(/<tr>/g)||[]).length,60);
+  assert.equal((elements.years.innerHTML.match(/<tr>/g)||[]).length,5);
+  elements.pdf.handlers.click();
+  assert.equal(capturedReport.inputs.horizon,horizon);
+  assert.match(elements['top-period'].textContent,new RegExp(capturedReport.labels[horizon*12-1]));
+}
+for (const invalidHorizon of ['', '0', '2', '6', '3.0', 'NaN']) {
+  elements.horizon.value=invalidHorizon;elements.horizon.handlers.change();
+  assert.equal(elements.pdf.disabled,true);assert.equal(elements.horizon['aria-invalid'],'true');
+  for (const key of ['ratio','revenue','fees','net','deals']) assert.equal(elements[key].textContent,'—');
+  assert.match(elements.error.textContent,/1, 3 or 5 years/);
+}
+elements.form.handlers.reset();
+assert.equal(elements.horizon.value,'3');assert.equal(elements.pdf.disabled,false);assert.equal(elements.horizon['aria-invalid'],'false');
+assert.equal(elements.revenue.textContent,'£1,530,000.00');assert.equal(elements.fees.textContent,'£197,640.00');
+assert.match(template,/<option value="3" selected>/);
+console.log('Horizon checks passed: 1/3/5-year cumulative totals, retained client revenue, fee alignment, exports, invalid values and three-year reset.');

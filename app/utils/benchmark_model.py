@@ -17,18 +17,10 @@ CONTROL_HEADERS = ['Client', 'Month', 'Activity status', 'Allocation source', *B
 
 
 def display_rate(group):
-    """Presentation only: rounded pooled estimates, not empirical spread/CI."""
+    """Presentation only: pooled estimates rounded up for planning."""
     if not group['sufficient'] or group['average'] is None:
         return 'Insufficient data'
-    value = group['average']
-    if value == 0:
-        return '0'
-    if value < 1:
-        return '<1'
-    if group['label'] == 'Enterprise':
-        return f'~{math.floor(value + 0.5)}'
-    low, high = math.floor(value), math.ceil(value)
-    return str(low) if low == high else f'{low}–{high}'
+    return f"~{math.ceil(group['average'])}"
 
 
 def normal(value):

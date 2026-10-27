@@ -1,8 +1,8 @@
-<section class="benchmark-view" data-benchmark-endpoint="{{ benchmark_endpoint | default('/api/client-benchmarks') }}" aria-labelledby="benchmark-title">
+<section class="benchmark-view" data-benchmark-calculator="{{ 'true' if benchmark_embedded else 'false' }}" data-benchmark-endpoint="{{ benchmark_endpoint | default('/api/client-benchmarks') }}" aria-labelledby="benchmark-title">
   <header class="benchmark-intro">
     <span class="benchmark-eyebrow"><span aria-hidden="true"></span> {% if benchmark_embedded %}01 · CLIENT PERFORMANCE{% else %}UNSTUCK · CLIENT PERFORMANCE{% endif %}</span>
     <h2 id="benchmark-title">Average monthly leads.<br><span>By company size.</span></h2>
-    <p>Client performance across three target markets.</p>
+    <p>{% if benchmark_embedded %}Recent client performance. A starting point for your campaign.{% else %}Client performance across three target markets.{% endif %}</p>
   </header>
   <div class="benchmark-toolbar">
     <div class="benchmark-period"><span class="benchmark-period-label">Reporting window</span><span id="bench-status" role="status">Loading benchmarks…</span></div>
@@ -17,7 +17,7 @@
         <tbody id="bench-groups"></tbody>
       </table>
     </div>
-    <div class="benchmark-footnote"><p id="bench-note">Rounded six-month benchmarks. Indicative, not guaranteed.</p><p id="bench-updated"></p></div>
+    <div class="benchmark-footnote"><p id="bench-note">Rounded up for planning. Indicative, not guaranteed.</p><p id="bench-updated"></p></div>
   </div>
   {% if not benchmark_embedded %}<footer class="benchmark-footer"><span>UNSTUCK AGENCY</span><span>Clarity for your next campaign.</span></footer>{% endif %}
 </section>

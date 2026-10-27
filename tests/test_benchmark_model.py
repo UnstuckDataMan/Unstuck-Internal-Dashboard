@@ -158,18 +158,21 @@ def test_three_segments_combine_enterprise_exposure_without_boundary_overlap():
 
 
 @pytest.mark.parametrize('label,rate,sufficient,expected', [
-    ('Small businesses',8.6911,True,'8–9'),
-    ('Mid-market',4.18637,True,'4–5'),
-    ('Mid-market',5.2,True,'5–6'),
-    ('Mid-market',4,True,'4'),
-    ('Mid-market',0,True,'0'),
-    ('Mid-market',.4,True,'<1'),
+    ('Small businesses',8.6911,True,'~9'),
+    ('Mid-market',4.18637,True,'~5'),
+    ('Mid-market',5.2,True,'~6'),
+    ('Mid-market',4,True,'~4'),
+    ('Mid-market',0,True,'~0'),
+    ('Mid-market',.4,True,'~1'),
     ('Mid-market',4.18637,False,'Insufficient data'),
     ('Mid-market',None,False,'Insufficient data'),
     ('Enterprise',2.5562,True,'~3'),
     ('Enterprise',1.88186,True,'~2'),
+    ('Enterprise',2.01,True,'~3'),
+    ('Small businesses',8.01,True,'~9'),
+    ('Mid-market',None,True,'Insufficient data'),
 ])
-def test_display_brackets_pooled_rates_without_fitting_targets(label,rate,sufficient,expected):
+def test_display_rounds_up_consistently_without_changing_pooled_rates(label,rate,sufficient,expected):
     group={'label':label,'average':rate,'sufficient':sufficient}
     assert m.display_rate(group)==expected
     assert group['average']==rate

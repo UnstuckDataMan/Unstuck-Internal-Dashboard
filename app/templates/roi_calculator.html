@@ -98,7 +98,7 @@
   #roi-error { color: var(--red); font-size: 13px; line-height: 1.6; margin-top: 16px; }
   @media (max-width: 760px) { .roi-grid { grid-template-columns: 1fr; } .roi-panel { padding: 22px; } }
 </style>
-<link rel="stylesheet" href="/static/expectations-setting.css?v=1">
+<link rel="stylesheet" href="/static/expectations-setting.css?v=2">
 {% endblock %}
 {% block content %}
 <div class="expectations-page">
@@ -118,20 +118,21 @@
       <button type="button" id="roi-pdf" class="roi-pdf" disabled title="Download a branded PDF report">PDF ↓</button>
     </div>
   </div>
-  <h2 id="roi-title">Turn expectations into <span>potential returns.</span></h2>
+  <h2 id="roi-title">Plan the partnership.<br><span>See the potential.</span></h2>
   <p class="roi-help" id="roi-top-period"></p>
-  <div class="roi-forecast-note"><strong>How to read this forecast</strong><p>This is a rough illustration of how added revenue could develop if the assumptions hold and things go reasonably well. It is not a guarantee of leads, sales, revenue or timing. Actual results may be lower or higher, and may take longer to achieve.</p></div>
+  <div class="roi-forecast-note"><strong>Built over time.</strong><p>Agree a starting point at onboarding, then review it as real results come in. Consistent outreach creates opportunities to learn, refine and develop sales conversations. These projections show potential, not guaranteed results or timing.</p></div>
 </div>
 <img id="roi-pdf-logo" src="/static/img/logo-report.png" alt="" hidden>
 <div class="roi-grid">
   <form class="roi-panel" id="roi-form" novalidate>
     <h3>Your assumptions</h3>
-    <p class="roi-help">Your inputs. One clear annual projection.</p>
+    <p class="roi-help">Your starting assumptions. Refine them together over time.</p>
     <small class="roi-help" id="currency-help">Enter both monetary amounts in the selected currency.</small>
     <div class="roi-field">
       <label for="roi-leads">Leads per month</label>
       <div class="roi-input"><input id="roi-leads" type="number" min="0" step="any" value="5.00" required inputmode="decimal" aria-describedby="leads-help roi-error"></div>
-      <small id="leads-help">Use the benchmarks above to inform your assumption. Decimals are welcome.</small>
+      <small id="leads-help">Choose a benchmark above or enter an agreed lead assumption.</small>
+      <small id="roi-benchmark-selection" role="status"></small>
     </div>
     <div class="roi-field">
       <label for="roi-scenario">Forecast scenario</label>
@@ -149,6 +150,7 @@
         <div><label for="roi-optimistic">Optimistic</label><div class="roi-input"><input id="roi-optimistic" type="number" min="0" max="100" step="any" value="6" required inputmode="decimal" aria-describedby="roi-error"><span>%</span></div></div>
       </div>
     </div>
+      <small class="roi-help roi-assumption-note">Planning assumptions: adjust conversion rates to your own sales performance.</small>
     <div class="roi-field">
       <label for="roi-mode">Client fee type</label>
       <select id="roi-mode" class="roi-select"><option value="project">Project fee · one-off</option><option value="retainer">Retainer fee · monthly</option></select>
@@ -165,7 +167,7 @@
     </div>
     <div class="roi-field">
       <label class="roi-toggle"><input type="checkbox" id="roi-churn-enabled"> Show annual churn scenario</label>
-      <small id="churn-help">Retainers: client retention is compounded monthly. Projects: an illustrative reduction in future revenue opportunities, not losses on completed projects. Revenue before churn stays unchanged.</small>
+      <small id="churn-help">Optional sensitivity check, shown separately from the main projection.</small>
       <div id="roi-churn-controls" hidden>
         <label for="roi-churn" style="margin-top:12px">Annual churn rate</label>
         <div class="roi-input"><input id="roi-churn" type="number" min="0" max="100" step="any" value="10" inputmode="decimal" aria-describedby="churn-help roi-error"><span>%</span></div>
@@ -175,54 +177,60 @@
     <button type="reset" class="roi-reset">Reset figures</button>
   </form>
   <div class="roi-results-stack">
-  <section class="roi-panel roi-result" id="roi-result" aria-label="Annual projection">
-    <div class="roi-eyebrow">Potential ROI · Next 12 months · <span id="roi-scenario-name">Probable</span> · No churn</div>
+  <section class="roi-panel roi-result" id="roi-result" aria-label="Partnership projection">
+    <div class="roi-horizon-control">
+      <label for="roi-horizon">Partnership horizon</label>
+      <select id="roi-horizon" class="roi-select"><option value="1">1 year</option><option value="3" selected>3 years</option><option value="5">5 years</option></select>
+    </div>
+    <div class="roi-eyebrow"><span id="roi-result-period">Over 3 years</span> · <span id="roi-scenario-name">Probable</span> · No churn</div>
     <div class="roi-ratio"><output id="roi-ratio">—</output></div>
     <p class="roi-help" id="roi-summary" aria-live="polite">Enter a conversion value to see your potential return.</p>
     <dl class="roi-stats">
-      <div class="roi-stat"><dt>Scheduled deals · next 12 months</dt><dd><output id="roi-deals">3</output></dd></div>
-      <div class="roi-stat"><dt>Annual projected added revenue</dt><dd><output id="roi-revenue">—</output></dd></div>
-      <div class="roi-stat"><dt>Annual added revenue less Unstuck fees</dt><dd><output id="roi-net">—</output></dd></div>
+      <div class="roi-stat"><dt>Projected new clients</dt><dd><output id="roi-deals">—</output></dd></div>
+      <div class="roi-stat"><dt>Total added revenue</dt><dd><output id="roi-revenue">—</output></dd></div>
+      <div class="roi-stat"><dt>Total Unstuck fees</dt><dd><output id="roi-fees">—</output></dd></div>
+      <div class="roi-stat"><dt>Revenue less Unstuck fees</dt><dd><output id="roi-net">—</output></dd></div>
     </dl>
-    <p class="roi-help">This is a revenue-to-fee ratio, not a profit ROI percentage. A 1:1 return means projected revenue covers 12 months of Unstuck fees.</p>
-    <div class="roi-formula">
-      <strong>How it’s calculated</strong><br>
-      Sales accumulate from leads × conversion rate ÷ 100, with a sale booked when a whole deal is reached.<br>
-      Projects earn the fee once. Retainers earn the monthly fee from the sale month onwards.<br>
-      Potential ROI = projected 12-month revenue ÷ (Unstuck monthly rate × 12)
-    </div>
-    <p class="roi-formula">This forecast excludes delivery costs and other expenses. Sales timing is illustrative, not guaranteed: deals are scheduled when the accumulated conversion estimate reaches a whole sale, with no delay before payment. The current month is treated as a full month. The forecast starts with no existing clients.</p>
+    <p class="roi-help">Revenue-to-fee ratio over the selected period. Delivery costs are excluded.</p>
+    <p class="roi-formula roi-planning-note">Assumes steady lead volume, conversion and fees. Timing varies; uncertainty grows over longer periods.</p>
+    <details class="roi-formula roi-disclosure">
+      <summary>How the projection works</summary>
+      <p>Leads × conversion rate estimates new clients. A sale is booked when a whole deal is reached. Projects earn the fee once; retainers earn monthly fees from the sale month onwards.</p>
+      <p>Potential ROI = added revenue ÷ Unstuck fees over the selected period. A 1:1 ratio means projected revenue covers those fees; it is not a profit ROI percentage.</p>
+      <p>Sales and payment timing are illustrative. The model assumes immediate payment, no sales-cycle delay, a full first month and no existing clients. It excludes delivery costs, other expenses, taxes and inflation.</p>
+      <p>The separate churn scenario compounds monthly retention for retainers. For projects, it estimates fewer future opportunities, not losses on completed projects.</p>
+    </details>
   </section>
 
   </div>
 </div>
 <section class="roi-panel roi-outlook" style="margin-top:24px" aria-label="Five-year revenue and ROI projection">
-  <h3>Your five-year outlook</h3>
-  <p class="roi-help">Revenue added by Unstuck, assuming your current lead volume, conversion rate and fees continue.</p>
+  <h3>How the years could build</h3>
+  <p class="roi-help">A year-by-year view of the same assumptions, with total revenue building across the partnership.</p>
   <div class="roi-table-wrap"><table class="roi-table">
     <thead><tr><th>Year</th><th>Added revenue<br><small>Each year</small></th><th>After churn<br><small>Added revenue in year</small></th><th>Total added revenue<br><small>To date</small></th><th>ROI<br><small>To date · no churn</small></th></tr></thead>
     <tbody id="roi-years"><tr><td>Years 1–5</td><td colspan="4">Complete your inputs to see the projection.</td></tr></tbody>
   </table></div>
-  <p class="roi-formula">Year 1 starts this month. Accumulated ROI = revenue earned to date ÷ Unstuck fees paid over the same period. Added revenue, accumulated revenue and ROI use the selected conversion scenario without churn. The separate revenue-after-churn column applies your churn scenario; when disabled, it matches added revenue. Retainer clients carry into subsequent years. Existing client revenue is excluded. Assumptions and fees stay constant for five years; no inflation, taxes or delivery costs are modelled. Ratios are rounded to two decimal places and currency to the nearest penny; calculations use unrounded values.</p>
+  <details class="roi-formula roi-disclosure"><summary>Read the table</summary><p>Year 1 starts this month. ROI compares added revenue earned to date with Unstuck fees over the same period. The main columns exclude churn; the separate after-churn column applies that scenario. Retainer clients carry into later years. Assumptions stay constant for five years. Currency is rounded to pennies and ratios to two decimal places; calculations use unrounded values.</p></details>
 </section>
-  <section class="roi-panel" style="margin-top:24px" aria-label="Revenue over time">
-    <h3>Added revenue over time</h3>
+  <details class="roi-panel roi-chart-disclosure" style="margin-top:24px">
+    <summary>Explore the monthly forecast</summary>
     <p class="roi-help" id="roi-period"></p>
     <p class="roi-help">Monthly revenue added by Unstuck</p>
     <p class="roi-formula" style="margin-top:8px"><span style="color:#6ee7b7">━ Added revenue</span> &nbsp; <span style="color:#c4b5fd">┄ Revenue after churn</span></p>
     <div id="roi-chart" class="roi-chart"><p class="roi-help">Enter a conversion value to see your forecast.</p></div>
     <p class="roi-formula" id="roi-timing"></p>
     <details class="roi-formula"><summary>View monthly figures</summary><div class="roi-table-wrap"><table class="roi-table"><thead><tr><th>Month</th><th>New sales</th><th>Added revenue</th><th>After churn</th></tr></thead><tbody id="roi-months"></tbody></table></div></details>
-  </section>
+  </details>
 </section>
 <footer class="expectations-footer"><span>UNSTUCK AGENCY</span><span>Clarity for your next campaign.</span></footer>
 </div>
 <noscript><p class="roi-help">Enable JavaScript to use the calculator.</p></noscript>
 {% endblock %}
 {% block extra_scripts %}
-<script src="/static/client-benchmarks.js?v=7" defer></script>
+<script src="/static/client-benchmarks.js?v=8" defer></script>
 <script src="/static/roi-forecast.js" defer></script>
 <script src="/static/vendor/jspdf.umd.min.js" defer></script>
-<script src="/static/roi-pdf.js?v=expectations-1" defer></script>
-<script src="/static/roi-calculator.js?v=expectations-1" defer></script>
+<script src="/static/roi-pdf.js?v=expectations-2" defer></script>
+<script src="/static/roi-calculator.js?v=expectations-2" defer></script>
 {% endblock %}
