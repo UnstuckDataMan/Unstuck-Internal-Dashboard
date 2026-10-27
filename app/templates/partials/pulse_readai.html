@@ -106,6 +106,16 @@
     <p class="u-state__title"><span class="u-dots" aria-hidden="true"><span></span><span></span><span></span></span> Reading the meetings</p>
     <p class="u-state__text">The overview appears here in a minute or two. The panel updates by itself.</p>
   </div>
+  {% elif failed %}
+  {# Not "no findings": a meeting that couldn't be read says nothing about
+     whether the campaigns came up in it. #}
+  <div class="u-state u-state--error" role="alert">
+    <p class="u-state__title">Couldn't analyse {{ failed | length }} meeting{{ "" if failed | length == 1 else "s" }}</p>
+    <p class="u-state__text">{{ failed[0].analysis_error or "The summary failed." }}</p>
+    <button type="button" class="u-btn u-btn--sm"
+            hx-post="{{ url }}/refresh" hx-target="#pulse-readai" hx-swap="innerHTML"
+            hx-disabled-elt="this" {% if not ai_ready %}disabled{% endif %}>Try again</button>
+  </div>
   {% elif insights.status == "failed" %}
   <div class="u-state u-state--error" role="alert">
     <p class="u-state__title">Couldn't write the overview</p>

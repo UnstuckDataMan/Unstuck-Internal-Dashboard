@@ -70,6 +70,12 @@
     <p class="u-state__text">This takes about a minute. The panel updates by itself.</p>
   </div>
 
+  {% elif draft_error %}
+  <div class="u-state u-state--error" role="alert">
+    <p class="u-state__title">Couldn't draft the onboarding notes</p>
+    <p class="u-state__text">{{ draft_error }} Try again, or write them yourself.</p>
+  </div>
+
   {% else %}
   <div class="u-state" role="status">
     <p class="u-state__title">No onboarding notes yet</p>

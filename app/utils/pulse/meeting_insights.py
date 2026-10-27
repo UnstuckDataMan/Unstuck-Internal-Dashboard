@@ -31,9 +31,13 @@ from app.utils.pulse import readai, richtext
 
 logger = logging.getLogger(__name__)
 
-# Roughly 30k tokens of transcript: an hour-long call fits, and one that does
-# not is cut at a block boundary with the cut stated in the prompt.
-TRANSCRIPT_CHAR_BUDGET = 120_000
+# About 20k tokens of transcript: an hour-long call fits, and with the answer
+# it stays under the 30k tokens a minute a new OpenAI account gets for gpt-4o.
+# A longer call is cut at a block boundary with the cut stated in the prompt.
+# If OpenAI still says the request is too large for the account, the call is
+# retried with the smaller budgets that follow.
+TRANSCRIPT_CHAR_BUDGET = 80_000
+_FALLBACK_BUDGETS = (TRANSCRIPT_CHAR_BUDGET, 40_000, 20_000)
 MAX_POINTS_PER_SIDE = 8
 
 ONBOARDING_HEADINGS = [
@@ -62,12 +66,12 @@ def _squash(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip().lower()
 
 
-def transcript_for_prompt(blocks: list[dict]) -> tuple[str, bool]:
+def transcript_for_prompt(blocks: list[dict], budget: int = TRANSCRIPT_CHAR_BUDGET) -> tuple[str, bool]:
     """Numbered blocks within the budget, and whether any were cut."""
     lines, used = [], 0
     for block in blocks:
         line = f"[{block['i']}] {block.get('speaker') or 'Unknown speaker'}: {block.get('text', '')}"
-        if used + len(line) > TRANSCRIPT_CHAR_BUDGET and lines:
+        if used + len(line) > budget and lines:
             return "\n".join(lines), True
         lines.append(line)
         used += len(line) + 1
@@ -155,6 +159,22 @@ def _grounded(points, blocks: list[dict]) -> list[dict]:
     return out
 
 
+def _ask_about_transcript(blocks: list[dict], system: str, prompt, **kwargs) -> tuple[dict, bool]:
+    """Ask the model about a transcript, sending less if OpenAI says it's too big.
+
+    `prompt(text, cut)` builds the user message. Returns (answer, cut).
+    """
+    for n, budget in enumerate(_FALLBACK_BUDGETS):
+        text, cut = transcript_for_prompt(blocks, budget)
+        try:
+            return llm.complete_json(system, prompt(text, cut), **kwargs), cut
+        except llm.RequestTooLarge:
+            if n == len(_FALLBACK_BUDGETS) - 1:
+                raise
+            logger.info("Transcript too large for OpenAI at %s chars; retrying smaller", budget)
+    raise llm.LLMError("No transcript budget left to try.")  # unreachable
+
+
 def analyse_meeting(meeting_id: str) -> dict | None:
     """Analyse one meeting and store the result. Returns the analysis."""
     meeting = ms.get_meeting(meeting_id)
@@ -174,13 +194,14 @@ def analyse_meeting(meeting_id: str) -> dict | None:
         return None
 
     ms.update_meeting(meeting_id, {"analysis_status": "running", "analysis_error": ""})
-    text, cut = transcript_for_prompt(blocks)
-    user = (f"Meeting: {meeting.get('title') or 'Untitled'}\n"
-            f"Read AI's own summary: {meeting.get('read_summary') or '(none)'}\n\n"
-            f"Transcript{' (cut short: the end of the meeting is missing)' if cut else ''}:\n{text}")
+
+    def prompt(text: str, cut: bool) -> str:
+        return (f"Meeting: {meeting.get('title') or 'Untitled'}\n"
+                f"Read AI's own summary: {meeting.get('read_summary') or '(none)'}\n\n"
+                f"Transcript{' (cut short: the end of the meeting is missing)' if cut else ''}:\n{text}")
     try:
-        raw = llm.complete_json(_MEETING_PROMPT, user, schema=MEETING_SCHEMA,
-                                schema_name="meeting_analysis")
+        raw, cut = _ask_about_transcript(blocks, _MEETING_PROMPT, prompt,
+                                         schema=MEETING_SCHEMA, schema_name="meeting_analysis")
     except llm.LLMError as exc:
         ms.update_meeting(meeting_id, {"analysis_status": "failed", "analysis_error": str(exc)})
         return None
@@ -374,25 +395,41 @@ def draft_onboarding_notes(meeting_id: str) -> str:
     meeting = ms.get_meeting(meeting_id)
     if not meeting or not meeting.get("client_id") or not llm.is_configured():
         return ""
+    client_id = str(meeting["client_id"])
     blocks = meeting.get("transcript") or []
     if not blocks and not meeting.get("read_summary"):
+        _draft_errors[client_id] = "Read AI sent no transcript or summary for the onboarding meeting."
         return ""
-    text, cut = transcript_for_prompt(blocks)
     actions = "\n".join(f"- {a}" for a in meeting.get("action_items") or [])
-    user = (f"Meeting: {meeting.get('title')}\n"
-            f"Read AI's summary: {meeting.get('read_summary') or '(none)'}\n"
-            f"Action items:\n{actions or '(none)'}\n\n"
-            f"Transcript{' (cut short)' if cut else ''}:\n{text or '(none)'}")
+
+    def prompt(text: str, cut: bool) -> str:
+        return (f"Meeting: {meeting.get('title')}\n"
+                f"Read AI's summary: {meeting.get('read_summary') or '(none)'}\n"
+                f"Action items:\n{actions or '(none)'}\n\n"
+                f"Transcript{' (cut short)' if cut else ''}:\n{text or '(none)'}")
     try:
-        raw = llm.complete_json(_NOTES_PROMPT, user, schema=NOTES_SCHEMA,
-                                schema_name="onboarding_notes", max_tokens=2500)
+        raw, _ = _ask_about_transcript(blocks, _NOTES_PROMPT, prompt, schema=NOTES_SCHEMA,
+                                       schema_name="onboarding_notes", max_tokens=2500)
     except llm.LLMError as exc:
         logger.warning("Onboarding notes draft failed for meeting %s: %s", meeting_id, exc)
+        _draft_errors[client_id] = str(exc)
         return ""
     html = notes_html(raw.get("sections"))
     if not richtext.to_text(html).strip():
+        _draft_errors[client_id] = "The onboarding meeting didn't cover anything for the notes."
         return ""
-    return file_draft(str(meeting["client_id"]), meeting_id, html)
+    _draft_errors.pop(client_id, None)
+    return file_draft(client_id, meeting_id, html)
+
+
+# Why the last notes draft for a client failed, for the panel to say so.
+# In-process like _drafting: lost on a restart, when the panel simply offers
+# "Draft from meeting" again.
+_draft_errors: dict[str, str] = {}
+
+
+def draft_error(client_id: str) -> str:
+    return _draft_errors.get(str(client_id), "")
 
 
 def file_draft(client_id: str, meeting_id: str, html: str) -> str:
@@ -462,11 +499,21 @@ def process_meeting(meeting_id: str, *, draft_notes: bool = False) -> None:
 
 
 def refresh_client(client_id: str) -> None:
-    """Retry anything unfinished for a client, then rebuild its overview."""
+    """Retry anything unfinished for a client, then rebuild its overview.
+
+    Also drafts the onboarding notes if they are still empty, so one click
+    recovers from an outage (an OpenAI rate limit, say) that stopped both.
+    """
     try:
-        for m in ms.list_client_meetings(client_id):
+        meetings = ms.list_client_meetings(client_id)
+        for m in meetings:
             if m.get("analysis_status") in ("pending", "failed"):
                 analyse_meeting(str(m["id"]))
+        onboarding = next((m for m in meetings if m.get("is_onboarding")), None)
+        notes = ms.get_notes(client_id) or {}
+        if onboarding and not richtext.to_text(notes.get("body") or "").strip() \
+                and not notes.get("pending_draft"):
+            _draft_tracked(client_id, str(onboarding["id"]))
         with _client_lock(client_id):
             rebuild_overview(client_id)
     except Exception:

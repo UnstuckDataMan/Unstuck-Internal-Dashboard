@@ -514,3 +514,108 @@ def test_inbox_shows_a_failure_instead_of_nothing(client, fake_sb, monkeypatch):
     fake_sb.route("GET", "pulse_meetings", lambda call: FakeResponse(500, {"code": "XX000", "message": "boom"}))
     r = client.get("/api/outbound-pulse/read-ai/inbox")
     assert "Couldn't load Read AI meetings" in r.text
+
+
+# ── OpenAI limits ─────────────────────────────────────────────────────────────
+
+def _openai(monkeypatch, responses):
+    """Serve `responses` in order to llm's POSTs; record sleeps instead of sleeping."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    calls, sleeps = [], []
+    def post(url, **kw):
+        calls.append(kw["json"])
+        return responses.pop(0)
+    monkeypatch.setattr(llm.requests, "post", post)
+    monkeypatch.setattr(llm.time, "sleep", sleeps.append)
+    return calls, sleeps
+
+
+def _ok(content):
+    return FakeResponse(200, {"choices": [{"message": {"content": json.dumps(content)},
+                                           "finish_reason": "stop"}]})
+
+
+def test_a_rate_limit_is_waited_out_then_retried(monkeypatch):
+    limited = FakeResponse(429, {"error": {"code": "rate_limit_exceeded", "message":
+        "Rate limit reached for gpt-4o on tokens per min (TPM): Limit 30000, Used 29000, "
+        "Requested 5000. Please try again in 6.5s."}}, headers={"x-ratelimit-reset-tokens": "4s"})
+    calls, sleeps = _openai(monkeypatch, [limited, _ok({"a": 1})])
+    assert llm.complete_json("s", "u", schema={}, schema_name="x") == {"a": 1}
+    assert len(calls) == 2 and sleeps == [7.5]
+
+
+def test_an_account_without_credit_says_so_and_does_not_retry(monkeypatch):
+    broke = FakeResponse(429, {"error": {"code": "insufficient_quota", "message":
+        "You exceeded your current quota, please check your plan and billing details."}})
+    calls, sleeps = _openai(monkeypatch, [broke])
+    with pytest.raises(llm.OutOfCredit, match="out of credit"):
+        llm.complete_json("s", "u", schema={}, schema_name="x")
+    assert len(calls) == 1 and sleeps == []
+
+
+def test_a_request_too_large_for_the_account_fails_fast(monkeypatch):
+    big = FakeResponse(429, {"error": {"code": "rate_limit_exceeded", "message":
+        "Request too large for gpt-4o on tokens per min (TPM): Limit 30000, Requested 41000."}})
+    calls, _ = _openai(monkeypatch, [big])
+    with pytest.raises(llm.RequestTooLarge):
+        llm.complete_json("s", "u", schema={}, schema_name="x")
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("raw,seconds", [("6s", 6), ("1m20.5s", 80.5), ("250ms", 0.25), ("", None)])
+def test_reset_header_durations(raw, seconds):
+    assert llm._duration_s(raw) == seconds
+
+
+def test_analysis_sends_less_transcript_when_the_request_is_too_large(fake_sb, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    long_blocks = [{"i": i, "speaker": "Jo", "start_ms": i, "end_ms": i,
+                    "text": f"Block {i}: " + "the fintech meetings went well " * 40} for i in range(120)]
+    fake_sb.route("GET", "pulse_meetings", lambda call: FakeResponse(200, [
+        {"id": MEETING, "title": "QBR", "transcript": long_blocks}]))
+    sizes = []
+    def complete(system, user, **kw):
+        sizes.append(len(user))
+        if len(sizes) == 1:
+            raise llm.RequestTooLarge("too big")
+        return {"about_campaigns": True, "summary": "ok", "positives": [], "negatives": []}
+    monkeypatch.setattr(llm, "complete_json", complete)
+    assert mi.analyse_meeting(MEETING)["truncated"] is True
+    assert sizes[1] < sizes[0] <= mi.TRANSCRIPT_CHAR_BUDGET + 1000
+
+
+def test_a_failed_analysis_is_shown_as_a_failure_not_as_no_findings(client, fake_sb, monkeypatch):
+    monkeypatch.setenv("READ_AI_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    _clients_route(fake_sb)
+    fake_sb.route("GET", "pulse_meetings", lambda call: FakeResponse(200, [
+        {"id": MEETING, "client_id": CLIENT, "title": "Onboarding", "analysis_status": "failed",
+         "analysis_error": "OpenAI says this account is out of credit.", "analysis": {}}]))
+    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/read-ai")
+    assert "Couldn't analyse 1 meeting" in r.text and "out of credit" in r.text
+    assert "No campaign findings yet" not in r.text
+
+
+def test_a_failed_notes_draft_is_explained(client, fake_sb, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    fake_sb.route("GET", "pulse_meetings", lambda call: FakeResponse(200, [
+        {"id": MEETING, "client_id": CLIENT, "title": "Kick-off", "transcript": TRANSCRIPT,
+         "is_onboarding": True}]))
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **kw: (_ for _ in ()).throw(
+        llm.OutOfCredit("OpenAI says this account is out of credit.")))
+    assert mi.draft_onboarding_notes(MEETING) == ""
+    r = client.get(f"/api/outbound-pulse/clients/{CLIENT}/onboarding-notes")
+    assert "Couldn't draft the onboarding notes" in r.text and "out of credit" in r.text
+    mi._draft_errors.clear()
+
+
+def test_refresh_retries_failures_and_drafts_missing_notes(fake_sb, monkeypatch):
+    done = []
+    monkeypatch.setattr(ms, "list_client_meetings", lambda client_id: [
+        {"id": MEETING, "analysis_status": "failed", "is_onboarding": True}])
+    monkeypatch.setattr(ms, "get_notes", lambda client_id: None)
+    monkeypatch.setattr(mi, "analyse_meeting", lambda mid: done.append(("analyse", mid)))
+    monkeypatch.setattr(mi, "draft_onboarding_notes", lambda mid: done.append(("draft", mid)) or "filled")
+    monkeypatch.setattr(mi, "rebuild_overview", lambda cid: done.append(("overview", cid)))
+    mi.refresh_client(CLIENT)
+    assert done == [("analyse", MEETING), ("draft", MEETING), ("overview", CLIENT)]
