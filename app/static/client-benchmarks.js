@@ -49,7 +49,7 @@
         }
         tr.append(title,size,value);return tr;
       }));
-      get('note').textContent=`Rounded up for planning. Six-month benchmarks${data.groups.some(g=>g.estimated)?' using estimated activity and targeting inputs':''}. Indicative, not guaranteed.`;
+      get('note').textContent=`Six-month benchmarks${data.groups.some(g=>g.estimated)?' using estimated activity and targeting inputs':''}. Indicative, not guaranteed.`;
       get('updated').textContent=`Updated ${stamp(data.synced_at)} · London time · Syncs every ${data.polling_minutes} minutes`;
       get('stale').hidden=!data.stale;
       get('stale').textContent=`Showing the last successful snapshot; data is stale. ${data.sync_error||'A fresh source sync is pending.'}`;

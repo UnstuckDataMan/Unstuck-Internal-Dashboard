@@ -47,10 +47,10 @@ def test_pooled_weighted_exposure_includes_zero_and_does_not_average_client_rate
     result = m.calculate(dataset(rows,rules),TODAY)
     small = result['groups'][0]
     assert small['qualifying_leads']==5
-    assert small['equivalent_months']==2
-    assert small['average']==2.5
+    assert small['equivalent_months']==pytest.approx(2.6)
+    assert small['average']==pytest.approx(5/2.6)
     assert small['verified_live_client_months']==3
-    assert result['groups'][1]['equivalent_months']==pytest.approx(.6)
+    assert result['groups'][1]['equivalent_months']==pytest.approx(.4)
     assert result['groups'][1]['average']==0
     assert small['display']=='Insufficient data'
 
@@ -58,8 +58,8 @@ def test_pooled_weighted_exposure_includes_zero_and_does_not_average_client_rate
 def test_normalise_all_eight_before_grouping_and_effective_month_overrides():
     r=m.calculate(dataset([lead(),lead(when='2026-08-10',band='1001-5000')],
         [control(weights=[40,40,10,10,10,10,10,10]),control(period='2026-08',weights=[0,0,0,0,0,1,0,0],basis='outreach')]),TODAY)
-    assert r['groups'][0]['equivalent_months']==pytest.approx(80/140)
-    assert r['groups'][2]['equivalent_months']==pytest.approx(40/140+1)
+    assert r['groups'][0]['equivalent_months']==pytest.approx(90/140)
+    assert r['groups'][2]['equivalent_months']==pytest.approx(30/140+1)
     assert r['groups'][2]['qualifying_leads']==1
     assert r['groups'][2]['allocation_percent']['outreach']>0
 
@@ -140,33 +140,36 @@ def test_dominance_and_leave_one_out_are_reported_not_removed():
     assert 'over half' in small['confidence']
 
 
-def test_three_segments_combine_enterprise_exposure_without_boundary_overlap():
-    rows = [lead(band='201-500'), lead(band='501-1000',email='a@example.com'),
-            lead(band='1001-5000',email='b@example.com')]
-    r = m.calculate(dataset(rows, [control(weights=[0,0,0,.5,.25,.25,0,0])]), TODAY)
+def test_three_segments_group_at_200_and_1000_without_boundary_overlap():
+    rows = [lead(band='51-200',email='small@example.com'), lead(band='201-500'),
+            lead(band='501-1000',email='a@example.com'), lead(band='1001-5000',email='b@example.com')]
+    r = m.calculate(dataset(rows, [control(weights=[0,0,.25,.25,.25,.25,0,0])]), TODAY)
     assert [(g['label'],g['headcount']) for g in r['groups']] == [
-        ('Small businesses','1–50'),('Mid-market','51–500'),('Enterprise','501+')]
-    assert r['groups'][1]['qualifying_leads'] == 1
-    assert r['groups'][2]['qualifying_leads'] == 2
-    assert r['groups'][2]['equivalent_months'] == .5
+        ('Small businesses','1–200'),('Mid-market','201–1,000'),('Enterprise','1,001+')]
+    assert r['groups'][0]['qualifying_leads'] == 1
+    assert r['groups'][0]['equivalent_months'] == .25
+    assert r['groups'][1]['qualifying_leads'] == 2
+    assert r['groups'][1]['equivalent_months'] == .5
+    assert r['groups'][2]['qualifying_leads'] == 1
+    assert r['groups'][2]['equivalent_months'] == .25
     assert r['groups'][2]['average'] == 4
     assert r['period'] == ['2026-04','2026-05','2026-06','2026-07','2026-08','2026-09']
-    assert r['methodology_version'] == 3
-    # Research comparison remains 1,001+, not the combined display segment.
+    assert r['methodology_version'] == m.METHODOLOGY_VERSION == 4
+    # The 1,001+ reference now matches the enterprise display segment.
     assert r['bands'][-1]['qualifying_leads'] == 1
     assert r['bands'][-1]['equivalent_months'] == .25
 
 
 @pytest.mark.parametrize('label,rate,sufficient,expected', [
-    ('Small businesses',8.6911,True,'~9'),
-    ('Mid-market',4.18637,True,'~5'),
+    ('Small businesses',7.6981,True,'~8'),
+    ('Mid-market',2.6634,True,'~3'),
     ('Mid-market',5.2,True,'~6'),
     ('Mid-market',4,True,'~4'),
     ('Mid-market',0,True,'~0'),
     ('Mid-market',.4,True,'~1'),
     ('Mid-market',4.18637,False,'Insufficient data'),
     ('Mid-market',None,False,'Insufficient data'),
-    ('Enterprise',2.5562,True,'~3'),
+    ('Enterprise',2.8254,True,'~3'),
     ('Enterprise',1.88186,True,'~2'),
     ('Enterprise',2.01,True,'~3'),
     ('Small businesses',8.01,True,'~9'),
