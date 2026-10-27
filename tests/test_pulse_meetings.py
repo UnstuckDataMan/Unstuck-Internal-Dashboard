@@ -619,3 +619,25 @@ def test_refresh_retries_failures_and_drafts_missing_notes(fake_sb, monkeypatch)
     monkeypatch.setattr(mi, "rebuild_overview", lambda cid: done.append(("overview", cid)))
     mi.refresh_client(CLIENT)
     assert done == [("analyse", MEETING), ("draft", MEETING), ("overview", CLIENT)]
+
+
+def test_a_daily_limit_is_named_and_not_retried(monkeypatch):
+    daily = FakeResponse(429, {"error": {"code": "rate_limit_exceeded", "message":
+        "Rate limit reached for gpt-4o in organization org-abc123 on tokens per day (TPD): "
+        "Limit 90000, Used 89000, Requested 21000. Please try again in 5h2m."}})
+    calls, sleeps = _openai(monkeypatch, [daily])
+    with pytest.raises(llm.LLMError) as err:
+        llm.complete_json("s", "u", schema={}, schema_name="x")
+    assert "daily token limit" in str(err.value) and "limit 90,000" in str(err.value)
+    assert "org-abc123" not in str(err.value)
+    assert len(calls) == 1 and sleeps == []
+
+
+def test_a_persistent_minute_limit_names_the_limit(monkeypatch):
+    minute = lambda: FakeResponse(429, {"error": {"code": "rate_limit_exceeded", "message":
+        "Rate limit reached for gpt-4o in organization org-abc on requests per min (RPM): "
+        "Limit 3, Used 3, Requested 1. Please try again in 20s."}})
+    calls, sleeps = _openai(monkeypatch, [minute() for _ in range(llm._MAX_ATTEMPTS)])
+    with pytest.raises(llm.LLMError, match="per-minute request limit .*limit 3"):
+        llm.complete_json("s", "u", schema={}, schema_name="x")
+    assert len(calls) == llm._MAX_ATTEMPTS
