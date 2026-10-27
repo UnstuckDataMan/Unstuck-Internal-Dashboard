@@ -8,9 +8,8 @@ from app.utils import client_benchmarks as legacy
 
 BANDS = legacy.BANDS
 SEGMENTS = [('Small businesses', '1–50', (0, 1)),
-            ('Small mid-market', '51–500', (2, 3)),
-            ('Large mid-market', '501–1,000', (4,)),
-            ('Enterprise', '1,001+', (5, 6, 7))]
+            ('Mid-market', '51–500', (2, 3)),
+            ('Enterprise', '501+', (4, 5, 6, 7))]
 MIN_CLIENTS = 3
 MIN_EXPOSURE = 6
 EXCLUDED = {'unstuck', 'unstuck agency', 'eri', 'eri institute', 'economic research institute', 'eri economic research institute'}
@@ -207,7 +206,7 @@ def calculate(tabs, today=None):
     controls = parse_controls(tabs.get('controls', []))
     reported, monthly_warnings = parse_monthly(tabs.get('monthly', []))
     warnings += monthly_warnings
-    base, extended = window(today, 12), window(today, 18)
+    base = window(today, 6)
     if not base:
         raise legacy.SourceError('No complete post-2024 reporting months are available.')
     by_month, dates, monthly_counts = defaultdict(list), defaultdict(list), Counter()
@@ -218,11 +217,11 @@ def calculate(tabs, today=None):
     # Reconciliation is evidence only; it never adds a second copy of a lead.
     reconciliation = [{'client': c, 'month': m, 'raw_qualifying_leads': monthly_counts[c,m],
                        'reported_leads': count, 'difference': monthly_counts[c,m]-count}
-                      for (c,m), count in sorted(reported.items()) if m in extended]
+                      for (c,m), count in sorted(reported.items()) if m in base]
     clients = set(dates) | {c for c, m in controls}
     audit = []
     for client in sorted(clients):
-        for period in extended:
+        for period in base:
             entry = controls.get((client, period))
             rows = by_month[client, period]
             if entry:
@@ -275,8 +274,6 @@ def calculate(tabs, today=None):
     groups = []
     for label, headcount, indices in SEGMENTS:
         result = summary(indices, base)
-        if label == 'Enterprise' and not result['sufficient']:
-            result = summary(indices, extended)
         subs = [summary((i,), result['months']) for i in indices]
         result.update(label=label, headcount=headcount, bands=list(indices))
         display = 'Insufficient data'
@@ -298,7 +295,7 @@ def calculate(tabs, today=None):
         r = summary((i,), base)
         band_results.append({'label': BANDS[i], 'preliminary': prior, **r,
                              'difference': r['average']-prior if r['average'] is not None else None})
-    ent = groups[-1]
+    ent = summary((5, 6, 7), base)
     band_results.append({'label': '1,001+', 'preliminary': 3.0, **{k:v for k,v in ent.items() if k not in ('label','display')},
                          'difference': ent['average']-3 if ent['average'] is not None else None})
     quality.update({'unmatched_allocation_or_activity_client_months': sum(not a['eligible'] for a in audit),
@@ -307,5 +304,5 @@ def calculate(tabs, today=None):
                     'reconciliation_compared_client_months': len(reconciliation)})
     return {'groups': groups, 'bands': band_results, 'quality': quality, 'warnings': warnings,
             'period': base, 'audit': audit, 'reconciliation': reconciliation,
-            'methodology_version': 2, 'minimum_clients': MIN_CLIENTS, 'minimum_equivalent_months': MIN_EXPOSURE,
+            'methodology_version': 3, 'minimum_clients': MIN_CLIENTS, 'minimum_equivalent_months': MIN_EXPOSURE,
             'reference_estimates_note': 'Differences reflect rolling periods, exclusions, inclusion of Interested and zero-lead exposure, normalised targeting allocations and small-sample thresholds. Estimates are not fitted to preliminary figures.'}

@@ -1,4 +1,4 @@
-# Client Lead Benchmarks (methodology v2)
+# Client Lead Benchmarks (methodology v3)
 
 `/client-benchmarks` uses the existing `client_benchmarks` permission and displays
 Average Monthly Leads by Target Company Size. This replaces the earlier
@@ -36,7 +36,7 @@ Concurrent requests share a lock and cache; a Refresh click does not bypass the
 This is scheduled polling, not real-time streaming.
 
 A successful calculation is atomically saved with mode 0600 to
-`CLIENT_BENCHMARK_CACHE_PATH`, default `/tmp/unstuck-client-benchmarks-v2.json`.
+`CLIENT_BENCHMARK_CACHE_PATH`, default `/tmp/unstuck-client-benchmarks-v3.json`.
 Memory and disk snapshots survive temporary sync failures, visibly marked stale.
 Numbers older than seven days are withheld from the headline. For retention
 across Render redeploys, set this optional variable to a path on an **existing
@@ -59,10 +59,10 @@ counts of these rows are reported as a quality limitation. Company names alone
 are not unique person identifiers. Unknown company sizes remain a reported
 quality exclusion and do not acquire guessed segment assignments.
 
-Default window: 12 completed calendar months; the incomplete current month never
-enters numerator or denominator. Enterprise retries using up to 18 completed
-months if the 12-month sample fails thresholds. Neither window includes dates
-before January 2025.
+Reporting window: six completed calendar months for all three display segments.
+The incomplete current month never enters numerator or denominator. Sparse
+samples stay marked insufficient rather than switching windows. Data before
+January 2025 is not included.
 
 Each client-month is the client's complete campaign portfolio. An allocation
 vector represents all eight source headcount bands; normalise its entire sum
@@ -70,8 +70,10 @@ before grouping. Prospect-count vectors must contain deduplicated prospects
 across campaigns. Multiple campaign schedules must be consolidated into one
 client/month row, never independently counted as full client-months.
 
-Segments: 1–50 (bands 1–10 + 11–50), 51–500 (51–200 + 201–500), 501–1,000,
-1,001+ (1,001–5,000 + 5,001–10,000 + 10,001+). Boundaries never overlap.
+Segments: Small businesses 1–50 (bands 1–10 + 11–50), Mid-market 51–500
+(51–200 + 201–500), Enterprise 501+ (501–1,000 + 1,001–5,000 +
+5,001–10,000 + 10,001+). Exactly 500 belongs only to Mid-market. The six-band
+research comparison still reports 501–1,000 and 1,001+ separately.
 
 For each segment, pool qualifying leads from eligible client-months and divide
 by the sum of their allocation fractions. Zero-lead exposure counts. Leads in
@@ -140,7 +142,7 @@ preliminary research comparisons. Preliminary numbers never enter calculations.
 
 Tests cover exclusions, Lead + Interested deduplication, all size boundaries,
 zero-lead exposure, pooled weights, changing month controls, partial months,
-enterprise fallback, thresholds, dominance, source IDs, source changes,
+six-month windows, combined enterprise exposure, thresholds, dominance, source IDs, source changes,
 allocation updates, stale disk recovery, privacy and admin access. Run
 `.venv/bin/python -m pytest -q` and
 `node --check app/static/client-benchmarks.js`.

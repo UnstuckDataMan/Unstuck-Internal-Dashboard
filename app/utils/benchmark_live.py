@@ -32,7 +32,7 @@ def now():
 
 
 def cache_path():
-    return Path(os.environ.get('CLIENT_BENCHMARK_CACHE_PATH', '/tmp/unstuck-client-benchmarks-v2.json'))
+    return Path(os.environ.get('CLIENT_BENCHMARK_CACHE_PATH', '/tmp/unstuck-client-benchmarks-v3.json'))
 
 
 def read_response(session, url, params):
@@ -111,7 +111,7 @@ def restore():
         return
     try:
         loaded = json.loads(cache_path().read_text())
-        if loaded.get('methodology_version') == 2 and loaded.get('synced_at') and loaded.get('groups'):
+        if loaded.get('methodology_version') == 3 and loaded.get('synced_at') and loaded.get('groups'):
             _snapshot = loaded
     except (OSError, ValueError, TypeError):
         pass

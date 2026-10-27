@@ -80,12 +80,12 @@ def test_header_banner_and_schema_failure():
 
 
 def test_page_api_and_reporting_navigation(client, monkeypatch):
-    monkeypatch.setattr(live, 'get_report', lambda: {'groups': [], 'methodology_version': 2})
+    monkeypatch.setattr(live, 'get_report', lambda: {'groups': [], 'methodology_version': 3})
     assert client.get('/client-benchmarks').status_code == 200
     assert 'href="/client-benchmarks"' in client.get('/').text
     response = client.get('/api/client-benchmarks')
     assert response.status_code == 200
-    assert response.json()['methodology_version'] == 2
+    assert response.json()['methodology_version'] == 3
     assert response.headers['cache-control'] == 'no-store'
 
 

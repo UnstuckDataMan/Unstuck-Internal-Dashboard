@@ -59,9 +59,9 @@ def test_normalise_all_eight_before_grouping_and_effective_month_overrides():
     r=m.calculate(dataset([lead(),lead(when='2026-08-10',band='1001-5000')],
         [control(weights=[40,40,10,10,10,10,10,10]),control(period='2026-08',weights=[0,0,0,0,0,1,0,0],basis='outreach')]),TODAY)
     assert r['groups'][0]['equivalent_months']==pytest.approx(80/140)
-    assert r['groups'][3]['equivalent_months']==pytest.approx(30/140+1)
-    assert r['groups'][3]['qualifying_leads']==1
-    assert r['groups'][3]['allocation_percent']['outreach']>0
+    assert r['groups'][2]['equivalent_months']==pytest.approx(40/140+1)
+    assert r['groups'][2]['qualifying_leads']==1
+    assert r['groups'][2]['allocation_percent']['outreach']>0
 
 
 @pytest.mark.parametrize('status',['partial','inactive','unknown'])
@@ -93,13 +93,13 @@ def test_unknown_allocation_never_inferred_from_lead_distribution():
     assert r['quality']['unallocated_segment_leads']==1
 
 
-def test_enterprise_extends_only_when_insufficient_and_signals_low_confidence():
-    r=m.calculate(dataset([lead(band='1001-5000',when='2025-05-20')],
-        [control(period='2025-05',weights=[0,0,0,0,0,1,0,0])]),TODAY)
-    assert len(r['groups'][0]['months'])==12
-    assert len(r['groups'][3]['months'])==18
-    assert r['groups'][3]['qualifying_leads']==1
-    assert r['groups'][3]['display']=='Insufficient data'
+def test_all_three_segments_keep_six_month_window_and_signal_low_confidence():
+    r=m.calculate(dataset([lead(band='1001-5000',when='2026-05-20')],
+        [control(period='2026-05',weights=[0,0,0,0,0,1,0,0])]),TODAY)
+    assert len(r['groups'][0]['months'])==6
+    assert len(r['groups'][2]['months'])==6
+    assert r['groups'][2]['qualifying_leads']==1
+    assert r['groups'][2]['display']=='Insufficient data'
 
 
 def test_partial_current_month_excluded_even_with_verified_control():
@@ -138,3 +138,20 @@ def test_dominance_and_leave_one_out_are_reported_not_removed():
     assert small['dominant_client_lead_share']==pytest.approx(9/11)
     assert small['leave_one_client_out'][0]==.5
     assert 'over half' in small['confidence']
+
+
+def test_three_segments_combine_enterprise_exposure_without_boundary_overlap():
+    rows = [lead(band='201-500'), lead(band='501-1000',email='a@example.com'),
+            lead(band='1001-5000',email='b@example.com')]
+    r = m.calculate(dataset(rows, [control(weights=[0,0,0,.5,.25,.25,0,0])]), TODAY)
+    assert [(g['label'],g['headcount']) for g in r['groups']] == [
+        ('Small businesses','1–50'),('Mid-market','51–500'),('Enterprise','501+')]
+    assert r['groups'][1]['qualifying_leads'] == 1
+    assert r['groups'][2]['qualifying_leads'] == 2
+    assert r['groups'][2]['equivalent_months'] == .5
+    assert r['groups'][2]['average'] == 4
+    assert r['period'] == ['2026-04','2026-05','2026-06','2026-07','2026-08','2026-09']
+    assert r['methodology_version'] == 3
+    # Research comparison remains 1,001+, not the combined display segment.
+    assert r['bands'][-1]['qualifying_leads'] == 1
+    assert r['bands'][-1]['equivalent_months'] == .25
