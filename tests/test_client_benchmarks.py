@@ -405,8 +405,11 @@ def test_benchmark_failure_leaves_roi_and_home_available(client, monkeypatch):
     for path in ['/', '/roi-calculator']:
         response = client.get(path)
         assert response.status_code == 200
-        assert '/static/client-benchmarks.css' not in response.text
-        assert '/static/client-benchmarks.js' not in response.text
+        if path == '/':
+            assert '/static/client-benchmarks.css' not in response.text
+            assert '/static/client-benchmarks.js' not in response.text
+        else:
+            assert '/static/roi-calculator.js' in response.text
 
 
 def test_average_client_data_page_is_google_only(client):

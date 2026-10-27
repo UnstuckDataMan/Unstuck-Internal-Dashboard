@@ -6,7 +6,7 @@
   let exportSnapshot = null;
   const form = get('form');
   const scenario = get('scenario');
-  const scenarioNames = { conservative: 'Conservative', baseline: 'Baseline', optimistic: 'Optimistic' };
+  const scenarioNames = { conservative: 'Conservative', baseline: 'Probable', optimistic: 'Optimistic' };
   const currency = get('currency');
   const mode = get('mode');
   const churnEnabled = get('churn-enabled');

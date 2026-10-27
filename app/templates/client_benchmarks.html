@@ -3,29 +3,7 @@
 {% block heading %}Client Lead Benchmarks{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="/static/client-benchmarks.css?v=6">{% endblock %}
 {% block content %}
-<section class="benchmark-view" aria-labelledby="benchmark-title">
-  <header class="benchmark-intro">
-    <span class="benchmark-eyebrow"><span aria-hidden="true"></span> UNSTUCK · CLIENT PERFORMANCE</span>
-    <h2 id="benchmark-title">Average monthly leads.<br><span>By company size.</span></h2>
-    <p>Client performance across three target markets.</p>
-  </header>
-  <div class="benchmark-toolbar">
-    <div class="benchmark-period"><span class="benchmark-period-label">Reporting window</span><span id="bench-status" role="status">Loading benchmarks…</span></div>
-    <button id="bench-refresh" type="button"><svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 11a8 8 0 1 0-2 6M20 4v7h-7"/></svg>Refresh</button>
-  </div>
-  <p id="bench-message" role="status">Reading the latest benchmark snapshot…</p>
-  <div id="bench-report" hidden>
-    <p id="bench-stale" class="benchmark-alert" role="status" hidden></p>
-    <div class="benchmark-table-wrap">
-      <table><caption class="sr-only">Average monthly leads by company-size tier, based on the latest six complete months.</caption>
-        <thead><tr><th scope="col">Company-size tier</th><th scope="col">Target headcount</th><th scope="col">Average leads <span>/ month</span></th></tr></thead>
-        <tbody id="bench-groups"></tbody>
-      </table>
-    </div>
-    <div class="benchmark-footnote"><p id="bench-note">Rounded six-month benchmarks. Indicative, not guaranteed.</p><p id="bench-updated"></p></div>
-  </div>
-  <footer class="benchmark-footer"><span>UNSTUCK AGENCY</span><span>Clarity for your next campaign.</span></footer>
-</section>
+{% include "partials/client_benchmark_panel.html" %}
 <noscript><p>Enable JavaScript to load the benchmark table.</p></noscript>
 {% endblock %}
-{% block extra_scripts %}<script src="/static/client-benchmarks.js?v=6" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="/static/client-benchmarks.js?v=7" defer></script>{% endblock %}

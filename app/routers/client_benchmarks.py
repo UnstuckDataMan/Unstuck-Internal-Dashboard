@@ -18,6 +18,8 @@ def page(request: Request):
     })
 
 
+# Same public snapshot, authorized through the combined ROI tool.
+@router.get('/api/expectations-setting/benchmarks')
 @router.get('/api/client-benchmarks')
 def data():
     from app.utils.benchmark_live import get_report

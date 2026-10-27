@@ -1,5 +1,6 @@
 (function () {
   'use strict';
+  const endpoint = document.querySelector('[data-benchmark-endpoint]')?.dataset.benchmarkEndpoint || '/api/client-benchmarks';
   const get = key => document.getElementById('bench-' + key);
   const stamp = value => new Date(value).toLocaleString('en-GB', {timeZone:'Europe/London',dateStyle:'medium',timeStyle:'short'});
   const month = value => new Date(value+'-01T00:00:00Z').toLocaleDateString('en-GB',{month:'short',year:'numeric',timeZone:'UTC'});
@@ -11,7 +12,7 @@
     get('refresh').disabled = true;
     get('refresh').setAttribute('aria-busy','true');
     try {
-      const response = await fetch('/api/client-benchmarks', {headers:{Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(120000)});
+      const response = await fetch(endpoint, {headers:{Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(120000)});
       const data = await response.json();
       if (!response.ok) throw new Error(response.status===401?'Please sign in again.':response.status===403?'Your account does not have access to these benchmarks.':data.error || 'Benchmarks are unavailable.');
       get('groups').replaceChildren(...data.groups.map((group,index) => {

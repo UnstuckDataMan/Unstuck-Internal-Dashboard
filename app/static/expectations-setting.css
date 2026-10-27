@@ -1,0 +1,53 @@
+/* Page-specific styling; shared calculator behaviour stays in the ROI scripts. */
+@media screen {
+  .page-inner { max-width: 1180px; width: 100%; }
+  .expectations-page { max-width: 1040px; margin: 20px auto; padding: 20px 0 12px; }
+  .expectations-page .benchmark-view { margin: 0; padding: 0; }
+  .expectations-page .benchmark-intro { padding-bottom: 32px; }
+  .expectations-forecast { margin-top: 58px; padding-top: 42px; border-top: 1px solid #bda5da26; }
+  .expectations-page .roi-intro { margin-bottom: 28px; }
+  .expectations-page .roi-eyebrow { color: #b6a4ee; font-size: 10px; letter-spacing: .16em; font-weight: 700; }
+  .expectations-page .roi-intro h2 { max-width: 760px; margin: 20px 0 16px; font-size: clamp(30px, 4vw, 48px); font-weight: 600; line-height: 1.12; letter-spacing: -.04em; }
+  .expectations-page .roi-intro h2 span { color: #b99ae9; }
+  .expectations-page .roi-currency { gap: 10px; }
+  .expectations-page .roi-currency select, .expectations-page .roi-pdf, .expectations-page .roi-reset { border: 1px solid #bca4ee29; border-radius: 10px; padding: 10px 13px; background: #ffffff05; }
+  .expectations-page .roi-currency select option { background: #181827; }
+  .expectations-page .roi-grid { grid-template-columns: 1fr 1fr; gap: 24px; }
+  .expectations-page .roi-panel { min-width: 0; border: 1px solid #bca4ee29; border-radius: 22px; padding: 30px; background: linear-gradient(115deg, #32234d42, #15132388 60%); box-shadow: 0 20px 60px #0805122e, inset 0 1px #ffffff07; }
+  .expectations-page .roi-panel h3 { font-size: 22px; letter-spacing: -.025em; color: #eee9f7; }
+  .expectations-page .roi-help, .expectations-page .roi-formula { color: #b2adc3; }
+  .expectations-page .roi-input, .expectations-page .roi-select { border-color: #bca4ee29; background: #100e1d99; border-radius: 12px; }
+  .expectations-page .roi-select option { background: #181827; }
+  .expectations-page .roi-input:focus-within { border-color: #b99ae9; box-shadow: 0 0 0 3px #b99ae918; }
+  .expectations-page .roi-input:has(input[aria-invalid="true"]) { border-color: var(--red); }
+  .expectations-page .roi-scenario-inputs .roi-input:has(input[data-selected="true"]) { border-color: #b99ae9; background: #a78bfa14; }
+  .expectations-page .roi-result { border-color: #7ae4bf40; background: radial-gradient(ellipse at top right, #7ae4bf0c, transparent 65%), linear-gradient(145deg, #242035, #151323); }
+  .expectations-page .roi-result .roi-eyebrow { color: #7ae4bf; line-height: 1.8; }
+  .expectations-page .roi-ratio { color: #7ae4bf; }
+  .expectations-page .roi-result[data-state="below"] .roi-ratio { color: #fcd34d; }
+  .expectations-page .roi-forecast-note { border-color: #b99ae9; background: #b99ae909; }
+  .expectations-page .roi-forecast-note p { margin: 0; font-size: 13px; }
+  .expectations-page .roi-outlook .roi-table th { background: #b99ae90c; }
+  .expectations-page .roi-outlook .roi-table tr:last-child td { background: #b99ae910; }
+  .expectations-page .roi-select:focus-visible, .expectations-page .roi-reset:focus-visible,
+  .expectations-page .roi-pdf:focus-visible, .expectations-page .roi-currency select:focus-visible { outline-color: #c4b5fd; }
+  .expectations-footer { display: flex; justify-content: space-between; gap: 18px; margin-top: 36px; padding-top: 20px; border-top: 1px solid #bda5da14; font-size: 10px; color: #91849e; }
+  .expectations-footer span:first-child { letter-spacing: .14em; font-weight: 600; }
+}
+@media screen and (max-width: 760px) {
+  .expectations-page { margin: 8px auto; padding: 0; }
+  .expectations-page .roi-grid { grid-template-columns: 1fr; }
+  .expectations-page .roi-panel { padding: 22px; }
+  .expectations-forecast { margin-top: 36px; padding-top: 28px; }
+  .expectations-page .roi-intro-top { flex-wrap: wrap; }
+  .expectations-page .roi-currency { flex-wrap: wrap; }
+}
+@media screen and (max-width: 600px) {
+  .topbar-left { min-width: 0; }
+  .topbar-right { min-width: 0; }
+  .topbar-title { margin-left: 18px; font-size: 15px; text-align: right; line-height: 1.3; }
+}
+@media print {
+  /* PDF/print continues to export the forecast, with its own selected assumptions. */
+  .expectations-page .benchmark-view, .expectations-footer { display: none; }
+}

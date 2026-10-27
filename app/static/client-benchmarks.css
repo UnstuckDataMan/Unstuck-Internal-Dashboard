@@ -1,4 +1,4 @@
-/* Loaded exclusively by /client-benchmarks. */
+/* Shared benchmark panel: standalone view and Expectations Setting. */
 .page-inner { max-width:1180px; width:100%; }
 .benchmark-view { max-width:1040px; margin:20px auto; padding:20px 0 12px; }
 .benchmark-intro { position:relative; padding:14px 0 42px; }

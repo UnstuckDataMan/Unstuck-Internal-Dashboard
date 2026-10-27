@@ -77,6 +77,8 @@ ROUTE_TOOL_MAP: tuple[tuple[str, str], ...] = (
     ("/bd-targeting",                     "bd_targeting"),
     ("/api/bd-targeting",                 "bd_targeting"),
     ("/api/campaigns",                    "campaigns"),
+    ("/expectations-setting",             "roi_calculator"),
+    ("/api/expectations-setting/benchmarks", "roi_calculator"),
     ("/roi-calculator",                   "roi_calculator"),
     ("/client-benchmarks",                "client_benchmarks"),
     ("/api/client-benchmarks",            "client_benchmarks"),

@@ -158,6 +158,7 @@ async def not_found(request: Request, exc):
     )
 
 
+@app.get("/expectations-setting")
 @app.get("/roi-calculator")
 async def roi_calculator(request: Request):
     return templates.TemplateResponse("roi_calculator.html", {"request": request, "active": "roi_calculator"})
