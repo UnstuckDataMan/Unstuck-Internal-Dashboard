@@ -77,6 +77,37 @@ def _error(r) -> tuple[str, str]:
     return str(err.get("code") or err.get("type") or ""), str(err.get("message") or "")
 
 
+# "Rate limit reached for gpt-4o in organization org-x on tokens per day (TPD):
+#  Limit 90000, Used 89900, Requested 21000. Please try again in 5h…"
+_LIMIT_RE = re.compile(
+    r"on (tokens|requests) per (min|minute|day)\b[^:]*:\s*Limit (\d+)"
+    r"(?:,\s*Used (\d+))?(?:,\s*Requested (\d+))?", re.IGNORECASE)
+
+
+def _limit(message: str) -> dict | None:
+    """Which OpenAI limit a 429 is about, so the error can say."""
+    m = _LIMIT_RE.search(message or "")
+    if not m:
+        return None
+    to_int = lambda v: int(v) if v else None
+    return {"what": m.group(1).lower()[:-1], "per": "day" if m.group(2).lower() == "day" else "minute",
+            "limit": to_int(m.group(3)), "used": to_int(m.group(4)), "requested": to_int(m.group(5))}
+
+
+def _limit_figures(limit: dict) -> str:
+    parts = [f"limit {limit['limit']:,}"]
+    if limit.get("used") is not None:
+        parts.append(f"used {limit['used']:,}")
+    if limit.get("requested") is not None:
+        parts.append(f"this request {limit['requested']:,}")
+    return " (" + ", ".join(parts) + ")"
+
+
+def _scrub(message: str) -> str:
+    """OpenAI's message without the organisation id, for showing in the UI."""
+    return re.sub(r"\s*in organization \S+", "", message or "").strip()[:240]
+
+
 def _rate_limit_wait(r, message: str) -> float:
     """How long OpenAI asks us to wait, from its headers or its message."""
     headers = r.headers or {}
@@ -150,8 +181,21 @@ def complete_json(system: str, user: str, *, schema: dict, schema_name: str,
             if "request too large" in message.lower():
                 raise RequestTooLarge(
                     "This meeting is too long for the OpenAI account's per-minute limit.")
-            last = ("OpenAI's rate limit was hit and didn't clear after several tries. "
-                    "Retry in a few minutes.")
+            limit = _limit(message)
+            if limit and limit["per"] == "day":
+                # A daily cap won't lift in the minute or so a retry waits.
+                raise LLMError(
+                    f"OpenAI's daily {limit['what']} limit for {model_name()} is used up"
+                    f"{_limit_figures(limit)}. It resets over the next 24 hours. Adding credit at "
+                    "platform.openai.com raises the limit, or set OPENAI_MODEL to gpt-4o-mini "
+                    "in Render, which has much higher limits.")
+            if limit:
+                last = (f"OpenAI's per-minute {limit['what']} limit for {model_name()} kept being hit"
+                        f"{_limit_figures(limit)}, even after waiting. Retry in a few minutes, or "
+                        "set OPENAI_MODEL to gpt-4o-mini in Render, which has much higher limits.")
+            else:
+                last = ("OpenAI's rate limit was hit and didn't clear after several tries. "
+                        f"Retry in a few minutes. (OpenAI said: {_scrub(message)})")
             if not final:
                 time.sleep(_rate_limit_wait(r, message))
             continue
