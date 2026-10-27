@@ -133,7 +133,9 @@ ROLE_TOOLS: dict[str, set[str]] = {
 COPY_APPROVER_ROLES = {"admin", "reviewer"}
 
 # Paths reachable without a session.
-_PUBLIC_EXACT = {"/healthz", "/login", "/logout", "/favicon.ico"}
+# /webhooks/read-ai is called by Read AI, not a person. It checks the request's
+# HMAC signature itself (app/routers/pulse_meetings.py).
+_PUBLIC_EXACT = {"/healthz", "/login", "/logout", "/favicon.ico", "/webhooks/read-ai"}
 # /portal/ and its short form /r/ are the client-facing magic-link report
 # (app/routers/pulse_portal.py).
 # It is public to the gate because its callers are clients, not staff — the

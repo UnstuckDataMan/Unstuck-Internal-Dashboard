@@ -1,0 +1,104 @@
+{# Dialogs and behaviour for the Onboarding notes and Read AI panels.
+   Included once on the client page.
+
+   - [data-transcript-url]  opens the transcript dialog at the cited passage
+   - [data-confirm]         asks first, then fires the element's
+                            hx-trigger="confirmed" request
+   - [data-ob-open]         switches the notes from reading to editing
+   - [data-ob-cancel]       reloads the notes panel, discarding the edit
+
+   Native <dialog> with showModal(), so focus is trapped and Escape closes
+   it; the browser's own confirm() is never used. #}
+<dialog id="ra-transcript" class="u-dialog ds tr-dialog" aria-labelledby="tr-title">
+  <div id="ra-transcript-body"></div>
+</dialog>
+
+<dialog id="pulse-confirm" class="u-dialog ds pc-dialog" aria-labelledby="pc-title"
+        aria-describedby="pc-body">
+  <form method="dialog">
+    <div class="u-dialog__head"><h2 id="pc-title" class="u-dialog__title"></h2></div>
+    <div class="u-dialog__body"><p id="pc-body"></p></div>
+    <div class="u-dialog__foot">
+      <button type="submit" value="cancel" class="u-btn u-btn--sm" autofocus>Cancel</button>
+      <button type="submit" value="ok" class="u-btn u-btn--danger u-btn--sm" id="pc-ok"></button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  var transcript = document.getElementById('ra-transcript');
+  var transcriptBody = document.getElementById('ra-transcript-body');
+  var confirmBox = document.getElementById('pulse-confirm');
+  var pending = null;
+
+  var loading =
+    '<div class="tr-blocks"><div class="skel-stack" role="status" aria-label="Loading transcript">' +
+    '<span class="skel skel-line lg"></span><span class="skel skel-line md"></span>' +
+    '<span class="skel skel-line lg"></span><span class="skel skel-line sm"></span></div></div>';
+
+  function openTranscript(url) {
+    transcriptBody.innerHTML = loading;
+    if (!transcript.open) transcript.showModal();
+    htmx.ajax('GET', url, { target: '#ra-transcript-body', swap: 'innerHTML' }).then(function () {
+      var hit = transcriptBody.querySelector('[data-tr-hit]');
+      if (hit) {
+        hit.scrollIntoView({ block: 'center' });
+        hit.focus({ preventScroll: true });
+      } else {
+        var close = transcriptBody.querySelector('[data-dialog-close]');
+        if (close) close.focus();
+      }
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-transcript-url]');
+    if (t) { e.preventDefault(); openTranscript(t.getAttribute('data-transcript-url')); return; }
+
+    var close = e.target.closest('[data-dialog-close]');
+    if (close) { close.closest('dialog').close(); return; }
+
+    var c = e.target.closest('[data-confirm]');
+    if (c) {
+      e.preventDefault();
+      pending = c;
+      document.getElementById('pc-title').textContent = c.getAttribute('data-confirm-title') || 'Are you sure?';
+      document.getElementById('pc-body').textContent = c.getAttribute('data-confirm-body') || '';
+      document.getElementById('pc-ok').textContent = c.getAttribute('data-confirm-label') || 'Continue';
+      confirmBox.returnValue = '';
+      confirmBox.showModal();
+      return;
+    }
+
+    var open = e.target.closest('[data-ob-open]');
+    if (open) {
+      var panel = open.closest('#pulse-onboarding');
+      panel.querySelector('[data-ob-view]').hidden = true;
+      var form = panel.querySelector('[data-ob-edit]');
+      form.hidden = false;
+      if (window.pulseInitEditors) window.pulseInitEditors(panel);
+      var area = form.querySelector('.rt-area');
+      if (area) area.focus();
+      return;
+    }
+
+    var cancel = e.target.closest('[data-ob-cancel]');
+    if (cancel) {
+      htmx.ajax('GET', cancel.getAttribute('data-ob-cancel'),
+                { target: '#pulse-onboarding', swap: 'innerHTML' });
+    }
+  });
+
+  // A click on the backdrop (outside the dialog box) closes the transcript.
+  transcript.addEventListener('click', function (e) {
+    if (e.target === transcript) transcript.close();
+  });
+
+  confirmBox.addEventListener('close', function () {
+    var el = pending;
+    pending = null;
+    if (el && confirmBox.returnValue === 'ok') htmx.trigger(el, 'confirmed');
+  });
+})();
+</script>

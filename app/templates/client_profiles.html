@@ -183,6 +183,12 @@
       <div class="field-hint">One per line (or comma-separated). Synced to the Mail Merge sender profile named after this client.</div>
     </div>
 
+    <div class="form-group" style="margin-top:18px; margin-bottom:0">
+      <label>Client domains <span class="opt">optional</span></label>
+      <input type="text" name="domains" placeholder="acme.com, acme.co.uk" />
+      <div class="field-hint">The client's own email domains, comma-separated. Read AI meetings with someone from these domains are filed under this client in Client Performance &amp; Reports.</div>
+    </div>
+
     <div class="form-row" style="margin-top:18px">
       <div class="form-group" style="margin-bottom:0">
         <label>Booking link <span class="opt">optional</span></label>
@@ -280,6 +286,7 @@
     form.elements['emoji'].value         = p.emoji || '';
     form.elements['booking_link'].value  = p.booking_link || '';
     form.elements['notes'].value         = p.notes || '';
+    form.elements['domains'].value       = (p.domains || []).join(', ');
     form.elements['active'].value        = (p.active === false) ? 'false' : 'true';
     syncColorSwatch();
   }

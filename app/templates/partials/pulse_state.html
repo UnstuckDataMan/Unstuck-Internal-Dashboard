@@ -1,0 +1,10 @@
+{# A panel with nothing to show: empty, failed, or not set up. Says what is
+   missing and offers the one action that fixes it (design system StatePanel). #}
+<div class="u-state u-state--{{ kind }}" role="{{ 'alert' if kind == 'error' else 'status' }}">
+  <p class="u-state__title">{{ title }}</p>
+  <p class="u-state__text">{{ body }}</p>
+  {% if retry_url %}
+  <button type="button" class="u-btn u-btn--sm" hx-get="{{ retry_url }}" hx-target="{{ target }}"
+          hx-swap="innerHTML" hx-disabled-elt="this">Retry</button>
+  {% endif %}
+</div>

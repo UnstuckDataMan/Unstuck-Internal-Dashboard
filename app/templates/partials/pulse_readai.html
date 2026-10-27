@@ -1,0 +1,201 @@
+{# Read AI summary, inside #pulse-readai on the client Overview.
+
+   Top: the AI overview (successes, pain points), each point citing the
+   meetings it came from. Below: every meeting, with its own positives and
+   negatives. Any citation opens the transcript at the cited passage.
+
+   Internal only. This never reaches the client's report link. #}
+{% set url = "/api/outbound-pulse/clients/" ~ client_id ~ "/read-ai" %}
+
+{% if busy %}
+{# Re-fetch while meetings are being analysed or the overview is being written. #}
+<div hidden hx-get="{{ url }}" hx-trigger="load delay:10s" hx-target="#pulse-readai" hx-swap="innerHTML"></div>
+{% endif %}
+
+{% if notice %}<p class="pnote" role="status">{{ notice }}</p>{% endif %}
+{% if error %}<p class="pnote is-error" role="alert">{{ error }}</p>{% endif %}
+
+{% if not ai_ready and meetings %}
+<div class="u-state u-state--setup ra-gap" role="status">
+  <p class="u-state__title">OpenAI isn't connected</p>
+  <p class="u-state__text">Meetings are being stored, but they can't be summarised until an admin adds OPENAI_API_KEY in Render.</p>
+</div>
+{% endif %}
+
+{% if not meetings %}
+  {% if not readai_ready %}
+  <div class="u-state u-state--setup" role="status">
+    <p class="u-state__title">Read AI isn't connected</p>
+    <p class="u-state__text">
+      An admin adds a Read AI workspace webhook pointing at this dashboard's
+      /webhooks/read-ai address, and sets READ_AI_WEBHOOK_SECRET in Render.
+    </p>
+  </div>
+  {% else %}
+  <div class="u-state" role="status">
+    <p class="u-state__title">No Read AI meetings for this client yet</p>
+    <p class="u-state__text">
+      {% if domains is none %}
+      Client domains aren't set up yet: run migrations/outbound_pulse_readai.sql, then add them on Client Profiles.
+      {% elif domains %}
+      Meetings are filed here when someone on the call has an email at {{ domains | join(", ") }}.
+      Meetings that match no client wait in the Read AI inbox on the reporting overview.
+      {% else %}
+      Meetings are filed here when someone on the call has an email at one of this
+      client's domains, and this client has none yet.
+      {% endif %}
+    </p>
+    {% if domains is not none and not domains %}
+    <a class="u-btn u-btn--sm" href="/client-profiles">Add client domains</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+{% else %}
+<section class="ra-overview" aria-labelledby="ra-overview-label">
+  <div class="ra-head">
+    <p class="u-label" id="ra-overview-label">AI overview</p>
+    <span class="ra-head-meta">
+      {% if generated_at and has_overview %}Updated {{ generated_at }}{% endif %}
+      <button type="button" class="u-btn u-btn--ghost u-btn--sm"
+              hx-post="{{ url }}/refresh" hx-target="#pulse-readai" hx-swap="innerHTML"
+              hx-disabled-elt="this"
+              {% if not ai_ready %}disabled title="OpenAI isn't connected."{% elif busy %}disabled title="A summary is already being written."{% endif %}>
+        Refresh summary
+      </button>
+    </span>
+  </div>
+
+  {% if has_overview %}
+    {% if overview.summary %}<p class="ra-summary">{{ overview.summary }}</p>{% endif %}
+    {% if stale %}
+    <p class="ra-hint">A newer meeting isn't in this overview yet. Refresh the summary to include it.</p>
+    {% elif busy %}
+    <p class="ra-hint" role="status"><span class="u-dots" aria-hidden="true"><span></span><span></span><span></span></span> Updating with the latest meetings.</p>
+    {% endif %}
+
+    <div class="ra-themes">
+      {% for key, heading, tone in [("pain_points", "Pain points", "danger"), ("successes", "Successes", "success")] %}
+      <div class="ra-theme">
+        <h4><span class="u-badge u-badge--{{ tone }}">{{ heading }}</span></h4>
+        {% set items = overview.get(key) or [] %}
+        {% if items %}
+        <ul class="ra-points">
+          {% for item in items %}
+          <li class="ra-point is-{{ tone }}">
+            {{ item.point }}
+            <span class="ra-srcs">
+              {% for r in item.refs %}
+              <button type="button" class="ra-src"
+                      data-transcript-url="/api/outbound-pulse/read-ai/meetings/{{ r.meeting_id }}?block={{ r.block }}"
+                      title="“{{ r.quote }}”">{{ labels.get(r.meeting_id, "Meeting") }}</button>
+              {% endfor %}
+            </span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="ra-none">None raised in these meetings.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+  {% elif busy %}
+  <div class="u-state" role="status">
+    <p class="u-state__title"><span class="u-dots" aria-hidden="true"><span></span><span></span><span></span></span> Reading the meetings</p>
+    <p class="u-state__text">The overview appears here in a minute or two. The panel updates by itself.</p>
+  </div>
+  {% elif insights.status == "failed" %}
+  <div class="u-state u-state--error" role="alert">
+    <p class="u-state__title">Couldn't write the overview</p>
+    <p class="u-state__text">{{ insights.error or "The summary failed." }} Refresh the summary to try again.</p>
+  </div>
+  {% else %}
+  <div class="u-state" role="status">
+    <p class="u-state__title">No campaign findings yet</p>
+    <p class="u-state__text">None of these meetings discussed how the campaigns are going.</p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="ra-meetings" aria-labelledby="ra-meetings-label">
+  <p class="u-label" id="ra-meetings-label">Meetings ({{ meetings | length }})</p>
+  {% for m in meetings %}
+  <details class="ra-meeting">
+    <summary>
+      <span class="ra-mtitle">{{ m.title }}</span>
+      {% if m.date %}<span class="ra-mdate">{{ m.date }}</span>{% endif %}
+      {% if m.is_onboarding %}<span class="u-badge u-badge--accent">Onboarding</span>{% endif %}
+      {% if m.analysis_status in ("pending", "running") %}<span class="u-badge u-badge--info">Analysing</span>
+      {% elif m.analysis_status == "failed" %}<span class="u-badge u-badge--danger">Couldn't analyse</span>
+      {% elif m.analysis_status == "skipped" %}<span class="u-badge">No transcript</span>
+      {% elif m.analysis_status == "done" %}
+        {% if m.positives %}<span class="u-badge u-badge--success">{{ m.positives | length }} positive</span>{% endif %}
+        {% if m.negatives %}<span class="u-badge u-badge--danger">{{ m.negatives | length }} negative</span>{% endif %}
+      {% endif %}
+    </summary>
+    <div class="ra-mbody">
+      {% if m.analysis_error %}<p class="pnote is-error">{{ m.analysis_error }}</p>{% endif %}
+      {% if m.summary %}<p class="ra-msummary">{{ m.summary }}</p>
+      {% elif m.read_summary %}<p class="ra-msummary">{{ m.read_summary }}</p>{% endif %}
+      {% if m.truncated %}<p class="ra-hint">This meeting was too long to read in full; the end wasn't analysed.</p>{% endif %}
+
+      {% for side, heading, tone in [(m.positives, "Positives", "success"), (m.negatives, "Negatives", "danger")] %}
+      {% if side %}
+      <h5 class="ra-sub"><span class="u-badge u-badge--{{ tone }}">{{ heading }}</span></h5>
+      <ul class="ra-points">
+        {% for p in side %}
+        <li class="ra-point is-{{ tone }}">
+          {{ p.point }}
+          <span class="ra-srcs">
+            <button type="button" class="ra-src"
+                    data-transcript-url="/api/outbound-pulse/read-ai/meetings/{{ m.id }}?block={{ p.block }}"
+                    title="“{{ p.quote }}”">View in transcript</button>
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% endfor %}
+      {% if m.analysis_status == "done" and not m.positives and not m.negatives %}
+      <p class="ra-none">Nothing about campaign performance in this meeting.</p>
+      {% endif %}
+
+      <div class="ob-actions">
+        <button type="button" class="u-btn u-btn--sm"
+                data-transcript-url="/api/outbound-pulse/read-ai/meetings/{{ m.id }}">View transcript</button>
+        {% if m.report_url %}
+        <a class="u-btn u-btn--ghost u-btn--sm" href="{{ m.report_url }}" target="_blank" rel="noopener noreferrer">Open in Read AI</a>
+        {% endif %}
+        {% if not m.is_onboarding %}
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm"
+                hx-post="/api/outbound-pulse/read-ai/meetings/{{ m.id }}/onboarding"
+                hx-target="#pulse-readai" hx-swap="innerHTML" hx-disabled-elt="this">
+          Mark as onboarding meeting
+        </button>
+        {% endif %}
+        {% if m.analysis_status == "failed" %}
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm"
+                hx-post="/api/outbound-pulse/read-ai/meetings/{{ m.id }}/retry"
+                hx-target="#pulse-readai" hx-swap="innerHTML" hx-disabled-elt="this"
+                {% if not ai_ready %}disabled title="OpenAI isn't connected."{% endif %}>
+          Retry analysis
+        </button>
+        {% endif %}
+        <button type="button" class="u-btn u-btn--ghost u-btn--sm"
+                data-confirm
+                data-confirm-title="Unlink “{{ m.title }}” from this client?"
+                data-confirm-body="Its findings leave this client's summary, and the meeting goes back to the Read AI inbox on the reporting overview."
+                data-confirm-label="Unlink meeting"
+                hx-post="/api/outbound-pulse/read-ai/meetings/{{ m.id }}/assign"
+                hx-vals='{"client_id": "", "view": "client"}'
+                hx-trigger="confirmed" hx-target="#pulse-readai" hx-swap="innerHTML">
+          Unlink from client
+        </button>
+      </div>
+    </div>
+  </details>
+  {% endfor %}
+</section>
+{% endif %}

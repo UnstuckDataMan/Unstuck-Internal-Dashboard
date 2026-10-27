@@ -33,6 +33,7 @@ from app.utils.supabase import (
     sb_headers as _sb_headers,
     sb_configured as _sb_configured,
 )
+from app.utils.pulse.readai import normalise_domain
 
 router = APIRouter()
 
@@ -43,6 +44,11 @@ _SELECT_FULL = (
     "senders,sender_emails,color,emoji,booking_link,notes,active,updated_at"
 )
 _SELECT_BASE = "id,name"
+# clients.domains comes from migrations/outbound_pulse_readai.sql and is tried
+# as its own tier: if that file hasn't been run, asking for it must not drop
+# every other column back to id,name.
+_SELECT_WITH_DOMAINS = _SELECT_FULL + ",domains"
+_SELECTS = (_SELECT_WITH_DOMAINS, _SELECT_FULL, _SELECT_BASE)
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
@@ -64,11 +70,29 @@ def _split_multi(raw: str) -> list[str]:
     return out
 
 
+def _split_domains(raw: str) -> list[str]:
+    """acme.com, from whatever was pasted: URLs, emails or bare domains."""
+    out: list[str] = []
+    for part in _split_multi(raw):
+        domain = normalise_domain(part)
+        if domain and domain not in out:
+            out.append(domain)
+    return out
+
+
+def _write_bodies(payload: dict, name: str) -> tuple[dict, ...]:
+    """Full row, then without domains (pre-migration), then name only."""
+    without_domains = {k: v for k, v in payload.items() if k != "domains"}
+    return (payload, without_domains, {"name": name})
+
+
 def _build_payload(*, name, type, territories, industries, senders,
-                   sender_emails, color, emoji, booking_link, notes, active) -> dict:
+                   sender_emails, color, emoji, booking_link, notes, active,
+                   domains="") -> dict:
     """Assemble the canonical clients row from the submitted form fields."""
     inds = _split_multi(industries)
     return {
+        "domains":         _split_domains(domains),
         "name":            name.strip(),
         "type":            (type or "client").strip() or "client",
         "territories":     _split_multi(territories),
@@ -89,7 +113,7 @@ def _fetch_profiles() -> tuple[list[dict], str]:
     if not _sb_configured():
         return [], "Supabase is not configured."
     err = ""
-    for sel in (_SELECT_FULL, _SELECT_BASE):
+    for sel in _SELECTS:
         try:
             r = http_req.get(
                 f"{SUPABASE_URL}/rest/v1/clients",
@@ -108,7 +132,7 @@ def _fetch_profile(profile_id: str) -> dict | None:
     """A single profile row (for the edit form), with the same select fallback."""
     if not _sb_configured():
         return None
-    for sel in (_SELECT_FULL, _SELECT_BASE):
+    for sel in _SELECTS:
         try:
             r = http_req.get(
                 f"{SUPABASE_URL}/rest/v1/clients",
@@ -385,6 +409,7 @@ async def create_profile(
     booking_link:  str = Form(""),
     notes:         str = Form(""),
     active:        str = Form("true"),
+    domains:       str = Form(""),
 ):
     name_norm = name.strip()
     if not name_norm:
@@ -395,14 +420,14 @@ async def create_profile(
     payload = _build_payload(
         name=name, type=type, territories=territories, industries=industries,
         senders=senders, sender_emails=sender_emails, color=color, emoji=emoji,
-        booking_link=booking_link, notes=notes, active=active,
+        booking_link=booking_link, notes=notes, active=active, domains=domains,
     )
 
     # Try the full row; fall back to name-only if the extended columns aren't
     # migrated yet, so the app still works pre-migration.
     new_row = None
     last = ""
-    for body in (payload, {"name": name_norm}):
+    for body in _write_bodies(payload, name_norm):
         try:
             r = http_req.post(
                 f"{SUPABASE_URL}/rest/v1/clients",
@@ -439,6 +464,7 @@ async def update_profile(
     booking_link:  str = Form(""),
     notes:         str = Form(""),
     active:        str = Form("true"),
+    domains:       str = Form(""),
 ):
     name_norm = name.strip()
     if not name_norm:
@@ -451,12 +477,12 @@ async def update_profile(
     payload = _build_payload(
         name=name, type=type, territories=territories, industries=industries,
         senders=senders, sender_emails=sender_emails, color=color, emoji=emoji,
-        booking_link=booking_link, notes=notes, active=active,
+        booking_link=booking_link, notes=notes, active=active, domains=domains,
     )
 
     ok = False
     last = ""
-    for body in (payload, {"name": name_norm}):
+    for body in _write_bodies(payload, name_norm):
         try:
             r = http_req.patch(
                 f"{SUPABASE_URL}/rest/v1/clients",

@@ -15,7 +15,7 @@ from app.routers import (
     gender, city, dnc, reply_bank, mail_merge, copy_bank, copy_bank_export,
     campaigns, launch_checker, targeting_checker, bd_targeting, profiles,
     auth as auth_router, admin, sops, outbound_pulse, pulse_portal, credit_control,
-    client_benchmarks, domain_cluster, gmail_setup, pulse_growth,
+    client_benchmarks, domain_cluster, gmail_setup, pulse_growth, pulse_meetings,
 )
 
 logger = logging.getLogger(__name__)
@@ -137,6 +137,7 @@ app.include_router(sops.router)
 app.include_router(outbound_pulse.router)
 app.include_router(pulse_portal.router)
 app.include_router(pulse_growth.router)
+app.include_router(pulse_meetings.router)
 app.include_router(credit_control.router)
 app.include_router(client_benchmarks.router)
 app.include_router(gmail_setup.router)
