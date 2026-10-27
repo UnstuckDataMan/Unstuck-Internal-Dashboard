@@ -1,16 +1,30 @@
 {% extends "base.html" %}
-{% block title %}Average Client Data · Unstuck Agency{% endblock %}
-{% block heading %}Average Client Data{% endblock %}
-{% block extra_head %}<link rel="stylesheet" href="/static/client-benchmarks.css?v=3">{% endblock %}
+{% block title %}Client Lead Benchmarks · Unstuck Agency{% endblock %}
+{% block heading %}Client Lead Benchmarks{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/client-benchmarks.css?v=4">{% endblock %}
 {% block content %}
-<section class="average-client-data" aria-label="Average monthly leads by target company size">
-  <div class="average-toolbar"><p id="bench-status" role="status">Loading Google Sheets…</p><button type="button" id="bench-refresh">Refresh ↻</button></div>
-  <p id="bench-message" role="status">Loading average client data…</p>
+<section class="benchmark-view">
+  <header><span class="benchmark-eyebrow">UNSTUCK · CLIENT PERFORMANCE</span><h2>Average Monthly Leads by Target Company Size</h2><p>Indicative benchmarks based on historical Unstuck client performance.</p></header>
+  <div class="benchmark-toolbar"><span id="bench-status" role="status">Loading benchmarks…</span><button id="bench-refresh" type="button">Refresh ↻</button></div>
+  <p id="bench-message" role="status">Reading the latest benchmark snapshot…</p>
   <div id="bench-report" hidden>
-    <div id="bench-groups" class="bench-groups"></div>
-    <p id="bench-note" class="bench-caption"></p>
+    <p id="bench-stale" class="benchmark-alert" role="status" hidden></p>
+    <div class="benchmark-table-wrap"><table><caption class="sr-only">Expected leads per equivalent full-focus campaign month</caption><thead><tr><th scope="col">Target market</th><th scope="col">Company headcount</th><th scope="col">Expected leads/month</th></tr></thead><tbody id="bench-groups"></tbody></table></div>
+    <p class="benchmark-note">Benchmarks reflect historical client performance and are indicative rather than guaranteed. Results vary depending on targeting, industry, territory and campaign scope.</p>
+    <p id="bench-updated" class="benchmark-note"></p>
+    <details class="benchmark-method"><summary>Methodology &amp; sample sizes</summary>
+      <p>Leads are pooled and divided by equivalent live client-months allocated to each segment. One client-month represents the client’s complete campaign portfolio, allocated across all eight headcount bands before grouping. Known zero-lead exposure is included. Partial months and the current month are excluded.</p>
+      <p>Allocation priority: unique prospects contacted, approved dated allocations, then estimated backend weights. Activity overrides use complete live months; otherwise the bounded interval between first and last observed qualifying leads is an activity estimate. Boundary months are excluded unless independently verified. Estimated inputs are labelled below.</p>
+      <p>Both Lead and Interested records count. ERI, Unstuck’s internal prospecting, test clients, invalid records and identifiable duplicates are excluded. Unknown company sizes and unknown activity/allocation are reported, not invented. Email identities are deduplicated per client; records without reliable identities are only exactly deduplicated.</p>
+      <p>Default window: latest 12 complete months. Enterprise extends to up to 18 complete months when the sample is insufficient, never before January 2025. At least 3 clients and 6 equivalent months are required to publish a figure. Ranges show rounded sub-band rates when every sub-band meets that threshold; they are not confidence intervals. Otherwise the approximate pooled rate is shown.</p>
+      <div id="bench-samples"></div><p id="bench-quality"></p><ul id="bench-warnings"></ul>
+      <h3>Comparison with preliminary research</h3><p>The preliminary estimates are reference points, not targets. Differences can reflect the rolling window, Lead + Interested definition, excluded accounts, normalised allocations and zero-lead exposure.</p>
+      <div class="benchmark-table-wrap"><table class="benchmark-small"><thead><tr><th>Headcount</th><th>Preliminary</th><th>Calculated</th><th>Difference</th></tr></thead><tbody id="bench-comparison"></tbody></table></div>
+      <p>Administrators: <a href="/api/client-benchmarks/audit" target="_blank" rel="noopener">open internal client/month audit</a> · <a href="/api/client-benchmarks/control-template">download activity/allocation headers</a>.</p>
+      <p>Create a “Benchmark campaign months” tab in Lead Database with these headers. Use one row per client/month, the exact lead-sheet client name, activity status full/partial/inactive/unknown, allocation source outreach/approved/estimated/unknown, eight weights or unique-prospect counts, and an evidence reference. All full rows require allocations or an explicit unknown. Dated rows override fallback estimates; partial and inactive rows suppress inferred activity. Outreach counts must represent deduplicated prospects across that client’s campaigns. Missing control rows do not prove zero activity.</p>
+    </details>
   </div>
 </section>
-<noscript><p>Enable JavaScript to load average client data.</p></noscript>
+<noscript><p>Enable JavaScript to load the benchmark table.</p></noscript>
 {% endblock %}
-{% block extra_scripts %}<script src="/static/client-benchmarks.js?v=3" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="/static/client-benchmarks.js?v=4" defer></script>{% endblock %}

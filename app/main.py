@@ -54,7 +54,10 @@ async def _lifespan(app: FastAPI):
     from app.utils.gmail_setup.diagnostics import start_check
     start_check()
 
+    from app.utils.benchmark_live import start_scheduler as start_benchmarks, stop_scheduler as stop_benchmarks
+    start_benchmarks()
     yield  # app runs here
+    stop_benchmarks()
 
     try:
         stop_scheduler()

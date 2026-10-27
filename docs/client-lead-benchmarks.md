@@ -1,86 +1,152 @@
-# Average Client Data
+# Client Lead Benchmarks (methodology v2)
 
-Open Reporting & Analytics → Average Client Data. Access uses the new
-`client_benchmarks` tool permission. Existing tool permissions are unchanged.
+`/client-benchmarks` uses the existing `client_benchmarks` permission and displays
+Average Monthly Leads by Target Company Size. This replaces the earlier
+lead-producing-month calculation on the live endpoint. Legacy upload endpoints
+remain backward compatible and are not used by this page.
 
-## Isolation
+## Sources and access
 
-All calculations, data reads, assets and endpoints are specific to this tool.
-Shared integration changes only register its router, permission and home card.
-There are no database migrations, scheduled jobs, new dependencies or changes to
-other tools' calculations, Google configuration or deployment settings.
+Lead Database: `1mhJ0lytLPmfkhMstOy2aF6FMjZPoWalxIigfK18ZqsY`.
 
-The Google reader uses a separate session with the Sheets read-only OAuth scope.
-It reads the existing `GOOGLE_SHEETS_SA_JSON` base64 service-account binding without
-modifying it or the shared Google module's client/session caches. Leave that
-Render setting unchanged. Share the lead spreadsheet with its configured account
-as Viewer. Reads are cached for 60 seconds and occur only when requested, not in
-background polling. A connection failure returns a tool-specific error without
-substituting invented results. Google access must be verified after deployment;
-it cannot be verified locally without the runtime credential.
+- Form Responses, gid 1768027115: sole source of individual leads.
+- Monthly leads, gid 830915082: reconciliation, never additional lead rows.
+- Lead Data Averages Backend, gid 786537287: estimated X:AE targeting weights.
+- Lead Data Averages, gid 65292198: source identification only; values are not reused.
+- Optional Benchmark campaign months tab: explicit dated activity and allocations.
+- ERI performance tracker: reference-only access check. ERI data never enters the
+  benchmark; automatic cross-tracker reconciliation is currently unavailable
+  because the tracker schema has not been verified.
 
-The configured sheet/tab is in `app/utils/client_benchmarks.py`. The live reader prefers the Form Responses tab by name and parses Timestamp,
-Client, Lead company size and Lead category, including Google long-form dates.
-Only Lead-category records count. If that tab is absent, the configured tab
-expects Client, Date, Lead, Job role, Company size, Company Industry, Channel,
-Country. CSV export is a fallback only for sources that are already public.
-Private client sheets should remain private. Required network destinations are
-docs.google.com, sheets.googleapis.com and oauth2.googleapis.com.
+Tab IDs are preferred; an exact tab-title fallback is reported in methodology.
+Missing required tabs fail the sync rather than silently substituting data.
 
-## Excel and measurement
+Reuse `GOOGLE_SHEETS_SA_JSON` (base64 JSON) without changing its value. The reader
+creates an independent read-only session, shares the existing Sheets read-rate
+limiter, and does not write to Google or alter other integrations. The existing
+service account needs Viewer access to Lead Database and optionally the ERI
+tracker. Do not publish sheets or upload credentials into Git/chat.
 
-Uploads are processed in memory for the request and are not saved. Limits are
-20 MB compressed, 200 MB expanded and 100,000 records. Formulas are read as cached
-values, never executed. Prefer the Form Responses raw tab over Responses (clean)
-when both exist; raw data requires Timestamp, Client, Lead company size and Lead
-category. Only Lead-category records count. Exact duplicate rows are removed;
-quality exclusions are shown. Unknown sizes cannot contribute to size metrics.
+## Live synchronisation
 
-Lead-only input computes observed leads per account per selected calendar month.
-All selected months count for accounts represented by leads in the segment.
-It does not infer active campaigns from lead-producing months.
+A dedicated daemon worker syncs 10 seconds after startup, then every 30 minutes
+when credentials are configured. The first page request can initiate a sync.
+Concurrent requests share a lock and cache; a Refresh click does not bypass the
+30-minute interval. An open browser checks for new snapshots every five minutes.
+This is scheduled polling, not real-time streaming.
 
-Optional `Delivery months` tab headers: Client | Lead sheet client | Delivery months.
-The alias maps billing names to lead names; month counts must be positive whole
-numbers. Only matched accounts contribute. Lifetime counts are used with all
-available lead history, so date filters are disabled and coverage differences are
-explicitly disclosed. Each matched client's full tenure counts once per observed
-segment. Targeting duration is not allocated by lead share. Live lead-only reads
-do not automatically fetch invoice counts or preserve an Excel delivery roster.
+A successful calculation is atomically saved with mode 0600 to
+`CLIENT_BENCHMARK_CACHE_PATH`, default `/tmp/unstuck-client-benchmarks-v2.json`.
+Memory and disk snapshots survive temporary sync failures, visibly marked stale.
+Numbers older than seven days are withheld from the headline. For retention
+across Render redeploys, set this optional variable to a path on an **existing
+persistent disk**. The default /tmp cache is ephemeral across redeploys. Do not
+put this audit-containing file under static files or inside a public repository.
+There are no schema migrations or new application dependencies.
 
-Explicit campaign activity takes precedence: Campaign ID | Client | Month |
-Company size | Active | Leads. Include active zero-lead months and allocate every
-lead to one size band. Month is YYYY-MM and campaign ownership must be unique.
-The downloadable template contains instructions and no fabricated records.
+A source/parser failure never overwrites the successful snapshot. A first-sync
+failure shows an error instead of fabricated results. Read-only API responses
+are no-store. Freshness and calculation timestamps are displayed separately.
 
-## Presentation
+## Definition and arithmetic
 
-The page automatically reads Google Sheets and displays only four target-size
-cards (Micro, SME, Medium, Enterprise), a refresh control and a short period/basis
-note. Cards use `groups[].average`, never selected maximum results. The page and
-home card are named Average Client Data; existing routes and permissions stay
-compatible. Excel controls, examples, overall metric, detailed tables, trends and
-PDF controls are removed from this page. Upload APIs remain available for existing
-integrations but are not invoked by this UI.
+Qualifying categories are Lead and Interested. This intentionally differs from
+the legacy upload parser. Exclude ERI and Unstuck aliases, explicit test/demo/sample
+client labels, invalid dates and future records. Deduplicate exact rows and
+repeated (client, valid email) identities, retaining the earliest qualifying
+observation. Without a stable email identifier only exact deduplication is safe;
+counts of these rows are reported as a quality limitation. Company names alone
+are not unique person identifiers. Unknown company sizes remain a reported
+quality exclusion and do not acquire guessed segment assignments.
 
-The live lead-only view uses all available dated history through today, from the
-earliest valid record to the current month, with no 36-month history cap. Future
-records are excluded. The current partial month counts once and is explicitly
-labelled. The live view divides each segment’s leads by distinct client/month pairs with
-at least one lead in that segment. A client/month spanning multiple bands in a
-group counts once. Cards say “Average leads in months with leads”. This is a
-conditional average, not an average across all active delivery months. Existing
-Excel/calendar calculations retain their prior denominator.
-Explicit API date filters retain their existing completed-month validation. The note identifies Unstuck when included and makes
-clear that active delivery months are not verified. Lead-producing months cannot
-serve as a substitute for a complete activity roster. A missing segment displays
-a dash, not zero. Failures hide old results; refresh retries the live source.
+Default window: 12 completed calendar months; the incomplete current month never
+enters numerator or denominator. Enterprise retries using up to 18 completed
+months if the 12-month sample fails thresholds. Neither window includes dates
+before January 2025.
 
-## Validation
+Each client-month is the client's complete campaign portfolio. An allocation
+vector represents all eight source headcount bands; normalise its entire sum
+before grouping. Prospect-count vectors must contain deduplicated prospects
+across campaigns. Multiple campaign schedules must be consolidated into one
+client/month row, never independently counted as full client-months.
 
-Run `.venv/bin/python -m pytest -q` and
-`node --check app/static/client-benchmarks.js`. Tests cover access controls,
-parsing, source errors, private session isolation, read-only requests, caching,
-zero months, denominator arithmetic, selected examples and Excel limits.
-Browser checks cover automatic Google loading, actual averages rather than peak examples, no-data results, mobile width, source failures and recovery.
-Client workbooks, private audit results and credentials are kept outside Git.
+Segments: 1–50 (bands 1–10 + 11–50), 51–500 (51–200 + 201–500), 501–1,000,
+1,001+ (1,001–5,000 + 5,001–10,000 + 10,001+). Boundaries never overlap.
+
+For each segment, pool qualifying leads from eligible client-months and divide
+by the sum of their allocation fractions. Zero-lead exposure counts. Leads in
+bands with no assigned exposure are flagged and omitted from the numerator.
+Never infer an allocation from lead distribution, sum sub-band rates, average
+client rates equally, or fit the result to preliminary sales estimates.
+
+## Maintainable monthly controls
+
+Administrators can download headers at
+`/api/client-benchmarks/control-template` and create a tab called
+**Benchmark campaign months** in Lead Database. Header order:
+
+Client | Month | Activity status | Allocation source | 1–10 | 11–50 | 51–200 |
+201–500 | 501–1,000 | 1,001–5,000 | 5,001–10,000 | 10,001+ | Evidence
+
+- Client: exact normalised lead-sheet name. No fuzzy company-family joining.
+- Month: YYYY-MM; one row per client/month. All full-month zeros must be included.
+- Activity status: full, partial, inactive or unknown. Partial months are excluded
+  consistently, not rounded up. Evidence should refer to launch, pause and
+  termination records or a reviewed campaign log.
+- Allocation source: outreach (preferred actual unique-prospect counts), approved
+  (dated approved weights), estimated (documented estimates), or unknown.
+- Eight band values: finite nonnegative numbers with a positive total. All eight
+  are normalised together. Uniform percent strings are accepted; mixed percent
+  strings and numeric fractions are rejected as ambiguous.
+- Evidence: required source/reference, not just an undocumented guess.
+
+A reviewed row overrides fallback inference for that month, including explicit
+partial/inactive/unknown rows. Dates and changing weights are represented by
+separate monthly rows. Duplicate client/months and malformed controls fail the
+sync, retaining the last successful snapshot. The approver should select actual
+outreach over approved allocations over estimates when composing a row.
+
+Without a dated row, use backend X:AE weights only when their eight headers are
+verified. Those weights are estimates, not proof of historical targeting.
+Fallback activity is limited to complete months bounded by the first and last
+qualifying lead observations; first/last partial observation months are excluded
+and intervening quiet months count. This can include unrecorded pauses, so it is
+explicitly labelled an observed-span estimate, not verified live activity.
+Unknown activity or allocation is excluded and counted, never invented. No
+ongoing Gmail access is required. Existing lifetime invoice counts cannot supply
+month-level launch/termination dates and are not joined automatically.
+
+## Confidence, reconciliation and audit
+
+At least three clients and six equivalent months are required for a displayed
+figure. Sparse segments say Insufficient data. Estimated activity/allocations
+are labelled Estimated inputs. One client supplying over half the leads triggers
+a dominance note, not deletion of that client's results. Leave-one-client-out
+rates are available in Methodology.
+
+If every sub-band meets the thresholds and their rates differ by at least one,
+show the range of whole-number-rounded sub-band rates. Otherwise show a rounded
+approximate pooled rate (or <1). These ranges are not confidence intervals.
+
+The public API omits client identities, evidence and per-client reconciliation.
+The admin-only `/api/client-benchmarks/audit` returns each client/month's activity,
+allocation, included/recorded leads and exclusion reasons, plus Monthly leads
+comparison rows. Duplicate Monthly leads totals are omitted rather than summed;
+report definition differences can cause discrepancies. The expandable UI shows
+sample sizes, verified/estimated exposure, missing data, sync status, and the six
+preliminary research comparisons. Preliminary numbers never enter calculations.
+
+## Validation and limits
+
+Tests cover exclusions, Lead + Interested deduplication, all size boundaries,
+zero-lead exposure, pooled weights, changing month controls, partial months,
+enterprise fallback, thresholds, dominance, source IDs, source changes,
+allocation updates, stale disk recovery, privacy and admin access. Run
+`.venv/bin/python -m pytest -q` and
+`node --check app/static/client-benchmarks.js`.
+
+Offline workbook reconciliation and browser checks were performed separately;
+private workbooks and audit exports stay outside Git. Live Google totals and ERI
+reconciliation cannot be verified from a workspace without the runtime Google
+credential. Source identity/freshness and any live access errors are exposed on
+the deployed page. Snapshot validation is not a claim of live verification.

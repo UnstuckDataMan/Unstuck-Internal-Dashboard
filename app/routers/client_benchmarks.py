@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Request, UploadFile, File, Form
+from fastapi import APIRouter, Request, UploadFile, File, Form, Depends
 from starlette.concurrency import run_in_threadpool
 from app.utils.benchmark_upload import read_excel, MAX_UPLOAD_BYTES
 from fastapi.responses import JSONResponse
 
 from app.deps import templates
+from app import auth
 from app.utils import client_benchmarks as benchmarks
 
 router = APIRouter()
@@ -18,28 +19,33 @@ def page(request: Request):
 
 
 @router.get('/api/client-benchmarks')
-def data(start: str = '', end: str = ''):
-    default_start, default_end = benchmarks.default_period()
+def data():
+    from app.utils.benchmark_live import get_report
     try:
-        months = benchmarks.period_months(start or default_start, end or default_end) if start or end else None
-    except ValueError as exc:
-        return JSONResponse({'error': str(exc)}, status_code=400)
-    try:
-        source = benchmarks.load_source()
-        if months is None:
-            today = benchmarks.london_today()
-            records = [row for row in source['records'] if row['date'] <= today]
-            source = {**source, 'records': records}
-            first = min((row['date'] for row in records), default=today)
-            months = [benchmarks.month_string(i) for i in range(
-                first.year * 12 + first.month - 1, today.year * 12 + today.month)]
-            result = benchmarks.summarize(source, months, lead_producing_only=True)
-            result.update(history_scope='all_available', through_date=today.isoformat(), current_month_partial=True)
-        else:
-            result = benchmarks.summarize(source, months, lead_producing_only=True)
+        return JSONResponse(get_report(), headers={'Cache-Control': 'no-store'})
     except benchmarks.SourceError as exc:
         return JSONResponse({'error': str(exc)}, status_code=503, headers={'Cache-Control': 'no-store'})
-    return JSONResponse(result, headers={'Cache-Control': 'no-store'})
+
+
+@router.get('/api/client-benchmarks/audit', dependencies=[Depends(auth.require_admin)])
+def audit():
+    from app.utils.benchmark_live import get_report
+    try:
+        return JSONResponse(get_report(internal=True), headers={'Cache-Control': 'no-store'})
+    except benchmarks.SourceError as exc:
+        return JSONResponse({'error': str(exc)}, status_code=503, headers={'Cache-Control': 'no-store'})
+
+
+@router.get('/api/client-benchmarks/control-template', dependencies=[Depends(auth.require_admin)])
+def control_template():
+    import csv
+    from io import StringIO
+    from fastapi.responses import Response
+    from app.utils.benchmark_model import CONTROL_HEADERS
+    buffer = StringIO()
+    csv.writer(buffer).writerow(CONTROL_HEADERS)
+    return Response(buffer.getvalue(), media_type='text/csv', headers={
+        'Content-Disposition': 'attachment; filename="benchmark-campaign-months.csv"', 'Cache-Control': 'no-store'})
 
 
 @router.post('/api/client-benchmarks/upload')

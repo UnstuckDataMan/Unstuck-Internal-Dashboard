@@ -4,6 +4,7 @@ import pytest
 
 from app import auth
 from app.utils import client_benchmarks as b
+from app.utils import benchmark_live as live
 
 
 def sheet(*rows):
@@ -79,15 +80,13 @@ def test_header_banner_and_schema_failure():
 
 
 def test_page_api_and_reporting_navigation(client, monkeypatch):
-    monkeypatch.setattr(b, 'load_source', lambda: source(row()))
+    monkeypatch.setattr(live, 'get_report', lambda: {'groups': [], 'methodology_version': 2})
     assert client.get('/client-benchmarks').status_code == 200
     assert 'href="/client-benchmarks"' in client.get('/').text
-    response = client.get('/api/client-benchmarks?start=2026-07&end=2026-09')
+    response = client.get('/api/client-benchmarks')
     assert response.status_code == 200
-    assert response.json()['overall']['average'] == 1
-    assert response.json()['basis'] == 'lead_producing_client_month'
+    assert response.json()['methodology_version'] == 2
     assert response.headers['cache-control'] == 'no-store'
-    assert client.get('/api/client-benchmarks?start=invalid').status_code == 400
 
 
 def test_access_control_covers_api_and_page(client, monkeypatch):
@@ -106,7 +105,7 @@ def test_access_control_covers_api_and_page(client, monkeypatch):
 def test_source_failure_does_not_substitute_sample_data(client, monkeypatch):
     def fail():
         raise b.SourceError('Sheet unavailable')
-    monkeypatch.setattr(b, 'load_source', fail)
+    monkeypatch.setattr(live, 'get_report', fail)
     response = client.get('/api/client-benchmarks')
     assert response.status_code == 503
     assert response.json() == {'error': 'Sheet unavailable'}
@@ -401,7 +400,7 @@ def test_benchmark_google_session_is_separate_and_read_only(monkeypatch):
 def test_benchmark_failure_leaves_roi_and_home_available(client, monkeypatch):
     def fail():
         raise b.SourceError('Unavailable')
-    monkeypatch.setattr(b, 'load_source', fail)
+    monkeypatch.setattr(live, 'get_report', fail)
     assert client.get('/api/client-benchmarks').status_code == 503
     for path in ['/', '/roi-calculator']:
         response = client.get(path)
@@ -412,11 +411,11 @@ def test_benchmark_failure_leaves_roi_and_home_available(client, monkeypatch):
 
 def test_average_client_data_page_is_google_only(client):
     page = client.get('/client-benchmarks').text
-    assert 'Average Client Data' in page
+    assert 'Average Monthly Leads by Target Company Size' in page
     assert 'id="bench-groups"' in page
     for removed in ['id="bench-file"', 'Excel snapshot', 'Strong-performing examples', 'id="bench-average"', 'id="bench-table"', 'id="bench-print"']:
         assert removed not in page
-    assert 'Average Client Data' in client.get('/').text
+    assert 'Client Lead Benchmarks' in client.get('/').text
 
 
 @pytest.mark.parametrize('status,reason,expected', [
@@ -462,33 +461,6 @@ def test_google_auth_and_network_errors_are_sanitized(monkeypatch, failure, expe
         b.load_source()
     assert expected in str(error.value)
     assert 'PRIVATE CONTENT' not in str(error.value)
-
-
-def test_default_live_view_includes_all_history_and_current_month(client, monkeypatch):
-    monkeypatch.setattr(b, 'london_today', lambda: date(2026, 10, 14))
-    monkeypatch.setattr(b, 'load_source', lambda: source(
-        row('Alpha', '01/01/2020', 'Old'), row('Alpha', '14/10/2026', 'Today'),
-        row('Alpha', '15/10/2026', 'Future')))
-    response = client.get('/api/client-benchmarks')
-    assert response.status_code == 200
-    data = response.json()
-    assert data['months'][0] == '2020-01'
-    assert data['months'][-1] == '2026-10'
-    assert len(data['months']) == 82
-    assert data['overall']['leads'] == 2
-    assert data['overall']['average'] == 1
-    assert data['overall']['exposure_months'] == 2
-    assert data['history_scope'] == 'all_available'
-    assert data['current_month_partial'] is True
-    assert data['through_date'] == '2026-10-14'
-
-
-def test_empty_live_history_keeps_a_valid_reporting_month(client, monkeypatch):
-    monkeypatch.setattr(b, 'london_today', lambda: date(2026, 10, 14))
-    monkeypatch.setattr(b, 'load_source', lambda: source())
-    data = client.get('/api/client-benchmarks').json()
-    assert data['months'] == ['2026-10']
-    assert data['overall']['average'] is None
 
 
 @pytest.mark.parametrize('text', ['Tuesday, March 19, 2024', 'March 19, 2024', 'Tuesday, 19 March 2024', '19 March 2024'])

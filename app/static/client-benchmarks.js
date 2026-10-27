@@ -1,54 +1,45 @@
 (function () {
   'use strict';
   const get = key => document.getElementById('bench-' + key);
-  const number = new Intl.NumberFormat('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const month = value => new Date(value + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
-  const colours = ['#6ee7b7', '#5eead4', '#c4b5fd', '#a5b4fc'];
-  const ranges = ['1–10 employees', '11–200 employees', '201–1,000 employees', '1,001+ employees'];
-  function element(tag, text, className) {
-    const node = document.createElement(tag);
-    node.textContent = text;
-    if (className) node.className = className;
-    return node;
-  }
+  const number = value => value === null || value === undefined ? '—' : new Intl.NumberFormat('en-GB', {maximumFractionDigits:2}).format(value);
+  const stamp = value => new Date(value).toLocaleString('en-GB', {timeZone:'Europe/London',dateStyle:'medium',timeStyle:'short'});
+  const period = months => `${months[0]} – ${months.at(-1)} (${months.length} complete months)`;
+  const node = (tag, text, cls) => { const n = document.createElement(tag); n.textContent = text; if(cls) n.className=cls; return n; };
+  let loading = false;
   async function load() {
+    if (loading) return;
+    loading = true;
     get('refresh').disabled = true;
-    get('report').hidden = true;
-    get('message').hidden = false;
-    get('message').textContent = 'Loading average client data…';
-    get('status').textContent = 'Connecting to Google Sheets…';
     try {
-      const response = await fetch('/api/client-benchmarks', {
-        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(60000), cache: 'no-store'
-      });
+      const response = await fetch('/api/client-benchmarks', {headers:{Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(120000)});
       const data = await response.json();
-      if (!response.ok) throw new Error(response.status === 401 ? 'Please sign in again.' : response.status === 403 ? 'Your account does not have access to Average Client Data.' : data.error || 'Unable to load Google Sheets. Please try again.');
-      const productive = data.basis === 'lead_producing_client_month';
-      const active = data.basis === 'active_campaign_month';
-      const billed = data.basis === 'delivery_month';
-      const unit = productive ? 'Average leads in months with leads' : active ? 'leads / active campaign month' : billed ? 'leads / supplied delivery month' : 'leads / account / calendar month';
-      get('groups').replaceChildren(...data.groups.map((group, index) => {
-        const card = element('article', '', 'bench-group');
-        card.style.setProperty('--accent', colours[index]);
-        card.append(element('h2', group.label), element('p', ranges[index], 'bench-caption'),
-          element('strong', group.average === null ? '—' : number.format(group.average)),
-          element('p', group.average === null ? 'No recorded data' : unit, 'bench-caption'));
-        return card;
+      if (!response.ok) throw new Error(response.status===401?'Please sign in again.':response.status===403?'Your account does not have access to these benchmarks.':data.error || 'Benchmarks are unavailable.');
+      get('groups').replaceChildren(...data.groups.map(group => {
+        const tr=node('tr',''); const title=node('th',group.label);title.scope='row';
+        const value=node('td','');value.append(node('strong',group.display),node('small',group.confidence));
+        if(group.months.length!==data.period.length) value.append(node('small',`${group.months.length}-month window`));
+        tr.append(title,node('td',group.headcount),value);return tr;
       }));
-      const period = `${month(data.months[0])} – ${month(data.months.at(-1))}`;
-      const own = data.overall.unstuck_leads ? ' Includes Unstuck’s own prospecting.' : '';
-      const basis = productive ? '' : active ? 'Includes supplied active months with zero leads.' : billed ? 'Available lead history divided by supplied lifetime delivery months; coverage may differ.' : `Includes accounts with recorded leads in each segment; all ${data.months.length} calendar months count. Active delivery months are not verified.`;
-      get('note').textContent = `${data.history_scope === 'all_available' ? 'All available history · ' : ''}${period}${data.current_month_partial ? ' (current month partial, counted as one calendar month)' : ''} · ${basis}${own} Historical averages, not guaranteed volumes.`;
-      get('message').hidden = true;
-      get('report').hidden = false;
-      get('status').textContent = 'Live Google Sheets · Refreshes on request';
-    } catch (error) {
-      get('message').textContent = error.name === 'TimeoutError' ? 'Google Sheets took too long to respond. Please try again.' : error.message;
-      get('status').textContent = 'Data unavailable';
-    } finally {
-      get('refresh').disabled = false;
-    }
+      get('samples').replaceChildren(...data.groups.map(g=>node('p',`${g.label}: ${g.clients} clients · ${number(g.qualifying_leads)} leads / ${number(g.equivalent_months)} equivalent months. ${g.verified_live_client_months} verified and ${g.estimated_live_client_months} estimated live client-months. Allocation exposure: ${number(g.allocation_percent.outreach)}% outreach, ${number(g.allocation_percent.approved)}% approved, ${number(g.allocation_percent.estimated)}% estimated. ${period(g.months)}. Largest account: ${number(g.dominant_client_lead_share*100)}% of leads. Leave-one-client-out rates: ${g.leave_one_client_out.length?g.leave_one_client_out.map(number).join('–'):'unavailable'}.`)));
+      get('comparison').replaceChildren(...data.bands.map(b=>{
+        const tr=node('tr','');[b.label,number(b.preliminary),`${number(b.average)}${b.sufficient?'':' (insufficient sample)'}`,number(b.difference)].forEach(v=>tr.append(node('td',v)));return tr;
+      }));
+      const q=data.quality;
+      get('quality').textContent=`Source checks: ${q.duplicates||0} duplicate rows; ${q.excluded_internal_eri_test||0} excluded internal/ERI/test rows; ${q.invalid_or_future||0} invalid/future rows; ${q.unknown_size||0} unknown sizes; ${q.without_stable_lead_identity||0} records without stable lead identity. ${q.unmatched_allocation_or_activity_client_months} client-months have unknown/ineligible activity or allocation; ${q.unallocated_segment_leads} sized leads could not be attributed to eligible exposure. Monthly report: ${q.reconciliation_mismatches} differences across ${q.reconciliation_compared_client_months} compared client-months (Lead + Interested totals may differ from the report’s definition).`;
+      get('warnings').replaceChildren(...[...data.warnings,...data.source_metadata.notices,data.source_metadata.eri_reference].map(x=>node('li',x)));
+      get('updated').textContent=`Last synced: ${stamp(data.synced_at)} · Calculated: ${stamp(data.calculated_at)} (London time). Scheduled polling every ${data.polling_minutes} minutes.`;
+      get('stale').hidden=!data.stale;
+      get('stale').textContent=`Showing the last successful snapshot; data is stale. ${data.sync_error||'A fresh source sync is pending.'}`;
+      get('status').textContent= data.stale?'Stale snapshot':`Reporting period: ${period(data.period)}`;
+      get('message').hidden=true; get('report').hidden=false;
+    } catch(error) {
+      // Never leave old on-screen numbers appearing fresh after a failed request.
+      get('report').hidden=true;get('message').hidden=false;
+      get('message').textContent=error.name==='TimeoutError'?'The source is taking too long. Please refresh shortly.':error.message;
+      get('status').textContent='Data unavailable';
+    } finally {loading=false;get('refresh').disabled=false;}
   }
-  get('refresh').addEventListener('click', load);
+  get('refresh').addEventListener('click',load);
+  setInterval(()=>{if(!document.hidden)load();},5*60*1000);
   load();
 }());
