@@ -450,3 +450,67 @@ def test_profile_save_without_the_domains_column_keeps_every_other_field(client,
     assert len(calls) == 2
     assert calls[1]["json"]["sender_emails"] == ["robyn@acme-mail.com"]
     assert "domains" not in calls[1]["json"]
+
+
+# ── Visibility: nothing a webhook delivers may vanish ─────────────────────────
+
+def test_a_meeting_without_attendee_emails_waits_with_title_suggestions(fake_sb, _setup):
+    _clients_route(fake_sb, [{"id": CLIENT, "name": "Insight Associates", "domains": ["insightassociates.co.uk"]},
+                             {"id": OTHER, "name": "Acme", "domains": []}])
+    fake_sb.route("POST", "pulse_meetings", lambda call: FakeResponse(201, [{"id": MEETING}]))
+    payload = _payload(title="Insight Associates - kick off",
+                       participants=[{"name": "Sam", "email": "sam@unstuck-agency.com"},
+                                     {"name": "Priya Shah", "email": None}])
+    assert mi.ingest(readai.parse_payload(payload)) == {"result": "unmatched"}
+    row = fake_sb.calls_to("POST", "pulse_meetings")[0]["json"]
+    assert row["client_id"] is None and row["candidate_client_ids"] == [CLIENT]
+
+
+def test_is_internal_needs_every_attendee_to_be_ours():
+    ours = {"name": "Sam", "email": "sam@unstuck-agency.com"}
+    assert readai.is_internal([ours])
+    assert not readai.is_internal([ours, {"name": "Priya", "email": ""}])
+    assert not readai.is_internal([ours, {"name": "Jo", "email": "jo@gmail.com"}])
+    assert not readai.is_internal([])
+
+
+def test_title_candidates_match_whole_names_only():
+    clients = [{"id": "a", "name": "Insight Associates"}, {"id": "b", "name": "ERI"},
+               {"id": "c", "name": "Hopscotch"}]
+    assert readai.title_candidates("Insight Associates / Unstuck kick-off", clients) == ["a"]
+    assert readai.title_candidates("Merit review", clients) == []
+    assert readai.title_candidates("ERI weekly", clients) == ["b"]
+
+
+def test_inbox_says_when_nothing_has_arrived(client, fake_sb, monkeypatch):
+    monkeypatch.setenv("READ_AI_WEBHOOK_SECRET", SECRET)
+    r = client.get("/api/outbound-pulse/read-ai/inbox")
+    assert "No meetings received from Read AI yet" in r.text
+
+
+def test_inbox_lists_recent_meetings_including_ignored_ones(client, fake_sb, monkeypatch):
+    monkeypatch.setenv("READ_AI_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(store, "list_clients", lambda active_only=False: [{"id": CLIENT, "name": "Acme"}])
+    rows = [
+        {"id": MEETING, "client_id": None, "title": "Team stand-up", "match_status": "ignored",
+         "received_at": "2026-10-27T10:00:00+00:00",
+         "participants": [{"name": "Sam", "email": "sam@unstuck-agency.com"}]},
+        {"id": OTHER, "client_id": CLIENT, "title": "Acme QBR", "match_status": "matched",
+         "received_at": "2026-10-26T10:00:00+00:00",
+         "participants": [{"name": "Jo", "email": "jo@acme.com"}]},
+    ]
+    fake_sb.route("GET", "pulse_meetings", lambda call: FakeResponse(
+        200, [] if "client_id" in dict(call["params"]) else rows))
+    r = client.get("/api/outbound-pulse/read-ai/inbox")
+    assert "Recently received (2)" in r.text
+    assert "Team stand-up" in r.text and "Ignored" in r.text
+    assert f"/api/outbound-pulse/read-ai/meetings/{MEETING}/assign" in r.text  # can be rescued
+    assert f'href="/outbound-pulse/clients/{CLIENT}#overview"' in r.text and "Acme QBR" in r.text
+    assert "only Unstuck or personal email addresses" in r.text
+
+
+def test_inbox_shows_a_failure_instead_of_nothing(client, fake_sb, monkeypatch):
+    monkeypatch.setenv("READ_AI_WEBHOOK_SECRET", SECRET)
+    fake_sb.route("GET", "pulse_meetings", lambda call: FakeResponse(500, {"code": "XX000", "message": "boom"}))
+    r = client.get("/api/outbound-pulse/read-ai/inbox")
+    assert "Couldn't load Read AI meetings" in r.text
