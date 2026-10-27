@@ -172,6 +172,7 @@ def _notes_panel(request: Request, client_id: str, *, editing: bool = False,
         "generated_at": _date(notes.get("ai_generated_at")),
         "onboarding": _meeting_view(onboarding) if onboarding else None,
         "drafting": mi.is_drafting(client_id),
+        "draft_error": "" if has_body else mi.draft_error(client_id),
         "ai_ready": llm.is_configured(),
     })
 
@@ -295,6 +296,7 @@ def _readai_panel(request: Request, client_id: str, *, notice: str = "", error: 
     analysing = any(m.get("analysis_status") in ("pending", "running") for m in meetings)
     building = insights.get("status") in ("pending", "running")
     overview = insights.get("overview") or {}
+    failed = [m for m in meetings if m.get("analysis_status") == "failed"]
     return templates.TemplateResponse("partials/pulse_readai.html", {
         "request": request,
         "client_id": client_id,
@@ -306,6 +308,7 @@ def _readai_panel(request: Request, client_id: str, *, notice: str = "", error: 
         "generated_at": _date(insights.get("generated_at")),
         "stale": bool(with_findings) and with_findings != built_from and not building,
         "busy": analysing or building,
+        "failed": failed,
         "labels": labels,
         "domains": domains,
         "readai_ready": bool(_webhook_secret()),
