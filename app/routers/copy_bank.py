@@ -3,7 +3,7 @@ import logging
 import os
 
 import requests as http_req
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.get("/copy-bank")
 async def copy_bank(request: Request):
-    user = request.session.get("user", {})
+    user = auth.get_session_user(request) or {}
     role = (user.get("role") or "").lower()
     return templates.TemplateResponse("copy_bank.html", {
         "request":           request,
@@ -26,7 +26,7 @@ async def copy_bank(request: Request):
         "supabase_anon_key": os.environ.get("SUPABASE_ANON_KEY", ""),
         "sop_key":           "copy_bank",
         "is_admin":          role == "admin" or not auth.auth_enabled(),
-        "is_approver":       True,  # copy_bank tool access (enforced by middleware) is sufficient
+        "is_approver":       role in auth.COPY_APPROVER_ROLES or not auth.auth_enabled(),
     })
 
 
@@ -371,8 +371,8 @@ class ApprovalRequestBody(BaseModel):
 
 class ApproveBody(BaseModel):
     key:         str
-    approved_by: str   # 'Ollie' | 'Chris' | 'Leo'
-    content:     dict  # final published content (reviewer may have edited before approving)
+    approved_by: str = ""  # Accepted for older clients; identity always comes from the session.
+    content:     dict  # Legacy payload; the stored pending content remains authoritative.
 
 
 # ── Approval endpoints ─────────────────────────────────────────────────────────
@@ -445,8 +445,8 @@ def get_pending(key: str):
     return JSONResponse({"pending": rows[0] if rows else None})
 
 
-@router.post("/api/copy-bank/approve", dependencies=[Depends(auth.require_login)])
-def approve_copy(body: ApproveBody):
+@router.post("/api/copy-bank/approve")
+def approve_copy(body: ApproveBody, user: dict = Depends(auth.require_role(auth.COPY_APPROVER_ROLES))):
     """
     Approve a pending draft:
       1. Fetch the pending row
@@ -454,6 +454,9 @@ def approve_copy(body: ApproveBody):
       3. Write an entry to copy_approval_logs
       4. Mark the pending row as approved
     """
+    approved_by = str(user.get("email") or "").strip().lower()
+    if not approved_by:
+        raise HTTPException(status_code=403, detail="An authenticated reviewer email is required")
     url = os.environ.get("SUPABASE_URL", "")
 
     # 1. Fetch most recent pending row
@@ -500,7 +503,7 @@ def approve_copy(body: ApproveBody):
                 "industry":                  pending["industry"],
                 "content_snapshot":          published_content,
                 "previous_content_snapshot": pending.get("previous_content", {}),
-                "approved_by":               body.approved_by,
+                "approved_by":               approved_by,
                 "requested_by":              pending.get("requested_by", ""),
                 "requested_at":              pending["created_at"],
             },
@@ -523,7 +526,7 @@ def approve_copy(body: ApproveBody):
 
     # 5. Notify Slack that copy is live
     _send_slack_approval_notification(
-        pending["client_name"], pending["territory"], pending["industry"], body.approved_by
+        pending["client_name"], pending["territory"], pending["industry"], approved_by
     )
 
     return JSONResponse({"ok": True})

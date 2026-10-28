@@ -38,6 +38,7 @@ TOOLS: tuple[str, ...] = (
     "dnc",
     "mail_merge",
     "copy_bank",
+    "copy_studio",          # internal evidence-backed drafting and review
     "reply_bank",
     "bd_targeting",
     "campaigns",
@@ -70,6 +71,8 @@ ROUTE_TOOL_MAP: tuple[tuple[str, str], ...] = (
     ("/api/dnc",                          "dnc"),
     ("/api/merge",                        "mail_merge"),
     ("/copy-bank",                        "copy_bank"),
+    ("/copy-studio",                      "copy_studio"),
+    ("/api/copy-studio",                  "copy_studio"),
     ("/api/copy-bank",                    "copy_bank"),
     ("/api/export/google",                "copy_bank"),
     ("/api/admin/merge-unstuck-profiles", "copy_bank"),   # copy-bank maintenance, not user admin

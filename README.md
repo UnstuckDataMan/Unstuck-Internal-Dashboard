@@ -1,5 +1,13 @@
 # Unstuck Internal Dashboard
 
+## AI Copy Studio (internal pilot)
+
+Open **Campaign Management → AI Copy Studio** (`/copy-studio`) to join approved client briefs, Copy Bank references
+and campaign results to reviewed email/LinkedIn drafts. It includes durable jobs,
+immutable versions and daily/monthly/all-time estimated API costs. It does not
+send outreach or enable Meet Alfred. See [setup, migration, worker and release
+instructions](docs/ai-copy-studio.md) and [provider evaluation](docs/copy-studio-evaluation.md).
+
 Existing FastAPI/Jinja dashboard deployed to Render. Run with Python 3.11+:
 
 ```sh
@@ -11,9 +19,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Configure the established Google sign-in and integrations using `.env.example` and
 Render environment variables; the app reads its environment, not a committed `.env`.
-`/healthz` is the existing public health endpoint. `render.yaml` retains the existing
-build (`pip install -r requirements.txt`) and start commands. This feature introduces
-no new service, frontend build step or database provider.
+`/healthz` is the existing public health endpoint. The build remains
+`pip install -r requirements.txt`; no frontend build step or database provider is added.
+
+For the Copy Studio pilot on the **existing Render web service**, set
+`COPY_STUDIO_EMBEDDED_WORKER=1` and use start command `python scripts/run_dashboard.py`.
+The launcher supervises a separate durable worker process alongside the web process;
+no additional Render service is required. Without that opt-in, it starts only the web
+process. A dedicated background worker is an optional isolation choice; disable the
+embedded worker before switching to it. Production memory capacity has not yet been
+measured. See the [deployment and rollback guide](docs/ai-copy-studio.md#durable-worker-and-historical-backfill).
 
 ## Gmail Setup Tool / account setup tracker
 

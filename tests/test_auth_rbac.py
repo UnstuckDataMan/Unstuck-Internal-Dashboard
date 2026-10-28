@@ -176,6 +176,7 @@ def test_index_hides_cards_for_viewer(client, auth_on, monkeypatch):
     assert "Launch Checker" in html     # viewer has launch_checker
     assert "DNC & Merger" not in html   # viewer lacks dnc / mail_merge
     assert "Client Profiles" not in html  # viewer lacks client_profiles
+    assert 'href="/copy-studio"' not in html  # viewer lacks the internal writing tool
     assert "/admin/users" not in html   # not an admin → no admin link
 
 
@@ -185,3 +186,7 @@ def test_index_shows_admin_link_for_admin(client, auth_on, monkeypatch):
     assert "/admin/users" in html
     assert "DNC & Merger" in html
     assert "Client Profiles" in html
+    # The writing workflow belongs beside Copy Bank in Campaign Management.
+    campaign = html.split('id="screen-campaign"', 1)[1].split('id="screen-reporting"', 1)[0]
+    assert html.count('href="/copy-studio"') == 1
+    assert campaign.index('href="/copy-studio"') < campaign.index('href="/copy-bank"')

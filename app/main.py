@@ -15,7 +15,7 @@ from app.routers import (
     gender, city, dnc, reply_bank, mail_merge, copy_bank, copy_bank_export,
     campaigns, launch_checker, targeting_checker, bd_targeting, profiles,
     auth as auth_router, admin, sops, outbound_pulse, pulse_portal, credit_control,
-    client_benchmarks, domain_cluster, gmail_setup, pulse_growth, pulse_meetings,
+    client_benchmarks, domain_cluster, gmail_setup, pulse_growth, pulse_meetings, copy_studio,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,17 +84,21 @@ async def auth_gate(request: Request, call_next):
         return blocked
     # Bound domain-tool JSON before model parsing, including chunked requests.
     domain_tool = request.url.path.startswith(('/api/domain-cluster', '/api/gmail-setup'))
-    if domain_tool and request.method == 'POST':
+    studio_tool = request.url.path.startswith('/api/copy-studio')
+    if (domain_tool or studio_tool) and request.method == 'POST':
         chunks, total = [], 0
+        max_bytes = 1_000_000 if studio_tool else 8_000_000
         async for chunk in request.stream():
             total += len(chunk)
-            if total > 8_000_000:
+            if total > max_bytes:
                 from fastapi.responses import JSONResponse
-                return JSONResponse({'detail': 'Request exceeds 8 MB. Import in smaller batches.'}, status_code=413)
+                detail = ('Request exceeds 1 MB. Save a smaller revision.' if studio_tool else
+                          'Request exceeds 8 MB. Import in smaller batches.')
+                return JSONResponse({'detail': detail}, status_code=413)
             chunks.append(chunk)
         request._body = b''.join(chunks)
     response = await call_next(request)
-    if domain_tool or request.url.path in {'/', '/gmail-set', '/domain-cluster-builder',
+    if domain_tool or studio_tool or request.url.path in {'/', '/copy-studio', '/gmail-set', '/domain-cluster-builder',
             '/static/gmail-setup.js', '/static/gmail-setup.css', '/static/gmail-setup-home.js'}:
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -145,6 +149,7 @@ app.include_router(credit_control.router)
 app.include_router(client_benchmarks.router)
 app.include_router(gmail_setup.router)
 app.include_router(domain_cluster.router)
+app.include_router(copy_studio.router)
 
 
 @app.exception_handler(404)
