@@ -274,8 +274,9 @@ separate worker to complete keyless assembly, editing, approval and sanitised
 reference promotion. Source/model contract tests use fixtures. These checks do
 not prove current live provider contracts or subjective copy quality.
 
-Final regression validation: 1,834 Python tests passed, along with the Copy Studio,
-benchmark, ROI audit and growth-math JavaScript checks. The broad historical
+Final Python regression validation: 1,843 tests passed with 411 existing deprecation
+warnings. The final four-file JavaScript rerun passed for Copy Studio, client
+benchmarks, ROI interface and ROI forecast. The broad historical
 browser-script glob is not a passing release check: several scripts require
 separate fixture servers on ports 8765/8766, and some older mocked Gmail browser
 checks report console assertions. Those unrelated scripts were not changed.
