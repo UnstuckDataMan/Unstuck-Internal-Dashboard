@@ -1235,7 +1235,7 @@ def _tracker_reason(exc: Exception, sheet_id: str, tab: str) -> str:
     return "That sheet could not be read. The details are in the server log."
 
 
-def read_ab_stats(sheet_id: str) -> list[dict]:
+def read_ab_stats(sheet_id: str, *, records: list[dict] | None = None) -> list[dict]:
     """
     Group sheet rows by 'Template Variant' and count Lead Status outcomes.
 
@@ -1260,8 +1260,12 @@ def read_ab_stats(sheet_id: str) -> list[dict]:
     """
     from collections import defaultdict
 
-    ws = _worksheet(sheet_id)
-    records = _get_all_records(ws, sheet_id, value_render_option="UNFORMATTED_VALUE")
+    # Copy Studio supplies rows from its separate read-only OAuth session. The
+    # aggregation remains shared with reporting; existing callers keep the
+    # original worksheet/cache path and behaviour.
+    if records is None:
+        ws = _worksheet(sheet_id)
+        records = _get_all_records(ws, sheet_id, value_render_option="UNFORMATTED_VALUE")
 
     stats: dict = defaultdict(
         lambda: {"total": 0, "sent": 0, "lead": 0, "interested": 0,

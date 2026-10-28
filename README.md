@@ -1,5 +1,13 @@
 # Unstuck Internal Dashboard
 
+## AI Copy Studio (internal pilot)
+
+The new `/copy-studio` workspace joins approved client briefs, Copy Bank references
+and campaign results to reviewed email/LinkedIn drafts. It includes durable jobs,
+immutable versions and daily/monthly/all-time estimated API costs. It does not
+send outreach or enable Meet Alfred. See [setup, migration, worker and release
+instructions](docs/ai-copy-studio.md) and [provider evaluation](docs/copy-studio-evaluation.md).
+
 Existing FastAPI/Jinja dashboard deployed to Render. Run with Python 3.11+:
 
 ```sh
@@ -13,7 +21,8 @@ Configure the established Google sign-in and integrations using `.env.example` a
 Render environment variables; the app reads its environment, not a committed `.env`.
 `/healthz` is the existing public health endpoint. `render.yaml` retains the existing
 build (`pip install -r requirements.txt`) and start commands. This feature introduces
-no new service, frontend build step or database provider.
+no new frontend build step or database provider. Copy Studio's durable jobs run
+in a separate worker process, as described in its setup guide above.
 
 ## Gmail Setup Tool / account setup tracker
 

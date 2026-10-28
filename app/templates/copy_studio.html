@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}AI Copy Studio · Unstuck Agency{% endblock %}
+{% block heading %}AI Copy Studio{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/copy-studio.css?v=1">{% endblock %}
+{% block content %}
+<div class="cs-studio" id="cs-root">
+  <header class="cs-hero">
+    <div><p class="cs-eyebrow"><span class="cs-spark" aria-hidden="true">✦</span> The outbound workspace</p><h1>Context first.<br><span>Better conversations next.</span></h1><p class="cs-hero-copy">Shape verified client knowledge into distinct outreach angles, then make every word your own.</p></div>
+    <div class="cs-hero-note"><span class="cs-note-dot"></span><span>Built for thoughtful outreach<small>Client context → draft → human review</small></span></div>
+  </header>
+
+  <section class="cs-client-bar" aria-label="Choose a client">
+    <div class="cs-client-field"><label for="cs-client">Your client</label><select id="cs-client" disabled><option value="">Loading clients…</option></select></div>
+    <div class="cs-client-actions"><button type="button" id="cs-sync" class="cs-button cs-button-secondary" disabled>Sync sources <span aria-hidden="true">↻</span></button><span id="cs-client-state" class="cs-muted">Choose a client to begin</span></div>
+  </section>
+  <div id="cs-costs" class="cs-costs" aria-label="Estimated API cost" hidden><span class="cs-cost-label">Estimated API cost <small>USD · London calendar</small></span><dl><div><dt>Today</dt><dd id="cs-cost-today">—</dd></div><div><dt>This month</dt><dd id="cs-cost-month">—</dd></div><div><dt>All time</dt><dd id="cs-cost-all-time">—</dd></div></dl><button type="button" id="cs-cost-refresh" class="cs-copy-action" aria-label="Refresh estimated API costs">↻</button></div>
+  <p id="cs-status" class="cs-status" role="status" aria-live="polite">Connecting to your workspace…</p>
+  <details class="cs-connections"><summary>Connections &amp; recent activity <span id="cs-connection-count" class="cs-muted"></span></summary><div class="cs-details-body"><div id="cs-capabilities" class="cs-capability-grid"></div><div id="cs-jobs" class="cs-job-list"></div></div></details>
+
+  <section id="cs-start" class="cs-start"><span class="cs-start-icon" aria-hidden="true">✦</span><h2>A clear brief is a strong starting point.</h2><p>Select a client to bring their knowledge, approved examples and next campaign into one workspace.</p><div class="cs-start-steps"><span><b>01</b> Know the client</span><span><b>02</b> Find the angle</span><span><b>03</b> Make it ready</span></div></section>
+
+  <div id="cs-workspace" hidden>
+    <div class="cs-layout">
+      <aside class="cs-sidebar">
+        <section class="cs-panel cs-brief-panel" aria-labelledby="cs-brief-heading">
+          <div class="cs-section-top"><div><p class="cs-step">01 / Client context</p><h2 id="cs-brief-heading">The brief</h2></div><span id="cs-brief-status" class="cs-badge">Not built</span></div>
+          <div id="cs-brief-version-wrap" class="cs-field" hidden><label for="cs-brief-version">Brief version to review</label><select id="cs-brief-version"></select></div>
+          <div class="cs-completeness"><div><span id="cs-completeness">Checking source coverage</span><span id="cs-coverage-count"></span></div><progress id="cs-progress" max="100" value="0" aria-label="Brief source coverage"></progress></div>
+          <div id="cs-brief-summary" class="cs-brief-summary"></div>
+          <div id="cs-constraints" class="cs-constraint-list"></div>
+          <button type="button" id="cs-extract" class="cs-button cs-button-secondary cs-full" disabled>Build brief from sources <span aria-hidden="true">↗</span></button>
+          <details class="cs-brief-details"><summary>Facts, citations &amp; brief editing</summary><div class="cs-details-body"><div id="cs-facts"></div><div id="cs-contradictions"></div><form id="cs-brief-form"><label for="cs-brief-constraints">Mandatory copy constraints <small>One instruction per line. When retiring a constraint fact, also remove its outdated wording here.</small></label><textarea id="cs-brief-constraints" rows="4" placeholder="Keep claims specific and supported by the client brief."></textarea><button id="cs-save-brief" type="submit" class="cs-button cs-button-secondary cs-full" disabled>Save a new brief version</button></form><div id="cs-brief-review"></div></div></details>
+        </section>
+
+        <form id="cs-generate-form" class="cs-panel" aria-labelledby="cs-campaign-heading">
+          <p class="cs-step">02 / Creative direction</p><h2 id="cs-campaign-heading">Who are we talking to?</h2><p class="cs-help">Give the campaign a focused audience and a clear offer.</p>
+          <div class="cs-field"><label for="cs-channel">Channel</label><select id="cs-channel"><option value="email">Email</option><option value="linkedin">LinkedIn</option></select></div>
+          <div class="cs-field"><label for="cs-mode">Writing approach</label><select id="cs-mode"><option value="draft">Draft distinct angles</option><option value="assemble">Assemble approved examples</option></select><small id="cs-mode-help">Create fresh wording grounded in the approved client brief.</small></div>
+          <div class="cs-fields-two"><div class="cs-field"><label for="cs-subsector">Subsector</label><input id="cs-subsector" placeholder="e.g. B2B software" maxlength="300"></div><div class="cs-field"><label for="cs-geography">Geography</label><input id="cs-geography" placeholder="e.g. United Kingdom" maxlength="200"></div></div>
+          <div class="cs-fields-two"><div class="cs-field"><label for="cs-company-size">Company size</label><input id="cs-company-size" placeholder="e.g. 51–200 employees" maxlength="100"></div><div class="cs-field"><label for="cs-role">Decision maker</label><input id="cs-role" placeholder="e.g. Marketing Director" maxlength="200"></div></div>
+          <div class="cs-field"><label for="cs-offer">Offer or campaign focus</label><textarea id="cs-offer" rows="3" placeholder="What relevant conversation do you want to start?" maxlength="500"></textarea></div>
+          <details class="cs-form-details"><summary>Approved examples <span id="cs-example-count" class="cs-muted"></span></summary><div id="cs-examples" class="cs-details-body"></div></details>
+          <details class="cs-form-details"><summary>Message length limits</summary><div id="cs-limits" class="cs-details-body cs-limit-grid"></div></details>
+          <p id="cs-generation-readiness" class="cs-help"></p><button id="cs-generate" type="submit" class="cs-button cs-button-primary cs-full" disabled>Generate outreach <span aria-hidden="true">✦</span></button>
+        </form>
+      </aside>
+
+      <section class="cs-panel cs-draft-panel" aria-labelledby="cs-output-heading">
+        <div class="cs-section-top"><div><p class="cs-step">03 / Review &amp; refine</p><h2 id="cs-output-heading">Your creative workspace</h2></div><span id="cs-draft-status" class="cs-badge">Ready when you are</span></div>
+        <div id="cs-version-wrap" class="cs-field" hidden><label for="cs-version">Saved draft versions</label><select id="cs-version"></select></div>
+        <div id="cs-draft-empty" class="cs-draft-empty"><div class="cs-paper-icon" aria-hidden="true"><span></span><span></span><span></span></div><h3>A few angles. One clear conversation.</h3><p>Your draft will appear here with editable messages, evidence and review checks.</p></div>
+        <div id="cs-draft-workspace" hidden>
+          <div id="cs-draft-meta" class="cs-draft-meta"></div>
+          <div id="cs-review-issues" class="cs-review-issues"></div>
+          <div id="cs-angles" class="cs-angles"></div>
+          <div class="cs-save-bar"><span id="cs-dirty-state" class="cs-muted">Saved version</span><button type="button" id="cs-save-draft" class="cs-button cs-button-secondary" disabled>Save new version</button></div>
+          <details class="cs-evidence"><summary>Evidence behind the wording</summary><div id="cs-draft-evidence" class="cs-details-body"></div></details>
+          <div id="cs-draft-review" class="cs-approval-panel"></div>
+        </div>
+      </section>
+    </div>
+
+    <details class="cs-panel cs-library"><summary><span>Source library &amp; learning</span><span id="cs-source-count" class="cs-muted"></span></summary><div class="cs-details-body"><p class="cs-help">Review imported knowledge before using it. Source citations stay separate from the outreach itself.</p><div class="cs-source-toolbar"><label for="cs-sync-source">Sync a source</label><select id="cs-sync-source"><option value="all">All configured sources</option><option value="onboarding">Onboarding</option><option value="copy_bank">Copy Bank</option><option value="smartlead">Smartlead</option><option value="manual">Manual reporting sheets</option></select><button type="button" id="cs-sync-selected" class="cs-button cs-button-secondary">Sync selected</button></div><div id="cs-source-library"></div><details class="cs-form-details"><summary>Campaign learning</summary><div id="cs-performance" class="cs-details-body"></div></details><details class="cs-form-details"><summary>Writing methodology</summary><div id="cs-methodology" class="cs-details-body"></div></details></div></details>
+  </div>
+  <footer class="cs-footer"><span>UNSTUCK AGENCY <span aria-hidden="true">/</span> AI COPY STUDIO</span><span>Thoughtful copy. Human approval.</span></footer>
+</div>
+{% endblock %}
+{% block extra_scripts %}<script src="/static/copy-studio.js?v=1" defer></script>{% endblock %}
