@@ -127,6 +127,53 @@ def test_jobs_idempotent_and_key_cannot_change_request(db):
     assert store.SQLiteStore(db.path, OTHER_AGENCY).claim_job("other-worker") is None
 
 
+@pytest.mark.parametrize('status', ['queued', 'running'])
+@pytest.mark.parametrize('source', ['context', 'onboarding', 'all'])
+def test_active_context_refresh_cannot_hide_behind_newer_completed_jobs(db, status, source):
+    from app.utils.copy_studio import service
+    active = enqueue(db, payload={'source': source}, idempotency_key='older-context')
+    alter_job(db, active['id'], status=status, created_at='2025-01-01T00:00:00+00:00')
+    for i in range(35):
+        newer = enqueue(db, kind='generate', payload={}, idempotency_key=f'newer:{i}')
+        alter_job(db, newer['id'], status='succeeded')
+    assert len(db.list_jobs('client-a')) == 30
+    assert active['id'] not in {job['id'] for job in db.list_jobs('client-a')}
+    assert db.context_refresh_active('client-a')
+    assert 'refreshing' in service.brief_context_error(db, 'client-a', {'content': {}})
+    assert not db.context_refresh_active('client-b')
+    assert not store.SQLiteStore(db.path, OTHER_AGENCY).context_refresh_active('client-a')
+    alter_job(db, active['id'], status='succeeded')
+    assert not db.context_refresh_active('client-a')
+
+
+def test_unrelated_or_finished_jobs_do_not_block_context(db):
+    enqueue(db, payload={'source': 'copy_bank'}, idempotency_key='copy-bank')
+    enqueue(db, payload={'source': 'smartlead'}, idempotency_key='smartlead')
+    enqueue(db, kind='generate', payload={'source': 'context'}, idempotency_key='generation')
+    completed = enqueue(db, payload={'source': 'all'}, idempotency_key='done')
+    failed = enqueue(db, payload={'source': 'onboarding'}, idempotency_key='failed')
+    alter_job(db, completed['id'], status='succeeded')
+    alter_job(db, failed['id'], status='failed')
+    assert not db.context_refresh_active('client-a')
+
+
+def test_supabase_active_context_query_filters_before_limiting_and_remains_scoped(monkeypatch):
+    requests = []
+    responses = iter([[{'id': 'active-context'}], []])
+    def get(url, **kwargs):
+        requests.append((url, kwargs))
+        return FakeResponse(200, next(responses))
+    monkeypatch.setattr(store.requests, 'get', get)
+    remote = store.SupabaseStore('https://db.test', 'test-service-only', AGENCY)
+    assert remote.context_refresh_active('client-a')
+    assert not remote.context_refresh_active('client-b')
+    for client_id, (url, request) in zip(('client-a', 'client-b'), requests):
+        assert url.endswith('/copy_studio_jobs')
+        assert request['params'] == {'agency_id': f'eq.{AGENCY}', 'client_id': f'eq.{client_id}',
+            'select': 'id', 'kind': 'eq.sync', 'status': 'in.(queued,running)', 'limit': 1,
+            'payload->>source': 'in.(context,onboarding,all)'}
+
+
 def test_concurrent_workers_cannot_claim_same_live_lease(db):
     job = enqueue(db)
     with ThreadPoolExecutor(max_workers=8) as pool:

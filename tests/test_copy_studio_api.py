@@ -17,6 +17,8 @@ def studio(monkeypatch, tmp_path):
     for key in ('COPY_STUDIO_OPENAI_API_KEY', 'COPY_STUDIO_ANTHROPIC_API_KEY',
                 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'):
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv('COPY_STUDIO_PROVIDER', 'openai')
+    monkeypatch.setenv('COPY_STUDIO_MODEL', 'fixture-model')
     monkeypatch.setenv('COPY_STUDIO_SQLITE_PATH', str(tmp_path/'studio.sqlite'))
     monkeypatch.setenv('COPY_STUDIO_AGENCY_ID', 'agency-a')
     db = get_store()
@@ -231,14 +233,97 @@ def test_model_missing_leaves_persisted_failed_job_not_fabricated_copy(client, s
     assert 'credential' in record.get('error', '') or 'credential' in record.get('last_error', '')
 
 
+def test_profile_context_prepares_once_without_calling_model(client, studio, monkeypatch):
+    studio.save('client', '__workspace__', CLIENT, {'id': CLIENT, 'name': 'Synthetic profile',
+        'domains': ['https://www.example.com/about'], 'updated_at': '2026-10-28T00:00:00Z'}, 'fixture')
+    view = client.get(BASE).json()
+    assert view['profile']['domains'] == ['example.com']
+    assert view['profile']['website_url'] == 'https://example.com'
+    assert view['profile']['profile_url'] == '/client-profiles'
+    assert view['context_sync_needed'] is True
+    first = client.post(BASE+'/prepare-context', json={})
+    assert first.status_code == 200
+    job = first.json()
+    assert job['kind'] == 'sync' and job['payload']['source'] == 'all'
+    assert client.post(BASE+'/prepare-context', json={}).json()['id'] == job['id']
+    assert not studio.list(CLIENT, kind='usage')
+    assert studio.list(CLIENT, kind='sync_subscription')[0]['content']['enabled']
+
+
+def test_current_conversation_manifest_excludes_old_client_assignment(client, studio):
+    old = source(studio)
+    current = studio.save('transcript', CLIENT, 'read_ai:current', old['content'], 'fixture')
+    studio.save('sync_report', CLIENT, 'sync:onboarding', {'source': 'onboarding', 'status': 'complete',
+        'coverage': {'imported_source_keys': [current['source_key']], 'source_manifest_authoritative': True}}, 'fixture')
+    job = client.post(BASE+'/extract-brief', json={}).json()
+    assert job['payload']['source_ids'] == [current['id']]
+    assert old['id'] != current['id']
+    assert studio.get(old['id'], CLIENT) is not None  # history retained, not reused as current evidence
+
+
+def test_changed_context_requires_new_reviewed_brief_and_objective_is_saved(client, studio):
+    brief = approved_brief(studio)
+    ex = approved_example(studio)
+    payload = {**generation(ex), 'objective': 'Focus the first angle on simpler reporting.'}
+    job = client.post(BASE+'/generate', json=payload).json()
+    assert job['payload']['request']['objective'] == payload['objective']
+    studio.save('sync_report', CLIENT, 'sync:onboarding', {'source': 'onboarding', 'status': 'complete',
+        'coverage': {'imported_source_keys': [], 'source_manifest_authoritative': True}}, 'fixture')
+    response = client.post(BASE+'/generate', json=payload)
+    assert response.status_code == 422 and 'conversations have changed' in response.json()['error']
+    worker.run_once(studio, 'changed-context')
+    assert not studio.list(CLIENT, kind='draft')
+    assert client.get(BASE).json()['brief_context_error']
+
+
+def test_prepare_context_respects_csrf_and_client_assignment(client, studio, monkeypatch):
+    request_as(monkeypatch, 'sdr', client_ids=[CLIENT])
+    assert client.post(BASE+'/prepare-context', json={}).status_code == 403
+    headers = csrf(client)
+    assert client.post('/api/copy-studio/clients/client-b/prepare-context', json={}, headers=headers).status_code == 404
+    assert client.post(BASE+'/prepare-context', json={}, headers=headers).status_code == 200
+
+
+def test_recent_profile_context_is_reused_and_profile_change_requests_refresh(client, studio):
+    from datetime import datetime, timezone
+    profile = service.client_profile(CLIENT, studio)
+    studio.save('sync_report', CLIENT, 'sync:onboarding', {'source': 'onboarding', 'status': 'complete',
+        'completed_at': datetime.now(timezone.utc).isoformat(),
+        'coverage': {'complete': True, 'imported_source_keys': [],
+                     'profile_fingerprint': profile['profile_fingerprint']}}, 'fixture')
+    studio.save('sync_report', CLIENT, 'sync:copy_bank', {'source': 'copy_bank', 'status': 'complete',
+        'completed_at': datetime.now(timezone.utc).isoformat(),
+        'coverage': {'complete': True, 'imported_versions': []}}, 'fixture')
+    for source_name in ('smartlead', 'manual'):
+        studio.save('sync_report', CLIENT, 'sync:'+source_name, {'source': source_name, 'status': 'complete',
+            'completed_at': datetime.now(timezone.utc).isoformat(), 'coverage': {'complete': True}}, 'fixture')
+    assert client.get(BASE).json()['context_sync_needed'] is False
+    studio.save('client', '__workspace__', CLIENT, {'id': CLIENT, 'name': 'Changed profile',
+        'domains': ['example.com'], 'updated_at': '2026-10-28'}, 'fixture')
+    assert client.get(BASE).json()['context_sync_needed'] is True
+
+
+def test_incomplete_context_blocks_draft_approval_and_generation(client, studio):
+    brief = approved_brief(studio)
+    ex = approved_example(studio)
+    studio.save('sync_report', CLIENT, 'sync:onboarding', {'source': 'onboarding', 'status': 'partial',
+        'coverage': {'complete': False}}, 'fixture')
+    assert 'incomplete' in client.get(BASE).json()['brief_context_error']
+    assert client.post(BASE+'/generate', json=generation(ex)).status_code == 422
+    assert client.post(BASE+'/records/'+brief['id']+'/review', json={'decision': 'approved'}).status_code == 422
+
+
 def test_new_draft_edit_is_saved_but_requires_fresh_model_check(client, studio, monkeypatch):
     from app.utils.copy_studio.providers import ProviderError
+    from app.utils.copy_studio import proofreading
     approved_brief(studio)
     example = approved_example(studio)
     class Model:
         name, model = 'fixture', 'synthetic'
         def complete_json(self, system, user, **kw):
             if kw['schema_name'] == 'copy_studio_review':
+                return {'issues': []}
+            if kw['schema_name'] == 'copy_studio_proofreading':
                 return {'issues': []}
             return {'angles': [{'name': 'Reporting', 'rationale': 'An operational angle.',
                 'subjects': ['Reporting', 'Simpler reporting'], 'steps': [
@@ -247,6 +332,7 @@ def test_new_draft_edit_is_saved_but_requires_fresh_model_check(client, studio, 
                     {'kind': 'closing', 'body': 'Happy to leave this here if the timing is wrong.', 'evidence_ids': []}],
                 'evidence_ids': ['offer'], 'claims': []}]}
     monkeypatch.setattr(writer, 'get_provider', lambda: Model())
+    monkeypatch.setattr(proofreading, 'get_provider', lambda: Model())
     job = client.post(BASE+'/generate', json=generation(example, mode='draft')).json()
     worker.run_once(studio, 'model-worker')
     done = studio.get_job(job['id'], CLIENT)
@@ -260,12 +346,20 @@ def test_new_draft_edit_is_saved_but_requires_fresh_model_check(client, studio, 
     assert version['status'] == 'pending'
     assert any(i['code'] == 'model_review_stale' for i in version['content']['review']['issues'])
     assert client.post(BASE+'/records/'+version['id']+'/review', json={'decision': 'approved'}).status_code == 422
-    check = client.post(BASE+'/drafts/'+version['id']+'/check', json={}).json()
+    check = client.post(BASE+'/drafts/'+version['id']+'/check', json={'locale': 'en-GB'}).json()
     worker.run_once(studio, 'review-worker')
     checked = studio.get_job(check['id'], CLIENT)
     assert checked['status'] == 'succeeded', checked
     response = client.post(BASE+'/records/'+checked['result']['record_id']+'/review', json={'decision': 'approved'})
     assert response.status_code == 200, response.text
+    checked_version = response.json()
+    assert proofreading.final_check_current(checked_version['content'])
+    edited_again = deepcopy(checked_version['content'])
+    edited_again['angles'][0]['subjects'][0] = 'A different subject'
+    revision = client.post(BASE+'/drafts/'+checked_version['id']+'/revisions', json={'content': edited_again})
+    assert revision.status_code == 200, revision.text
+    assert 'final_check' not in revision.json()['content']
+    assert revision.json()['status'] == 'pending'
 
 
 def test_page_and_bootstrap_do_not_expose_credentials(client, studio, monkeypatch):
@@ -310,3 +404,127 @@ def test_usage_cards_include_worker_calls_and_scope_to_authorised_clients(client
         costs.record_usage('openai', 'fixture-model', {'input_tokens': 1000000, 'output_tokens': 0})
     request_as(monkeypatch, 'sdr', client_ids=[CLIENT])
     assert client.get('/api/copy-studio/costs').json()['all_time']['amount'] == pytest.approx(0.01)
+
+
+def test_current_copy_bank_versions_only_are_used_for_drafting(client, studio):
+    approved_brief(studio)
+    example = approved_example(studio)
+    def manifest(versions, complete=True):
+        return studio.save('sync_report', CLIENT, 'sync:copy_bank', {
+            'source': 'copy_bank', 'coverage': {'complete': complete, 'imported_versions': versions}}, 'fixture')
+    manifest([{'source_key': example['source_key'], 'content_hash': example['content_hash']}])
+    assert example['id'] in client.get(BASE).json()['eligible_example_ids']
+    assert client.post(BASE+'/generate', json=generation(example)).status_code == 200
+    changed_content = {**example['content'], 'subjects': ['Updated client copy']}
+    changed = studio.save('example', CLIENT, example['source_key'], changed_content, 'fixture')
+    manifest([{'source_key': changed['source_key'], 'content_hash': changed['content_hash']}])
+    assert client.get(BASE).json()['eligible_example_ids'] == []
+    assert [r['id'] for r in client.get(BASE).json()['examples']] == [changed['id']]
+    assert client.post(BASE+'/generate', json=generation(example)).status_code == 422
+    studio.review(changed['id'], CLIENT, 'reviewer@fixture.test', 'approved')
+    assert client.get(BASE).json()['eligible_example_ids'] == [changed['id']]
+    manifest([])  # removed from the current client Copy Bank; audit history still exists
+    assert client.get(BASE).json()['examples'] == []
+    assert studio.get(example['id'], CLIENT) is not None
+
+
+def test_partial_copy_bank_refresh_does_not_reuse_historical_approval(client, studio):
+    approved_brief(studio)
+    example = approved_example(studio)
+    studio.save('sync_report', CLIENT, 'sync:copy_bank', {'source': 'copy_bank', 'coverage': {'complete': False}}, 'fixture')
+    assert client.get(BASE).json()['eligible_example_ids'] == []
+    assert client.post(BASE+'/generate', json=generation(example)).status_code == 422
+
+
+def test_final_check_language_is_explicit_and_client_scoped(client, studio, monkeypatch):
+    approved_brief(studio)
+    ex = approved_example(studio)
+    job = client.post(BASE+'/generate', json=generation(ex)).json()
+    worker.run_once(studio, 'assembly')
+    draft = studio.get_job(job['id'], CLIENT)['result']['record_id']
+    request_as(monkeypatch, 'sdr', client_ids=[CLIENT])
+    assert client.post(BASE+'/drafts/'+draft+'/check', json={'locale': 'en-US'}).status_code == 403
+    token = csrf(client)
+    assert client.post(BASE+'/drafts/'+draft+'/check', json={'locale': 'fr-FR'}, headers=token).status_code == 422
+    checked = client.post(BASE+'/drafts/'+draft+'/check', json={'locale': 'en-US'}, headers=token)
+    assert checked.status_code == 200
+    assert checked.json()['payload']['locale'] == 'en-US'
+    assert client.post('/api/copy-studio/clients/client-b/drafts/'+draft+'/check', json={'locale': 'en-US'}, headers=token).status_code == 404
+
+
+def test_reviewed_copy_bank_edit_retains_verified_source_lineage(client, studio):
+    approved_brief(studio)
+    imported = approved_example(studio)
+    studio.save('sync_report', CLIENT, 'sync:copy_bank', {'source': 'copy_bank', 'coverage': {
+        'complete': True, 'imported_versions': [{'source_key': imported['source_key'], 'content_hash': imported['content_hash']}]}}, 'fixture')
+    edited_content = {**imported['content'], 'subjects': ['Reviewed subject'], 'campaign_id': 'forged'}
+    revised = client.post(BASE+'/records', json={'kind': 'example', 'source_key': 'forged-key',
+        'parent_id': imported['id'], 'content': edited_content})
+    assert revised.status_code == 200, revised.text
+    row = revised.json()
+    assert row['source_key'] == imported['source_key']
+    assert 'campaign_id' not in row['content']
+    assert client.post(BASE+'/records/'+row['id']+'/review', json={'decision': 'approved'}).status_code == 200
+    assert client.get(BASE).json()['eligible_example_ids'] == [row['id']]
+    assert client.post(BASE+'/generate', json=generation(row)).status_code == 200
+    changed = studio.save('example', CLIENT, imported['source_key'], {**imported['content'], 'subjects': ['External change']}, 'fixture')
+    studio.save('sync_report', CLIENT, 'sync:copy_bank', {'source': 'copy_bank', 'coverage': {
+        'complete': True, 'imported_versions': [{'source_key': changed['source_key'], 'content_hash': changed['content_hash']}]}}, 'fixture')
+    assert client.post(BASE+'/generate', json=generation(row)).status_code == 422
+
+
+def test_refreshing_or_changed_profile_blocks_old_context(client, studio):
+    brief = approved_brief(studio)
+    profile = service.client_profile(CLIENT, studio)
+    report = {'source': 'onboarding', 'status': 'complete', 'coverage': {
+        'profile_fingerprint': profile['profile_fingerprint'], 'complete': True}}
+    studio.save('sync_report', CLIENT, 'sync:onboarding', report, 'fixture')
+    assert not service.brief_context_error(studio, CLIENT, brief)
+    studio.save('client', '__workspace__', CLIENT, {'id': CLIENT, 'name': 'Changed', 'domains': ['example.com']}, 'fixture')
+    assert 'profile has changed' in service.brief_context_error(studio, CLIENT, brief)
+    studio.enqueue(CLIENT, 'sync', {'source': 'context'}, 'fixture', 'active-refresh')
+    assert 'refreshing' in service.brief_context_error(studio, CLIENT, brief)
+
+
+def test_copy_bank_routes_require_reviewer_client_scope_csrf_and_session_actor(client, studio, monkeypatch):
+    from app.utils.copy_studio import publishing, proofreading
+    approved_brief(studio)
+    example = approved_example(studio)
+    job = client.post(BASE+'/generate', json={**generation(example), 'locale': 'en-GB'}).json()
+    worker.run_once(studio, 'publish-assembly')
+    identifier = studio.get_job(job['id'], CLIENT)['result']['record_id']
+    class Proofreader:
+        name, model = 'fixture', 'proofreader'
+        def complete_json(self, *args, **kwargs):
+            return {'issues': []}
+    monkeypatch.setattr(proofreading, 'get_provider', lambda: Proofreader())
+    checking = client.post(BASE+'/drafts/'+identifier+'/check', json={'locale': 'en-GB'}).json()
+    worker.run_once(studio, 'publish-check')
+    done = studio.get_job(checking['id'], CLIENT)
+    assert done['status'] == 'succeeded', done
+    identifier = done['result']['record_id']
+    studio.review(identifier, CLIENT, 'reviewer@fixture.test', 'approved')
+    selection = {'territory': 'United Kingdom', 'industry': 'Software', 'section': 'email', 'angle_index': 0}
+    calls = []
+    monkeypatch.setattr(publishing, 'destinations', lambda client_id: {'client_id': client_id})
+    monkeypatch.setattr(publishing, 'preview', lambda client_id, record_id, chosen: {
+        'destination_version': 'snapshot-v1', 'selection': chosen})
+    def publish(client_id, record_id, chosen, expected, actor):
+        calls.append((client_id, record_id, chosen, expected, actor))
+        return {'published': True}
+    monkeypatch.setattr(publishing, 'publish', publish)
+    request_as(monkeypatch, 'sdr', client_ids=[CLIENT])
+    headers = csrf(client)
+    path = BASE+'/drafts/'+identifier+'/copy-bank/'
+    assert client.get(BASE+'/copy-bank/destinations').status_code == 200
+    assert client.post(path+'preview', json={'selection': selection}, headers=headers).status_code == 403
+    request_as(monkeypatch, 'reviewer', client_ids=[CLIENT])
+    assert client.post(path+'publish', json={'selection': selection, 'expected_version': 'snapshot-v1'}).status_code == 403
+    headers = csrf(client)
+    assert client.post(path+'preview', json={'selection': selection}, headers=headers).status_code == 200
+    assert client.post(path+'publish', json={'selection': selection, 'expected_version': 'snapshot-v1', 'actor': 'forged'}, headers=headers).status_code == 422
+    assert client.post(path+'publish', json={'selection': selection, 'expected_version': 'snapshot-v1'}, headers=headers).status_code == 200
+    assert calls == [(CLIENT, identifier, selection, 'snapshot-v1', 'reviewer@fixture.test')]
+    assert client.get('/api/copy-studio/clients/client-b/copy-bank/destinations').status_code == 404
+    assert client.post('/api/copy-studio/clients/client-b/drafts/'+identifier+'/copy-bank/publish',
+        json={'selection': selection, 'expected_version': 'snapshot-v1'}, headers=headers).status_code == 404

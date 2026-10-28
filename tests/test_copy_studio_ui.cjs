@@ -152,6 +152,11 @@ function documentFromTemplate(html) {
 }
 
 const response = (data, status = 200) => ({ok: status >= 200 && status < 300, status, json: async () => data});
+const destinations = () => ({client_id: 'client-a', configured: true,
+  profile: {client_id: 'client-a', name: 'Alpha', type: 'client'}, territories: ['UK','US'],
+  industries: [{value: 'consulting', label: 'Consulting'}, {value: 'software', label: 'Software'}],
+  sections: [{id: 'email', label: 'Email'}, {id: 'chaser', label: 'Follow-up'}, {id: 'linkedin', label: 'LinkedIn'}, {id: 'flyout', label: 'Flyout'}],
+});
 
 // The scenarios below exercise the actual script through form and button events.
 // Responses are synthetic fixtures: no application or provider network is used.
@@ -162,6 +167,10 @@ function record(id, kind, content, overrides = {}) {
 }
 function clientData() {
   return {
+    profile: {id: 'client-a', name: 'Alpha', domains: ['alpha.example.invalid'], website_url: 'https://alpha.example.invalid',
+      website_source: 'client_profile_domain', website_verified: false, profile_url: '/client-profiles'},
+    profile_error: null, context_sync_needed: false,
+    locale_suggestion: {locale: 'en-GB', status: 'explicit', reason: 'The client profile targets the United Kingdom.', evidence: []},
     brief: record('brief-1', 'brief', {
       facts: [{id: 'fact-1', category: 'offer', key: 'Core offer', text: `Client evidence ${malicious}`,
         evidence: [{source_id: 'source-1', block: '1', quote: 'Verified fixture quote', start_ms: 0, end_ms: 1000}]}],
@@ -172,7 +181,7 @@ function clientData() {
     examples: [record('example-1', 'example', {title: 'Approved example', channel: 'email', source: 'copy_bank', sanitized: true, text: 'A sourced example.'}),
       record('example-li', 'example', {title: 'Approved LinkedIn example', channel: 'linkedin', source: 'copy_bank', sanitized: true, text: 'A sourced LinkedIn example.'})],
     drafts: [record('draft-1', 'draft', {
-      channel: 'email', mode: 'draft',
+      channel: 'email', mode: 'draft', request: {locale: 'en-GB'},
       angles: [{name: `Specific relevance ${malicious}`, rationale: 'Connect the verified offer to the selected audience.', subjects: ['A relevant question'],
         steps: [{kind: 'initial', body: 'Hello {{first_name}}, a relevant conversation?', evidence_ids: ['fact-1']},
           {kind: 'followup', body: 'Following up with one useful detail.', evidence_ids: ['fact-1']}], evidence_ids: ['fact-1']}],
@@ -187,16 +196,25 @@ function zeroCosts() {
   const bucket = () => ({amount:0,known_cost:0,total_calls:0,known_calls:0,unpriced_calls:0,unknown_usage_calls:0,complete:true});
   return {currency:'USD',timezone:'Europe/London',today:bucket(),month:bucket(),all_time:bucket()};
 }
-async function mount({canReview = true, ready = true, modelConfigured = true, data = clientData(), costs = zeroCosts()} = {}) {
+function publishableData() {
+  const data = clientData();
+  const draft = data.drafts[0]; draft.status = 'approved';
+  draft.content.final_check = {copy_hash: 'checked-copy-hash', locale: 'en-GB', complete: true, report: {issues: []}};
+  const alternative = structuredClone(draft.content.angles[0]); alternative.name = 'Another relevant angle';
+  draft.content.angles.push(alternative);
+  return data;
+}
+async function mount({canReview = true, ready = true, modelConfigured = true, capabilities = [], data = clientData(), costs = zeroCosts()} = {}) {
   const document = documentFromTemplate(fs.readFileSync(path.join(root, 'app/templates/copy_studio.html'), 'utf8'));
   const requests = [], timers = new Map(), routes = new Map(), clipboard = [];
   let nextTimer = 1;
   const bootstrap = {clients: [{id: 'client-a', name: `Alpha ${malicious}`}, {id: 'client-b', name: 'Beta'}],
-    capabilities: [], ready, can_review: canReview, csrf: 'csrf-fixture-token', model: {configured: modelConfigured, provider: 'openai'},costs};
+    capabilities, ready, can_review: canReview, csrf: 'csrf-fixture-token', model: {configured: modelConfigured, provider: 'openai'},costs};
   routes.set('GET /api/copy-studio/bootstrap', () => response(bootstrap));
   routes.set('GET /api/copy-studio/costs', () => response(costs));
   routes.set('GET /api/copy-studio/clients/client-a', () => response(data));
-  routes.set('GET /api/copy-studio/clients/client-b', () => response({...clientData(), brief: null, drafts: [], sources: [], examples: []}));
+  routes.set('GET /api/copy-studio/clients/client-b', () => response({...clientData(), brief: null, drafts: [], sources: [], examples: [],
+    profile: {id: 'client-b', name: 'Beta', domains: [], website_url: null, website_source: 'missing', website_verified: false, profile_url: '/client-profiles'}}));
   const fetch = async (url, options = {}) => {
     const method = options.method || 'GET';
     const request = {url: String(url), method, body: options.body ? JSON.parse(options.body) : undefined, signal: options.signal,
@@ -268,6 +286,7 @@ async function testGenerationAndPollingStayClientScoped() {
   await ui.change('channel', 'email', 'change');
   await ui.change('mode', 'assemble', 'change');
   for (const [id, value] of Object.entries({'subsector': 'B2B software', geography: 'United Kingdom', 'company-size': '51–200', role: 'Marketing Director', offer: 'A sourced campaign offer'})) await ui.change(id, value);
+  await ui.change('objective', 'Start a relevant conversation about the approved client offer.');
   const example = ui.get('examples').querySelector('input[type="checkbox"]');
   assert.ok(example, 'An approved example should be selectable');
   example.checked = true; example.dispatchEvent(new UiEvent('change', {bubbles: true}));
@@ -276,6 +295,8 @@ async function testGenerationAndPollingStayClientScoped() {
   assert.ok(generated, ui.get('status').textContent);
   assert.equal(generated.body.channel, 'email');
   assert.equal(generated.body.mode, 'assemble');
+  assert.equal(generated.body.locale, 'en-GB');
+  assert.equal(generated.body.objective, 'Start a relevant conversation about the approved client offer.');
   assert.deepEqual(generated.body.audience, {subsector: 'B2B software', geography: 'United Kingdom', company_size: '51–200', role: 'Marketing Director', offer: 'A sourced campaign offer'});
   assert.deepEqual(generated.body.example_ids, ['example-1']);
   assert.deepEqual(generated.body.limits, {subject: 120, initial: 1200, follow_up: 800, closing: 500});
@@ -491,16 +512,16 @@ async function testSentCopyRequiresInspectedSanitizedReference() {
 async function testSavedDraftChecksAndKeylessAssembly() {
   const data = clientData(), ui = await mount({data});
   await ui.chooseClient('client-a');
-  const check = ui.get('draft-review').querySelector('[data-check-draft="draft-1"]');
+  const check = ui.get('check-spelling');
   assert.ok(check && !check.disabled);
   ui.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/check', () => response({id: 'semantic-check', status: 'running', client_id: 'client-a'}));
   check.click(); await settle();
   const checked = ui.requests.find(request => request.url.endsWith('/drafts/draft-1/check'));
-  assert.deepEqual(checked.body, {});
+  assert.deepEqual(checked.body, {locale: 'en-GB'});
   const dirty = await mount(); await dirty.chooseClient('client-a');
   const edit = dirty.get('angles').querySelector('[data-copy-path="angles.0.steps.0.body"]');
   edit.value = 'Unsaved changes'; edit.dispatchEvent(new UiEvent('input'));
-  assert.equal(dirty.get('draft-review').querySelector('[data-check-draft]').disabled, true,
+  assert.equal(dirty.get('check-spelling').disabled, true,
     'Semantic checks must target a saved immutable version, not unsaved edits');
 
   const keyless = await mount({modelConfigured: false});
@@ -590,6 +611,313 @@ async function testResumeDurableJobAndRefreshCosts() {
   assert.match(partial.get('status').textContent,/partial source coverage/);
 }
 
+async function testProfileDisplayAndCreativeFieldsStayClientScoped() {
+  const ui = await mount(); await ui.chooseClient('client-a');
+  assert.equal(ui.get('profile').hidden, false);
+  assert.match(ui.get('profile-domain').textContent, /alpha\.example\.invalid/);
+  assert.ok(ui.get('profile-state').textContent, 'A profile-derived website must retain its source/verification context');
+  await ui.change('channel', 'linkedin', 'change');
+  await ui.change('mode', 'assemble', 'change');
+  for (const field of ['subsector','geography','company-size','role','offer','objective']) await ui.change(field, `Client A ${field}`);
+  await ui.change('limit-initial', '250');
+  const example = ui.get('examples').querySelector('input[type="checkbox"]');
+  example.checked = true; example.dispatchEvent(new UiEvent('change'));
+  await ui.chooseClient('client-b');
+  for (const field of ['subsector','geography','company-size','role','offer','objective']) assert.equal(ui.get(field).value, '', `${field} must not carry from another client`);
+  assert.equal(ui.get('channel').value, 'email');
+  assert.equal(ui.get('mode').value, 'draft');
+  assert.equal(ui.get('limit-initial').value, '1200');
+  assert.equal(ui.get('limit-subject').value, '120');
+  assert.equal(ui.get('examples').querySelectorAll('input[type="checkbox"]').length, 0);
+  assert.match(ui.get('profile').textContent, /client profiles/i, 'Missing domains need a clear path to Client Profiles');
+  const profileAction = ui.get('profile-link').querySelector('a') || ui.get('profile-link');
+  assert.match(profileAction.href || profileAction.getAttribute('href'), /\/client-profiles$/);
+  await ui.chooseClient('client-a');
+  assert.ok(ui.get('examples').querySelectorAll('input[type="checkbox"]').every(input => !input.checked));
+  assert.equal(ui.requests.filter(request => request.url.endsWith('/generate')).length, 0);
+
+  const unsafeData = clientData();
+  unsafeData.profile.name = malicious; unsafeData.profile.domains = [malicious]; unsafeData.profile.website_url = 'javascript:alert(1)';
+  const unsafe = await mount({data: unsafeData}); await unsafe.chooseClient('client-a');
+  assert.ok(unsafe.get('profile').textContent.includes(malicious), 'Profile strings must be rendered literally');
+  assert.equal(unsafe.get('profile').querySelectorAll('img').length, 0);
+  assert.ok(unsafe.get('profile').querySelectorAll('a').every(link => !/^javascript:/i.test(link.href || link.getAttribute('href') || '')));
+}
+
+async function testAutomaticContextPreparationRunsOncePerVisit() {
+  const data = clientData(); data.context_sync_needed = true;
+  const capability = {id: 'read_ai', name: 'Read AI', configured: true};
+  const ui = await mount({data, capabilities: [capability]});
+  ui.route('POST', '/api/copy-studio/clients/client-a/prepare-context', () => response({id: 'prepare-1', client_id: 'client-a', kind: 'prepare_context', status: 'running'}));
+  let polls = 0;
+  ui.route('GET', '/api/copy-studio/clients/client-a/jobs/prepare-1', () => {
+    polls++;
+    return response({id: 'prepare-1', client_id: 'client-a', kind: 'prepare_context', status: polls === 1 ? 'running' : 'succeeded', result: {complete: true}});
+  });
+  await ui.chooseClient('client-a');
+  const prepareRequests = () => ui.requests.filter(request => request.url.endsWith('/prepare-context'));
+  assert.equal(prepareRequests().length, 1);
+  assert.deepEqual(prepareRequests()[0].body, {});
+  assert.ok(ui.requests.findIndex(request => request.url === '/api/copy-studio/clients/client-a') < ui.requests.indexOf(prepareRequests()[0]),
+    'Context preparation must use the selected client’s server-returned readiness');
+  await ui.tick(); await ui.tick();
+  assert.equal(polls, 2);
+  assert.equal(prepareRequests().length, 1, 'A completion reload must not loop preparation even if the readiness flag remains true');
+  assert.equal(ui.timers.size, 0);
+  assert.equal(ui.requests.filter(request => request.url.endsWith('/generate')).length, 0, 'Preparing client context must never automatically generate outreach');
+
+  const activeData = clientData(); activeData.context_sync_needed = true;
+  activeData.jobs = [{id: 'existing-context', kind: 'sync', status: 'running', client_id: 'client-a'}];
+  const active = await mount({data: activeData, capabilities: [capability]});
+  active.route('POST', '/api/copy-studio/clients/client-a/prepare-context', () => response({id: 'after-active', kind: 'prepare_context', status: 'running', client_id: 'client-a'}));
+  active.route('GET', '/api/copy-studio/clients/client-a/jobs/existing-context', () => {
+    activeData.jobs[0].status = 'succeeded';
+    return response({...activeData.jobs[0], result: {complete: true}});
+  });
+  await active.chooseClient('client-a');
+  assert.equal(active.requests.filter(request => request.url.endsWith('/prepare-context')).length, 0,
+    'A durable active job must resume before any new automatic preparation is considered');
+  await active.tick();
+  assert.equal(active.requests.filter(request => request.url.endsWith('/prepare-context')).length, 1,
+    'Preparation can begin after the durable job completes if context is still needed');
+  const unavailable = await mount({data}); await unavailable.chooseClient('client-a');
+  assert.equal(unavailable.requests.filter(request => request.method === 'POST').length, 0,
+    'Automatic preparation must not start without a configured Read AI capability');
+}
+
+async function testLatePreparationResponseCannotRevivePreviousClient() {
+  const data = clientData(); data.context_sync_needed = true;
+  const ui = await mount({data, capabilities: [{id: 'read_ai', configured: true}]});
+  const pending = deferred();
+  ui.route('POST', '/api/copy-studio/clients/client-a/prepare-context', () => pending.promise);
+  await ui.chooseClient('client-a');
+  assert.equal(ui.requests.filter(request => request.url.endsWith('/prepare-context')).length, 1);
+  await ui.chooseClient('client-b');
+  pending.resolve(response({id: 'late-prepare', client_id: 'client-a', status: 'running', kind: 'prepare_context'}));
+  await settle();
+  assert.equal(ui.get('client').value, 'client-b');
+  assert.equal(ui.timers.size, 0, 'A late preparation response must not schedule a previous-client poll');
+  assert.doesNotMatch(ui.get('jobs').textContent, /late-prepare/);
+  assert.equal(ui.get('objective').value, '');
+  assert.equal(ui.requests.filter(request => request.url.endsWith('/generate')).length, 0);
+}
+
+async function testChangedTranscriptContextBlocksApprovedBriefGeneration() {
+  const data = clientData();
+  const message = 'New Read AI transcript context needs review before generating copy.';
+  data.brief_context_error = message;
+  const ui = await mount({data}); await ui.chooseClient('client-a');
+  assert.equal(data.brief.status, 'approved');
+  assert.equal(data.brief.content.coverage.complete, true);
+  assert.ok(ui.get('brief-summary').textContent.includes(message));
+  assert.ok(ui.get('generation-readiness').textContent.includes(message));
+  assert.equal(ui.get('generate').disabled, true, 'An approved brief cannot authorize copy after its transcript context changes');
+  await ui.submit('generate-form');
+  await ui.change('mode', 'assemble', 'change');
+  const example = ui.get('examples').querySelector('input[type="checkbox"]');
+  example.checked = true; example.dispatchEvent(new UiEvent('change'));
+  assert.equal(ui.get('generate').disabled, true, 'Approved-example assembly must respect the same changed-context gate');
+  await ui.submit('generate-form');
+  assert.equal(ui.requests.filter(request => request.method === 'POST' && request.url.endsWith('/generate')).length, 0);
+}
+
+async function testLocaleSuggestionOverrideAndAmbiguousGate() {
+  const data = clientData(); data.drafts = [];
+  data.locale_suggestion = {locale: 'en-US', status: 'explicit', reason: 'US audience in the approved client profile.', evidence: []};
+  const ui = await mount({data}); await ui.chooseClient('client-a');
+  assert.equal(ui.get('language').value, 'en-US');
+  await ui.change('language', 'en-GB', 'change');
+  await ui.change('role', 'Operations Director');
+  assert.equal(ui.get('language').value, 'en-GB', 'A user language override must survive other creative-field changes');
+  ui.route('POST', '/api/copy-studio/clients/client-a/sync', () => response({id: 'locale-sync', status: 'running'}));
+  ui.route('GET', '/api/copy-studio/clients/client-a/jobs/locale-sync', () => response({id: 'locale-sync', status: 'succeeded', result: {complete: true}}));
+  await ui.click('sync'); await ui.tick();
+  assert.equal(ui.get('language').value, 'en-GB', 'A background reload must not silently replace the selected language');
+  await ui.chooseClient('client-b');
+  assert.equal(ui.get('language').value, 'en-GB');
+  await ui.chooseClient('client-a');
+  assert.equal(ui.get('language').value, 'en-US', 'Re-entering a client must reset the previous override to that client’s suggestion');
+
+  const ambiguous = clientData(); ambiguous.drafts = [];
+  ambiguous.locale_suggestion = {locale: null, status: 'ambiguous', reason: 'Both UK and US audiences appear in the source.', evidence: []};
+  const undecided = await mount({data: ambiguous}); await undecided.chooseClient('client-a');
+  assert.equal(undecided.get('language').value, '');
+  assert.equal(undecided.get('generate').disabled, true, 'Ambiguous language evidence must require an explicit user choice');
+  await undecided.submit('generate-form');
+  assert.equal(undecided.requests.filter(request => request.url.endsWith('/generate')).length, 0);
+  await undecided.change('language', 'en-GB', 'change');
+  assert.equal(undecided.get('generate').disabled, false);
+}
+
+async function testFinalSpellingCheckCreatesPendingRevisionWithoutRewritingCopy() {
+  const data = clientData();
+  const originalBody = 'We help teams optimise their client onboarding.';
+  data.drafts[0].content.angles[0].steps[0].body = originalBody;
+  const originalVersion = JSON.stringify(data.drafts[0]);
+  const ui = await mount({data}); await ui.chooseClient('client-a');
+  await ui.change('language', 'en-US', 'change');
+  ui.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/check', request => {
+    assert.deepEqual(request.body, {locale: 'en-US'});
+    return response({id: 'final-spelling', status: 'running'});
+  });
+  ui.route('GET', '/api/copy-studio/clients/client-a/jobs/final-spelling', () => {
+    const revised = structuredClone(data.drafts[0]); revised.id = 'checked-revision'; revised.parent_id = 'draft-1'; revised.status = 'pending';
+    revised.content.request.locale = 'en-US';
+    revised.content.final_check = {copy_hash: 'checked-hash', locale: 'en-US', complete: true,
+      report: {issues: [{path: 'angles[0].steps[0].body', original: 'optimise', replacement: 'optimize', start: 14, end: 22, message: malicious}]}};
+    data.drafts.unshift(revised);
+    return response({id: 'final-spelling', status: 'succeeded', result: {record_id: revised.id}});
+  });
+  await ui.click('check-spelling'); await ui.tick();
+  assert.equal(ui.get('version').value, 'checked-revision');
+  assert.equal(ui.get('draft-status').textContent, 'pending');
+  assert.equal(ui.get('angles').querySelector('[data-copy-path="angles.0.steps.0.body"]').value, originalBody,
+    'Spelling suggestions must not silently rewrite the saved copy');
+  assert.equal(JSON.stringify(data.drafts[1]), originalVersion, 'The original version remains immutable');
+  assert.ok(ui.get('spelling-results').textContent.includes('optimize'));
+  assert.equal(ui.get('spelling-results').querySelectorAll('img').length, 0);
+  assert.equal(ui.get('publish').hidden, true, 'A newly checked pending revision still needs explicit approval before publication');
+}
+
+async function openPublishing(ui, result = destinations()) {
+  ui.route('GET', '/api/copy-studio/clients/client-a/copy-bank/destinations', () => response(result));
+  const publishing = ui.get('publish'); publishing.open = true; publishing.dispatchEvent(new UiEvent('toggle'));
+  await settle();
+}
+async function selectDestination(ui, values = {}) {
+  for (const [field, value] of Object.entries({territory: 'UK', industry: 'consulting', section: 'email', angle: '0', ...values})) {
+    await ui.change(`publish-${field}`, value, 'change');
+  }
+}
+function previewFor(request, marker = 'Previewed copy') {
+  return {draft_id: 'draft-1', destination_version: 'copy-bank-v7', selection: {...request.body.selection, step_indices: [0,1]},
+    appended_copy: {subjects: [`${marker} ${malicious}`], steps: [{kind: 'initial', body: 'Approved and checked outreach body.'}]},
+    append_summary: {subjects: 1, steps: 1}, warnings: [], already_published: false};
+}
+
+async function testCopyBankPublicationRequiresExplicitVersionBoundPreview() {
+  const ui = await mount({data: publishableData()}); await ui.chooseClient('client-a');
+  assert.equal(ui.get('publish').hidden, false);
+  assert.equal(ui.requests.filter(request => request.url.endsWith('/copy-bank/destinations')).length, 0, 'Destination lookup should wait until publishing is opened');
+  await openPublishing(ui);
+  for (const key of ['territory','industry','section','angle']) assert.equal(ui.get(`publish-${key}`).value, '', 'Every destination field starts with an explicit choice');
+  assert.equal(ui.get('publish-preview-button').disabled, true);
+  assert.ok(!ui.get('publish-section').options.some(option => option.value === 'linkedin'), 'Email drafts must not expose LinkedIn destinations');
+  await selectDestination(ui, {angle: '1'});
+  let preview;
+  ui.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/copy-bank/preview', request => {
+    preview = previewFor(request); return response(preview);
+  });
+  ui.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/copy-bank/publish', () => response({published: true, copy_bank_url: '/copy-bank'}));
+  assert.equal(ui.get('publish-confirm').disabled, true);
+  await ui.click('publish-preview-button');
+  const previewRequest = ui.requests.find(request => request.url.endsWith('/copy-bank/preview'));
+  assert.deepEqual(previewRequest.body, {selection: {territory: 'UK', industry: 'consulting', section: 'email', angle_index: 1}});
+  assert.ok(ui.get('publish-preview').textContent.includes(malicious), 'Preview copy must appear as literal text');
+  assert.equal(ui.get('publish-preview').querySelectorAll('img').length, 0);
+  assert.equal(ui.get('publish-confirm').disabled, false);
+  await ui.click('publish-confirm');
+  const publish = ui.requests.find(request => request.url.endsWith('/copy-bank/publish'));
+  assert.deepEqual(publish.body, {selection: preview.selection, expected_version: 'copy-bank-v7'},
+    'Publication must reuse the server preview selection and destination version exactly');
+  assert.ok(publish.url.includes('/drafts/draft-1/'), 'Publish the exact approved draft that was previewed');
+
+  for (const change of [data => { data.drafts[0].status = 'pending'; }, data => { data.drafts[0].content.final_check.complete = false; },
+    data => { data.drafts[0].content.final_check.locale = 'en-US'; },
+    data => { data.drafts[0].content.final_check.report.issues = [{severity: 'error', message: 'Resolve this final-check issue.'}]; },
+    data => { data.drafts[0].content.final_check.report.issues = [{severity: 'blocker', message: 'Unsupported claim.'}]; }]) {
+    const data = publishableData(); change(data);
+    const gated = await mount({data}); await gated.chooseClient('client-a');
+    assert.equal(gated.get('publish').hidden, true, 'Publication requires saved approval and a completed final check in the selected locale');
+  }
+  const warnings = publishableData();
+  warnings.drafts[0].content.final_check.report.issues = [{severity: 'warning', message: 'Optional style suggestion.'}];
+  const warned = await mount({data: warnings}); await warned.chooseClient('client-a');
+  assert.equal(warned.get('publish').hidden, false, 'Non-blocking style suggestions must remain reviewable without disabling an approved publication');
+}
+
+async function testMalformedPublicationDestinationsAndPreviewsAreRejected() {
+  const ui = await mount({data: publishableData()}); await ui.chooseClient('client-a'); await openPublishing(ui); await selectDestination(ui);
+  for (const malformed of [preview => { preview.draft_id = 'another-draft'; }, preview => { delete preview.destination_version; },
+    preview => { preview.selection.industry = 'another-industry'; }]) {
+    ui.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/copy-bank/preview', request => {
+      const preview = previewFor(request); malformed(preview); return response(preview);
+    });
+    await ui.click('publish-preview-button');
+    assert.equal(ui.get('publish-confirm').disabled, true, 'A preview with the wrong draft, destination or missing version must never authorize publication');
+    await ui.click('publish-confirm');
+  }
+  assert.equal(ui.requests.filter(request => request.url.endsWith('/copy-bank/publish')).length, 0);
+  const wrongClient = await mount({data: publishableData()}); await wrongClient.chooseClient('client-a');
+  await openPublishing(wrongClient, {...destinations(), client_id: 'client-b'});
+  assert.equal(wrongClient.get('publish-preview-button').disabled, true);
+  assert.match(wrongClient.get('publish-state').textContent, /did not match this client/);
+}
+
+async function testPublicationPreviewInvalidatesOnChangesAndLateResults() {
+  const ui = await mount({data: publishableData()}); await ui.chooseClient('client-a'); await openPublishing(ui); await selectDestination(ui);
+  ui.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/copy-bank/preview', request => response(previewFor(request)));
+  await ui.click('publish-preview-button');
+  for (const [field, value] of [['industry','software'],['section','chaser'],['angle','1'],['territory','US']]) {
+    await ui.change(`publish-${field}`, value, 'change');
+    assert.equal(ui.get('publish-confirm').disabled, true, `Changing ${field} must invalidate the previous preview`);
+    await ui.click('publish-preview-button');
+    assert.equal(ui.get('publish-confirm').disabled, false);
+  }
+  const body = ui.get('angles').querySelector('[data-copy-path="angles.0.steps.0.body"]');
+  body.value += ' Unsaved edit.'; body.dispatchEvent(new UiEvent('input', {bubbles: true}));
+  assert.equal(ui.get('publish-confirm').disabled, true, 'Editing the copy must invalidate publication approval');
+  assert.equal(ui.get('publish').hidden, true);
+
+  const raced = await mount({data: publishableData()}); await raced.chooseClient('client-a'); await openPublishing(raced); await selectDestination(raced);
+  const delayed = deferred();
+  raced.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/copy-bank/preview', () => delayed.promise);
+  await raced.click('publish-preview-button');
+  await raced.change('publish-industry', 'software', 'change');
+  delayed.resolve(response({draft_id: 'draft-1', destination_version: 'stale-version', selection: {territory: 'UK', industry: 'consulting', section: 'email', angle_index: 0},
+    appended_copy: {subjects: ['STALE PREVIEW'], steps: []}, append_summary: {}, warnings: [], already_published: false}));
+  await settle();
+  assert.equal(raced.get('publish-confirm').disabled, true, 'An old preview response must not re-enable publishing after the selection changes');
+  assert.doesNotMatch(raced.get('publish-preview').textContent, /STALE PREVIEW/);
+
+  const switched = await mount({data: publishableData()}); await switched.chooseClient('client-a'); await openPublishing(switched); await selectDestination(switched);
+  const oldClient = deferred();
+  switched.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/copy-bank/preview', () => oldClient.promise);
+  await switched.click('publish-preview-button'); await switched.chooseClient('client-b');
+  oldClient.resolve(response({draft_id: 'draft-1', destination_version: 'old-client-version', selection: {}, appended_copy: {subjects: ['OLD CLIENT COPY'], steps: []}, append_summary: {}, warnings: []}));
+  await settle();
+  assert.equal(switched.get('client').value, 'client-b');
+  assert.equal(switched.get('publish-confirm').disabled, true);
+  assert.doesNotMatch(switched.get('publish-preview').textContent, /OLD CLIENT COPY/);
+  assert.equal(switched.requests.filter(request => request.url.endsWith('/copy-bank/publish')).length, 0);
+
+  const versionData = publishableData(), otherVersion = structuredClone(versionData.drafts[0]);
+  otherVersion.id = 'approved-other'; otherVersion.parent_id = 'draft-1'; versionData.drafts.push(otherVersion);
+  const versioned = await mount({data: versionData}); await versioned.chooseClient('client-a'); await openPublishing(versioned); await selectDestination(versioned);
+  versioned.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/copy-bank/preview', request => response(previewFor(request, 'ORIGINAL VERSION PREVIEW')));
+  await versioned.click('publish-preview-button');
+  await versioned.change('version', 'approved-other', 'change');
+  assert.equal(versioned.get('publish-confirm').disabled, true, 'Switching saved draft versions must require a new preview');
+  assert.doesNotMatch(versioned.get('publish-preview').textContent, /ORIGINAL VERSION PREVIEW/);
+  await versioned.change('language', 'en-US', 'change');
+  assert.equal(versioned.get('publish').hidden, true, 'Changing language requires a completed check in the new locale before publication');
+
+  const publishing = await mount({data: publishableData()}); await publishing.chooseClient('client-a'); await openPublishing(publishing); await selectDestination(publishing);
+  publishing.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/copy-bank/preview', request => response(previewFor(request)));
+  const publishResult = deferred();
+  publishing.route('POST', '/api/copy-studio/clients/client-a/drafts/draft-1/copy-bank/publish', () => publishResult.promise);
+  await publishing.click('publish-preview-button'); await publishing.click('publish-confirm');
+  await publishing.chooseClient('client-b');
+  const requestsAtSwitch = publishing.requests.length;
+  publishResult.resolve(response({published: true, copy_bank_url: '/copy-bank'}));
+  await settle();
+  assert.equal(publishing.get('client').value, 'client-b');
+  assert.equal(publishing.get('publish').hidden, true);
+  assert.doesNotMatch(publishing.get('status').textContent, /published|added to copy bank/i,
+    'A completed previous-client publication must not appear as the current client’s result');
+  assert.equal(publishing.requests.slice(requestsAtSwitch).filter(request => request.url.includes('/clients/client-a')).length, 0);
+}
+
 async function main() {
   await testSafeRenderingAndClientIsolation();
   await testGenerationAndPollingStayClientScoped();
@@ -602,7 +930,17 @@ async function main() {
   await testEstimatedCostDisplayAndRefresh();
   await testConflictingFactsNeedAnExplicitVersionedDecision();
   await testResumeDurableJobAndRefreshCosts();
+  await testProfileDisplayAndCreativeFieldsStayClientScoped();
+  await testAutomaticContextPreparationRunsOncePerVisit();
+  await testLatePreparationResponseCannotRevivePreviousClient();
+  await testChangedTranscriptContextBlocksApprovedBriefGeneration();
+  await testLocaleSuggestionOverrideAndAmbiguousGate();
+  await testFinalSpellingCheckCreatesPendingRevisionWithoutRewritingCopy();
+  await testCopyBankPublicationRequiresExplicitVersionBoundPreview();
+  await testMalformedPublicationDestinationsAndPreviewsAreRejected();
+  await testPublicationPreviewInvalidatesOnChangesAndLateResults();
   console.log('Copy Studio UI checks passed: safe source rendering, client isolation, generation contract, polling scope, immutable revisions and approval gates.');
+  console.log('Final-check and publishing checks passed: locale selection, non-destructive suggestions, version-bound previews, explicit destinations, eligibility gates and stale-response isolation.');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

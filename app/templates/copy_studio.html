@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}AI Copy Studio · Unstuck Agency{% endblock %}
 {% block heading %}AI Copy Studio{% endblock %}
-{% block extra_head %}<link rel="stylesheet" href="/static/copy-studio.css?v=1">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/copy-studio.css?v=3">{% endblock %}
 {% block content %}
 <div class="cs-studio" id="cs-root">
   <header class="cs-hero">
@@ -13,6 +13,7 @@
     <div class="cs-client-field"><label for="cs-client">Your client</label><select id="cs-client" disabled><option value="">Loading clients…</option></select></div>
     <div class="cs-client-actions"><button type="button" id="cs-sync" class="cs-button cs-button-secondary" disabled>Sync sources <span aria-hidden="true">↻</span></button><span id="cs-client-state" class="cs-muted">Choose a client to begin</span></div>
   </section>
+  <div id="cs-profile" class="cs-profile" hidden><div><span class="cs-profile-label">Client domain</span><div id="cs-profile-domain"></div><p id="cs-profile-state" class="cs-help"></p></div><div id="cs-profile-link"></div></div>
   <div id="cs-costs" class="cs-costs" aria-label="Estimated API cost" hidden><span class="cs-cost-label">Estimated API cost <small>USD · London calendar</small></span><dl><div><dt>Today</dt><dd id="cs-cost-today">—</dd></div><div><dt>This month</dt><dd id="cs-cost-month">—</dd></div><div><dt>All time</dt><dd id="cs-cost-all-time">—</dd></div></dl><button type="button" id="cs-cost-refresh" class="cs-copy-action" aria-label="Refresh estimated API costs">↻</button></div>
   <p id="cs-status" class="cs-status" role="status" aria-live="polite">Connecting to your workspace…</p>
   <details class="cs-connections"><summary>Connections &amp; recent activity <span id="cs-connection-count" class="cs-muted"></span></summary><div class="cs-details-body"><div id="cs-capabilities" class="cs-capability-grid"></div><div id="cs-jobs" class="cs-job-list"></div></div></details>
@@ -28,13 +29,15 @@
           <div class="cs-completeness"><div><span id="cs-completeness">Checking source coverage</span><span id="cs-coverage-count"></span></div><progress id="cs-progress" max="100" value="0" aria-label="Brief source coverage"></progress></div>
           <div id="cs-brief-summary" class="cs-brief-summary"></div>
           <div id="cs-constraints" class="cs-constraint-list"></div>
-          <button type="button" id="cs-extract" class="cs-button cs-button-secondary cs-full" disabled>Build brief from sources <span aria-hidden="true">↗</span></button>
+          <button type="button" id="cs-extract" class="cs-button cs-button-secondary cs-full" disabled>Build brief from client context <span aria-hidden="true">↗</span></button>
           <details class="cs-brief-details"><summary>Facts, citations &amp; brief editing</summary><div class="cs-details-body"><div id="cs-facts"></div><div id="cs-contradictions"></div><form id="cs-brief-form"><label for="cs-brief-constraints">Mandatory copy constraints <small>One instruction per line. When retiring a constraint fact, also remove its outdated wording here.</small></label><textarea id="cs-brief-constraints" rows="4" placeholder="Keep claims specific and supported by the client brief."></textarea><button id="cs-save-brief" type="submit" class="cs-button cs-button-secondary cs-full" disabled>Save a new brief version</button></form><div id="cs-brief-review"></div></div></details>
         </section>
 
         <form id="cs-generate-form" class="cs-panel" aria-labelledby="cs-campaign-heading">
-          <p class="cs-step">02 / Creative direction</p><h2 id="cs-campaign-heading">Who are we talking to?</h2><p class="cs-help">Give the campaign a focused audience and a clear offer.</p>
+          <p class="cs-step">02 / Creative direction</p><h2 id="cs-campaign-heading">Your writing brief</h2><p class="cs-help">Use the client context to guide the angle, tone and next conversation.</p>
+          <div class="cs-field"><label for="cs-objective">Brief the writer</label><textarea id="cs-objective" rows="4" maxlength="1000" placeholder="Describe the angle, tone and call to action you want. Keep any claims grounded in the approved client brief." aria-describedby="cs-objective-count"></textarea><small id="cs-objective-count">0 / 1,000 characters</small></div>
           <div class="cs-field"><label for="cs-channel">Channel</label><select id="cs-channel"><option value="email">Email</option><option value="linkedin">LinkedIn</option></select></div>
+          <div class="cs-field"><label for="cs-language">English style</label><select id="cs-language"><option value="">Choose UK or US English</option><option value="en-GB">UK English</option><option value="en-US">US English</option></select><small id="cs-language-hint">Choose the English style for this campaign.</small></div>
           <div class="cs-field"><label for="cs-mode">Writing approach</label><select id="cs-mode"><option value="draft">Draft distinct angles</option><option value="assemble">Assemble approved examples</option></select><small id="cs-mode-help">Create fresh wording grounded in the approved client brief.</small></div>
           <div class="cs-fields-two"><div class="cs-field"><label for="cs-subsector">Subsector</label><input id="cs-subsector" placeholder="e.g. B2B software" maxlength="300"></div><div class="cs-field"><label for="cs-geography">Geography</label><input id="cs-geography" placeholder="e.g. United Kingdom" maxlength="200"></div></div>
           <div class="cs-fields-two"><div class="cs-field"><label for="cs-company-size">Company size</label><input id="cs-company-size" placeholder="e.g. 51–200 employees" maxlength="100"></div><div class="cs-field"><label for="cs-role">Decision maker</label><input id="cs-role" placeholder="e.g. Marketing Director" maxlength="200"></div></div>
@@ -54,15 +57,18 @@
           <div id="cs-review-issues" class="cs-review-issues"></div>
           <div id="cs-angles" class="cs-angles"></div>
           <div class="cs-save-bar"><span id="cs-dirty-state" class="cs-muted">Saved version</span><button type="button" id="cs-save-draft" class="cs-button cs-button-secondary" disabled>Save new version</button></div>
+          <section id="cs-spelling" class="cs-final-check" aria-labelledby="cs-spelling-heading"><div class="cs-section-top"><div><h3 id="cs-spelling-heading">Final copy check</h3><p id="cs-spelling-state" class="cs-help">Check the saved wording before adding it to Copy Bank.</p></div><button type="button" id="cs-check-spelling" class="cs-button cs-button-secondary cs-button-small" disabled>Check spelling &amp; final review</button></div><div id="cs-spelling-results"></div></section>
           <details class="cs-evidence"><summary>Evidence behind the wording</summary><div id="cs-draft-evidence" class="cs-details-body"></div></details>
           <div id="cs-draft-review" class="cs-approval-panel"></div>
+          <details id="cs-publish" class="cs-publish" hidden><summary>Send to Copy Bank <span aria-hidden="true">↗</span></summary><div class="cs-details-body"><p id="cs-publish-state" class="cs-help">Choose where this approved version belongs, then review the exact copy before saving.</p><div class="cs-fields-two"><div class="cs-field"><label for="cs-publish-territory">Territory</label><select id="cs-publish-territory"></select></div><div class="cs-field"><label for="cs-publish-industry">Industry</label><select id="cs-publish-industry"></select></div></div><div class="cs-fields-two"><div class="cs-field"><label for="cs-publish-section">Copy Bank section</label><select id="cs-publish-section"></select></div><div class="cs-field"><label for="cs-publish-angle">Angle to save</label><select id="cs-publish-angle"></select></div></div><small id="cs-publish-channel" class="cs-help"></small><button type="button" id="cs-publish-preview-button" class="cs-button cs-button-secondary cs-full" disabled>Preview Copy Bank entry</button><div id="cs-publish-preview" class="cs-publish-preview" hidden></div><button type="button" id="cs-publish-confirm" class="cs-button cs-button-primary cs-full" hidden disabled>Add approved copy to Copy Bank</button></div></details>
         </div>
       </section>
     </div>
 
-    <details class="cs-panel cs-library"><summary><span>Source library &amp; learning</span><span id="cs-source-count" class="cs-muted"></span></summary><div class="cs-details-body"><p class="cs-help">Review imported knowledge before using it. Source citations stay separate from the outreach itself.</p><div class="cs-source-toolbar"><label for="cs-sync-source">Sync a source</label><select id="cs-sync-source"><option value="all">All configured sources</option><option value="onboarding">Onboarding</option><option value="copy_bank">Copy Bank</option><option value="smartlead">Smartlead</option><option value="manual">Manual reporting sheets</option></select><button type="button" id="cs-sync-selected" class="cs-button cs-button-secondary">Sync selected</button></div><div id="cs-source-library"></div><details class="cs-form-details"><summary>Campaign learning</summary><div id="cs-performance" class="cs-details-body"></div></details><details class="cs-form-details"><summary>Writing methodology</summary><div id="cs-methodology" class="cs-details-body"></div></details></div></details>
+    <details id="cs-copy-bank-context" class="cs-panel cs-library"><summary><span>This client’s Copy Bank</span><span id="cs-copy-bank-count" class="cs-muted"></span></summary><div id="cs-copy-bank-references" class="cs-details-body"></div></details>
+    <details class="cs-panel cs-library"><summary><span>Source library &amp; learning</span><span id="cs-source-count" class="cs-muted"></span></summary><div class="cs-details-body"><p class="cs-help">Review imported Read AI conversations and other client knowledge before using them. Source citations stay separate from the outreach itself.</p><div class="cs-source-toolbar"><label for="cs-sync-source">Sync a source</label><select id="cs-sync-source"><option value="all">All configured sources</option><option value="onboarding">Read AI conversations</option><option value="copy_bank">Copy Bank</option><option value="smartlead">Smartlead</option><option value="manual">Manual reporting sheets</option></select><button type="button" id="cs-sync-selected" class="cs-button cs-button-secondary">Sync selected</button></div><div id="cs-source-library"></div><details class="cs-form-details"><summary>Campaign learning</summary><div id="cs-performance" class="cs-details-body"></div></details><details class="cs-form-details"><summary>Writing methodology</summary><div id="cs-methodology" class="cs-details-body"></div></details></div></details>
   </div>
   <footer class="cs-footer"><span>UNSTUCK AGENCY <span aria-hidden="true">/</span> AI COPY STUDIO</span><span>Thoughtful copy. Human approval.</span></footer>
 </div>
 {% endblock %}
-{% block extra_scripts %}<script src="/static/copy-studio.js?v=1" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="/static/copy-studio.js?v=3" defer></script>{% endblock %}

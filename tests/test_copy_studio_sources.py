@@ -42,9 +42,25 @@ def test_no_network_for_disabled_meet_alfred(monkeypatch):
 
 def test_capabilities_do_not_claim_configuration_is_a_successful_sync(monkeypatch):
     monkeypatch.setenv("SMARTLEAD_API_KEY", "present")
+    monkeypatch.setenv("SUPABASE_URL", "https://database.example.invalid")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "present")
+    monkeypatch.setenv("COPY_STUDIO_AGENCY_ID", "agency-1")
     statuses = {row["id"]: row for row in integrations.capabilities()}
     assert statuses["smartlead"]["status"] == "configured_not_verified"
+    assert not statuses["smartlead"]["live_verified"]
+    assert statuses["smartlead"]["read_performance"]
+    assert not statuses["copy_bank"]["read_performance"]
     assert all(not row["send"] for row in statuses.values())
+
+
+def test_provider_key_without_scoped_source_database_is_not_ready(monkeypatch):
+    monkeypatch.setenv("SMARTLEAD_API_KEY", "present")
+    monkeypatch.setenv("GOOGLE_SHEETS_SA_JSON", "present")
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    statuses = {row["id"]: row for row in integrations.capabilities()}
+    assert not statuses["smartlead"]["configured"]
+    assert not statuses["manual"]["configured"]
+    assert not statuses["copy_bank"]["configured"]
 
 
 def test_copy_bank_strict_client_channel_and_review_contract(scoped, monkeypatch):
@@ -98,6 +114,64 @@ def test_copy_bank_email_alternatives_are_not_concatenated_into_a_sequence(scope
     assert email[0]["source_key"] != email[1]["source_key"]
     linkedin = next(item for item in result["items"] if item["content"]["channel"] == "linkedin")
     assert [step["kind"] for step in linkedin["content"]["steps"]] == ["connection", "initial", "follow_up", "closing"]
+
+
+def test_copy_bank_context_manifest_matches_persisted_versions_without_auto_approval(scoped, monkeypatch, tmp_path):
+    from app.utils.copy_studio.store import SQLiteStore
+    rows = [{"key": "__c__client-1__UK_Management_Consulting", "content": {
+        "email": {"subjects": ["Question"], "variations": [{"body": "Original client copy"}]}}}]
+    monkeypatch.setattr(sources, "_sb_get", lambda table, params: rows)
+    store = SQLiteStore(str(tmp_path / "sources.db"), agency_id="agency-1")
+    first = sources.sync_copy_bank("client-1")
+    item = first["items"][0]
+    content = item["content"]
+    assert content["audience"] == {"geography": "UK", "sector": "Management_Consulting"}
+    assert content["step_kinds"] == ["initial"]
+    assert content["context_provenance"] == "copy_bank_key"
+    saved = store.save(item["kind"], item["client_id"], item["source_key"], content, "importer")
+    assert saved["status"] != "approved"
+    assert first["coverage"]["imported_versions"] == [{"source_key": saved["source_key"], "content_hash": saved["content_hash"]}]
+    assert first["coverage"]["source_manifest_authoritative"]
+    assert sources.sync_copy_bank("client-1")["coverage"]["imported_versions"] == first["coverage"]["imported_versions"]
+    rows[0]["content"]["email"]["variations"][0]["body"] = "Changed client copy"
+    changed = sources.sync_copy_bank("client-1")
+    assert changed["coverage"]["imported_source_keys"] == first["coverage"]["imported_source_keys"]
+    assert changed["coverage"]["imported_versions"] != first["coverage"]["imported_versions"]
+
+
+def test_copy_bank_empty_manifest_records_removed_examples(scoped, monkeypatch):
+    monkeypatch.setattr(sources, "_sb_get", lambda *args: [])
+    result = sources.sync_copy_bank("client-1")
+    assert result["complete"]
+    assert result["coverage"]["source_manifest_authoritative"]
+    assert result["coverage"]["imported_versions"] == []
+
+
+@pytest.mark.parametrize("failure", ["repeated", "unavailable"])
+def test_copy_bank_incomplete_page_keeps_pending_items_without_authoritative_manifest(scoped, monkeypatch, failure):
+    monkeypatch.setattr(sources, "PAGE_SIZE", 1)
+    rows = [{"key": "__c__client-1__UK_Software", "content": {"email": {"variations": [{"body": "Client wording"}]}}}]
+    def read(table, params):
+        if failure == "unavailable" and int(params["offset"]):
+            raise integrations.IntegrationUnavailable("Unavailable")
+        return rows
+    monkeypatch.setattr(sources, "_sb_get", read)
+    result = sources.sync_copy_bank("client-1")
+    assert len(result["items"]) == 1
+    assert not result["complete"] and result["warnings"]
+    assert not result["coverage"]["source_manifest_authoritative"]
+
+
+def test_sent_copy_context_uses_explicit_mapping_not_campaign_name(scoped, monkeypatch):
+    monkeypatch.setattr(sources, "_read_manual_records", lambda sheet: [{
+        "Recipient Email": "person@example.invalid", "A/B Variant": "S1/B1", "Send Status": "Sent",
+        "Lead Status": "Lead", "Subject Line": "Hello", "Email Body": "A relevant opening"}])
+    campaign = {**scoped, "name": "US Healthcare", "copy_territory": "UK", "copy_industry": "Software"}
+    result = sources.sync_campaign("client-1", "manual", campaign)
+    assert all(item["content"]["audience"] == {"geography": "UK", "sector": "Software"} for item in result["items"])
+    missing = sources.sync_campaign("client-1", "manual", scoped)
+    assert all(item["content"]["audience"] == {} for item in missing["items"])
+    assert all(not item["content"]["context_complete"] for item in missing["items"])
 
 
 def test_manual_current_statuses_and_actual_copy_are_campaign_scoped(scoped, monkeypatch):
@@ -180,6 +254,38 @@ def test_smartlead_resumes_history_deduplicates_copy_and_joins_stable_ids(scoped
     assert report["variants"][0]["variant_id"] == "101"
     assert report["variants"][0]["observed_sent_rows"] == 2
     assert report["period"] == {"kind": "provider_window", "from": "2026-01-01", "to": sources.date.today().isoformat()}
+
+
+def test_smartlead_current_sequence_default_is_preserved_without_inventing_variant_id():
+    records = sources._templates("client-1", "123", [
+        {"id": 10, "seq_number": 1, "subject": "Subject", "email_body": "Initial", "sequence_variants": [
+            {"id": 101, "subject": "Subject", "email_body": "Initial", "variant_label": "A"}]},
+        {"id": 20, "seq_number": 2, "subject": "Follow up", "email_body": "Default follow up", "sequence_variants": []},
+    ])
+    assert len(records) == 2  # duplicate default/variant wording is not repeated
+    default = next(item for item in records if item["content"].get("template_kind") == "sequence_default")
+    assert default["content"]["sequence_id"] == "20"
+    assert default["content"]["variant_id"] == ""
+    assert default["content"]["steps"] == [{"kind": "follow_up", "body": "Default follow up"}]
+    assert default["content"]["attribution"] == "current_template_only"
+    assert not default["content"]["reusable"] and not default["content"]["performance_proven"]
+
+
+def test_smartlead_baseline_analytics_without_variant_id_remains_unresolved(scoped, monkeypatch):
+    def read(path, params=None):
+        if path.endswith("/sequences"):
+            return []
+        if path.endswith("/statistics"):
+            return {"data": [sent_row(1)], "limit": 100, "offset": 0, "total_stats": 1}
+        result = analytics(sent=1, variant=None)
+        result["data"]["sequences"][0]["variants"][0]["is_baseline"] = True
+        return result
+    monkeypatch.setattr(sources, "_smartlead_get", read)
+    result = sources.sync_campaign("client-1", "smartlead", scoped)
+    report = next(item["content"] for item in result["items"] if item["kind"] == "performance")
+    assert report["variants"][0]["attribution"] == "unresolved"
+    assert report["variants"][0]["copy_source_keys"] == []
+    assert not report["variants"][0]["reference_eligible"]
 
 
 def test_smartlead_mismatched_id_does_not_join_by_label(scoped, monkeypatch):
@@ -391,3 +497,154 @@ def test_campaign_reconciliation_retains_missing_ids_without_other_client_names(
     assert result["client_mappings_missing_from_provider"] == ["deleted"]
     assert result["provider_without_agency_mapping_count"] == 1
     assert "client-2" not in str(result)
+
+
+def profile(identifier="client-1", domain="example.com", **extra):
+    return {"id": identifier, "agency_id": "agency-1", "name": identifier,
+            "domains": [domain], "updated_at": "2026-10-28T00:00:00Z", **extra}
+
+
+def call(identifier, client="client-1", email="person@example.com", **extra):
+    return {"id": identifier, "client_id": client, "agency_id": "agency-1", "match_status": "matched" if client else "unmatched",
+            "participants": [{"email": email}], "transcript": [{"i": 0, "text": "Verified source conversation.", "start_ms": 1000}],
+            "is_onboarding": False, **extra}
+
+
+def source_database(monkeypatch, profiles, meetings):
+    queries = []
+    def read(table, params):
+        queries.append((table, params))
+        if table == "clients":
+            rows = profiles
+        else:
+            assert "is_onboarding" not in params  # all client meetings, not just onboarding
+            client_filter = params.get("client_id")
+            rows = [row for row in meetings if (not row.get("client_id") if client_filter == "is.null"
+                    else str(row.get("client_id")) == client_filter.removeprefix("eq."))]
+        offset, limit = int(params.get("offset", 0)), int(params.get("limit", 100))
+        return deepcopy(rows[offset:offset+limit])
+    monkeypatch.setattr(sources, "_sb_get", read)
+    return queries
+
+
+def test_canonical_profile_domain_identifies_website_without_sending_inbox_guess():
+    metadata = sources.profile_metadata(profile(domains=["https://www.Example.com/about", "mail.example.com"], sender_emails=["someone@other-business.com"]))
+    assert metadata["domains"] == ["example.com", "mail.example.com"]
+    assert metadata["website_url"] == "https://example.com"
+    assert metadata["website_source"] == "client_profile_domain"
+    assert metadata["website_inferred"] and not metadata["website_verified"]
+    assert metadata["profile_url"] == "/client-profiles"
+    assert "sender_emails" not in metadata
+    assert metadata["profile_fingerprint"] == sources.profile_metadata(profile(domains=["example.com", "mail.example.com"]))["profile_fingerprint"]
+    missing = sources.profile_metadata(profile(domains=[], sender_emails=["ceo@realcompany.com"]))
+    assert missing["website_url"] is None and missing["website_source"] == "missing"
+    changed = sources.profile_metadata(profile(domains=["new-company.com"]))
+    assert changed["profile_fingerprint"] != metadata["profile_fingerprint"]
+
+
+def test_profile_website_validation_does_not_create_unsafe_links():
+    for value in ("javascript:alert(1)", "http://127.0.0.1/private", "https://user:secret@example.com", "https://localhost/", "https://[broken"):
+        assert sources.profile_metadata(profile(domains=[], website_url=value))["website_url"] is None
+    metadata = sources.profile_metadata(profile(domains=["gmail.com", "person@example.com", "127.0.0.1", "example.local"]))
+    assert metadata["website_url"] is None
+    explicit = sources.profile_metadata(profile(website_url="https://example.com/company"))
+    assert explicit["website_url"] == "https://example.com/company"
+    assert explicit["website_source"] == "client_profile_website" and not explicit["website_verified"]
+
+
+def test_client_profile_requires_explicit_matching_agency(monkeypatch):
+    monkeypatch.setenv("COPY_STUDIO_AGENCY_ID", "agency-1")
+    monkeypatch.setattr(sources, "_sb_get", lambda table, params: [profile(agency_id="agency-2")])
+    with pytest.raises(integrations.IntegrationUnavailable, match="not mapped"):
+        sources.client_profile("client-1")
+    monkeypatch.setattr(sources, "_sb_get", lambda table, params: [profile()])
+    assert sources.client_profile("client-1")["website_url"] == "https://example.com"
+
+
+def test_every_mapped_client_call_is_imported_with_assignment_provenance(scoped, monkeypatch):
+    profiles = [profile(), profile("client-2", "different.com")]
+    meetings = [call("onboarding", is_onboarding=True), call("later-strategy", is_onboarding=False),
+                call("ignored", match_status="ignored"), call("ambiguous", match_status="ambiguous"),
+                call("wrong-client", client="client-2")]
+    queries = source_database(monkeypatch, profiles, meetings)
+    result = sources.sync_onboarding("client-1")
+    assert {item["source_key"] for item in result["items"]} == {"read_ai:onboarding", "read_ai:later-strategy"}
+    assert all(item["content"]["source_assignment"]["method"] == "explicit_client_mapping" for item in result["items"])
+    assert result["coverage"]["mapped_calls"] == 2
+    assert result["coverage"]["ignored_candidates"] == 1
+    assert result["coverage"]["ambiguous_candidates"] == 1
+    assert not result["complete"]
+    assert result["coverage"]["source_manifest_authoritative"]
+    assert result["coverage"]["profile_fingerprint"] == sources.profile_metadata(profiles[0])["profile_fingerprint"]
+    assert not result["coverage"]["account_history_verified"]
+
+
+def test_unique_unassigned_domain_matching_uses_complete_directory_and_no_titles(scoped, monkeypatch):
+    profiles = [profile(), profile("client-2", "different.com")]
+    meetings = [call("domain-match", client=None),
+                call("title-only", client=None, email="personal@gmail.com", title="client-1 onboarding"),
+                call("two-clients", client=None, participants=[{"email": "one@example.com"}, {"email": "two@different.com"}]),
+                call("previously-ambiguous", client=None, match_status="ambiguous"),
+                call("ignored", client=None, match_status="ignored"),
+                call("other-client-mapped", client="client-2"),
+                call("foreign-agency", client=None, agency_id="agency-2")]
+    source_database(monkeypatch, profiles, meetings)
+    result = sources.sync_onboarding("client-1")
+    assert [item["source_key"] for item in result["items"]] == ["read_ai:domain-match"]
+    assignment = result["items"][0]["content"]["source_assignment"]
+    assert assignment["method"] == "unique_participant_domain"
+    assert assignment["source_client_id"] is None and not assignment["upstream_assignment_changed"]
+    assert assignment["full_agency_directory_verified"]
+    assert result["coverage"]["recovered_calls"] == 1
+    assert result["coverage"]["ambiguous_candidates"] == 2
+    assert result["coverage"]["unassigned_unmatched"] == 1
+    assert result["coverage"]["wrong_scope_skipped"] == 1
+    assert not result["complete"]
+
+
+def test_full_directory_pagination_prevents_false_unique_match(scoped, monkeypatch):
+    monkeypatch.setattr(sources, "PAGE_SIZE", 1)
+    source_database(monkeypatch, [profile(), profile("client-2", "example.com")], [call("shared-domain", client=None)])
+    result = sources.sync_onboarding("client-1")
+    assert result["items"] == []
+    assert result["coverage"]["profile_directory_complete"]
+    assert result["coverage"]["ambiguous_candidates"] == 1
+
+
+def test_incomplete_directory_disables_recovery_but_keeps_mapped_calls(scoped, monkeypatch):
+    monkeypatch.setattr(sources, "PAGE_SIZE", 1)
+    def read(table, params):
+        offset = int(params.get("offset", 0))
+        if table == "clients":
+            if offset:
+                raise integrations.IntegrationUnavailable("directory page unavailable")
+            return [profile()]
+        assert params["client_id"] != "is.null"  # cannot infer uniqueness from a partial directory
+        return [call("mapped")] if not offset else []
+    monkeypatch.setattr(sources, "_sb_get", read)
+    result = sources.sync_onboarding("client-1")
+    assert len(result["items"]) == 1
+    assert not result["complete"]
+    assert not result["coverage"]["source_manifest_authoritative"]
+    assert not result["coverage"]["profile_directory_complete"]
+
+
+def test_missing_transcript_and_remapped_call_are_absent_from_authoritative_manifest(scoped, monkeypatch):
+    profiles = [profile(), profile("client-2", "different.com")]
+    meetings = [call("current"), call("missing", transcript=[]), call("moved", client="client-2")]
+    source_database(monkeypatch, profiles, meetings)
+    result = sources.sync_onboarding("client-1")
+    assert result["coverage"]["imported_source_keys"] == ["read_ai:current"]
+    assert result["coverage"]["source_manifest_authoritative"]
+    assert result["coverage"]["missing_transcripts"] == 1
+    assert not result["complete"]
+
+
+def test_relevant_calls_are_paginated_without_truncating_stored_transcripts(scoped, monkeypatch):
+    monkeypatch.setattr(sources, "PAGE_SIZE", 2)
+    queries = source_database(monkeypatch, [profile()], [call(f"call-{i}") for i in range(5)])
+    result = sources.sync_onboarding("client-1")
+    assert result["complete"] and result["coverage"]["mapped_calls"] == 5
+    assert len(result["coverage"]["imported_source_keys"]) == 5
+    offsets = [params["offset"] for table, params in queries if table == "pulse_meetings" and params["client_id"] == "eq.client-1"]
+    assert offsets == ["0", "2", "4"]

@@ -65,6 +65,17 @@ def test_all_source_job_continues_after_missing_credentials(job_store, monkeypat
     assert len(job_store.list("client-1", kind="example")) == 2
 
 
+def test_client_context_imports_copy_bank_and_calls_without_campaign_or_model_calls(job_store, monkeypatch):
+    job = claim(job_store, "context")
+    monkeypatch.setattr(sources, "sync_copy_bank", lambda client_id: result("copy-bank"))
+    monkeypatch.setattr(sources, "sync_onboarding", lambda client_id: result("read-ai"))
+    monkeypatch.setattr(sources, "list_campaigns", lambda *a, **k: pytest.fail("Context refresh must not fetch campaigns"))
+    outcome = worker._sync(job_store, job, "worker-1")
+    assert outcome["complete"]
+    assert [r["source"] for r in outcome["sources"]] == ["copy_bank", "onboarding"]
+    assert not job_store.list("client-1", kind="usage")
+
+
 def test_checkpoint_resume_keeps_page_identity_and_previously_saved_versions(job_store, monkeypatch):
     job = claim(job_store, "smartlead")
     calls, pages = [], []

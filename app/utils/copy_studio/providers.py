@@ -143,6 +143,50 @@ class OpenAIProvider:
         return validate_json(result, schema)
 
 
+def _anthropic_native_json(model: str) -> bool:
+    """Models documented for native JSON outputs, including dated model IDs.
+
+    Verified against the official compatibility table on 2026-10-28:
+    https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+    Older configured models retain their existing tool-input response contract.
+    No model is substituted, and an API rejection never switches models/modes.
+    """
+    families = (
+        "claude-sonnet-4-5", "claude-sonnet-4-6", "claude-sonnet-5",
+        "claude-opus-4-5", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5",
+        "claude-haiku-4-5", "claude-haiku-5-5", "claude-fable-5", "claude-mythos-5", "claude-mythos-preview",
+    )
+    return any(model == family or model.startswith(family + "-") for family in families)
+
+
+def _anthropic_output_schema(schema: dict) -> dict:
+    """Follow the documented SDK transformation while validating the original.
+
+    Claude's JSON-output grammar does not accept numeric/string bounds or array
+    bounds other than minItems 0/1. Describe those bounds in the request, then
+    apply every original bound with validate_json after receiving the response.
+    This transforms a copy; the caller's schema and local checks are unchanged.
+    """
+    result, descriptions = {}, []
+    unsupported = {"minimum", "maximum", "minLength", "maxLength", "maxItems"}
+    for key, value in schema.items():
+        if key in unsupported or (key == "minItems" and value not in (0, 1)):
+            descriptions.append(f"{key}: {value}")
+        elif key == "properties":
+            result[key] = {name: _anthropic_output_schema(child) for name, child in value.items()}
+        elif key == "items":
+            result[key] = _anthropic_output_schema(value)
+        else:
+            # Schema values are scalar or enum/required lists in our vocabulary.
+            result[key] = json.loads(json.dumps(value))
+    if result.get("type") == "object":
+        result["additionalProperties"] = False
+    if descriptions:
+        result["description"] = " ".join(filter(None, [result.get("description"),
+            "Required constraints (also validated by the application): " + "; ".join(descriptions) + "."]))
+    return result
+
+
 class AnthropicProvider:
     name = "anthropic"
 
@@ -150,15 +194,39 @@ class AnthropicProvider:
         self.model, self._key = model, key
 
     def complete_json(self, system, user, *, schema, schema_name, max_tokens=5000):
+        native = _anthropic_native_json(self.model)
+        body = {"model": self.model, "system": system, "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": user}]}
+        if native:
+            # Sonnet 5.5 explicitly rejects forced tool_choice. The documented
+            # native JSON response uses a text block and needs no tools/beta.
+            body["output_config"] = {"format": {"type": "json_schema", "schema": _anthropic_output_schema(schema)}}
+        else:
+            body.update(tools=[{"name": schema_name, "description": "Return the requested structured result.",
+                                "input_schema": schema}],
+                        tool_choice={"type": "tool", "name": schema_name})
         payload = _post("https://api.anthropic.com/v1/messages", {
             "x-api-key": self._key, "anthropic-version": "2023-06-01", "Content-Type": "application/json",
-        }, {"model": self.model, "system": system, "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": user}],
-            "tools": [{"name": schema_name, "description": "Return the requested structured result.",
-                       "input_schema": schema}],
-            "tool_choice": {"type": "tool", "name": schema_name}})
-        if payload.get("stop_reason") == "max_tokens":
+        }, body)
+        stop = payload.get("stop_reason")
+        details = payload.get("stop_details") or {}
+        if stop == "refusal" or (isinstance(details, dict) and details.get("type") == "refusal"):
+            raise ProviderError("The writing provider declined this request. Review the input before trying again.")
+        if stop in {"max_tokens", "model_context_window_exceeded"}:
             raise ProviderError("The writing response was incomplete. Reduce the request or increase its output budget.")
+        if native:
+            if stop != "end_turn":
+                raise ProviderError("The writing provider did not finish a complete structured draft.")
+            content = payload.get("content")
+            if not isinstance(content, list):
+                raise ProviderError("The writing provider did not return a structured draft.")
+            text = "".join(part["text"] for part in content if isinstance(part, dict)
+                           and part.get("type") == "text" and isinstance(part.get("text"), str))
+            try:
+                result = json.loads(text)
+            except (ValueError, TypeError):
+                raise ProviderError("The writing provider did not return a complete structured draft.") from None
+            return validate_json(result, schema)
         matches = [part.get("input") for part in payload.get("content", [])
                    if part.get("type") == "tool_use" and part.get("name") == schema_name]
         if len(matches) != 1:

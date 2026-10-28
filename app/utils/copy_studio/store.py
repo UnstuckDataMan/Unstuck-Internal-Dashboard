@@ -310,6 +310,15 @@ class SQLiteStore(_RecordPagination):
             return [self._decode(row) for row in db.execute("SELECT * FROM copy_studio_jobs WHERE agency_id=? AND client_id=? ORDER BY created_at DESC,rowid DESC LIMIT ?",
                                                          (self.agency_id, _text(client_id, "client ID", 200), _limit(limit))).fetchall()]
 
+    def context_refresh_active(self, client_id):
+        """Publication guards must not depend on the bounded UI job history."""
+        with self._db() as db:
+            return db.execute(
+                "SELECT 1 FROM copy_studio_jobs WHERE agency_id=? AND client_id=? "
+                "AND kind='sync' AND status IN ('queued','running') "
+                "AND json_extract(payload, '$.source') IN ('context','onboarding','all') LIMIT 1",
+                (self.agency_id, _text(client_id, "client ID", 200))).fetchone() is not None
+
     def claim_job(self, worker_id, lease_seconds=300):
         worker_id = _text(worker_id, "worker ID", 200)
         lease_seconds = max(10, min(3600, int(lease_seconds)))
@@ -451,6 +460,12 @@ class SupabaseStore(_RecordPagination):
 
     def list_jobs(self, client_id, limit=30):
         return self._request("get", "copy_studio_jobs", params=self._scope(client_id, order="created_at.desc,id.desc", limit=_limit(limit)))
+
+    def context_refresh_active(self, client_id):
+        rows = self._request("get", "copy_studio_jobs", params=self._scope(
+            client_id, select="id", kind="eq.sync", status="in.(queued,running)", limit=1,
+            **{"payload->>source": "in.(context,onboarding,all)"}))
+        return bool(rows)
 
     def _rpc(self, name, **params):
         return self._request("post", f"rpc/copy_studio_{name}", json={"p_agency_id": self.agency_id, **params})

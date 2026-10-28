@@ -1,13 +1,25 @@
 # Unstuck AI Copy Studio
 
 Copy Studio is an internal drafting and review workflow at `/copy-studio`, linked
-from the existing dashboard. It does not send campaigns, publish Copy Bank
-content, mutate Smartlead/Sheets, or connect to Meet Alfred. This feature branch
+from the existing dashboard. An explicit reviewer action can append checked,
+approved copy to a selected Copy Bank area. It does not send campaigns,
+mutate Smartlead/Sheets, or connect to Meet Alfred. This feature branch
 has not been released to production.
 
 ## What is implemented
 
-Select an authorised client, import existing sources, confirm onboarding coverage,
+Select an authorised client from the same canonical directory as Client Profiles.
+The workspace loads their saved domain and profile link, then queues their existing
+Copy Bank and Read AI context automatically (without calling a writing model).
+Missing or hour-old Smartlead/manual campaign snapshots are refreshed as well;
+opening the client enrols them in the worker's hourly source refreshes. Calls already
+assigned to the client are included across all meeting types; previously unassigned
+calls require a unique participant-domain match across the complete agency directory.
+Missing domains point back to Client Profiles rather than inferring a website from
+sending inboxes. Imports cover stored webhook transcripts, not unverified full Read AI
+account history.
+
+Review sources, confirm full-call coverage,
 extract and approve a cited brief, choose an audience/channel and generate copy.
 Approved-template assembly preserves reviewed wording and works without a model.
 New drafts propose distinct angles with email subject variants, initial messages,
@@ -15,6 +27,31 @@ follow-ups and a closing message, or LinkedIn connection/initial/follow-up/closi
 steps. Limits are configurable. Citations appear in the review panel, outside the
 outreach. Edits save new immutable versions; AI draft edits need a fresh semantic
 check before human approval. Nothing sends automatically.
+
+UK/US English is suggested from the approved, cited call facts. An explicit language
+preference takes priority; geography is only a tentative hint, and conflicting
+preferences require a manual choice. The user can override the suggestion.
+**Check spelling & final review** reviews the exact saved subjects/messages,
+returns proposed corrections without rewriting them, and creates a new pending
+version. Human edits invalidate that check and require another review. These
+checks use the configured provider and are included in costs.
+
+After approving the checked version, **Send to Copy Bank** lets an admin/reviewer
+select the client's territory, industry, compatible section and angle. The preview
+shows exactly what will be appended. Confirmation rechecks the source version,
+approval and destination snapshot; a conflicting edit requires a fresh preview.
+Existing subjects, variations and unrelated sections are preserved. Retrying the
+same publication returns its receipt instead of duplicating content. Editing the
+draft after approval blocks publication of that superseded version.
+
+The separate **Brief the writer** field supplies creative direction to drafting
+and rechecks. It cannot approve new facts, permission or claims, or override client
+constraints. Switching clients clears creative inputs. A new conversation manifest
+excludes stale assignments from brief extraction; changed or incomplete context
+blocks generation/approval until refreshed and reviewed. Existing client Copy Bank
+copy is available for review and, once approved, informs generation. A current
+source manifest excludes removed or externally changed entries; reviewed edits
+retain their original import lineage rather than silently losing eligibility.
 
 LinkedIn uses approved LinkedIn Copy Bank examples plus the selected client's
 approved facts. It has no performance-proven badge or Meet Alfred metrics. The
@@ -48,7 +85,7 @@ Never place credentials in Git, case exports, browser JavaScript or command line
 | `COPY_STUDIO_AGENCY_ID` | Explicit existing agency UUID; `PULSE_AGENCY_ID` is accepted as a fallback |
 | `SMARTLEAD_API_KEY` | Reuse the dashboard reporting key for GET-only source access |
 | `GOOGLE_SHEETS_SA_JSON` | Existing base64 service-account credential; share manual campaign sheets as Viewer |
-| `COPY_STUDIO_PROVIDER` | `openai` (default selection) or `anthropic`; not a claim of writing quality |
+| `COPY_STUDIO_PROVIDER` | `openai` or `anthropic`; this setup selects `anthropic` at the user's request |
 | `COPY_STUDIO_MODEL` | Explicit company-approved model ID; no untested studio model default |
 | `COPY_STUDIO_OPENAI_API_KEY` | Company OpenAI API credential; existing `OPENAI_API_KEY` is also accepted |
 | `COPY_STUDIO_ANTHROPIC_API_KEY` | Optional company Claude credential; existing `ANTHROPIC_API_KEY` is also accepted |
@@ -60,7 +97,20 @@ model settings. Only one provider is necessary; choose between providers using
 the same evidence-backed briefs and blind human reviews, not a brand preference.
 See the [evaluation workflow](copy-studio-evaluation.md).
 
-Read AI source sync reads full stored `pulse_meetings` onboarding transcripts from
+This environment selects `claude-sonnet-5-5`, verified in the authenticated models
+listing on 28 October 2026. Standard synchronous global inference rates verified
+against [Anthropic's pricing documentation](https://platform.claude.com/docs/en/about-claude/pricing)
+are USD 2 per million input tokens, USD 10 output and USD 0.10 cache reads. The
+bundled rate card is dated 28 October 2026 and used for that exact model when no
+explicit override is present. An optional override is
+`{"anthropic:claude-sonnet-5-5":{"input":2,"output":10,"cached_input":0.1}}`.
+Invalid configuration and unsupported models remain unpriced; historical records
+are never repriced.
+This adapter does not request batch processing, regional inference or explicit
+cache creation. Cache-write rates are intentionally absent: unexpected cache
+writes remain unpriced until their duration-specific charges are configured.
+
+Read AI source sync reads full stored `pulse_meetings` client transcripts from
 the existing webhook pipeline. Calls missing from that pipeline need ingestion
 there first. Stored transcript completeness is distinguished from confirmed
 full-call coverage. A reviewer can compare the original call and confirm coverage,
@@ -75,7 +125,8 @@ The compact cost bar shows **today, this calendar month and all time**, using
 `Europe/London` boundaries, in USD. It covers this tool's recorded extraction,
 writing, independent reviews, rechecks and opted-in evaluation calls. It does not
 invent costs for activity before tracking began or for other dashboard tools.
-Assembly makes no model calls and therefore has no model API charge.
+Initial approved-template assembly makes no model calls. Final proofreading and
+semantic checks of edited assemblies use the model and incur tracked charges.
 
 Every HTTP attempt first creates an unknown usage record. Returned provider token
 usage finalises that attempt before output parsing, so charged malformed or
@@ -105,8 +156,11 @@ provider records; setting a rate later does not backfill an unknown charge.
 1. Back up the target staging database and confirm its existing `agencies` table
    and explicit client-to-agency mappings. Rows with null agency ownership are not
    silently admitted. Do not run the migration against production at this stage.
-2. Review and apply [`migrations/ai_copy_studio.sql`](../migrations/ai_copy_studio.sql)
-   to staging using the established SQL/migration workflow. PostgreSQL 15+ is
+2. Review and apply [`migrations/ai_copy_studio.sql`](../migrations/ai_copy_studio.sql),
+   then [`migrations/ai_copy_studio_publish.sql`](../migrations/ai_copy_studio_publish.sql)
+   to staging using the established SQL/migration workflow. The publishing bridge
+   requires the existing `clients`, `copy_bank_templates` and `copy_bank_pending`
+   tables. PostgreSQL 15+ is
    required for the security-invoker view. The migration is transactional and
    idempotent; it creates only `copy_studio_*` objects.
 3. Verify anonymous/authenticated callers cannot read or write these tables/view
@@ -146,7 +200,7 @@ start command `python -m app.utils.copy_studio.worker --schedule`. Give it the s
 configuration as the web service. This is a deployment step, not performed by the
 feature branch or by `render.yaml` in this change.
 
-The first **Sync sources** for a client enrolls it for hourly refreshes. A sync
+Selecting a client or choosing **Sync sources** enrolls it for hourly refreshes. A sync
 walks historical campaign pages and checkpoints each step. Retries/restarts resume
 the saved page/cursor. Repeated imports deduplicate immutable source content.
 Subsequent refreshes revisit history because old reply statuses can change; they
@@ -190,14 +244,34 @@ separate worker to complete keyless assembly, editing, approval and sanitised
 reference promotion. Source/model contract tests use fixtures. These checks do
 not prove current live provider contracts or subjective copy quality.
 
-Final offline validation: 1,696 Python tests passed, along with the Copy Studio,
+Final regression validation: 1,834 Python tests passed, along with the Copy Studio,
 benchmark, ROI audit and growth-math JavaScript checks. The broad historical
 browser-script glob is not a passing release check: several scripts require
 separate fixture servers on ports 8765/8766, and some older mocked Gmail browser
 checks report console assertions. Those unrelated scripts were not changed.
 The Copy Studio browser workflow was checked separately against its real local
-HTTP API and worker. Live sources, live model calls and human copy-quality ratings
-remain pending; no paid model calls were made during implementation.
+HTTP API and worker. New publishing panels were additionally checked at desktop
+and mobile sizes with synthetic gateway responses; no external copy was written.
+
+The publishing migration was applied twice in a network-disabled PostgreSQL 17
+container. `tests/sql/test_ai_copy_studio_publish.sql` validates private RPC/table
+permissions, version/approval/context checks, append preservation and immutable
+receipts. `tests/sql/check_copy_studio_publish_concurrency.py --container <name>`
+exercises actual concurrent sessions: duplicate publications, competing selections,
+a legacy editor's update, and a legacy editor's first insert. All four races passed.
+These scripts are only for a disposable fixture database containing the existing
+table shapes, never production. The test container and volumes were removed.
+
+Live checks on 28 October 2026 authenticated Supabase, Smartlead (1,140 campaigns),
+Google Sheets and Anthropic's model list. Client Profiles/stored Read AI schemas
+were checked read-only. A synthetic Sonnet 5.5 response then verified native JSON
+output and token usage with no client data sent. The first two requests exposed
+Sonnet 5.5's unsupported forced-tool option; the adapter now uses documented
+`output_config.format` and retains local schema validation. The setup ledger keeps
+those rejected attempts' absent usage unknown instead of claiming they were free.
+No production records were written. The private Copy Studio tables return 404 in
+the configured production project, so migration/deployment remain outstanding.
+Human copy-quality ratings and real-client model pilots remain pending.
 
 ## Release gates and rollback
 
@@ -210,12 +284,18 @@ leakage, enforced exclusions, valid channel variables and visible completeness
 are gates for the evaluated set. Demonstrate improved reviewer preference/editing
 effort before broad access. Automated checks alone cannot satisfy those gates.
 
-After explicit release approval, apply the reviewed migration and deploy the
+After explicit release approval, apply both reviewed migrations and deploy the
 approved commit plus worker. Do not treat earlier benchmark deployment approval
 as approval for this feature.
 
 Rollback: stop the Copy Studio worker first, remove the tool grant or revert this
 feature's application commit, and leave the private tables intact for audit and
-cost reconciliation. Existing tools' databases are unchanged by the migration.
+cost reconciliation. The migrations do not alter existing source tables or their
+grants; the publishing RPC writes only after an explicit reviewer action. To undo
+a published append, use its immutable receipt and review the current Copy Bank
+entry before editing; do not restore an old whole-entry snapshot over later work.
+The legacy Copy Bank editor can still overwrite an entry in a later independent
+edit; the new bridge guarantees preservation and concurrency checks during its
+own transaction, not a rewrite of that older editing workflow.
 Do not drop the version/usage history as a rollback shortcut. Paused jobs resume
 from durable state when an approved worker is restarted.

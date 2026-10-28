@@ -4,7 +4,7 @@
   if (!get('root')) return;
   const LIMITS = {email:{subject:120,initial:1200,follow_up:800,closing:500},linkedin:{connection:200,initial:600,follow_up:600,closing:400}};
   const LABELS = {subject:'Subject line',connection:'Connection note',initial:'Initial message',follow_up:'Follow-up',closing:'Closing message'};
-  const state = {boot:null,client:'',epoch:0,data:null,briefRecord:null,briefDirty:false,draft:null,edited:null,dirty:false,invalid:false,busy:false,job:null,poll:null,selectedExamples:new Set(),briefEdits:new Map(),factDecisions:new Map(),resolutions:new Map()};
+  const state = {boot:null,client:'',epoch:0,data:null,briefRecord:null,briefDirty:false,draft:null,edited:null,dirty:false,invalid:false,busy:false,job:null,poll:null,contextAttempted:false,contextJobId:null,localeOverride:false,destinations:null,publication:null,publicationEpoch:0,selectedExamples:new Set(),briefEdits:new Map(),factDecisions:new Map(),resolutions:new Map()};
   let costRequest=0;
   const clone = value => JSON.parse(JSON.stringify(value));
   const asList = value => Array.isArray(value) ? value : [];
@@ -17,6 +17,8 @@
   const isCurrent = (client,epoch) => state.client===client && state.epoch===epoch;
   const issues = content => asList(content?.review?.issues);
   const blocking = content => issues(content).some(issue=>['error','blocker'].includes(issue.severity));
+  const localeValid = value => ['en-GB','en-US'].includes(value);
+  const localeLabel = value => value==='en-US'?'US English':value==='en-GB'?'UK English':'an English style';
   const dateLabel = value => {if(!value)return '';const date=new Date(value);return Number.isFinite(date.getTime())?date.toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):'';};
   async function request(path,body) {
     const response=await fetch('/api/copy-studio'+path,{method:body===undefined?'GET':'POST',headers:{Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json','X-Copy-Studio-CSRF':state.boot?.csrf||''})},...(body===undefined?{}:{body:JSON.stringify(body)}),credentials:'same-origin',cache:'no-store'});
@@ -47,9 +49,45 @@
   }
   function link(url,text) {
     if(typeof url!=='string')return el('span',text);
-    let target;try{target=new URL(url,window.location.origin);}catch(error){return el('span',text);}
+    let target;try{target=new URL(url,window.location.href);}catch(error){return el('span',text);}
     if(!['http:','https:'].includes(target.protocol))return el('span',text);
     const a=el('a',text);a.href=target.href;a.target='_blank';a.rel='noopener noreferrer';return a;
+  }
+  function renderProfile() {
+    const profile=state.data?.profile||{};
+    const domains=asList(profile.domains).filter(domain=>typeof domain==='string'&&domain.trim()).map(domain=>domain.trim());
+    get('profile').hidden=!state.client;
+    const domainNodes=[];
+    if(domains.length){domainNodes.push(link(profile.website_url,domains[0]));for(const domain of domains.slice(1))domainNodes.push(el('span',domain,'cs-profile-extra'));}
+    else domainNodes.push(el('span',state.data?.profile_error?'Client profile unavailable':'No client domain saved','cs-muted'));
+    get('profile-domain').replaceChildren(...domainNodes);
+    let destination='/client-profiles';
+    try{const parsed=new URL(profile.profile_url||destination,window.location.href),base=new URL(window.location.href);if(parsed.origin===base.origin&&parsed.pathname==='/client-profiles')destination=parsed.href;}catch(error){/* Use the dashboard's known profile route. */}
+    get('profile-link').replaceChildren(link(destination,domains.length?'Open Client Profiles ↗':'Add domain in Client Profiles ↗'));
+    const transcripts=asList(state.data?.sources).filter(record=>record.kind==='transcript');
+    const count=new Set(transcripts.map(record=>record.source_key||record.id)).size;
+    const context=count?`${count} imported Read AI conversation${count===1?'':'s'}`:'No Read AI conversations imported yet';
+    get('profile-state').textContent=(state.data?.profile_error?'Client Profiles could not be loaded. ':domains.length?'Domain from Client Profiles · ':'')+context+'.';
+  }
+  function objectiveCount() {get('objective-count').textContent=`${[...get('objective').value].length} / 1,000 characters`;}
+  function renderLocale() {
+    const suggestion=state.data?.locale_suggestion||{};
+    if(!state.localeOverride)get('language').value=localeValid(suggestion.locale)&&['explicit','tentative'].includes(suggestion.status)?suggestion.locale:'';
+    get('language-hint').textContent=state.localeOverride?'Your choice applies to generation and the final copy check.':localeValid(get('language').value)?`${localeLabel(suggestion.locale)} suggested from client context. You can change it.`:'Choose UK or US English for this campaign.';
+  }
+  function eligibleExamples() {
+    const eligible=Array.isArray(state.data?.eligible_example_ids)?new Set(state.data.eligible_example_ids.map(String)):null;
+    return asList(state.data?.examples).filter(record=>record.status==='approved'&&(!eligible||eligible.has(String(record.id))));
+  }
+  function clearCreativeBrief() {
+    for(const key of ['subsector','geography','company-size','role','offer','objective'])get(key).value='';
+    get('channel').value='email';get('mode').value='draft';get('language').value='';state.localeOverride=false;state.selectedExamples.clear();renderLimits();objectiveCount();
+  }
+  async function maybePrepareContext() {
+    const connected=asList(state.boot?.capabilities).some(capability=>capability.id==='read_ai'&&capability.configured===true);
+    if(!state.client||state.data?.context_sync_needed!==true||!connected||state.contextAttempted||state.busy||state.job)return;
+    state.contextAttempted=true;
+    await startJob('/prepare-context',{});
   }
   function recordById(id) {return [...asList(state.data?.sources),...asList(state.data?.examples),...(state.data?.brief?[state.data.brief]:[])].find(record=>String(record.id)===String(id));}
   function citation(evidence) {
@@ -93,17 +131,20 @@
   function readiness() {
     const brief=state.data?.brief;
     const missingModel=get('mode').value==='draft'&&state.boot?.model?.configured===false;
-    const missingLinkedIn=get('channel').value==='linkedin'&&!asList(state.data?.examples).some(record=>record.status==='approved'&&record.content?.source==='copy_bank'&&record.content?.channel==='linkedin');
+    const missingLinkedIn=get('channel').value==='linkedin'&&!eligibleExamples().some(record=>record.content?.source==='copy_bank'&&record.content?.channel==='linkedin');
     let reason='Approve the client brief before generating outreach.';
     if(!state.client)reason='Choose a client to begin.';
     else if(state.boot?.ready===false)reason='Generation is not configured yet. Check the connection details above.';
     else if(state.busy||state.job)reason='A client task is in progress. Your saved work remains available.';
     else if(!limitsValid())reason='Use positive character limits within the channel limits.';
+    else if([...get('objective').value].length>1000)reason='Keep the writer brief within 1,000 characters.';
+    else if(!localeValid(get('language').value))reason='Choose UK or US English for this campaign.';
+    else if(state.data?.brief_context_error)reason=state.data.brief_context_error;
     else if(missingModel)reason='Configure the writing model, or assemble approved examples without a model.';
     else if(missingLinkedIn)reason='Approve a LinkedIn Copy Bank example before drafting for this channel.';
     else if(brief?.content?.coverage?.complete===false)reason='Finish source coverage review before generating from this brief.';
     else if(brief?.status==='approved')reason=get('mode').value==='assemble'?'Select approved examples to assemble an evidence-backed sequence.':'The approved brief is ready. Set your audience and explore distinct angles.';
-    const can=Boolean(state.client&&state.data&&state.boot?.ready!==false&&brief?.status==='approved'&&brief?.content?.coverage?.complete!==false&&!state.busy&&!state.job&&!missingModel&&!missingLinkedIn&&limitsValid());
+    const can=Boolean(state.client&&state.data&&state.boot?.ready!==false&&brief?.status==='approved'&&brief?.content?.coverage?.complete!==false&&!state.data.brief_context_error&&!state.busy&&!state.job&&!missingModel&&!missingLinkedIn&&limitsValid()&&localeValid(get('language').value)&&[...get('objective').value].length<=1000);
     get('generation-readiness').textContent=reason;
     get('generate').disabled=!can||(get('mode').value==='assemble'&&state.selectedExamples.size===0);
     get('sync').disabled=!state.client||state.busy||Boolean(state.job);
@@ -116,6 +157,7 @@
       const record=reviewRecords.find(item=>String(item.id)===button.getAttribute('data-record-id'));
       if(record)button.disabled=reviewDisabled(record,record.kind==='draft',button.getAttribute('data-decision'));
     }
+    updateFinalCheck();updatePublication();
   }
   function renderBrief(preferred) {
     const versions=[...asList(state.data?.pending_briefs),...(state.data?.brief?[state.data.brief]:[])].sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')));
@@ -135,13 +177,14 @@
     get('completeness').textContent=coverage.complete===true?'Source processing complete':brief?'Partial or unconfirmed coverage':'No brief built yet';
     get('coverage-count').textContent=total?`${processed} / ${total} chunks`:'';
     const summary=[];
-    if(!brief)summary.push(el('p','Sync onboarding knowledge, then build a brief. Extracted facts stay linked to their sources for review.'));
+    if(!brief)summary.push(el('p','Load related Read AI conversations, then build a client brief. Extracted facts stay linked to their sources for review.'));
     else {
       summary.push(el('p',`${asList(content.facts).length} sourced facts · ${asList(content.constraints).length} copy constraints`));
       if(brief.status!=='approved')summary.push(el('p',state.data?.brief?'This version is awaiting review. Generation uses the latest approved brief.':'Review this extracted brief before generating outreach.'));
       if(coverage.complete!==true)summary.push(el('p','Coverage is incomplete or needs confirmation. Review the source material before approving this brief.'));
       if(asList(content.missing_fields).length)summary.push(el('p','Still needed: '+content.missing_fields.join(', ')));
     }
+    if(state.data?.brief_context_error)summary.push(el('p',state.data.brief_context_error,'cs-issue'));
     get('brief-summary').replaceChildren(...summary);
     const constraints=asList(content.constraints),list=el('ul');constraints.slice(0,4).forEach(value=>list.append(el('li',typeof value==='string'?value:value.text||JSON.stringify(value))));
     get('constraints').replaceChildren(...(constraints.length?[el('strong','Must keep in mind'),list]:[]));
@@ -163,7 +206,7 @@
   }
   function renderExamples() {
     const channel=get('channel').value;
-    const examples=asList(state.data?.examples).filter(record=>record.status==='approved'&&record.content?.channel===channel&&(channel!=='linkedin'||record.content?.source==='copy_bank'));
+    const examples=eligibleExamples().filter(record=>record.content?.channel===channel&&(channel!=='linkedin'||record.content?.source==='copy_bank'));
     const allowed=new Set(examples.map(record=>String(record.id)));
     state.selectedExamples=new Set([...state.selectedExamples].filter(id=>allowed.has(id)));
     get('example-count').textContent=String(examples.length);
@@ -173,6 +216,122 @@
       copy.append(el('strong',title(record)),el('small',record.content?.performance_proven?'Approved example with measured context':'Approved example · performance is not implied'));label.append(input,copy);return label;
     }):[el('p','No approved '+(channel==='linkedin'?'LinkedIn Copy Bank':'email')+' examples are available yet.','cs-help')]));
     get('mode-help').textContent=get('mode').value==='assemble'?'Rework approved examples for this client and audience.':'Create fresh wording grounded in the approved client brief.';
+  }
+  function renderCopyBankContext() {
+    const seen=new Set(),records=asList(state.data?.examples).filter(record=>{
+      if(record.content?.source!=='copy_bank')return false;
+      const key=record.source_key||record.id;if(seen.has(key))return false;seen.add(key);return true;
+    });
+    const eligible=new Set(eligibleExamples().map(record=>String(record.id)));
+    get('copy-bank-count').textContent=String(records.length);
+    const nodes=[el('p',records.length?'Existing client copy is loaded for review. Approved current examples inform drafts.':'No client Copy Bank entries are loaded yet. Sync sources to check for existing copy.','cs-help')];
+    for(const record of records){
+      const content=record.content||{},item=el('article',undefined,'cs-bank-reference');
+      item.append(el('h3',title(record)),el('p',[friendly(content.channel),content.territory||content.audience?.geography,content.industry||content.audience?.sector].filter(Boolean).join(' · ')),badge(eligible.has(String(record.id))?'ready':record.status==='approved'?'not_current':record.status||'pending'));
+      const steps=asList(content.steps);if(steps.length){const detail=el('details'),summary=el('summary','View copy');detail.append(summary,el('div',sourceText(record),'cs-source-preview'));item.append(detail);}
+      item.append(link('/copy-bank','Open Copy Bank ↗'));nodes.push(item);
+    }
+    get('copy-bank-references').replaceChildren(...nodes);
+  }
+  function checkMatches() {
+    const check=state.draft?.content?.final_check;
+    return Boolean(check?.complete===true&&check.copy_hash&&localeValid(check.locale)&&check.locale===get('language').value&&!state.dirty&&!asList(check.report?.issues).some(issue=>['error','blocker'].includes(issue.severity)));
+  }
+  function updateFinalCheck() {
+    const check=state.draft?.content?.final_check,selected=get('language').value;
+    get('check-spelling').disabled=!state.draft||state.dirty||state.invalid||state.busy||Boolean(state.job)||!localeValid(selected)||state.boot?.model?.configured===false;
+    let text='Check the saved wording before adding it to Copy Bank.';
+    if(state.dirty)text='Save your edits, then run the final check on the new version.';
+    else if(!localeValid(selected))text='Choose UK or US English in the writing brief before checking.';
+    else if(checkMatches())text=`Checked in ${localeLabel(check.locale)}. Review suggestions before approving this version.`;
+    else if(check?.complete&&check.locale===selected)text='The final check flagged issues. Resolve them above, save and recheck.';
+    else if(check?.complete)text=`The English style has changed. Recheck this version in ${localeLabel(selected)}.`;
+    else if(state.boot?.model?.configured===false)text='Configure the writing model to run spelling and final review.';
+    get('spelling-state').textContent=text;
+    const results=[];
+    for(const issue of asList(check?.report?.issues)){
+      const item=el('div',undefined,'cs-spelling-item');item.append(el('strong',issue.message||friendly(issue.code)||'Review this wording'));
+      if(issue.path)item.append(el('p',issue.path));
+      if(typeof issue.original==='string')item.append(el('p','Current: '+issue.original));
+      if(typeof issue.replacement==='string')item.append(el('p','Suggestion: '+issue.replacement));
+      results.push(item);
+    }
+    if(results.length)results.unshift(el('p','Edit any changes you choose above, save a new version, then recheck. The check does not rewrite your copy.','cs-help'));
+    get('spelling-results').replaceChildren(...results);
+  }
+  function publicationEligible() {
+    return Boolean(state.boot?.can_review&&state.draft?.status==='approved'&&checkMatches()&&!state.invalid&&!blocking(state.draft.content));
+  }
+  function invalidatePublication(clearDestinations=false) {
+    state.publication=null;state.publicationEpoch++;
+    get('publish-preview').replaceChildren();get('publish-preview').hidden=true;get('publish-confirm').hidden=true;get('publish-confirm').disabled=true;
+    if(clearDestinations){state.destinations=null;get('publish').open=false;for(const key of ['territory','industry','section','angle'])get('publish-'+key).replaceChildren();}
+  }
+  function publicationSelection() {
+    const territory=get('publish-territory').value,industry=get('publish-industry').value,section=get('publish-section').value,angle=get('publish-angle').value;
+    if(!territory||!industry||!section||angle==='')return null;
+    const angle_index=Number(angle);if(!Number.isInteger(angle_index)||angle_index<0||angle_index>=asList(state.draft?.content?.angles).length)return null;
+    return {territory,industry,section,angle_index};
+  }
+  function updatePublication() {
+    const eligible=publicationEligible();get('publish').hidden=!eligible;
+    const busy=state.busy||Boolean(state.job);
+    get('publish-preview-button').disabled=!eligible||busy||!state.destinations||!publicationSelection();
+    get('publish-confirm').disabled=!eligible||busy||!state.publication;
+    for(const key of ['territory','industry','section','angle'])get('publish-'+key).disabled=busy||!state.destinations;
+  }
+  function optionList(target,placeholder,options) {
+    const first=el('option',placeholder);first.value='';target.replaceChildren(first,...options.map(item=>{const option=el('option',item.label);option.value=String(item.value);return option;}));target.value='';
+  }
+  async function loadDestinations() {
+    if(!get('publish').open||!publicationEligible()||state.destinations||state.busy||state.job)return;
+    const client=state.client,epoch=state.epoch,draft=state.draft.id,token=++state.publicationEpoch;
+    get('publish-state').textContent='Loading this client’s Copy Bank destinations…';state.busy=true;readiness();
+    try{
+      const data=await request(clientPath(client)+'/copy-bank/destinations');
+      if(!isCurrent(client,epoch)||state.draft?.id!==draft||token!==state.publicationEpoch)return;
+      if(data.client_id!==client||data.profile?.client_id!==client)throw new Error('The Copy Bank destination did not match this client. Reload the workspace.');
+      if(data.configured!==true)throw new Error('Copy Bank is not configured for this client.');
+      state.destinations=data;
+      optionList(get('publish-territory'),'Choose territory',asList(data.territories).map(value=>({value,label:value})));
+      optionList(get('publish-industry'),'Choose industry',asList(data.industries));
+      const compatible=state.draft.content.channel==='linkedin'?['linkedin']:['email','chaser','flyout'];
+      optionList(get('publish-section'),'Choose section',asList(data.sections).filter(section=>compatible.includes(section.id)).map(section=>({value:section.id,label:section.label})));
+      optionList(get('publish-angle'),'Choose angle',asList(state.draft.content.angles).map((angle,index)=>({value:String(index),label:angle.name||`Angle ${index+1}`})));
+      get('publish-channel').textContent=`${friendly(state.draft.content.channel)} · ${data.profile.name||'Selected client'} · ${localeLabel(get('language').value)}`;
+      get('publish-state').textContent='Choose the destination and angle, then preview the exact copy to add.';
+    }catch(error){if(isCurrent(client,epoch)&&state.draft?.id===draft){get('publish-state').textContent=error.message;setStatus(error.message,'error');}}
+    finally{if(isCurrent(client,epoch)){state.busy=false;readiness();}}
+  }
+  async function previewPublication() {
+    const selection=publicationSelection();if(!selection||get('publish-preview-button').disabled)return;
+    invalidatePublication();const client=state.client,epoch=state.epoch,draft=state.draft.id,token=state.publicationEpoch;
+    state.busy=true;readiness();get('publish-state').textContent='Preparing the exact Copy Bank entry…';
+    try{
+      const data=await request(clientPath(client)+'/drafts/'+encodeURIComponent(draft)+'/copy-bank/preview',{selection});
+      if(!isCurrent(client,epoch)||state.draft?.id!==draft||token!==state.publicationEpoch||!publicationEligible())return;
+      if(data.draft_id!==draft||typeof data.destination_version!=='string'||!data.selection)throw new Error('The preview did not identify this saved version. Please retry.');
+      for(const key of ['territory','industry','section','angle_index'])if(data.selection[key]!==selection[key])throw new Error('The preview destination changed. Select the destination again.');
+      state.publication={...data,client,draft};
+      const box=get('publish-preview');box.replaceChildren(el('h3','Copy Bank preview'),el('p',[selection.territory,selection.industry,friendly(selection.section)].join(' · ')));
+      asList(data.appended_copy?.subjects).forEach((subject,index)=>box.append(el('strong',`Subject ${index+1}`),el('p',subject)));
+      asList(data.appended_copy?.steps).forEach(step=>box.append(el('strong',LABELS[step.kind]||friendly(step.kind)),el('p',step.body)));
+      asList(data.warnings).forEach(warning=>box.append(el('p',warning,'cs-help')));
+      box.hidden=false;get('publish-confirm').hidden=Boolean(data.already_published);get('publish-state').textContent=data.already_published?'This selection is already in Copy Bank.':'Review this exact entry, then add it to Copy Bank.';
+    }catch(error){if(isCurrent(client,epoch)&&state.draft?.id===draft){invalidatePublication();get('publish-state').textContent=error.message;setStatus(error.message,'error');}}
+    finally{if(isCurrent(client,epoch)){state.busy=false;readiness();}}
+  }
+  async function publishCopy() {
+    const preview=state.publication;if(!preview||get('publish-confirm').disabled)return;
+    const client=state.client,epoch=state.epoch,draft=state.draft.id,token=state.publicationEpoch;
+    state.busy=true;readiness();get('publish-state').textContent='Adding the approved entry to Copy Bank…';
+    try{
+      const result=await request(clientPath(client)+'/drafts/'+encodeURIComponent(draft)+'/copy-bank/publish',{selection:preview.selection,expected_version:preview.destination_version});
+      if(!isCurrent(client,epoch)||state.draft?.id!==draft||token!==state.publicationEpoch)return;
+      if(result.published!==true)throw new Error('Copy Bank did not confirm the entry was saved. Review the destination before retrying.');
+      invalidatePublication();get('publish-state').replaceChildren(el('span',result.already_published?'This copy was already saved. ':'Approved copy added. '),link('/copy-bank','Open Copy Bank ↗'));setStatus('Approved copy is saved in the client’s Copy Bank.','success');
+    }catch(error){if(isCurrent(client,epoch)&&state.draft?.id===draft){invalidatePublication();get('publish-state').textContent=error.message;setStatus(error.message,'error');}}
+    finally{if(isCurrent(client,epoch)){state.busy=false;readiness();}}
   }
   function sourceText(record) {
     const content=record.content||{};
@@ -291,24 +450,23 @@
     get('dirty-state').textContent=state.dirty?'Unsaved edits · save a new version':'Saved version · edits create a new version';
     get('save-draft').disabled=!state.dirty||state.busy;
     get('draft-review').replaceChildren(...(state.draft?[reviewBox(state.draft,true)]:[]));
-    if(state.draft&&state.edited?.mode==='draft'&&state.draft.status!=='approved'){
-      const check=el('button','Check saved draft','cs-button cs-button-secondary cs-button-small');check.type='button';check.setAttribute('data-check-draft',String(state.draft.id));check.disabled=state.dirty||state.busy||Boolean(state.job);check.addEventListener('click',()=>{if(!check.disabled)startJob('/drafts/'+encodeURIComponent(state.draft.id)+'/check',{});});get('draft-review').append(check);
-    }
+    updateFinalCheck();updatePublication();
   }
   function copyField(value,path,labelText,limit,multiline=true) {
     const wrapper=el('div',undefined,'cs-copy-field'),header=el('div',undefined,'cs-copy-label');
     const label=el('label',labelText),input=el(multiline?'textarea':'input'),count=el('div',undefined,'cs-copy-count');
     input.id='cs-copy-'+path.replaceAll('.','-');label.htmlFor=input.id;input.value=value||'';input.setAttribute('data-copy-path',path);if(multiline)input.rows=5;
     const update=()=>{const length=[...input.value].length;count.textContent=`${length} / ${limit} characters`;count.dataset.over=String(length>limit);input.setAttribute('aria-invalid',String(length>limit));};update();
-    input.addEventListener('input',()=>{let target=state.edited;const parts=path.split('.');for(const part of parts.slice(0,-1))target=target[part];target[parts.at(-1)]=input.value;state.dirty=true;update();updateDraftValidation();});
+    input.addEventListener('input',()=>{let target=state.edited;const parts=path.split('.');for(const part of parts.slice(0,-1))target=target[part];target[parts.at(-1)]=input.value;state.dirty=true;invalidatePublication();update();updateDraftValidation();});
     const copy=el('button','Copy','cs-copy-action');copy.type='button';copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(input.value);setStatus('Message copied.');}catch(error){input.focus();input.select?.();setStatus('Select and copy the message from its text field.');}});
     header.append(label,copy);wrapper.append(header,input,count);return wrapper;
   }
   function renderDraft(record) {
+    invalidatePublication(true);
     state.draft=record||null;state.edited=record?clone(record.content):null;state.dirty=false;state.invalid=false;
     get('draft-empty').hidden=Boolean(record);get('draft-workspace').hidden=!record;
     get('draft-status').textContent=record?friendly(record.status):'Ready when you are';get('draft-status').dataset.status=record?.status||'';
-    if(!record){get('angles').replaceChildren();return;}
+    if(!record){get('angles').replaceChildren();updateFinalCheck();updatePublication();return;}
     get('draft-meta').replaceChildren(el('span',friendly(state.edited.channel)),el('span',dateLabel(record.created_at)),el('span',record.parent_id?'Revised version':'Original version'));
     get('review-issues').replaceChildren(...issues(state.edited).map(issue=>{const node=el('p',issue.message||issue.code,'cs-issue');node.dataset.severity=['error','blocker'].includes(issue.severity)?'blocker':'warning';return node;}));
     const limits=draftLimits();
@@ -333,7 +491,7 @@
   }
   function renderClient(preferred) {
     get('start').hidden=true;get('workspace').hidden=false;
-    renderBrief(preferred);renderExamples();renderSources();jobs();
+    renderProfile();renderLocale();renderBrief(preferred);renderExamples();renderCopyBankContext();renderSources();jobs();
     if(!state.dirty)renderVersions(preferred);
     readiness();
   }
@@ -341,8 +499,8 @@
     const data=await request(clientPath(client));if(!isCurrent(client,epoch))return false;state.data=data;renderClient(preferred);return true;
   }
   async function selectClient() {
-    state.epoch++;const epoch=state.epoch,client=get('client').value;state.client=client;state.data=null;state.briefRecord=null;state.draft=null;state.edited=null;state.dirty=false;state.busy=false;state.job=null;state.selectedExamples.clear();
-    if(state.poll)clearTimeout(state.poll);state.poll=null;get('workspace').hidden=true;get('start').hidden=false;get('jobs').replaceChildren();readiness();
+    state.epoch++;const epoch=state.epoch,client=get('client').value;state.client=client;state.data=null;state.briefRecord=null;state.draft=null;state.edited=null;state.dirty=false;state.busy=false;state.job=null;state.contextAttempted=false;state.contextJobId=null;invalidatePublication(true);clearCreativeBrief();
+    if(state.poll)clearTimeout(state.poll);state.poll=null;get('workspace').hidden=true;get('start').hidden=false;get('profile').hidden=true;get('profile-domain').replaceChildren();get('profile-state').textContent='';get('profile-link').replaceChildren();get('jobs').replaceChildren();readiness();
     get('client-state').textContent=client?'Loading client context…':'Choose a client to begin';
     if(!client){setStatus('Choose a client to begin.');return;}
     setStatus('Loading the client’s latest brief and saved work…');
@@ -350,6 +508,7 @@
       get('client-state').textContent='Client workspace ready';setStatus('Client context loaded.');
       const active=asList(state.data.jobs).find(job=>['queued','running'].includes(job.status));
       if(active){state.job=active;jobs();readiness();state.poll=setTimeout(()=>pollJob(active,client,epoch),1500);setStatus('A saved client task is still running. Following its progress…');}
+      else await maybePrepareContext();
     }}catch(error){if(isCurrent(client,epoch)){get('client-state').textContent='Could not load client';setStatus(error.message,'error');}}
   }
   async function mutate(path,body,message,preferred) {
@@ -371,16 +530,18 @@
         if(isCurrent(client,epoch)){
           const partial=current.result?.complete===false||current.result?.status==='partial'||current.result?.coverage?.complete===false;
           setStatus(partial?'Sync finished with partial source coverage. Review the source library before using this material.':'Your client workspace has been updated.',partial?'warning':'success');
+          if(!partial)await maybePrepareContext();
         }refreshCosts();
-      }else if(['failed','cancelled'].includes(current.status)){state.job=null;setStatus(typeof current.error==='string'?current.error:current.error?.message||current.last_error||current.message||'The task could not be completed. Please retry.','error');readiness();refreshCosts();}
+      }else if(['failed','cancelled'].includes(current.status)){state.job=null;setStatus(typeof current.error==='string'?current.error:current.error?.message||current.last_error||current.message||'The task could not be completed. Please retry.','error');if(state.contextJobId===id)get('profile-state').textContent='Read AI context preparation failed. Sync sources to retry.';readiness();refreshCosts();}
       else {setStatus(current.message||'Working through the client sources…');state.poll=setTimeout(()=>pollJob(current,client,epoch),1500);}
     }catch(error){if(isCurrent(client,epoch)){state.job=null;setStatus(error.message,'error');readiness();}}
   }
   async function startJob(path,body) {
     if(state.busy||state.job||!state.client)return;
-    const client=state.client,epoch=state.epoch;state.busy=true;readiness();setStatus('Starting the client task…');
-    try{const result=await request(clientPath(client)+path,body);if(!isCurrent(client,epoch))return;state.job=result.job||result;jobs();setStatus('Task started. You can follow its progress in recent activity.');state.poll=setTimeout(()=>pollJob(state.job,client,epoch),1500);}
-    catch(error){if(isCurrent(client,epoch))setStatus(error.message,'error');}
+    const client=state.client,epoch=state.epoch,context=path==='/prepare-context';state.busy=true;readiness();setStatus(context?'Loading related Read AI conversations for this client…':'Starting the client task…');
+    if(context)get('profile-state').textContent='Preparing related Read AI conversations…';
+    try{const result=await request(clientPath(client)+path,body);if(!isCurrent(client,epoch))return;state.job=result.job||result;if(context)state.contextJobId=state.job.id||state.job.job_id;jobs();setStatus(context?'Client context is loading. You can start briefing the writer while it prepares.':'Task started. You can follow its progress in recent activity.');const job=state.job;state.poll=setTimeout(()=>pollJob(job,client,epoch),1500);}
+    catch(error){if(isCurrent(client,epoch)){setStatus(error.message,'error');if(context)get('profile-state').textContent='Read AI context could not be prepared. Sync sources to retry.';}}
     finally{if(isCurrent(client,epoch)){state.busy=false;readiness();}}
   }
   get('client').addEventListener('change',selectClient);
@@ -390,9 +551,16 @@
   get('extract').addEventListener('click',()=>startJob('/extract-brief',{}));
   get('channel').addEventListener('change',()=>{state.selectedExamples.clear();renderLimits();renderExamples();readiness();});
   get('mode').addEventListener('change',()=>{renderExamples();readiness();});
+  get('language').addEventListener('change',()=>{state.localeOverride=true;invalidatePublication();renderLocale();readiness();});
+  get('objective').addEventListener('input',()=>{objectiveCount();readiness();});
+  get('check-spelling').addEventListener('click',()=>{if(!get('check-spelling').disabled&&state.draft)startJob('/drafts/'+encodeURIComponent(state.draft.id)+'/check',{locale:get('language').value});});
+  get('publish').addEventListener('toggle',loadDestinations);
+  for(const key of ['territory','industry','section','angle'])get('publish-'+key).addEventListener('change',()=>{invalidatePublication();get('publish-state').textContent='Preview this destination before adding the approved copy.';updatePublication();});
+  get('publish-preview-button').addEventListener('click',previewPublication);
+  get('publish-confirm').addEventListener('click',publishCopy);
   get('generate-form').addEventListener('submit',event=>{
     event.preventDefault();if(get('generate').disabled)return;
-    startJob('/generate',{channel:get('channel').value,mode:get('mode').value,audience:{subsector:get('subsector').value.trim(),geography:get('geography').value.trim(),company_size:get('company-size').value.trim(),role:get('role').value.trim(),offer:get('offer').value.trim()},example_ids:[...state.selectedExamples],limits:limitValues()});
+    startJob('/generate',{channel:get('channel').value,mode:get('mode').value,locale:get('language').value,objective:get('objective').value.trim(),audience:{subsector:get('subsector').value.trim(),geography:get('geography').value.trim(),company_size:get('company-size').value.trim(),role:get('role').value.trim(),offer:get('offer').value.trim()},example_ids:[...state.selectedExamples],limits:limitValues()});
   });
   get('brief-version').addEventListener('change',()=>{renderBrief(get('brief-version').value);readiness();});
   get('brief-constraints').addEventListener('input',()=>{state.briefDirty=true;readiness();});

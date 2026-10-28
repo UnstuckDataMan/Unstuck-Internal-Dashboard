@@ -1,6 +1,7 @@
 """Application use cases for Copy Studio; all callers carry an authorised client.
 
-No source API is mutated here. Imports are pending records, not approved claims.
+Imports are pending records, not approved claims. Publishing is an explicit,
+reviewer-only action delegated to the atomic Copy Bank bridge.
 The durable worker performs slow reads/model calls; HTTP handlers only enqueue.
 """
 from __future__ import annotations
@@ -65,12 +66,144 @@ def source_summary(record):
     content = record['content']
     return {k: record.get(k) for k in ('id', 'kind', 'status', 'source_key', 'content_hash', 'created_at')} | {
         'content': {k: content[k] for k in ('title', 'source', 'source_url', 'channel', 'coverage', 'warnings', 'updated_at',
-                                          'source_complete', 'source_completeness_review') if k in content}}
+                                          'source_complete', 'source_completeness_review', 'source_assignment', 'is_onboarding') if k in content}}
+
+
+def client_profile(client_id, store=None):
+    from . import sources
+    store = store or get_store()
+    if os.environ.get('COPY_STUDIO_SQLITE_PATH'):
+        rows = store.iter_records('__workspace__', kind='client')
+        row = next((r['content'] for r in rows if str(r['content'].get('id')) == client_id), None)
+        if row is None:
+            raise LookupError('Client profile not found.')
+        return sources.profile_metadata(row)
+    return sources.client_profile(client_id)
+
+
+def context_report(store, client_id):
+    return next((r for r in store.iter_records(client_id, kind='sync_report')
+                 if r['content'].get('source') == 'onboarding'), None)
+
+
+def copy_bank_report(store, client_id):
+    return next((r for r in store.iter_records(client_id, kind='sync_report')
+                 if r['content'].get('source') == 'copy_bank'), None)
+
+
+def current_examples(store, client_id, *, approved_only=True):
+    """Use current approved versions, never a superseded approval or removed copy."""
+    report = copy_bank_report(store, client_id)
+    coverage = report['content'].get('coverage', {}) if report else {}
+    versions = coverage.get('imported_versions')
+    manifest = {r['source_key']: r['content_hash'] for r in versions} if isinstance(versions, list) else None
+    seen, approved = set(), []
+    for record in store.iter_records(client_id, kind='example'):
+        if record['source_key'] in seen:
+            continue
+        seen.add(record['source_key'])
+        if approved_only and record['status'] != 'approved':
+            continue
+        if record['content'].get('source') == 'copy_bank':
+            if coverage.get('complete') is False:
+                continue
+            if manifest is not None:
+                expected = manifest.get(record['source_key'])
+                ancestor, visited = record, set()
+                while ancestor and ancestor['content_hash'] != expected:
+                    if ancestor['id'] in visited or len(visited) >= 100:
+                        ancestor = None
+                        break
+                    visited.add(ancestor['id'])
+                    ancestor = store.get(ancestor['parent_id'], client_id) if ancestor.get('parent_id') else None
+                    if ancestor and (ancestor['kind'] != 'example' or ancestor['source_key'] != record['source_key']):
+                        ancestor = None
+                if not expected or not ancestor:
+                    continue
+        approved.append(record)
+    return approved
+
+
+def current_transcripts(store, client_id):
+    """Retain audit history, but only use currently attributed conversations."""
+    report = context_report(store, client_id)
+    coverage = report['content'].get('coverage', {}) if report else {}
+    keys = coverage.get('imported_source_keys')
+    allowed = set(keys) if isinstance(keys, list) else None
+    unique = {}
+    for record in store.iter_records(client_id, kind='transcript'):
+        if allowed is not None and record['source_key'] not in allowed:
+            continue
+        unique.setdefault(record['source_key'], record)
+    return list(unique.values())
+
+
+def brief_context_error(store, client_id, brief):
+    if store.context_refresh_active(client_id):
+        return 'Client context is refreshing. Wait for the source check to finish before generating or approving copy.'
+    report = context_report(store, client_id)
+    if report and report['content'].get('coverage', {}).get('profile_fingerprint'):
+        current_profile = client_profile(client_id, store)
+        if current_profile.get('profile_fingerprint') != report['content']['coverage']['profile_fingerprint']:
+            return 'The client profile has changed. Refresh the client conversations and review the brief before using this copy.'
+    if report and report['content'].get('coverage', {}).get('complete') is False:
+        return 'The latest client conversation sync is incomplete. Review its source coverage and refresh before generating copy.'
+    if not report or 'imported_source_keys' not in report['content'].get('coverage', {}):
+        return ''  # Existing reviewed briefs remain readable before their first context refresh.
+    current = {r['id'] for r in current_transcripts(store, client_id)}
+    reviewed = {r.get('source_id') for r in brief['content'].get('coverage', {}).get('sources', [])}
+    if current != reviewed:
+        return 'Client conversations have changed. Build and review an updated brief before generating copy.'
+    return ''
+
+
+def context_refresh_needed(profile, report, *, compare_profile=True, max_age=900):
+    if not report or report['content'].get('status') != 'complete':
+        return True
+    content = report['content']
+    if compare_profile and content.get('coverage', {}).get('profile_fingerprint') != profile.get('profile_fingerprint'):
+        return True
+    try:
+        synced = datetime.fromisoformat(content.get('completed_at', '').replace('Z', '+00:00'))
+        age = (datetime.now(timezone.utc) - synced).total_seconds()
+        return age < 0 or age >= max_age
+    except (ValueError, TypeError):
+        return True
+
+
+def campaign_refresh_needed(store, client_id):
+    reports = list(store.iter_records(client_id, kind='sync_report'))
+    return any(context_refresh_needed({}, next((r for r in reports if r['content'].get('source') == source), None),
+        compare_profile=False, max_age=3600) for source in ('smartlead', 'manual'))
+
+
+def prepare_context(client_id, user):
+    """Opening a client refreshes conversations and Copy Bank, without a model call."""
+    store = get_store()
+    profile = client_profile(client_id, store)
+    for job in store.list_jobs(client_id):
+        if (job['kind'] == 'sync' and job['status'] in ('queued', 'running')
+                and job['payload'].get('source') in ('all', 'context')):
+            return job
+    bucket = int(datetime.now(timezone.utc).timestamp()) // 900
+    fingerprint = profile.get('profile_fingerprint') or digest(profile)
+    selected = 'all' if campaign_refresh_needed(store, client_id) else 'context'
+    store.save('sync_subscription', client_id, 'subscription', {'enabled': True}, actor(user))
+    return store.enqueue(client_id, 'sync', {'source': selected, 'automatic_context': True},
+                         actor(user), f'context:{selected}:{bucket}:{fingerprint}')
 
 
 def client_view(client_id):
     from .performance import refresh_evidence
+    from .proofreading import infer_locale
+    from .integrations import IntegrationUnavailable
     store = get_store()
+    profile, profile_error = None, ''
+    try:
+        profile = client_profile(client_id, store)
+    except IntegrationUnavailable as exc:
+        profile_error = str(exc)
+    context = context_report(store, client_id)
     # Usage/copy history can be large. Bound each displayed collection separately
     # so model calls never evict the client's brief or reference cards from view.
     collections = {kind: store.list(client_id, kind=kind, limit=200)
@@ -78,13 +211,21 @@ def client_view(client_id):
     records = [r for rows in collections.values() for r in rows]
     brief = latest_approved(store.iter_records(client_id, kind='brief', status='approved'), 'brief')
     pending_briefs = [r for r in records if r['kind'] == 'brief' and r['status'] != 'approved']
-    examples = [r for r in records if r['kind'] == 'example']
+    examples = current_examples(store, client_id, approved_only=False)
+    eligible_examples = current_examples(store, client_id)
     transcripts = [r for r in records if r['kind'] == 'transcript']
     coverage = (brief or {}).get('content', {}).get('coverage', {})
     return {
+        'profile': profile, 'profile_error': profile_error,
+        'locale_suggestion': infer_locale(brief, current_transcripts(store, client_id)),
+        'context_sync_needed': bool(profile and (context_refresh_needed(profile, context)
+            or context_refresh_needed(profile, copy_bank_report(store, client_id), compare_profile=False)
+            or campaign_refresh_needed(store, client_id))),
+        'brief_context_error': brief_context_error(store, client_id, brief) if brief else '',
         'brief': brief, 'pending_briefs': pending_briefs,
         'sources': [source_summary(r) for r in records if r['kind'] in ('transcript', 'sync_report', 'sent_copy')],
-        'examples': examples, 'drafts': [r for r in records if r['kind'] == 'draft'],
+        'examples': examples, 'eligible_example_ids': [r['id'] for r in eligible_examples],
+        'drafts': [r for r in records if r['kind'] == 'draft'],
         'performance': [dict(r, content=refresh_evidence(r['content'])) for r in records if r['kind'] == 'performance'],
         'methodology': store.list(GLOBAL_CLIENT, kind='methodology', limit=100),
         'jobs': store.list_jobs(client_id),
@@ -108,9 +249,9 @@ def enqueue_sync(client_id, source, user, request_key):
 
 def enqueue_brief(client_id, user, request_key):
     store = get_store()
-    sources = list(store.iter_records(client_id, kind='transcript'))
+    sources = current_transcripts(store, client_id)
     if not sources:
-        raise ValueError('Sync the client’s onboarding sources before extracting a brief.')
+        raise ValueError('Load the client’s Read AI conversations before building a brief.')
     # Latest source revision only; all older immutable versions remain available.
     unique = {}
     for source in sorted(sources, key=lambda r: r.get('created_at', '')):
@@ -119,18 +260,26 @@ def enqueue_brief(client_id, user, request_key):
 
 
 def enqueue_generation(client_id, request, user, request_key):
+    from .proofreading import infer_locale
     store = get_store()
-    records = list(store.iter_records(client_id, kind='example', status='approved'))
+    records = current_examples(store, client_id)
+    eligible_ids = {r['id'] for r in records}
     brief = latest_approved(store.iter_records(client_id, kind='brief', status='approved'), 'brief')
     if not brief:
         raise ValueError('Review and approve the client brief before generating copy.')
+    stale = brief_context_error(store, client_id, brief)
+    if stale:
+        raise ValueError(stale)
     if not brief['content'].get('coverage', {}).get('complete'):
         raise ValueError('The approved brief has incomplete source coverage. Finish the source review first.')
+    request = dict(request)
+    if not request.get('locale'):
+        request['locale'] = infer_locale(brief, current_transcripts(store, client_id)).get('locale')
     selected = []
     for identifier in request.get('example_ids', []):
         example = store.get(identifier, client_id)
-        if not example or example['kind'] != 'example' or example['status'] != 'approved':
-            raise ValueError('Select approved examples belonging to this client.')
+        if not example or example['id'] not in eligible_ids:
+            raise ValueError('Select current approved examples belonging to this client. Changed Copy Bank entries need a new review.')
         selected.append(example['id'])
     if not selected:
         selected = [r['id'] for r in records if r['kind'] == 'example' and r['status'] == 'approved'
@@ -216,6 +365,7 @@ def save_record(client_id, kind, source_key, content, user, parent_id=None):
         parent = store.get(parent_id, client_id)
         if not parent or parent['kind'] != kind:
             raise ValueError('The previous version does not belong to this client and collection.')
+        source_key = parent['source_key']
     # Review, provenance and identity are never accepted from the browser as approvals.
     content = json.loads(json.dumps(content))
     content.pop('approved_by', None)
@@ -236,8 +386,14 @@ def save_record(client_id, kind, source_key, content, user, parent_id=None):
     if kind == 'example':
         content['human_edited'] = True
         if parent_id:
-            for key in ('source', 'source_url', 'channel'):
-                content[key] = parent['content'].get(key)
+            for key in ('source', 'source_url', 'channel', 'copy_bank_key', 'source_position',
+                        'original_sent_record_id', 'original_sent_source_key', 'campaign_id', 'variant_id',
+                        'sequence_id', 'step', 'performance_links', 'performance_proven', 'attribution',
+                        'territory', 'industry', 'audience', 'context_provenance'):
+                if key in parent['content']:
+                    content[key] = parent['content'][key]
+                else:
+                    content.pop(key, None)
         else:
             content['source'] = 'manual_reference'
         if content.get('channel') == 'linkedin' and content.get('source') != 'copy_bank':
@@ -255,6 +411,9 @@ def review_record(client_id, record_id, decision, notes, user):
     if decision == 'approved':
         if record['kind'] == 'brief':
             validate_brief(record['content'], client_id, store)
+            stale = brief_context_error(store, client_id, record)
+            if stale:
+                raise ValueError(stale)
         elif record['kind'] == 'example':
             content = record['content']
             if not content.get('sanitized'):
@@ -280,12 +439,16 @@ def draft_context(client_id, draft):
     brief = store.get(context.get('brief_id', ''), client_id)
     if not brief or brief['status'] != 'approved':
         raise ValueError('The brief used for this draft is no longer approved.')
+    stale = brief_context_error(store, client_id, brief)
+    if stale:
+        raise ValueError(stale)
     current = latest_approved(store.iter_records(client_id, kind='brief', status='approved'), 'brief')
     if current and current['id'] != brief['id']:
         raise ValueError('The client brief has changed. Generate a new draft from the current approved brief.')
     examples = [store.get(i, client_id) for i in context.get('example_ids', [])]
-    if any(not r or r['status'] != 'approved' for r in examples):
-        raise ValueError('A reference used for this draft is no longer approved.')
+    eligible_ids = {r['id'] for r in current_examples(store, client_id)}
+    if any(not r or r['id'] not in eligible_ids for r in examples):
+        raise ValueError('A reference used for this draft is no longer current and approved.')
     if context.get('methodology_id'):
         methodology = store.get(context['methodology_id'], GLOBAL_CLIENT)
         if not methodology or methodology['status'] != 'approved':
@@ -295,12 +458,15 @@ def draft_context(client_id, draft):
 
 def validate_saved_draft(client_id, draft):
     from . import writer
+    from .proofreading import final_check_current
     brief, examples, request = draft_context(client_id, draft)
     report = writer.validate_draft(client_id, brief, examples, request, draft['content'])
     # The writer returns a review report; semantic accuracy still needs human review.
     issues = report.get('issues', [])
     if any(i.get('severity') == 'error' for i in issues):
         raise ValueError('Resolve the draft’s quality checks before approval.')
+    if draft['content'].get('final_check') and not final_check_current(draft['content']):
+        raise ValueError('The final spelling and copy check is incomplete or out of date. Check this version again before approval.')
     return report
 
 
@@ -313,18 +479,24 @@ def revise_draft(client_id, identifier, content, user):
     revised = dict(parent['content'])
     revised['angles'] = content.get('angles', [])
     revised['human_edited'] = True
+    revised.pop('final_check', None)
     brief, examples, request = draft_context(client_id, parent)
     revised['review'] = writer.validate_draft(client_id, brief, examples, request, revised)
     return store.save('draft', client_id, parent['source_key'], revised, actor(user), parent_id=identifier)
 
 
-def enqueue_draft_check(client_id, identifier, user, request_key):
+def enqueue_draft_check(client_id, identifier, user, request_key, *, locale=None):
+    from .proofreading import infer_locale
     store = get_store()
     record = store.get(identifier, client_id)
     if not record or record['kind'] != 'draft':
         raise LookupError('Draft not found.')
-    draft_context(client_id, record)
-    return store.enqueue(client_id, 'review_draft', {'record_id': identifier}, actor(user), 'check:'+request_key)
+    brief, _, writing_request = draft_context(client_id, record)
+    selected_locale = locale or writing_request.get('locale') or infer_locale(brief, current_transcripts(store, client_id)).get('locale')
+    if selected_locale not in ('en-GB', 'en-US'):
+        raise ValueError('Choose UK or US English before checking the final copy.')
+    return store.enqueue(client_id, 'review_draft', {'record_id': identifier, 'locale': selected_locale},
+                         actor(user), 'check:'+request_key)
 
 
 def prepare_reference(client_id, identifier, subject, body, sanitized, user):
@@ -342,11 +514,13 @@ def prepare_reference(client_id, identifier, subject, body, sanitized, user):
                 performance.append({'record_id': record['id'], 'content_hash': record['content_hash'],
                                     'variant_id': variant.get('variant_id'), 'attribution': variant.get('attribution')})
     content = {'source': original['source'], 'channel': 'email', 'subjects': [subject] if subject else [],
-               'steps': [{'kind': 'initial', 'body': body}], 'sanitized': True, 'reusable': True,
+               'steps': [{'kind': 'initial' if str(original.get('step', 1)) == '1' else 'follow_up', 'body': body}],
+               'sanitized': True, 'reusable': True,
                'original_sent_record_id': sent['id'], 'original_sent_source_key': sent['source_key'],
                'campaign_id': original.get('campaign_id'), 'variant_id': original.get('variant_id'),
                'step': original.get('step'), 'sequence_id': original.get('sequence_id'),
                'performance_links': performance, 'performance_proven': False,
                'source_url': original.get('source_url', ''), 'approval_required': True,
-               'attribution': 'review_required', 'title': 'Sent copy reference for review'}
+               'attribution': 'review_required', 'title': 'Sent copy reference for review',
+               **{k: original[k] for k in ('audience', 'territory', 'industry', 'context_provenance') if k in original}}
     return store.save('example', client_id, 'reference:'+sent['id'], content, actor(user))

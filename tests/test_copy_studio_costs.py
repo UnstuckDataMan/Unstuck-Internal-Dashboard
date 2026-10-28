@@ -76,6 +76,66 @@ def test_anthropic_counts_cache_reads_and_creation_separately(db, monkeypatch):
     assert record['content']['estimated_usd'] == pytest.approx(5.5875)
 
 
+@pytest.mark.parametrize('configured', [None, '{}', '{"openai:another-model":{"input":1,"output":2}}'])
+def test_verified_sonnet_default_records_prices_and_dated_source(db, monkeypatch, configured):
+    if configured is not None:
+        monkeypatch.setenv('COPY_STUDIO_PRICING_JSON', configured)
+    content = call(db, provider='anthropic', model='claude-sonnet-5-5', usage={
+        'input_tokens': 1_000_000, 'output_tokens': 100_000,
+        'cache_read_input_tokens': 500_000})['content']
+    assert content['estimated_usd'] == pytest.approx(3.05)
+    assert content['pricing_per_million_usd'] == {'input': '2', 'output': '10', 'cached_input': '0.1'}
+    assert '2026-10-28' in content['pricing_note']
+    assert 'https://platform.claude.com/docs/en/about-claude/pricing' in content['pricing_note']
+    prices(monkeypatch, **{'anthropic:claude-sonnet-5-5': {'input': 200, 'output': 1000}})
+    assert costs.summarize(db, ['client-a'], NOW)['all_time']['amount'] == pytest.approx(3.05)
+
+
+def test_explicit_sonnet_configuration_overrides_verified_default(db, monkeypatch):
+    prices(monkeypatch, **{'anthropic:claude-sonnet-5-5': {'input': 4, 'output': 20}})
+    content = call(db, provider='anthropic', model='claude-sonnet-5-5', usage={
+        'input_tokens': 1_000_000, 'output_tokens': 100_000})['content']
+    assert content['estimated_usd'] == 6
+    assert content['pricing_per_million_usd'] == {'input': '4', 'output': '20'}
+    assert content['pricing_note'] == ''
+
+
+@pytest.mark.parametrize('configured', [
+    'not-json', '[]', 'null', '{"anthropic:claude-sonnet-5-5":null}',
+    '{"anthropic:claude-sonnet-5-5":{}}',
+    '{"anthropic:claude-sonnet-5-5":{"input":-1,"output":10}}',
+])
+def test_invalid_sonnet_configuration_never_falls_back_to_verified_prices(db, monkeypatch, configured):
+    monkeypatch.setenv('COPY_STUDIO_PRICING_JSON', configured)
+    content = call(db, provider='anthropic', model='claude-sonnet-5-5', usage={
+        'input_tokens': 1_000_000, 'output_tokens': 0})['content']
+    assert content['estimated_usd'] is None
+    assert not content['cost_known']
+    assert 'Default standard pricing' not in content['pricing_note']
+
+
+@pytest.mark.parametrize('provider,model', [
+    ('anthropic', 'claude-sonnet-5-5-latest'), ('anthropic', 'claude-sonnet-5'),
+    ('openai', 'claude-sonnet-5-5'),
+])
+def test_verified_default_never_guesses_other_models_or_providers(db, provider, model):
+    content = call(db, provider=provider, model=model, usage={
+        'input_tokens': 1_000_000, 'output_tokens': 0})['content']
+    assert content['estimated_usd'] is None
+    assert costs.summarize(db, ['client-a'], NOW)['today']['unpriced_calls'] == 1
+
+
+def test_verified_sonnet_default_leaves_unknown_duration_cache_writes_unpriced(db):
+    content = call(db, provider='anthropic', model='claude-sonnet-5-5', usage={
+        'input_tokens': 100, 'output_tokens': 10, 'cache_creation_input_tokens': 500})['content']
+    assert content['usage_known'] and not content['cost_known']
+    assert content['estimated_usd'] is None
+    assert 'Cache-creation pricing is not configured' in content['pricing_note']
+    assert '2026-10-28' in content['pricing_note']
+    assert 'https://platform.claude.com/docs/en/about-claude/pricing' in content['pricing_note']
+    assert costs.summarize(db, ['client-a'], NOW)['all_time']['unpriced_calls'] == 1
+
+
 @pytest.mark.parametrize('raw', [None, {}, {'input_tokens': 5}, {'input_tokens': -1, 'output_tokens': 2},
     {'input_tokens': True, 'output_tokens': 2}, {'input_tokens': 1.5, 'output_tokens': 2},
     {'input_tokens': float('inf'), 'output_tokens': 2}, {'input_tokens': 2**53, 'output_tokens': 2},

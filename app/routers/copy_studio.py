@@ -1,4 +1,4 @@
-"""Internal, client-scoped Copy Studio. No publishing or campaign sending routes."""
+"""Internal, client-scoped Copy Studio with reviewed Copy Bank publishing. No sending."""
 from __future__ import annotations
 
 import secrets
@@ -15,6 +15,7 @@ from app import auth
 from app.deps import templates
 from app.utils.copy_studio import integrations, providers, service
 from app.utils.copy_studio.store import StoreError, StoreNotReady, get_store
+from app.utils.copy_studio.integrations import IntegrationUnavailable
 
 router = APIRouter()
 
@@ -45,6 +46,27 @@ class Generate(Strict):
     limits: dict[str, int] = Field(default_factory=dict)
     variables: dict[str, str] = Field(default_factory=dict)
     template_id: str | None = None
+    locale: Literal['en-GB', 'en-US'] | None = None
+
+
+class FinalCheck(Strict):
+    locale: Literal['en-GB', 'en-US'] | None = None
+
+
+class CopyBankSelection(Strict):
+    territory: str = Field(min_length=1, max_length=200)
+    industry: str = Field(min_length=1, max_length=200)
+    section: Literal['email', 'linkedin', 'chaser', 'flyout']
+    angle_index: int = Field(ge=0, le=2)
+    step_indices: list[int] | None = Field(default=None, max_length=12)
+
+
+class CopyBankPreview(Strict):
+    selection: CopyBankSelection
+
+
+class CopyBankPublish(CopyBankPreview):
+    expected_version: str = Field(min_length=1, max_length=200)
 
 
 class Record(Strict):
@@ -126,6 +148,8 @@ def result(call):
         return JSONResponse(call(), headers={'Cache-Control': 'no-store'})
     except StoreNotReady as exc:
         return JSONResponse({'error': str(exc)}, status_code=503, headers={'Cache-Control': 'no-store'})
+    except IntegrationUnavailable as exc:
+        return JSONResponse({'error': str(exc)}, status_code=503, headers={'Cache-Control': 'no-store'})
     except StoreError as exc:
         return JSONResponse({'error': str(exc)}, status_code=409, headers={'Cache-Control': 'no-store'})
     except ValueError as exc:
@@ -186,6 +210,14 @@ def sync(client_id: str, body: Sync, request: Request, user=Depends(mutate)):
     def run():
         check_client(client_id, user)
         return service.enqueue_sync(client_id, body.source, user, request_key(request))
+    return result(run)
+
+
+@router.post('/api/copy-studio/clients/{client_id}/prepare-context')
+def prepare_context(client_id: str, request: Request, user=Depends(mutate)):
+    def run():
+        check_client(client_id, user)
+        return service.prepare_context(client_id, user)
     return result(run)
 
 
@@ -262,10 +294,48 @@ def revision(client_id: str, identifier: str, body: Revision, user=Depends(mutat
 
 
 @router.post('/api/copy-studio/clients/{client_id}/drafts/{identifier}/check')
-def check_draft(client_id: str, identifier: str, request: Request, user=Depends(mutate)):
+def check_draft(client_id: str, identifier: str, body: FinalCheck, request: Request, user=Depends(mutate)):
     def run():
         check_client(client_id, user)
-        return service.enqueue_draft_check(client_id, identifier, user, request_key(request))
+        return service.enqueue_draft_check(client_id, identifier, user, request_key(request), locale=body.locale)
+    return result(run)
+
+
+@router.get('/api/copy-studio/clients/{client_id}/copy-bank/destinations')
+def copy_bank_destinations(client_id: str, user=Depends(access)):
+    from app.utils.copy_studio import publishing
+    def run():
+        check_client(client_id, user)
+        return publishing.destinations(client_id)
+    return result(run)
+
+
+@router.post('/api/copy-studio/clients/{client_id}/drafts/{identifier}/copy-bank/preview')
+def copy_bank_preview(client_id: str, identifier: str, body: CopyBankPreview, user=Depends(mutate)):
+    from app.utils.copy_studio import publishing
+    def run():
+        check_client(client_id, user)
+        reviewer(user)
+        draft = get_store().get(identifier, client_id)
+        if not draft or draft['kind'] != 'draft':
+            raise LookupError()
+        service.validate_saved_draft(client_id, draft)
+        return publishing.preview(client_id, identifier, body.selection.model_dump(exclude_none=True))
+    return result(run)
+
+
+@router.post('/api/copy-studio/clients/{client_id}/drafts/{identifier}/copy-bank/publish')
+def copy_bank_publish(client_id: str, identifier: str, body: CopyBankPublish, user=Depends(mutate)):
+    from app.utils.copy_studio import publishing
+    def run():
+        check_client(client_id, user)
+        reviewer(user)
+        draft = get_store().get(identifier, client_id)
+        if not draft or draft['kind'] != 'draft':
+            raise LookupError()
+        service.validate_saved_draft(client_id, draft)
+        return publishing.publish(client_id, identifier, body.selection.model_dump(exclude_none=True),
+                                  body.expected_version, service.actor(user))
     return result(run)
 
 

@@ -12,6 +12,7 @@ import socket
 import threading
 import time
 import uuid
+from copy import deepcopy
 from datetime import datetime, timezone
 
 from . import service
@@ -35,7 +36,8 @@ def _sync(store, job, worker_id):
     from .integrations import IntegrationUnavailable
     client_id = job['client_id']
     requested = job['payload']['source']
-    stages = ['copy_bank', 'onboarding', 'smartlead', 'manual'] if requested == 'all' else [requested]
+    stages = (['copy_bank', 'onboarding', 'smartlead', 'manual'] if requested == 'all'
+              else ['copy_bank', 'onboarding'] if requested == 'context' else [requested])
     checkpoint = job.get('checkpoint') or {}
     completed = list(checkpoint.get('completed', []))
     reports = list(checkpoint.get('reports', []))
@@ -180,11 +182,15 @@ def execute(store, job, worker_id):
         payload = job['payload']
         brief = store.get(payload['brief_id'], client_id)
         examples = [store.get(i, client_id) for i in payload['example_ids']]
-        if not brief or brief['status'] != 'approved' or any(not e or e['status'] != 'approved' for e in examples):
+        current_example_ids = {r['id'] for r in service.current_examples(store, client_id)}
+        if not brief or brief['status'] != 'approved' or any(not e or e['id'] not in current_example_ids for e in examples):
             raise ValueError('The brief or references are no longer approved. Review them before retrying.')
         current = service.latest_approved(store.iter_records(client_id, kind='brief', status='approved'), 'brief')
         if current and current['id'] != brief['id']:
             raise ValueError('A newer client brief is approved. Generate again using the current brief.')
+        stale = service.brief_context_error(store, client_id, brief)
+        if stale:
+            raise ValueError(stale)
         methodology = store.get(payload['methodology_id'], service.GLOBAL_CLIENT) if payload.get('methodology_id') else None
         if methodology and methodology['status'] != 'approved':
             raise ValueError('The selected methodology is no longer approved.')
@@ -195,14 +201,24 @@ def execute(store, job, worker_id):
         return {'record_id': record['id'], 'status': 'needs_review', 'review': content.get('review', {})}
     if job['kind'] == 'review_draft':
         from .writer import review_draft
+        from .proofreading import check
         draft = store.get(job['payload']['record_id'], client_id)
         if not draft or draft['kind'] != 'draft':
             raise ValueError('Draft version not found.')
         brief, examples, request = service.draft_context(client_id, draft)
+        request = dict(request, locale=job['payload']['locale'])
         methodology_id = draft['content'].get('studio_context', {}).get('methodology_id')
         methodology = store.get(methodology_id, service.GLOBAL_CLIENT) if methodology_id else None
         content = review_draft(client_id, brief, examples, request, draft['content'], methodology=methodology,
                                performance=list(store.iter_records(client_id, kind='performance')))
+        spelling = check(content, job['payload']['locale'])
+        content.setdefault('studio_context', {})['request'] = request
+        content['final_check'] = {'complete': True, 'copy_hash': service.digest(content['angles']),
+                                 'checked_angles': deepcopy(content['angles']),
+                                 'locale': job['payload']['locale'], 'report': spelling}
+        content['review']['issues'].extend(spelling.get('issues', []))
+        if any(i.get('severity') == 'error' for i in content['review']['issues']):
+            content['review']['can_approve'] = False
         record = store.save('draft', client_id, draft['source_key'], content, job['created_by'], parent_id=draft['id'])
         return {'record_id': record['id'], 'status': 'needs_review', 'review': content['review']}
     raise ValueError('Unknown Copy Studio job type.')

@@ -1,4 +1,4 @@
-"""Append-only provider usage, priced from explicit historical configuration.
+"""Append-only provider usage, with historical configured or verified prices.
 
 No calls means zero API spend; missing usage or rates means unknown spend.
 Only Copy Studio/evaluation calls inside ``metering`` enter this ledger.
@@ -18,6 +18,14 @@ from .store import StoreError
 _context = ContextVar('copy_studio_cost_context', default=None)
 _LONDON = ZoneInfo('Europe/London')
 _MAX_TOKENS = 2**53 - 1
+_VERIFIED_PRICES = {
+    'anthropic:claude-sonnet-5-5': {'input': 2, 'output': 10, 'cached_input': 0.1},
+}
+_VERIFIED_PRICE_NOTE = (
+    'Default standard pricing verified 2026-10-28: '
+    'https://platform.claude.com/docs/en/about-claude/pricing. '
+    'Cache-write pricing is omitted because its duration is not recorded.'
+)
 
 
 class CostRecordingError(StoreError):
@@ -75,10 +83,15 @@ def _usage(provider, raw):
 
 
 def _pricing(provider, model, usage):
-    """Rates are USD per million tokens, never inferred from a model name."""
+    """USD/M rates use explicit overrides, then an exact verified rate card."""
     try:
         configured = json.loads(os.environ.get('COPY_STUDIO_PRICING_JSON', '{}'))
-        rates = configured.get(f'{provider}:{model}') if isinstance(configured, dict) else None
+        if not isinstance(configured, dict):
+            raise ValueError
+        key = f'{provider}:{model}'
+        use_default = key not in configured and key in _VERIFIED_PRICES
+        rates = _VERIFIED_PRICES[key] if use_default else configured.get(key)
+        note = _VERIFIED_PRICE_NOTE if use_default else ''
         if not isinstance(rates, dict):
             return None, None, 'No pricing is configured for this provider and model.'
         parsed = {}
@@ -91,15 +104,15 @@ def _pricing(provider, model, usage):
         if not {'input', 'output'} <= parsed.keys():
             raise ValueError
         if usage['cached_input_tokens'] and 'cached_input' not in parsed:
-            return None, None, 'Cached-input pricing is not configured.'
+            return None, None, 'Cached-input pricing is not configured. ' + note
         if usage['cache_creation_input_tokens'] and 'cache_creation_input' not in parsed:
-            return None, None, 'Cache-creation pricing is not configured.'
+            return None, None, 'Cache-creation pricing is not configured. ' + note
         amount = (usage['uncached_input_tokens'] * parsed['input'] + usage['output_tokens'] * parsed['output']
                   + usage['cached_input_tokens'] * parsed.get('cached_input', Decimal(0))
                   + usage['cache_creation_input_tokens'] * parsed.get('cache_creation_input', Decimal(0))) / Decimal(1_000_000)
         if not math.isfinite(float(amount)):
             raise ValueError
-        return {k: str(v) for k, v in parsed.items()}, float(amount), ''
+        return {k: str(v) for k, v in parsed.items()}, float(amount), note
     except (ValueError, TypeError, InvalidOperation, OverflowError):
         return None, None, 'Configured pricing is invalid.'
 
