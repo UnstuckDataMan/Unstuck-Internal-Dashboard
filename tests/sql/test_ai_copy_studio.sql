@@ -14,10 +14,18 @@ BEGIN
         ASSERT NOT has_table_privilege('anon','public.'||t,'SELECT,INSERT,UPDATE,DELETE'), 'anon table access';
         ASSERT NOT has_table_privilege('authenticated','public.'||t,'SELECT,INSERT,UPDATE,DELETE'), 'authenticated table access';
         ASSERT has_table_privilege('service_role','public.'||t,'SELECT,INSERT'), 'server missing table access';
+        ASSERT NOT has_table_privilege('service_role','public.'||t,'DELETE,TRUNCATE,REFERENCES,TRIGGER'), 'server inherited unsafe default grants';
+        IF t <> 'copy_studio_jobs' THEN
+            ASSERT NOT has_table_privilege('service_role','public.'||t,'UPDATE'), 'server can update immutable evidence';
+        ELSE
+            ASSERT has_table_privilege('service_role','public.'||t,'UPDATE'), 'server cannot update leased jobs';
+        END IF;
     END LOOP;
     ASSERT NOT has_table_privilege('anon','public.copy_studio_record_status','SELECT'), 'anon view access';
     ASSERT NOT has_table_privilege('authenticated','public.copy_studio_record_status','SELECT'), 'authenticated view access';
     ASSERT has_table_privilege('service_role','public.copy_studio_record_status','SELECT'), 'server missing view access';
+    ASSERT NOT has_table_privilege('service_role','public.copy_studio_record_status','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'), 'server inherited view mutation grants';
+    ASSERT NOT has_function_privilege('service_role','public.copy_studio_immutable()','EXECUTE'), 'internal immutable helper exposed';
     FOREACH f IN ARRAY ARRAY[
         'copy_studio_claim_job(uuid,text,integer)',
         'copy_studio_checkpoint_job(uuid,uuid,text,jsonb)',

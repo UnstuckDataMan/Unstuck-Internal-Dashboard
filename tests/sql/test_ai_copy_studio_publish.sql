@@ -43,7 +43,7 @@ BEGIN
  ASSERT NOT has_table_privilege('anon','public.copy_studio_publications','SELECT,INSERT,UPDATE,DELETE'), 'anon receipt access';
  ASSERT NOT has_table_privilege('authenticated','public.copy_studio_publications','SELECT,INSERT,UPDATE,DELETE'), 'authenticated receipt access';
  ASSERT has_table_privilege('service_role','public.copy_studio_publications','SELECT'), 'service missing receipt read';
- ASSERT NOT has_table_privilege('service_role','public.copy_studio_publications','INSERT,UPDATE,DELETE'), 'service can bypass publication transaction';
+ ASSERT NOT has_table_privilege('service_role','public.copy_studio_publications','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'), 'service can bypass publication transaction';
  FOREACH f IN ARRAY ARRAY['copy_studio_copy_bank_destinations(uuid,text)','copy_studio_copy_bank_destination(uuid,text,jsonb)',
                          'copy_studio_publish_copy_bank(uuid,text,uuid,jsonb,text,text,uuid,jsonb)'] LOOP
    ASSERT NOT has_function_privilege('anon','public.'||f,'EXECUTE'), 'anon publish RPC access';

@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS public.copy_studio_publications (
     UNIQUE (agency_id, client_id, draft_id, destination_key, selection)
 );
 ALTER TABLE public.copy_studio_publications ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.copy_studio_publications FROM PUBLIC, anon, authenticated;
+-- Reset Supabase's service_role default ALL grant too: receipts may only be
+-- inserted by the transaction-owning SECURITY DEFINER publication function.
+REVOKE ALL ON public.copy_studio_publications FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.copy_studio_publications TO service_role;
 DROP TRIGGER IF EXISTS copy_studio_publications_immutable ON public.copy_studio_publications;
 CREATE TRIGGER copy_studio_publications_immutable BEFORE UPDATE OR DELETE ON public.copy_studio_publications
@@ -317,10 +319,10 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.copy_studio_copy_bank_destinations(uuid,text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.copy_studio_copy_bank_destination(uuid,text,jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.copy_studio_copy_bank_append(jsonb,jsonb,jsonb,jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.copy_studio_publish_copy_bank(uuid,text,uuid,jsonb,text,text,uuid,jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.copy_studio_copy_bank_destinations(uuid,text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.copy_studio_copy_bank_destination(uuid,text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.copy_studio_copy_bank_append(jsonb,jsonb,jsonb,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.copy_studio_publish_copy_bank(uuid,text,uuid,jsonb,text,text,uuid,jsonb) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.copy_studio_copy_bank_destinations(uuid,text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.copy_studio_copy_bank_destination(uuid,text,jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.copy_studio_publish_copy_bank(uuid,text,uuid,jsonb,text,text,uuid,jsonb) TO service_role;

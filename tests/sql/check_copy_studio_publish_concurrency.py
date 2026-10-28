@@ -60,9 +60,24 @@ def main():
         CREATE TABLE clients(id uuid PRIMARY KEY,agency_id uuid,name text);
         CREATE TABLE copy_bank_templates(key text PRIMARY KEY,content jsonb NOT NULL);
         CREATE TABLE copy_bank_pending(key text PRIMARY KEY,content jsonb,status text);
+        -- Match the inherited defaults observed in a hosted Supabase project.
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO service_role;
         """)
         sql((root/'migrations/ai_copy_studio.sql').read_text())
         sql((root/'migrations/ai_copy_studio_publish.sql').read_text())
+        sql((root/'tests/sql/test_ai_copy_studio.sql').read_text())
+        sql((root/'tests/sql/test_ai_copy_studio_publish.sql').read_text())
+        # Also cover repair of an already-applied schema that inherited broader
+        # grants. Reapplying must narrow rights without erasing stored history.
+        sql("""GRANT ALL ON copy_studio_records,copy_studio_reviews,copy_studio_jobs,
+                  copy_studio_record_status,copy_studio_publications TO service_role;
+               GRANT EXECUTE ON FUNCTION copy_studio_immutable(),
+                  copy_studio_copy_bank_append(jsonb,jsonb,jsonb,jsonb) TO service_role;""")
+        sql((root/'migrations/ai_copy_studio.sql').read_text())
+        sql((root/'migrations/ai_copy_studio_publish.sql').read_text())
+        sql((root/'tests/sql/test_ai_copy_studio.sql').read_text())
+        sql((root/'tests/sql/test_ai_copy_studio_publish.sql').read_text())
         profiles = [{'client_id': client, 'type': 'client', 'name': 'Fixture', 'territories': ['UK', 'US', 'CA'], 'industries': ['Software']}]
         sql(f"INSERT INTO agencies VALUES('{agency}'); INSERT INTO clients VALUES('{client}','{agency}','Fixture');"
             f"INSERT INTO copy_bank_templates VALUES('__cb_profiles__',{lit(profiles)}),('{key}', '{{}}');")
@@ -135,7 +150,7 @@ def main():
             assert attempt.result()['code'] == 'conflict'
             assert json.loads(sql(f"SELECT content FROM copy_bank_templates WHERE key='{new_key}';")) == {'legacy': True}
         assert sql('SELECT count(*) FROM copy_studio_publications;') == '2'
-        print('PASS: concurrent duplicate, different-selection stale preview, legacy update and legacy first-insert races; no lost updates or duplicate receipts')
+        print('PASS: Supabase default-grant narrowing on initial apply and repair reapply; private SQL assertions; concurrent duplicate, different-selection stale preview, legacy update and legacy first-insert races')
     finally:
         sql('DROP DATABASE '+database+' WITH (FORCE)', db='postgres')
 

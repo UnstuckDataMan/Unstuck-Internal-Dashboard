@@ -180,17 +180,20 @@ ALTER TABLE public.copy_studio_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.copy_studio_reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.copy_studio_jobs ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.copy_studio_records, public.copy_studio_reviews, public.copy_studio_jobs,
-    public.copy_studio_record_status FROM PUBLIC, anon, authenticated;
+    public.copy_studio_record_status FROM PUBLIC, anon, authenticated, service_role;
+-- Supabase can grant service_role ALL through default privileges. Reset those
+-- object grants before narrowing them; additive GRANT alone leaves TRUNCATE,
+-- UPDATE and DELETE available on the immutable corpus.
 GRANT SELECT, INSERT ON public.copy_studio_records, public.copy_studio_reviews TO service_role;
 GRANT SELECT ON public.copy_studio_record_status TO service_role;
 GRANT SELECT, INSERT, UPDATE ON public.copy_studio_jobs TO service_role;
 
-REVOKE ALL ON FUNCTION public.copy_studio_immutable() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.copy_studio_claim_job(uuid,text,integer) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.copy_studio_checkpoint_job(uuid,uuid,text,jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.copy_studio_heartbeat_job(uuid,uuid,text,integer) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.copy_studio_complete_job(uuid,uuid,text,jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.copy_studio_fail_job(uuid,uuid,text,text,boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.copy_studio_immutable() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.copy_studio_claim_job(uuid,text,integer) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.copy_studio_checkpoint_job(uuid,uuid,text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.copy_studio_heartbeat_job(uuid,uuid,text,integer) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.copy_studio_complete_job(uuid,uuid,text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.copy_studio_fail_job(uuid,uuid,text,text,boolean) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.copy_studio_claim_job(uuid,text,integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.copy_studio_checkpoint_job(uuid,uuid,text,jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.copy_studio_heartbeat_job(uuid,uuid,text,integer) TO service_role;

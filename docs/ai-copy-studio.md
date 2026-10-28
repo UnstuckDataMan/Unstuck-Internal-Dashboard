@@ -1,10 +1,10 @@
 # Unstuck AI Copy Studio
 
 Copy Studio is an internal drafting and review workflow at `/copy-studio`, linked
-from the existing dashboard. An explicit reviewer action can append checked,
+from **Campaign Management** in the existing dashboard. An explicit reviewer action can append checked,
 approved copy to a selected Copy Bank area. It does not send campaigns,
-mutate Smartlead/Sheets, or connect to Meet Alfred. This feature branch
-has not been released to production.
+mutate Smartlead/Sheets, or connect to Meet Alfred. Production migrations are applied;
+the web/worker release still requires deployment verification.
 
 ## What is implemented
 
@@ -90,6 +90,7 @@ Never place credentials in Git, case exports, browser JavaScript or command line
 | `COPY_STUDIO_OPENAI_API_KEY` | Company OpenAI API credential; existing `OPENAI_API_KEY` is also accepted |
 | `COPY_STUDIO_ANTHROPIC_API_KEY` | Optional company Claude credential; existing `ANTHROPIC_API_KEY` is also accepted |
 | `COPY_STUDIO_PRICING_JSON` | Verified USD rates per million tokens, keyed by `provider:model` |
+| `COPY_STUDIO_EMBEDDED_WORKER` | Set exactly `1` to run the Studio worker alongside the web process using `scripts/run_dashboard.py`; otherwise web only |
 
 The existing `OPENAI_MODEL`/`ANTHROPIC_MODEL` can supply the selected model if the
 studio-specific setting is absent. Studio settings do not modify other tools'
@@ -151,11 +152,11 @@ does not rewrite prior costs. Totals are estimated API charges, not invoices or
 hosting/tax totals. Incomplete historical entries require reconciliation against
 provider records; setting a rate later does not backfill an unknown charge.
 
-## Staging migration and access checks
+## Migration and access checks
 
 1. Back up the target staging database and confirm its existing `agencies` table
    and explicit client-to-agency mappings. Rows with null agency ownership are not
-   silently admitted. Do not run the migration against production at this stage.
+   silently admitted. Validate changes in staging before an authorised production release.
 2. Review and apply [`migrations/ai_copy_studio.sql`](../migrations/ai_copy_studio.sql),
    then [`migrations/ai_copy_studio_publish.sql`](../migrations/ai_copy_studio_publish.sql)
    to staging using the established SQL/migration workflow. The publishing bridge
@@ -173,6 +174,12 @@ provider records; setting a rate later does not backfill an unknown charge.
    `client_ids` assignment restricts the client list and every operation.
    Approval is admin/reviewer only, with identity taken from the signed session.
 
+For the authorised 28 October 2026 pilot, both migrations have now been applied to
+production and their access controls verified. The new RLS tables, views and RPCs
+are private to the server service role. The deployed web service's Supabase and
+Anthropic credentials also authenticated successfully (HTTP 200). These checks
+confirm database/provider access, not a completed application rollout.
+
 The old Copy Bank approve endpoint also now requires admin/reviewer and ignores
 submitted approver names. Its existing browser/anonymous-table exposure and
 nontransactional legacy approval workflow are **not** repaired by this isolated
@@ -181,8 +188,28 @@ does not enable an external client portal.
 
 ## Durable worker and historical backfill
 
-The web process does not run model jobs in in-process background threads. Start a
-separate worker with the same private database and server settings:
+The web process does not run model jobs in in-process background threads. The
+pilot can use the **existing Render web service**, without creating or paying for
+an additional service:
+
+1. Keep its existing runtime, build command, plan and other environment settings.
+2. Set `COPY_STUDIO_EMBEDDED_WORKER=1` in that service's environment.
+3. Set its start command to `python scripts/run_dashboard.py` and deploy the approved commit.
+
+The launcher runs the dashboard and one separate Studio worker process with the
+same private settings. The worker uses durable database leases and hourly source
+scheduling. Without the opt-in flag, the launcher runs only the web process.
+Worker failures retry with backoff, then enter a five-minute cooldown while the
+web process stays running; recovery is attempted afterwards. Web-process failure
+still shuts down both child process groups. Normal shutdown allows 20 seconds
+before terminating remaining children.
+Check both process startup logs and a completed Studio job after deployment;
+`/healthz` alone does not prove that the worker is processing jobs.
+
+A **dedicated background worker** remains an optional way to isolate CPU/memory.
+Disable `COPY_STUDIO_EMBEDDED_WORKER` on the web service before enabling a dedicated
+worker, so both deployments do not schedule the same source refreshes. Use the
+same approved commit, dependencies, private configuration and this command:
 
 ```bash
 .venv/bin/python -m app.utils.copy_studio.worker --schedule
@@ -194,11 +221,14 @@ For a single diagnostic/local job:
 .venv/bin/python -m app.utils.copy_studio.worker --once
 ```
 
-On Render, after release approval, create a **Background Worker** using the same
-approved commit/repository, build command `pip install -r requirements.txt`, and
-start command `python -m app.utils.copy_studio.worker --schedule`. Give it the same
-configuration as the web service. This is a deployment step, not performed by the
-feature branch or by `render.yaml` in this change.
+On Render, its optional dedicated-worker start command is
+`python -m app.utils.copy_studio.worker --schedule`. This is an alternative to the
+shared-service pilot, not a deployment requirement.
+
+Production memory usage has not been measured: the Render metrics request returned
+HTTP 403. A local fixture worker peaked at approximately 122 MiB; this is not a
+production capacity test and does not include combined web/worker load. Monitor
+the existing instance during the pilot before increasing concurrent usage.
 
 Selecting a client or choosing **Sync sources** enrolls it for hourly refreshes. A sync
 walks historical campaign pages and checkpoints each step. Retries/restarts resume
@@ -269,13 +299,17 @@ output and token usage with no client data sent. The first two requests exposed
 Sonnet 5.5's unsupported forced-tool option; the adapter now uses documented
 `output_config.format` and retains local schema validation. The setup ledger keeps
 those rejected attempts' absent usage unknown instead of claiming they were free.
-No production records were written. The private Copy Studio tables return 404 in
-the configured production project, so migration/deployment remain outstanding.
-Human copy-quality ratings and real-client model pilots remain pending.
+Those initial source probes did not write client content. During the later authorised
+release preparation, both production migrations were applied and private access
+controls verified; the earlier missing-table blocker is resolved. Web-service
+Supabase and Anthropic credential checks returned HTTP 200. Application deployment
+verification, production memory measurements, human copy-quality ratings and
+real-client model pilots remain pending. Full Read AI account history has not been
+established by the stored-webhook checks.
 
 ## Release gates and rollback
 
-Before production: verify staging PostgREST permissions and client mapping; run
+Before broad client access: verify PostgREST permissions and client mapping; run
 bounded read-only Smartlead/Sheets/onboarding probes; review actual source coverage
 and exact historical attribution; verify current provider contracts and price
 settings; run paid pilot calls; collect blind human ratings on 5–10 varied clients
@@ -284,12 +318,15 @@ leakage, enforced exclusions, valid channel variables and visible completeness
 are gates for the evaluated set. Demonstrate improved reviewer preference/editing
 effort before broad access. Automated checks alone cannot satisfy those gates.
 
-After explicit release approval, apply both reviewed migrations and deploy the
-approved commit plus worker. Do not treat earlier benchmark deployment approval
-as approval for this feature.
+The user has explicitly authorised this internal pilot release. Deploy the approved
+commit with either the shared-service worker opt-in or the optional dedicated
+worker, then verify the live page and job processing. The remaining human quality
+evaluation is required before broad client access.
 
-Rollback: stop the Copy Studio worker first, remove the tool grant or revert this
-feature's application commit, and leave the private tables intact for audit and
+Rollback: for the shared-service pilot, unset `COPY_STUDIO_EMBEDDED_WORKER` and
+redeploy to keep the dashboard running without Studio job execution. Stop a
+dedicated worker if that option was used. Remove the tool grant or revert this
+feature's application commit as needed, and leave the private tables intact for audit and
 cost reconciliation. The migrations do not alter existing source tables or their
 grants; the publishing RPC writes only after an explicit reviewer action. To undo
 a published append, use its immutable receipt and review the current Copy Bank
